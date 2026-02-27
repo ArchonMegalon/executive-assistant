@@ -6,4 +6,4 @@ WORKDIR /app
 COPY ea/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ea/app ./app
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "app.runner"]
