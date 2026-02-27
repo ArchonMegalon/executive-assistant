@@ -1,3 +1,5 @@
+import asyncio
+import os
 from __future__ import annotations
 import httpx, asyncio, os, sys, traceback, re, json, io, base64, urllib.parse, time, threading, html
 from datetime import datetime, timezone
@@ -503,7 +505,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 # --- PATCH M: OODA MARKUPGO RENDERING ---
                 try:
                     from app.tools.markupgo_client import MarkupGoClient, render_request_hash
-                    import uuid, os, asyncio
+                    import uuid
                     from app.db import get_db
                     
                     await _update_status("🎨 <i>Rendering visual briefing via MarkupGo...</i>")
