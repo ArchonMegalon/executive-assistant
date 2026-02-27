@@ -45,7 +45,7 @@ class AuthSessionStore:
         self._lock = threading.Lock()
         self._path = "/attachments/auth_sessions.json"
     def _read(self):
-        if not os.path.exists(self._path): return {}
+        if not __import__("os").path.exists(self._path): return {}
         try:
             with open(self._path, "r", encoding="utf-8") as f: return json.load(f)
         except: return {}
@@ -78,7 +78,7 @@ AUTH_SESSIONS = AuthSessionStore()
 def _atomic_write_json(path: str, data: dict):
     tmp = path + ".tmp"
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        __import__("os").makedirs(__import__("os").path.dirname(path) or ".", exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f)
             f.flush()
@@ -111,7 +111,7 @@ async def check_security(chat_id: int) -> tuple[str, dict]:
     t = get_tenant(chat_id)
     if t: return get_val(t, 'key', 'tibor'), t
     try:
-        if os.path.exists("/attachments/dynamic_users.json"):
+        if __import__("os").path.exists("/attachments/dynamic_users.json"):
             with open("/attachments/dynamic_users.json", "r") as f: dt = json.load(f)
             if str(chat_id) in dt:
                 u_info = dt[str(chat_id)]
@@ -448,7 +448,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
         if cmd == "/brain":
             try:
                 import json, os
-                if not os.path.exists("/attachments/brain.json"):
+                if not __import__("os").path.exists("/attachments/brain.json"):
                     return await tg.send_message(chat_id, "🧠 Brain is empty. Use /remember <text>.")
                 with open("/attachments/brain.json", "r", encoding="utf-8") as f: brain = json.load(f)
                 if not brain: 
@@ -473,7 +473,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     data = json.loads(match.group(0))
                     brain_file = "/attachments/brain.json"
                     brain = {}
-                    if os.path.exists(brain_file):
+                    if __import__("os").path.exists(brain_file):
                         with open(brain_file, "r", encoding="utf-8") as f: brain = json.load(f)
                     brain[data['title']] = data['fact']
                     with open(brain_file, "w", encoding="utf-8") as f: json.dump(brain, f)
@@ -522,11 +522,11 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     
                     cached = await asyncio.to_thread(db.fetchone, "SELECT artifact_id FROM render_cache WHERE tenant = 'ea_bot' AND render_request_hash = %s", (req_hash,))
                     
-                    os.makedirs(os.path.join(os.environ.get("EA_ATTACHMENTS_DIR", "/attachments"), "artifacts"), exist_ok=True)
+                    __import__("os").makedirs(__import__("os").path.join(__import__("os").environ.get("EA_ATTACHMENTS_DIR", "/attachments"), "artifacts"), exist_ok=True)
                     img_bytes = None
                     
-                    if cached and os.path.exists(f"{os.environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png"):
-                        with open(f"{os.environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png", "rb") as f:
+                    if cached and __import__("os").path.exists(f"{__import__("os").environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png"):
+                        with open(f"{__import__("os").environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png", "rb") as f:
                             img_bytes = f.read()
                     else:
                         mg = MarkupGoClient()
@@ -534,7 +534,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                         img_bytes = await mg.render_image_buffer(payload)
                         
                         art_id = str(uuid.uuid4())
-                        with open(f"{os.environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{art_id}.png", "wb") as f:
+                        with open(f"{__import__("os").environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{art_id}.png", "wb") as f:
                             f.write(img_bytes)
                             
                         await asyncio.to_thread(db.execute, "INSERT INTO render_cache (tenant, render_request_hash, provider, format, artifact_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",

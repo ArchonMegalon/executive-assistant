@@ -14,6 +14,7 @@ class Settings:
     attachments_dir: str
     tg_outbox_enabled: bool
     telegram_bot_token: str
+    gemini_api_key: str | None
     litellm_base_url: str | None
     litellm_api_key: str | None
     intent_engine: str
@@ -31,6 +32,7 @@ def load_settings() -> Settings:
         attachments_dir=os.environ.get("EA_ATTACHMENTS_DIR", "/attachments"),
         tg_outbox_enabled=_bool("EA_TG_OUTBOX", True),
         telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        gemini_api_key=os.environ.get("GEMINI_API_KEY"),
         litellm_base_url=os.environ.get("LITELLM_BASE_URL"),
         litellm_api_key=os.environ.get("LITELLM_API_KEY"),
         intent_engine=os.environ.get("EA_INTENT_ENGINE", "rules_llm_strict_json"),
