@@ -541,21 +541,20 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                             ('ea_bot', req_hash, 'markupgo', 'png', art_id))
 
                     if img_bytes:
-                        # PROPER V2 ARCHITECTURE: Route through EA_TG_OUTBOX
-                        outbox_table = os.environ.get("EA_TG_OUTBOX", "tg_outbox")
-                        photo_path = f"{os.environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{art_id}.png"
+                        # PROPER V2 ARCHITECTURE: Clean Outbox Enqueue
+                        from app.outbox import enqueue_outbox
                         
-                        import json
-                        payload = json.dumps({"photo": photo_path, "caption": safe_txt[:1000] + ("..." if len(safe_txt)>1000 else ""), "parse_mode": "HTML"})
+                        payload = {
+                            "type": "photo",
+                            "artifact_id": art_id,
+                            "caption": safe_txt[:1000] + ("..." if len(safe_txt)>1000 else ""),
+                            "parse_mode": "HTML"
+                        }
                         
-                        await asyncio.to_thread(
-                            db.execute, 
-                            f"INSERT INTO {outbox_table} (tenant, chat_id, message_type, payload) VALUES (%s, %s, %s, %s)",
-                            (tenant, chat_id, 'photo', payload)
-                        )
+                        await asyncio.to_thread(enqueue_outbox, tenant, chat_id, payload)
                         try: await tg.delete_message(chat_id, res['message_id'])
                         except: pass
-                        return # Success! Queued for Outbox.
+                        return # Success! Queued to Durable Outbox.
                 except Exception as mg_err:
                     print(f"MarkupGo rendering failed: {mg_err}", flush=True)
                     safe_txt += f"\n\n⚙️ <b>OODA Diagnostic (Rendering):</b>\n<code>{str(mg_err)}</code>"
