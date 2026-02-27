@@ -87,3 +87,18 @@ services:
 
 volumes:
   ea_pgdata:
+
+  ea-teable-sync:
+    image: ea-os:latest
+    container_name: ea-teable-sync
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      - TZ=Europe/Vienna
+    command: ["python", "-m", "app.integrations.teable.sync_worker"]
+    volumes:
+      - ./config:/config:ro
+      - ./logs:/logs:rw
+    depends_on:
+      ea-db:
+        condition: service_healthy
