@@ -377,7 +377,15 @@ async def handle_intent(chat_id: int, msg: dict):
         if text and not is_invoice and not is_image_calendar and not text.startswith("/") and not ("localhost" in text_lower or "127.0.0.1" in text_lower or "code=" in text_lower or "state=" in text_lower):
             t_openclaw = get_val(t, 'openclaw_container', 'openclaw-gateway-tibor')
             active_res = await tg.send_message(chat_id, "▶️ <b>Analyzing request...</b>", parse_mode="HTML")
-            prompt = f"EXECUTE: Answer or execute the user request: '{text}'. Be concise."
+            urls = re.findall(r'(https?://[^\s]+)', text)
+            if urls and any(w in text_lower for w in ['read', 'scrape', 'summarize', 'check', 'extract', 'what']):
+                from app.tools.browseract import scrape_url
+                try: await tg.edit_message_text(chat_id, active_res['message_id'], "🌐 <b>Scraping website with BrowserAct...</b>", parse_mode="HTML")
+                except: pass
+                scraped_data = await scrape_url(urls[0])
+                prompt = f"EXECUTE: The user sent a link. I scraped it for you using BrowserAct. Here is the website content:\n\n{str(scraped_data)[:3000]}\n\nUser request: '{text}'. Be concise."
+            else:
+                prompt = f"EXECUTE: Answer or execute the user request: '{text}'. Be concise."
             
             async def _ui_updater(m):
                 try: await tg.edit_message_text(chat_id, active_res['message_id'], f"▶️ <b>{m[:80]}...</b>", parse_mode="HTML")

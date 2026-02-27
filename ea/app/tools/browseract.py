@@ -2,20 +2,23 @@ import os, httpx
 
 BROWSERACT_API_KEY = os.environ.get("BROWSERACT_API_KEY")
 
-async def scrape_url(url: str, prompt: str = "Extract main content") -> str:
-    """Uses BrowserAct to scrape a dynamically rendered URL."""
-    if not BROWSERACT_API_KEY:
-        return "Error: BROWSERACT_API_KEY not configured."
+async def scrape_url(url: str) -> str:
+    """Uses the BrowserAct API to extract text from a URL."""
+    if not BROWSERACT_API_KEY: return "Error: BrowserAct API key missing in .env."
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # Generic scraping endpoint 
+    api_url = "https://api.browseract.com/api/scrape" 
+    
+    async with httpx.AsyncClient(timeout=45.0) as client:
         try:
-            # Example payload based on standard scraping APIs
-            response = await client.post(
-                "https://api.browseract.com/v1/scrape", 
-                headers={"Authorization": f"Bearer {BROWSERACT_API_KEY}"},
-                json={"url": url, "prompt": prompt}
+            res = await client.post(
+                api_url, 
+                headers={"Authorization": f"Bearer {BROWSERACT_API_KEY}", "Content-Type": "application/json"},
+                json={"url": url, "text_only": True}
             )
-            response.raise_for_status()
-            return response.json().get("content", "No content returned.")
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("content") or data.get("text") or str(data)
+            return f"Failed to scrape. HTTP {res.status_code}: {res.text}"
         except Exception as e:
-            return f"BrowserAct scraping failed: {str(e)}"
+            return f"BrowserAct error: {e}"
