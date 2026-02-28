@@ -312,37 +312,94 @@ Return ONLY valid JSON matching this schema:
         return {"text": f"⚠️ <b>Fatal Briefing Error:</b>\n<pre>{html.escape(str(e), quote=False)}</pre>", "options": ["🔁 Retry"]}
 
 
+
 # ==========================================
-# V1.7.1 COGNITIVE ROUTER OVERRIDE
+# V1.7.2 COGNITIVE ROUTER OVERRIDE (ASYNC + HEARTBEAT)
 # ==========================================
 import urllib.request
 import json
+import asyncio
+import inspect
+
 try:
     from app.llm import ask_llm
 except ImportError:
     ask_llm = lambda p: f"❌ Router Error: llm module not found."
 
-# Globale Funktionen für externe Aufrufer (Poller/Worker) überschreiben
-call_llm = lambda prompt, *args, **kwargs: ask_llm(prompt)
-call_powerful_llm = lambda prompt, *args, **kwargs: ask_llm(prompt)
+async def call_llm_async(prompt, *args, **kwargs):
+    # 🕵️ Schwarze Magie: Frame Reflection
+    # Wir klettern im Call-Stack nach oben, um die status_cb Funktion zu stehlen
+    status_cb = None
+    try:
+        frame = inspect.currentframe()
+        while frame:
+            if 'status_cb' in frame.f_locals and callable(frame.f_locals['status_cb']):
+                status_cb = frame.f_locals['status_cb']
+                break
+            frame = frame.f_back
+    except Exception:
+        pass
+        
+    async def _heartbeat():
+        if not status_cb:
+            return
+        ticks = 0
+        emojis = ["⏳", "⌛"]
+        while True:
+            await asyncio.sleep(2.0)
+            ticks += 1
+            try:
+                msg = f"▶️ Synthesizing Executive Action Report... {emojis[ticks % 2]} ({ticks * 2}s)"
+                if inspect.iscoroutinefunction(status_cb):
+                    await status_cb(msg)
+                else:
+                    status_cb(msg)
+            except Exception:
+                pass
 
-# Abfangen des nativen Google-Aufrufs im Legacy Code
+    hb_task = asyncio.create_task(_heartbeat())
+    try:
+        # Den blockierenden LLM-Aufruf in einen non-blocking OS-Thread auslagern!
+        return await asyncio.to_thread(ask_llm, prompt)
+    finally:
+        hb_task.cancel()
+
+# Globale Funktionen für das System als async überschreiben
+call_llm = call_llm_async
+call_powerful_llm = call_llm_async
+
+# Natives Google-Fallback (synchron) falls Legacy-Code tief im System zuschlägt
 _orig_urlopen = urllib.request.urlopen
 def _monkey_urlopen(req, *args, **kwargs):
     url = req.full_url if hasattr(req, 'full_url') else str(req)
     if 'generativelanguage.googleapis.com' in url:
-        class DummyResp:
-            def read(self):
-                try:
-                    body = json.loads(req.data.decode('utf-8'))
-                    prompt = body['contents'][0]['parts'][0]['text']
-                    if prompt.strip().lower() == 'ping':
-                        return json.dumps({"candidates": [{"content": {"parts": [{"text": "pong"}]}}]}).encode('utf-8')
-                    ans = ask_llm(prompt)
-                    return json.dumps({"candidates": [{"content": {"parts": [{"text": ans}]}}]}).encode('utf-8')
-                except Exception as e:
-                    return json.dumps({"candidates": [{"content": {"parts": [{"text": f"❌ Cognitive Router Crash: {e}"}]}}]}).encode('utf-8')
-        return DummyResp()
+        
+        # RECURSION SHIELD: Verhindere Endlosschleife, wenn ask_llm selbst Google aufruft!
+        in_ask_llm = False
+        try:
+            f = inspect.currentframe()
+            while f:
+                if f.f_code.co_name == 'ask_llm':
+                    in_ask_llm = True
+                    break
+                f = f.f_back
+        except Exception:
+            pass
+            
+        if not in_ask_llm:
+            class DummyResp:
+                def read(self):
+                    try:
+                        body = json.loads(req.data.decode('utf-8'))
+                        prompt = body['contents'][0]['parts'][0]['text']
+                        if prompt.strip().lower() == 'ping':
+                            return json.dumps({"candidates": [{"content": {"parts": [{"text": "pong"}]}}]}).encode('utf-8')
+                        ans = ask_llm(prompt)
+                        return json.dumps({"candidates": [{"content": {"parts": [{"text": ans}]}}]}).encode('utf-8')
+                    except Exception as e:
+                        return json.dumps({"candidates": [{"content": {"parts": [{"text": f"❌ Router Crash: {e}"}]}}]}).encode('utf-8')
+            return DummyResp()
+            
     return _orig_urlopen(req, *args, **kwargs)
 
 urllib.request.urlopen = _monkey_urlopen
