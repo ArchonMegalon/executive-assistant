@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import asyncio
 import os
 import httpx, asyncio, os, sys, traceback, re, json, io, base64, urllib.parse, time, threading, html
@@ -447,7 +448,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
         
         if cmd == "/brain":
             try:
-                import json, os
+                import json
                 if not __import__("os").path.exists("/attachments/brain.json"):
                     return await tg.send_message(chat_id, "🧠 Brain is empty. Use /remember <text>.")
                 with open("/attachments/brain.json", "r", encoding="utf-8") as f: brain = json.load(f)
@@ -465,7 +466,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
             res = await tg.send_message(chat_id, "🧠 <i>Normalizing memory...</i>", parse_mode="HTML")
             try:
                 from app.briefings import call_llm
-                import json, os
+                import json
                 prompt = f"Extract a short 3-5 word title and the core fact from this text. Return STRICT JSON: {{\"title\": \"...\", \"fact\": \"...\"}}. Text: {rem_text}"
                 out = await call_llm(prompt)
                 match = re.search(r'\{[\s\S]*\}', out)

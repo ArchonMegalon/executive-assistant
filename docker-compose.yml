@@ -45,7 +45,6 @@ services:
     environment:
     - EA_ROLE=worker
     - TZ=Europe/Vienna
-    - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
     - ./config:/config:ro
     - ./attachments:/attachments:rw
