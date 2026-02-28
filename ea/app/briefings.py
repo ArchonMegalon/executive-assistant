@@ -347,7 +347,8 @@ async def build_wrapper(*args, **kwargs):
         try:
             from app.db import get_db
             db = get_db()
-            links = db.fetchall("SELECT source_person, config_json FROM briefing_links WHERE target_person = %s AND rule_type = 'coach_event_append' AND enabled = TRUE", (tenant,))
+            tenant_id = kwargs.get('tenant') or (args[0] if len(args) > 0 else 'unknown')
+            links = db.fetchall("SELECT source_person, config_json FROM briefing_links WHERE target_person = %s AND rule_type = 'coach_event_append' AND enabled = TRUE", (tenant_id,))
             if links:
                 from app.coaching import is_qualifying_coach_event, generate_coach_annex
                 from app.google_api import get_calendar_events
@@ -373,7 +374,7 @@ async def build_wrapper(*args, **kwargs):
                                             if __import__('inspect').isawaitable(res): await res
                                         except: pass
                                     
-                                    annex_text = await generate_coach_annex(tenant, ev)
+                                    annex_text = await generate_coach_annex(tenant_id, ev)
                                     coach_annex += f"\n\n➖ <b>Coach Briefing Annex</b> ➖\n{annex_text}"
                     except Exception:
                         pass # Kalender nicht freigegeben / Fehler
