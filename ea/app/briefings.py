@@ -124,7 +124,7 @@ async def build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         except: pass
         
         if not _env_key:
-            diag_logs.append("🔑 API Key Check: ❌ OODA: GEMINI_API_KEY missing. Act: Add to /docker/EA/.env and restart ea-worker.")
+            diag_logs.append("🔑 API Key Check: ❌ OODA: GEMINI_API_KEY is DEAD or REVOKED (Google rejected it). Act: Generate a new one at aistudio.google.com")
         else:
             _url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={_env_key}"
             async with httpx.AsyncClient(timeout=4.0) as _c:
