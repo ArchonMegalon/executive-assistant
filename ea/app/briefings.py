@@ -374,7 +374,22 @@ async def build_wrapper(*args, **kwargs):
                                             if __import__('inspect').isawaitable(res): await res
                                         except: pass
                                     
-                                    annex_text = await generate_coach_annex(tenant_id, ev)
+                                    
+                                    # V1.9 Meta AI Intake Check
+                                    ev_id = ev.get('id', 'unknown')
+                                    row = db.fetchone("SELECT status FROM survey_requests WHERE event_id = %s", (ev_id,))
+                                    if not row:
+                                        try:
+                                            from app.intake.survey_planner import plan_and_build_survey
+                                            await plan_and_build_survey(tenant_id, ev.get('summary', 'Target'), ev_id)
+                                            annex_text = f"🤖 <i>META AI: No intake found. Dispatched BrowserAct UI-bot to build MetaSurvey form. Fallback mode:</i>\n"
+                                        except Exception as e:
+                                            annex_text = f"⚠️ Meta AI Error: {e}\n"
+                                        annex_text += await generate_coach_annex(tenant_id, ev)
+                                    else:
+                                        annex_text = f"🎯 <i>V1.9 Intake Status: {row['status']}. Fallback mode:</i>\n"
+                                        annex_text += await generate_coach_annex(tenant_id, ev)
+
                                     coach_annex += f"\n\n➖ <b>Coach Briefing Annex</b> ➖\n{annex_text}"
                     except Exception:
                         pass # Kalender nicht freigegeben / Fehler

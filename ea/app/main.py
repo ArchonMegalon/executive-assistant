@@ -70,3 +70,16 @@ async def apixdrive_ingress(tenant: str, request: Request, authorization: str = 
         return {"status": "accepted", "tenant": tenant, "source": source, "dedupe_key": dedupe_key}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/webhooks/metasurvey/{tenant}")
+async def metasurvey_webhook(tenant: str, request: Request):
+    try: payload = await request.json()
+    except: return {"error": "invalid json"}
+    
+    from app.db import get_db
+    import json
+    db = get_db()
+    dedupe = payload.get("response_id", "unknown")
+    db.execute("INSERT INTO external_events (tenant, source, event_type, dedupe_key, payload_json) VALUES (%s, 'metasurvey', 'submission', %s, %s) ON CONFLICT DO NOTHING", (tenant, dedupe, json.dumps(payload)))
+    return {"status": "ok"}
