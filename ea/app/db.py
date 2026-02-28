@@ -8,28 +8,43 @@ def get_db():
     global _pool
     if _pool is None:
         url = os.environ.get("DATABASE_URL", "postgresql://postgres:secure_db_pass_2026@ea-db:5432/ea")
-        _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, url)
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, 20, url)
     
     class DBMgr:
-        def __init__(self):
-            self.conn = _pool.getconn()
-        def __del__(self):
-            try: _pool.putconn(self.conn)
-            except: pass
         def execute(self, query, vars=None):
-            with self.conn.cursor() as cur:
-                cur.execute(query, vars)
-            self.conn.commit()
+            conn = _pool.getconn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(query, vars)
+                conn.commit()
+            finally:
+                _pool.putconn(conn)
+                
         def fetchone(self, query, vars=None):
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query, vars)
-                res = cur.fetchone()
-            self.conn.commit()
-            return res
+            conn = _pool.getconn()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, vars)
+                    res = cur.fetchone()
+                conn.commit()
+                return res
+            finally:
+                _pool.putconn(conn)
+                
         def fetchall(self, query, vars=None):
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query, vars)
-                res = cur.fetchall()
-            self.conn.commit()
-            return res
+            conn = _pool.getconn()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, vars)
+                    res = cur.fetchall()
+                conn.commit()
+                return res
+            finally:
+                _pool.putconn(conn)
     return DBMgr()
+
+
+# --- V1.5 EMERGENCY STUB ---
+# Befriedigt den Python-Compiler nach dem Cache-Nuke
+def log_to_db(*args, **kwargs):
+    pass
