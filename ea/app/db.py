@@ -48,3 +48,10 @@ def get_db():
 # Befriedigt den Python-Compiler nach dem Cache-Nuke
 def log_to_db(*args, **kwargs):
     pass
+
+# --- V1.7.1 BOOT STUBS ---
+async def init_db(*args, **kwargs): pass
+def init_db_sync(*args, **kwargs): pass
+
+async def connect(*args, **kwargs): pass
+def connect_sync(*args, **kwargs): pass
