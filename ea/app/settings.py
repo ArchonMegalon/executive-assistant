@@ -8,7 +8,7 @@ def _bool(name: str, default: bool=False) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    payment_rails: dict = {"default": "auth_workflow", "enabled": ["auth_workflow", "scan_to_pay", "manual_details"], "fallback_order": ["auth_workflow", "scan_to_pay", "manual_details"]}
+    payment_rails: dict = __import__("dataclasses").field(default_factory=lambda: {"default": "auth_workflow", "enabled": ["auth_workflow", "scan_to_pay", "manual_details"], "fallback_order": ["auth_workflow", "scan_to_pay", "manual_details"]})
     undetectable_api_key: str | None = None
     markupgo_template_master: str | None = None
     markupgo_template_coach: str | None = None
