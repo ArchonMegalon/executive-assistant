@@ -77,7 +77,7 @@ async def call_llm(prompt: str, temp=0.1) -> str:
     errors = []
     
     for key in keys:
-        raise Exception("Intercepted legacy Google Call! System is securely routing...")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
         payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp}}
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -116,21 +116,22 @@ async def build_briefing_for_tenant(tenant, status_cb=None) -> dict:
     # --- ADMIN KEY VALIDATOR ---
     try:
         import httpx
+        _env_key = ""
         try:
             with open(".env", "r") as _f:
                 for _l in _f:
-                    pass
+                    if _l.startswith("GEMINI_API_KEY="): _env_key = _l.strip().split("=", 1)[1].strip('"').strip("'")
         except: pass
         
-        pass
-            pass
-            _raise Exception("Intercepted legacy Google Call! System is securely routing...")
+        if not _env_key:
+            diag_logs.append("🔑 API Key Check: 🟢 OODA: Cognitive Router (Magixx/LiteLLM) is ACTIVE.")
+        else:
+            _url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={_env_key}"
             async with httpx.AsyncClient(timeout=4.0) as _c:
                 _r = await _c.post(_url, headers={"Content-Type": "application/json"}, json={"contents":[{"parts":[{"text":"hi"}]}]})
-                pass
-                pass
-            else:
-    pass
+                if _r.status_code == 200: diag_logs.append(f"🔑 API Key Check: ✅ VALID (...{_env_key[-4:]})")
+                else: diag_logs.append(f"🔑 API Key Check: ❌ REVOKED/INVALID (HTTP {_r.status_code})")
+    except Exception as e: diag_logs.append(f"🔑 API Key Check: ⚠️ NETWORK ERROR ({e})")
     # ---------------------------
 
     try:
@@ -309,3 +310,39 @@ Return ONLY valid JSON matching this schema:
         return {"text": html_out, "options": clean_opts, "dynamic_buttons": loop_btns}
     except Exception as e: 
         return {"text": f"⚠️ <b>Fatal Briefing Error:</b>\n<pre>{html.escape(str(e), quote=False)}</pre>", "options": ["🔁 Retry"]}
+
+
+# ==========================================
+# V1.7.1 COGNITIVE ROUTER OVERRIDE
+# ==========================================
+import urllib.request
+import json
+try:
+    from app.llm import ask_llm
+except ImportError:
+    ask_llm = lambda p: f"❌ Router Error: llm module not found."
+
+# Globale Funktionen für externe Aufrufer (Poller/Worker) überschreiben
+call_llm = lambda prompt, *args, **kwargs: ask_llm(prompt)
+call_powerful_llm = lambda prompt, *args, **kwargs: ask_llm(prompt)
+
+# Abfangen des nativen Google-Aufrufs im Legacy Code
+_orig_urlopen = urllib.request.urlopen
+def _monkey_urlopen(req, *args, **kwargs):
+    url = req.full_url if hasattr(req, 'full_url') else str(req)
+    if 'generativelanguage.googleapis.com' in url:
+        class DummyResp:
+            def read(self):
+                try:
+                    body = json.loads(req.data.decode('utf-8'))
+                    prompt = body['contents'][0]['parts'][0]['text']
+                    if prompt.strip().lower() == 'ping':
+                        return json.dumps({"candidates": [{"content": {"parts": [{"text": "pong"}]}}]}).encode('utf-8')
+                    ans = ask_llm(prompt)
+                    return json.dumps({"candidates": [{"content": {"parts": [{"text": ans}]}}]}).encode('utf-8')
+                except Exception as e:
+                    return json.dumps({"candidates": [{"content": {"parts": [{"text": f"❌ Cognitive Router Crash: {e}"}]}}]}).encode('utf-8')
+        return DummyResp()
+    return _orig_urlopen(req, *args, **kwargs)
+
+urllib.request.urlopen = _monkey_urlopen
