@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Ensure dependencies are installed first for caching
+RUN printf '#!/bin/sh\necho "🛡️ OODA-Shield: OS Command blocked. Running inside isolated container." >&2\nexit 127\n' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker
 COPY ea/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
