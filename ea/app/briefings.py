@@ -313,68 +313,81 @@ Return ONLY valid JSON matching this schema:
 
 
 
+
 # ==========================================
-# V1.7.2 COGNITIVE ROUTER OVERRIDE (ASYNC + HEARTBEAT)
+# V1.7.3 COGNITIVE ROUTER OVERRIDE (CONTEXTVARS + POSTGRES)
 # ==========================================
 import urllib.request
 import json
 import asyncio
 import inspect
+import contextvars
 
 try:
     from app.llm import ask_llm
 except ImportError:
     ask_llm = lambda p: f"❌ Router Error: llm module not found."
 
-async def call_llm_async(prompt, *args, **kwargs):
-    # 🕵️ Schwarze Magie: Frame Reflection
-    # Wir klettern im Call-Stack nach oben, um die status_cb Funktion zu stehlen
-    status_cb = None
+# 🕵️ Echte asynchrone Magie: ContextVars teleportieren State durch die Coroutine-Loop
+current_status_cb = contextvars.ContextVar('current_status_cb', default=None)
+
+if 'orig_build_briefing_for_tenant' not in globals():
+    orig_build_briefing_for_tenant = build_briefing_for_tenant
+
+async def build_wrapper(*args, **kwargs):
+    cb = kwargs.get('status_cb')
+    if not cb and len(args) >= 2:
+        cb = args[1]
+    token = current_status_cb.set(cb) if cb else None
     try:
-        frame = inspect.currentframe()
-        while frame:
-            if 'status_cb' in frame.f_locals and callable(frame.f_locals['status_cb']):
-                status_cb = frame.f_locals['status_cb']
-                break
-            frame = frame.f_back
-    except Exception:
-        pass
-        
+        return await orig_build_briefing_for_tenant(*args, **kwargs)
+    finally:
+        if token:
+            current_status_cb.reset(token)
+
+build_briefing_for_tenant = build_wrapper
+
+async def call_llm_async(prompt, *args, **kwargs):
+    status_cb = current_status_cb.get()
+
     async def _heartbeat():
         if not status_cb:
             return
         ticks = 0
-        emojis = ["⏳", "⌛"]
+        emojis = ["⏳", "⌛", "💡", "🧠", "⚙️"]
+        
+        # Erster Tick nach 1.0s für sofortiges Feedback
+        await asyncio.sleep(1.0)
+        
         while True:
-            await asyncio.sleep(2.0)
             ticks += 1
             try:
-                msg = f"▶️ Synthesizing Executive Action Report... {emojis[ticks % 2]} ({ticks * 2}s)"
-                if inspect.iscoroutinefunction(status_cb):
-                    await status_cb(msg)
-                else:
-                    status_cb(msg)
-            except Exception:
+                msg = f"▶️ Synthesizing Executive Action Report... {emojis[ticks % len(emojis)]} ({ticks * 2}s)"
+                
+                # Awaitable check (entscheidend für asynchrone Telegram API updates)
+                res = status_cb(msg)
+                if inspect.isawaitable(res):
+                    await res
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
                 pass
+            await asyncio.sleep(2.0)
 
     hb_task = asyncio.create_task(_heartbeat())
     try:
-        # Den blockierenden LLM-Aufruf in einen non-blocking OS-Thread auslagern!
         return await asyncio.to_thread(ask_llm, prompt)
     finally:
         hb_task.cancel()
 
-# Globale Funktionen für das System als async überschreiben
 call_llm = call_llm_async
 call_powerful_llm = call_llm_async
 
-# Natives Google-Fallback (synchron) falls Legacy-Code tief im System zuschlägt
+# Failsafe Interceptor
 _orig_urlopen = urllib.request.urlopen
 def _monkey_urlopen(req, *args, **kwargs):
     url = req.full_url if hasattr(req, 'full_url') else str(req)
     if 'generativelanguage.googleapis.com' in url:
-        
-        # RECURSION SHIELD: Verhindere Endlosschleife, wenn ask_llm selbst Google aufruft!
         in_ask_llm = False
         try:
             f = inspect.currentframe()
@@ -383,9 +396,7 @@ def _monkey_urlopen(req, *args, **kwargs):
                     in_ask_llm = True
                     break
                 f = f.f_back
-        except Exception:
-            pass
-            
+        except Exception: pass
         if not in_ask_llm:
             class DummyResp:
                 def read(self):
@@ -393,13 +404,12 @@ def _monkey_urlopen(req, *args, **kwargs):
                         body = json.loads(req.data.decode('utf-8'))
                         prompt = body['contents'][0]['parts'][0]['text']
                         if prompt.strip().lower() == 'ping':
-                            return json.dumps({"candidates": [{"content": {"parts": [{"text": "pong"}]}}]}).encode('utf-8')
+                            return b'{"candidates": [{"content": {"parts": [{"text": "pong"}]}}]}'
                         ans = ask_llm(prompt)
                         return json.dumps({"candidates": [{"content": {"parts": [{"text": ans}]}}]}).encode('utf-8')
                     except Exception as e:
-                        return json.dumps({"candidates": [{"content": {"parts": [{"text": f"❌ Router Crash: {e}"}]}}]}).encode('utf-8')
+                        return json.dumps({"candidates": [{"content": {"parts": [{"text": f"❌ Crash: {e}"}]}}]}).encode('utf-8')
             return DummyResp()
-            
     return _orig_urlopen(req, *args, **kwargs)
 
 urllib.request.urlopen = _monkey_urlopen
