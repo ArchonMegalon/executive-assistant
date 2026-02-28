@@ -374,7 +374,6 @@ async def build_wrapper(*args, **kwargs):
                                             if __import__('inspect').isawaitable(res): await res
                                         except: pass
                                     
-                                    
                                     # V1.9 Meta AI Intake Check
                                     ev_id = ev.get('id', 'unknown')
                                     row = db.fetchone("SELECT status FROM survey_requests WHERE event_id = %s", (ev_id,))
@@ -389,7 +388,6 @@ async def build_wrapper(*args, **kwargs):
                                     else:
                                         annex_text = f"🎯 <i>V1.9 Intake Status: {row['status']}. Fallback mode:</i>\n"
                                         annex_text += await generate_coach_annex(tenant_id, ev)
-
                                     coach_annex += f"\n\n➖ <b>Coach Briefing Annex</b> ➖\n{annex_text}"
                     except Exception:
                         pass # Kalender nicht freigegeben / Fehler

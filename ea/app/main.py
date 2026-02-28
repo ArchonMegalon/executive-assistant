@@ -71,12 +71,10 @@ async def apixdrive_ingress(tenant: str, request: Request, authorization: str = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/webhooks/metasurvey/{tenant}")
 async def metasurvey_webhook(tenant: str, request: Request):
     try: payload = await request.json()
     except: return {"error": "invalid json"}
-    
     from app.db import get_db
     import json
     db = get_db()
