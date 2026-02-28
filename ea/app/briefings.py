@@ -341,6 +341,48 @@ async def build_wrapper(*args, **kwargs):
     token = current_status_cb.set(cb) if cb else None
     try:
         res_text = await orig_build_briefing_for_tenant(*args, **kwargs)
+        
+        # V1.8.1 COACHING EVENT DETECTION
+        coach_annex = ""
+        try:
+            from app.db import get_db
+            db = get_db()
+            links = db.fetchall("SELECT source_person, config_json FROM briefing_links WHERE target_person = %s AND rule_type = 'coach_event_append' AND enabled = TRUE", (tenant,))
+            if links:
+                from app.coaching import is_qualifying_coach_event, generate_coach_annex
+                from app.google_api import get_calendar_events
+                import json
+                import datetime
+                
+                time_min = datetime.datetime.utcnow().isoformat() + 'Z'
+                time_max = (datetime.datetime.utcnow() + datetime.timedelta(days=7)).isoformat() + 'Z'
+                
+                for link in links:
+                    src_person = link['source_person']
+                    cfg = link['config_json'] if isinstance(link['config_json'], dict) else json.loads(link['config_json'])
+                    
+                    # Scan source person's calendar (Elisabeth)
+                    try:
+                        src_events = get_calendar_events(src_person, time_min=time_min, time_max=time_max)
+                        for cal_name, ev_list in src_events.items():
+                            for ev in ev_list:
+                                if is_qualifying_coach_event(ev, cfg):
+                                    if 'status_cb' in locals() and status_cb:
+                                        try:
+                                            res = status_cb(f"🧠 Coaching Event detektiert: Analysiere {ev.get('summary', 'Termin')}...")
+                                            if __import__('inspect').isawaitable(res): await res
+                                        except: pass
+                                    
+                                    annex_text = await generate_coach_annex(tenant, ev)
+                                    coach_annex += f"\n\n➖ <b>Coach Briefing Annex</b> ➖\n{annex_text}"
+                    except Exception:
+                        pass # Kalender nicht freigegeben / Fehler
+        except Exception as e:
+            print(f"Coaching Annex Error: {e}")
+            
+        if coach_annex:
+            res_text += coach_annex
+            
         if isinstance(res_text, str) and "OODA Diagnostic (Rendering):" in res_text:
             # Brutaler, fehlerfreier String-Split statt Regex
             res_text = res_text.split("⚙️ OODA Diagnostic")[0].strip()
