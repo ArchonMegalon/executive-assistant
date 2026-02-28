@@ -77,7 +77,7 @@ async def call_llm(prompt: str, temp=0.1) -> str:
     errors = []
     
     for key in keys:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+        raise Exception("Intercepted legacy Google Call! System is securely routing...")
         payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temp}}
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -116,7 +116,6 @@ async def build_briefing_for_tenant(tenant, status_cb=None) -> dict:
     # --- ADMIN KEY VALIDATOR ---
     try:
         import httpx
-        _env_key = ""
         try:
             with open(".env", "r") as _f:
                 for _l in _f:
@@ -125,7 +124,7 @@ async def build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         
         if not _env_key:
             diag_logs.append("🔑 API Key Check: ❌         else:
-            _url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={_env_key}"
+            _raise Exception("Intercepted legacy Google Call! System is securely routing...")
             async with httpx.AsyncClient(timeout=4.0) as _c:
                 _r = await _c.post(_url, headers={"Content-Type": "application/json"}, json={"contents":[{"parts":[{"text":"hi"}]}]})
                 if _r.status_code == 200: diag_logs.append(f"🔑 API Key Check: ✅ VALID (...{_env_key[-4:]})")
