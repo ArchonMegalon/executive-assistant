@@ -369,6 +369,10 @@ async def call_llm_async(prompt, *args, **kwargs):
                 if inspect.isawaitable(res):
                     await res
             except asyncio.CancelledError:
+                try:
+                    res = status_cb("✅ Executive Action Report synthesized.")
+                    if __import__('inspect').isawaitable(res): await res
+                except: pass
                 break
             except Exception as e:
                 pass
