@@ -498,7 +498,7 @@ async def v19_meta_ai_wrapper(*args, **kwargs):
 
     if isinstance(res, str):
         # v1.12.1 SUPERVISED ESCALATION (Mum Brain Boundary)
-        if "OODA Diagnostic (Rendering):" in res and ("MarkupGo" in res or "FST_ERR_VALIDATION" in res):
+        if "MarkupGo" in str(res) or "FST_ERR_VALIDATION" in str(res):
             import re as regex
             try:
                 from app.supervisor import trigger_mum_brain
