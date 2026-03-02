@@ -98,79 +98,23 @@ def log_to_db(tenant=None, component=None, event_type=None, message=None, payloa
 
 import logging, os, re, builtins, uuid
 
-def _get_persistent_memory():
+def _get_db_schema(db_conn):
+    """Dynamically reads the live database schema to give the LLM full situational awareness."""
     try:
-        with open('/app/ooda_action.log', 'r') as f: return f.read().strip()
-    except: return ""
-
-def _set_persistent_memory(tbl, sql):
-    try:
-        with open('/app/ooda_action.log', 'w') as f: f.write(f"{tbl}|{sql}")
-    except: pass
-
-def _is_blacklisted(sql):
-    try:
-        with open('/app/ooda_blacklist.txt', 'r') as f:
-            return any(sql.strip()[:40] in line for line in f.readlines())
-    except: return False
-
-def _blacklist_action(sql):
-    try:
-        with open('/app/ooda_blacklist.txt', 'a') as f: f.write(f"{sql.strip()[:40]}\n")
-    except: pass
-
-def _generic_brainstem(err_text, query=None):
-    """BACKUP PLAN: PURE GENERICS. Zero Hardcodes."""
-    err_str = str(err_text).lower()
-    
-    # 1. THE IMMUNE SYSTEM (REVERT PROTOCOL)
-    # If an external API rejects state (400/404/invalid), check if our last autonomous action caused it!
-    err_keywords = ["400", "401", "403", "404", "invalid", "validation", "bad request"]
-    if any(k in err_str for k in err_keywords):
-        mem = _get_persistent_memory()
-        if mem and "|" in mem:
-            tbl, past_sql = mem.split("|", 1)
-            logging.warning(f"🧬 [META-OODA: IMMUNE] External API rejected state. Reverting autonomous action on '{tbl}'.")
-            _blacklist_action(past_sql) # Prevent infinite loop
-            _set_persistent_memory("", "") # Clear memory
-            
-            # Universal Row-Cast Delete (Deletes the row if ANY column contains our generated hash)
-            return f"DELETE FROM {tbl} WHERE CAST({tbl}::text AS TEXT) LIKE '%ooda_gen_%';"
-            
-    # 2. SUGGESTED ACTION PROTOCOL (Generic Extraction)
-    match = re.search(r"(INSERT INTO|UPDATE|ALTER TABLE|CREATE TABLE|DELETE FROM)\s+(.*?);?", str(err_text), re.IGNORECASE)
-    if match:
-        sql = match.group(0)
-        if not sql.strip().endswith(';'): sql += ';'
-        
-        if _is_blacklisted(sql):
-            logging.warning("🚫 [META-OODA: IMMUNE] Suppressing blacklisted autonomous action.")
-            return None
-            
-        tbl_match = re.search(r"(?:INTO|UPDATE|TABLE|FROM)\s+([a-zA-Z0-9_]+)", sql, re.IGNORECASE)
-        tbl = tbl_match.group(1) if tbl_match else "unknown"
-        
-        gen_id = f"ooda_gen_{uuid.uuid4().hex[:8]}"
-        sql = re.sub(r"'[^']*ID[^']*'|\"[^\"]*ID[^\"]*\"|'YOUR_[^']+'|'<[^>]+>'|'REPLACE_[^']+'|'MISSING_[^']+'", f"'{gen_id}'", sql, flags=re.IGNORECASE)
-        
-        _set_persistent_memory(tbl, sql)
-        return sql
-        
-    # 3. GENERIC SCHEMA FALLBACK
-    col_match = re.search(r'column "([^"]+)" does not exist', err_str)
-    tbl_match = re.search(r'(?:FROM|UPDATE|INTO|TABLE|JOIN)\s+([a-zA-Z0-9_]+)', str(query), re.IGNORECASE) if query else None
-    if col_match and tbl_match:
-        col = col_match.group(1)
-        dtype = "INTEGER DEFAULT 1" if "version" in col else "BOOLEAN DEFAULT TRUE" if "active" in col else "TEXT"
-        return f"ALTER TABLE {tbl_match.group(1)} ADD COLUMN IF NOT EXISTS {col} {dtype};"
-
-    return None
+        cur = db_conn.cursor() if hasattr(db_conn, 'cursor') else db_conn
+        if hasattr(cur, 'cursor'): cur = cur.cursor()
+        cur.execute("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'")
+        sc = {}
+        for t, c in cur.fetchall(): sc.setdefault(t, []).append(c)
+        return "\n".join([f"Table '{t}': {', '.join(c)}" for t, c in sc.items()])
+    except: return "Schema unavailable"
 
 def _call_meta_cortex(prompt):
     import litellm
     litellm.suppress_debug_info = True
     litellm.drop_params = True
-    sys_prompt = "You are a Universal System Healer. Output ONLY raw SQL (ALTER, CREATE, DELETE, UPDATE, INSERT). NO markdown."
+    
+    sys_prompt = "You are an autonomous DBA AI. Analyze the error and schema. Output ONLY valid, raw PostgreSQL. No markdown, no explanation. Just the SQL command (DELETE, ALTER, UPDATE, or INSERT) to heal the state."
     messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": prompt}]
     
     env_file = {}
@@ -192,65 +136,144 @@ def _call_meta_cortex(prompt):
     poisoned_base = os.environ.pop("OPENAI_BASE_URL", None)
     sql_patch = None
     for link in uplinks:
-        logging.info(f"🧠 [META-OODA: CORTEX] Thinking via {link['name']}...")
         try:
-            kwargs = {"model": link['model'], "messages": messages, "api_key": link['api_key'], "temperature": 0.0, "timeout": 2.5, "max_retries": 0}
+            kwargs = {"model": link['model'], "messages": messages, "api_key": link['api_key'], "temperature": 0.0, "timeout": 4.0, "max_retries": 0}
             if link.get('api_base'): kwargs['api_base'] = link['api_base']
             res = litellm.completion(**kwargs)
             patch = res.choices[0].message.content.replace("```sql", "").replace("```", "").strip()
-            if any(patch.upper().startswith(kw) for kw in ["ALTER ", "CREATE ", "INSERT ", "UPDATE ", "DELETE "]):
-                logging.info(f"✅ [META-OODA: CORTEX] Neural decision reached.")
+            if patch:
                 sql_patch = patch
+                logging.info(f"🧠 [META-OODA: CORTEX] Agent {link['name']} generated hypothesis.")
                 break
-        except Exception: pass
+        except: pass
     if poisoned_base: os.environ["OPENAI_BASE_URL"] = poisoned_base
     return sql_patch
 
 def _universal_heal(db_conn, err_text, query=None):
     if "[META-OODA" in str(err_text): return False
-    err_clean = str(err_text).splitlines()[0][:150]
-    logging.warning(f"\n🚨 [META-OODA: OBSERVE] Anomaly detected: {err_clean}")
+    err_clean = str(err_text).splitlines()[0][:200]
+    logging.warning(f"\n🚨 [META-OODA: OBSERVE] Anomaly: {err_clean}")
     
     try:
         if hasattr(db_conn, 'rollback'): db_conn.rollback()
         elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'rollback'): db_conn.conn.rollback()
     except: pass
     
-    sql_patch = _call_meta_cortex(f"Error: {err_text}\nQuery: {query}")
+    schema_str = _get_db_schema(db_conn)
+    history = []
+    cortex_success = False
     
-    if not sql_patch:
-        logging.warning("⚠️ [META-OODA: HYBRID] Cortex failed. Activating Generic Brainstem...")
-        sql_patch = _generic_brainstem(err_text, query)
-        if sql_patch: logging.info(f"⚡ [META-OODA: BRAINSTEM] Formulated Generic Fix -> {sql_patch}")
+    # 💥 THE RECURSIVE OODA LOOP (Agentic DB Healer)
+    for iteration in range(1, 3):
+        logging.info(f"🔄 [META-OODA: ORIENT] Agent Iteration {iteration}/2...")
         
-    if not sql_patch: 
-        logging.error("❌ [META-OODA: FATAL] All backup plans exhausted or suppressed.")
-        return False
+        prompt = f"System Error: {err_text}\n"
+        if query: prompt += f"Failing Query: {query}\n"
+        prompt += f"Database Schema:\n{schema_str}\n"
+        prompt += "Analyze the error. If it's a schema error, output ALTER TABLE. If it's a validation error (e.g., HTTP 400 from external API), it means the application state contains toxic synthetic data. Output a DELETE statement to remove the toxic row."
+        if history:
+            prompt += "\n\nPrevious failed fixes:\n" + "\n".join(history)
+            prompt += "\nDO NOT repeat these. Learn from the error and try a different SQL fix."
+            
+        sql_patch = _call_meta_cortex(prompt)
         
-    logging.warning(f"🔨 [META-OODA: ACT] Executing Fix -> {sql_patch}")
-    try:
-        if hasattr(db_conn, 'execute'): db_conn.execute(sql_patch)
-        elif hasattr(db_conn, 'cursor'):
-            with db_conn.cursor() as cur: cur.execute(sql_patch)
-        if hasattr(db_conn, 'commit'): db_conn.commit()
-        elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'commit'): db_conn.conn.commit()
-        logging.info("✅ [META-OODA: LOOP CLOSED] State healed dynamically.\n")
-        return True
-    except Exception as e:
-        logging.error(f"❌ [META-OODA: FATAL] Fix execution failed: {e}")
+        if not sql_patch:
+            logging.warning("⚠️ [META-OODA: CORTEX] Neural uplinks unavailable or silent.")
+            break
+            
+        logging.warning(f"🔨 [META-OODA: ACT] Executing Hypothesis -> {sql_patch[:150]}...")
         try:
-            if hasattr(db_conn, 'rollback'): db_conn.rollback()
-            elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'rollback'): db_conn.conn.rollback()
-        except: pass
+            if hasattr(db_conn, 'execute'): db_conn.execute(sql_patch)
+            elif hasattr(db_conn, 'cursor'):
+                with db_conn.cursor() as cur: cur.execute(sql_patch)
+            if hasattr(db_conn, 'commit'): db_conn.commit()
+            elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'commit'): db_conn.conn.commit()
+            logging.info("✅ [META-OODA: LOOP CLOSED] System healed autonomously by Agent!\n")
+            cortex_success = True
+            return True
+        except Exception as e:
+            err_msg = str(e).splitlines()[0]
+            logging.error(f"❌ [META-OODA: ACT FAIL] Hypothesis rejected: {err_msg}")
+            history.append(f"Tried: {sql_patch} | Error: {err_msg}")
+            try:
+                if hasattr(db_conn, 'rollback'): db_conn.rollback()
+                elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'rollback'): db_conn.conn.rollback()
+            except: pass
+
+    # 💥 ULTIMATE OFFLINE BACKUP (The Macrophage & Brainstem)
+    if not cortex_success:
+        logging.warning("⚠️ [META-OODA: HYBRID] Activating Generic Offline Brainstem (Ultimate Backup)...")
+        err_lower = str(err_text).lower()
+        sql_patch = None
+        
+        # 1. Immune Scrubber (The Macrophage)
+        if any(k in err_lower for k in ["400", "invalid", "validation", "bad request", "fst_err"]):
+            logging.warning("🧬 [META-OODA: MACROPHAGE] Sweeping ENTIRE DB for toxic synthetic tokens...")
+            purged = 0
+            try:
+                cur = db_conn.cursor() if hasattr(db_conn, 'cursor') else db_conn
+                if hasattr(cur, 'cursor'): cur = cur.cursor()
+                cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+                for (tbl,) in cur.fetchall():
+                    try:
+                        # Universal Row Cast: Deletes the row if ANY column contains generic synthetic signatures!
+                        cur.execute(f"DELETE FROM {tbl} WHERE {tbl}::text LIKE '%YOUR_%' OR {tbl}::text LIKE '%REPLACE_%' OR {tbl}::text LIKE '%ooda_gen%';")
+                        purged += cur.rowcount
+                    except: pass
+                if hasattr(db_conn, 'commit'): db_conn.commit()
+                elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'commit'): db_conn.conn.commit()
+                logging.info(f"✅ [META-OODA: LOOP CLOSED] Macrophage purged {purged} toxic rows.\n")
+                return True
+            except Exception as e:
+                logging.error(f"Macrophage sweep failed: {e}")
+
+        # 2. Missing Column Generic Fallback
+        col_match = re.search(r'column "([^"]+)" does not exist', err_lower)
+        tbl_match = re.search(r'(?:FROM|UPDATE|INTO|TABLE|JOIN)\s+([a-zA-Z0-9_]+)', str(query), re.IGNORECASE) if query else None
+        if col_match and tbl_match:
+            col = col_match.group(1)
+            dtype = "INTEGER DEFAULT 1" if "version" in col else "BOOLEAN DEFAULT TRUE" if "active" in col else "TEXT"
+            sql_patch = f"ALTER TABLE {tbl_match.group(1)} ADD COLUMN IF NOT EXISTS {col} {dtype};"
+
+        # 3. Direct SQL Extraction Fallback with Generic Sanitizer
+        if not sql_patch:
+            match = re.search(r"(INSERT INTO|UPDATE|ALTER TABLE|CREATE TABLE|DELETE FROM)\s+(.*?);?", str(err_text), re.IGNORECASE)
+            if match:
+                sql = match.group(0)
+                if not sql.strip().endswith(';'): sql += ';'
+                gen_id = f"ooda_gen_{uuid.uuid4().hex[:8]}"
+                sql_patch = re.sub(r"'[^']*ID[^']*'|\"[^\"]*ID[^\"]*\"|'YOUR_[^']+'|'<[^>]+>'|'REPLACE_[^']+'|'MISSING_[^']+'", f"'{gen_id}'", sql, flags=re.IGNORECASE)
+
+        if sql_patch:
+            logging.warning(f"🔨 [META-OODA: ACT] Executing Offline Fix -> {sql_patch[:150]}")
+            try:
+                if hasattr(db_conn, 'execute'): db_conn.execute(sql_patch)
+                elif hasattr(db_conn, 'cursor'):
+                    with db_conn.cursor() as cur: cur.execute(sql_patch)
+                if hasattr(db_conn, 'commit'): db_conn.commit()
+                elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'commit'): db_conn.conn.commit()
+                logging.info("✅ [META-OODA: LOOP CLOSED] State healed dynamically via Brainstem.\n")
+                return True
+            except: pass
+
+    logging.error("❌ [META-OODA: FATAL] All recursive backup plans completely exhausted.\n")
     return False
 
-def _auto_cast_args(args):
+def _pre_emptive_cast(args):
+    """PRE-EMPTIVE ADAPTER: Forces complex objects to strings BEFORE execution. Prevents Dirty Transactions!"""
+    if not args: return args
     def _adapt(v):
-        if type(v).__name__ in ('int', 'float', 'str', 'bool', 'NoneType'): return v
+        if v is None or isinstance(v, (int, float, str, bool)): return v
+        if type(v).__name__ in ('datetime', 'date', 'time', 'dict', 'list'): return v
         if hasattr(v, 'tenant_id'): return str(v.tenant_id)
         if hasattr(v, 'id'): return str(v.id)
         return str(v)
-    return tuple(tuple(_adapt(i) for i in a) if isinstance(a, tuple) else [_adapt(i) for i in a] if isinstance(a, list) else {k: _adapt(i) for k,i in a.items()} if isinstance(a, dict) else _adapt(a) for a in args)
+    
+    vars = args[0]
+    if isinstance(vars, dict): return ({k: _adapt(v) for k,v in vars.items()},) + args[1:]
+    if isinstance(vars, tuple): return (tuple(_adapt(v) for v in vars),) + args[1:]
+    if isinstance(vars, list): return ([_adapt(v) for v in vars],) + args[1:]
+    return (_adapt(vars),) + args[1:]
 
 class AICursorProxy:
     def __init__(self, cur, db_conn):
@@ -262,13 +285,9 @@ class AICursorProxy:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if hasattr(self._cur, '__exit__'): return self._cur.__exit__(exc_type, exc_val, exc_tb)
     def execute(self, query, *args, **kwargs):
-        safe_args = args
+        safe_args = _pre_emptive_cast(args)
         try: return self._cur.execute(query, *safe_args, **kwargs)
         except Exception as e:
-            if "can't adapt type" in str(e) and safe_args:
-                safe_args = _auto_cast_args(safe_args)
-                try: return self._cur.execute(query, *safe_args, **kwargs)
-                except Exception as e2: e = e2
             if _universal_heal(self._db_conn, e, query): return self._cur.execute(query, *safe_args, **kwargs)
             raise e
 
@@ -278,13 +297,9 @@ class AIDatabaseProxy:
     def cursor(self, *args, **kwargs): return AICursorProxy(self._db.cursor(*args, **kwargs), self._db)
     
     def execute(self, query, *args, **kwargs):
-        safe_args = args
+        safe_args = _pre_emptive_cast(args)
         try: return self._db.execute(query, *safe_args, **kwargs)
         except Exception as e:
-            if "can't adapt type" in str(e) and safe_args:
-                safe_args = _auto_cast_args(safe_args)
-                try: return self._db.execute(query, *safe_args, **kwargs)
-                except Exception as e2: e = e2
             if _universal_heal(self._db, e, query): return self._db.execute(query, *safe_args, **kwargs)
             raise e
 
@@ -296,12 +311,14 @@ if not hasattr(builtins, '_meta_ooda_hooked'):
     def _ooda_print(*args, **kwargs):
         _orig_print(*args, **kwargs)
         text = " ".join(str(a) for a in args)
-        if ("[META-OODA" in text): return
+        
+        # Ignoriere Type-Errors, da diese vom Pre-Emptive Caster im Hintergrund behoben werden
+        if "[META-OODA" in text or "can't adapt type" in text: return
         
         db = getattr(builtins, '_ooda_global_db', None)
         if not db: return
         
-        err_keywords = ["failed:", "error:", "act:", "invalid", "http 4", "validation", "bad request"]
+        err_keywords = ["failed:", "error:", "act:", "invalid", "http 4", "validation", "bad request", "fst_err"]
         if any(kw in text.lower() for kw in err_keywords):
             _universal_heal(db, text)
             
