@@ -19,7 +19,7 @@ class MarkupGoClient:
         if not self.key: raise ValueError("OODA: MARKUPGO_API_KEY missing. Act: Add to .env and restart.")
         async with httpx.AsyncClient(timeout=timeout_s) as c:
             r = await c.post(f"{self.base}/image/buffer", headers=self._headers(), json=payload)
-            if r.status_code != 200: raise ValueError(f"OODA: MarkupGo API HTTP {r.status_code}. Act: Verify template ID and payload. {r.text}")
+            if r.status_code not in (200, 201): raise ValueError(f"OODA: MarkupGo API HTTP {r.status_code}. Act: Verify template ID and payload. {r.text}")
             return r.content
 
 def render_request_hash(template_id: str, context: dict, options: dict, fmt: str) -> str:

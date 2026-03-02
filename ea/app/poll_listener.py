@@ -16,6 +16,7 @@ from app.open_loops import OpenLoops
 from app.briefings import build_briefing_for_tenant, get_val, call_llm, call_powerful_llm
 from app.memory import get_button_context, save_button_context
 from app.render_guard import classify_markupgo_error, log_render_guard, markupgo_breaker_open, open_markupgo_breaker, promote_known_good_template_if_needed
+from app.repair.healer import system_health_snapshot
 from app.policy.household import gate_household_document_action
 LAST_HEARTBEAT = time.time()
 
@@ -556,16 +557,17 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 from app.db import get_db
 
                 db = get_db()
-                pending = db.fetchone("SELECT count(*) AS c FROM repair_jobs WHERE status = 'pending'")
                 active = db.fetchone("SELECT count(*) AS c FROM delivery_sessions WHERE status = 'active'")
-                replay_q = db.fetchone("SELECT count(*) AS c FROM replay_events WHERE status IN ('queued', 'retry')")
-                dead = db.fetchone("SELECT count(*) AS c FROM replay_events WHERE status = 'deadletter'")
+                h = system_health_snapshot(db)
+                last = db.fetchone("SELECT recipe_key, status FROM repair_jobs ORDER BY job_id DESC LIMIT 1")
                 msg = (
                     "🧠 <b>Mum Brain Status</b>\n\n"
                     f"• Phase A active deliveries: <b>{int((active or {}).get('c') or 0)}</b>\n"
-                    f"• Phase B pending repairs: <b>{int((pending or {}).get('c') or 0)}</b>\n"
-                    f"• Replay queue: <b>{int((replay_q or {}).get('c') or 0)}</b>\n"
-                    f"• Dead letters: <b>{int((dead or {}).get('c') or 0)}</b>"
+                    f"• Phase B pending/running: <b>{h['pending']}</b>/<b>{h['running']}</b>\n"
+                    f"• Repairs 24h (ok/failed): <b>{h['completed_24h']}</b>/<b>{h['failed_24h']}</b>\n"
+                    f"• Replay queue/dead letters: <b>{h['replay_q']}</b>/<b>{h['dead_q']}</b>\n"
+                    f"• Render breaker open: <b>{'yes' if h['breaker_open'] else 'no'}</b>\n"
+                    f"• Last repair: <b>{(last or {}).get('recipe_key') or 'none'}</b> → <b>{(last or {}).get('status') or 'none'}</b>"
                 )
                 return await tg.send_message(chat_id, msg, parse_mode='HTML')
             except Exception as e:
@@ -636,7 +638,9 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     cached = await asyncio.to_thread(db.fetchone, "SELECT artifact_id FROM render_cache WHERE tenant = 'ea_bot' AND render_request_hash = %s", (req_hash,))
                     __import__('os').makedirs(__import__('os').path.join(__import__('os').environ.get('EA_ATTACHMENTS_DIR', '/attachments'), 'artifacts'), exist_ok=True)
                     img_bytes = None
+                    art_id = None
                     if cached and __import__('os').path.exists(f'{__import__('os').environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png'):
+                        art_id = cached['artifact_id']
                         with open(f'{__import__('os').environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts/{cached['artifact_id']}.png', 'rb') as f:
                             img_bytes = f.read()
                     else:
@@ -650,7 +654,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     if img_bytes:
                         from app.outbox import enqueue_outbox
                         payload = {'type': 'photo', 'artifact_id': art_id, 'caption': safe_txt[:1000] + ('...' if len(safe_txt) > 1000 else ''), 'parse_mode': 'HTML'}
-                        await asyncio.to_thread(enqueue_outbox, tenant, chat_id, payload)
+                        await asyncio.to_thread(enqueue_outbox, tenant_name, chat_id, payload)
                         try:
                             await tg.delete_message(chat_id, res['message_id'])
                         except:
@@ -660,6 +664,37 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     _ea_fault = classify_markupgo_error(mg_err)
                     if _ea_fault in ('invalid_template_id', 'renderer_unavailable'):
                         open_markupgo_breaker(_ea_fault, skill='markupgo', location='poll_listener')
+                    # OODA self-heal: keep visual briefing available via direct HTML rendering when template path is unstable.
+                    try:
+                        from app.tools.markupgo_client import MarkupGoClient
+                        import uuid
+                        from app.outbox import enqueue_outbox
+                        plain = re.sub('<[^>]+>', '', txt)
+                        plain = plain[:3500]
+                        html_doc = (
+                            "<html><body style='margin:24px;font-family:Arial,sans-serif;'>"
+                            f"<div style='white-space:pre-wrap;font-size:22px;line-height:1.35;'>{html.escape(plain)}</div>"
+                            "</body></html>"
+                        )
+                        mg = MarkupGoClient()
+                        payload = {'source': {'type': 'html', 'data': html_doc}, 'options': {'format': 'png'}}
+                        img_bytes = await mg.render_image_buffer(payload)
+                        if img_bytes and img_bytes.startswith(b'\x89PNG'):
+                            art_id = str(uuid.uuid4())
+                            pdir = f"{__import__('os').environ.get('EA_ATTACHMENTS_DIR', '/attachments')}/artifacts"
+                            __import__('os').makedirs(pdir, exist_ok=True)
+                            with open(f'{pdir}/{art_id}.png', 'wb') as f:
+                                f.write(img_bytes)
+                            payload = {'type': 'photo', 'artifact_id': art_id, 'caption': safe_txt[:1000] + ('...' if len(safe_txt) > 1000 else ''), 'parse_mode': 'HTML'}
+                            await asyncio.to_thread(enqueue_outbox, tenant_name, chat_id, payload)
+                            try:
+                                await tg.delete_message(chat_id, res['message_id'])
+                            except:
+                                pass
+                            log_render_guard('renderer_html_fallback', _ea_fault, skill='markupgo', location='poll_listener')
+                            return
+                    except Exception as html_fb_err:
+                        log_render_guard('renderer_html_fallback_failed', str(html_fb_err)[:120], skill='markupgo', location='poll_listener')
                     try:
                         from app.supervisor import trigger_mum_brain
                         trigger_mum_brain(None, str(mg_err), fallback_mode='simplified-first', failure_class='renderer_fault', intent='brief_render', chat_id=str(chat_id))

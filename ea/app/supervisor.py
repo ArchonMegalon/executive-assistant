@@ -12,11 +12,39 @@ def trigger_mum_brain(db_conn, e_msg, fallback_mode="simplified-first", failure_
             db_conn = get_db()
         except: pass
 
+    def _db_commit(db):
+        try:
+            if hasattr(db, 'commit'):
+                db.commit()
+            elif hasattr(db, 'conn') and hasattr(db.conn, 'commit'):
+                db.conn.commit()
+        except:
+            pass
+
+    def _db_rollback(db):
+        try:
+            if hasattr(db, 'rollback'):
+                db.rollback()
+            elif hasattr(db, 'conn') and hasattr(db.conn, 'rollback'):
+                db.conn.rollback()
+        except:
+            pass
+
+    def _db_exec(db, query, params):
+        # Prefer execute() for DB manager wrappers that do not expose raw cursors.
+        if hasattr(db, 'execute'):
+            db.execute(query, params)
+            return
+        if hasattr(db, 'cursor'):
+            with db.cursor() as cur:
+                cur.execute(query, params)
+            return
+        raise AttributeError("db_execute_unavailable")
+
     if db_conn:
         try:
             # MANDATORY: Rollback dirty transactions before continuing
-            if hasattr(db_conn, 'rollback'): db_conn.rollback()
-            elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'rollback'): db_conn.conn.rollback()
+            _db_rollback(db_conn)
             logging.info("🧹 [L1: CHILD] DB transaction cleanly rolled back before fallback.")
         except: pass
         
@@ -30,23 +58,14 @@ def trigger_mum_brain(db_conn, e_msg, fallback_mode="simplified-first", failure_
                 
             sql_repair = "INSERT INTO repair_jobs (correlation_id, fault_class, recipe_key, status) VALUES (%s, %s, %s, %s)"
             
-            if hasattr(db_conn, 'cursor'):
-                with db_conn.cursor() as cur:
-                    cur.execute(sql_stuck, (intent, failure_class, 'inline_fallback', cid, ctx))
-                    cur.execute(sql_repair, (cid, failure_class, recipe_key, 'pending'))
-            elif hasattr(db_conn, 'execute'):
-                db_conn.execute(sql_stuck, (intent, failure_class, 'inline_fallback', cid, ctx))
-                db_conn.execute(sql_repair, (cid, failure_class, recipe_key, 'pending'))
+            _db_exec(db_conn, sql_stuck, (intent, failure_class, 'inline_fallback', cid, ctx))
+            _db_exec(db_conn, sql_repair, (cid, failure_class, recipe_key, 'pending'))
 
-            if hasattr(db_conn, 'commit'): db_conn.commit()
-            elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'commit'): db_conn.conn.commit()
+            _db_commit(db_conn)
             logging.info(f"📋 [PHASE B] Bounded repair recipe scheduled: {recipe_key}")
         except Exception as log_e:
             logging.error(f"⚠️ [MUM BRAIN] Failed to write event logs: {log_e}")
-            try:
-                if hasattr(db_conn, 'rollback'): db_conn.rollback()
-                elif hasattr(db_conn, 'conn') and hasattr(db_conn.conn, 'rollback'): db_conn.conn.rollback()
-            except: pass
+            _db_rollback(db_conn)
             
     # Phase A Registration
     register_delivery_session(cid, chat_id, fallback_mode)

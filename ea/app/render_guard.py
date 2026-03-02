@@ -75,6 +75,12 @@ def open_markupgo_breaker(reason: str, *, skill: str = "markupgo", location: str
     log_render_guard("breaker_open_optional_skill", reason, skill=skill, location=location, ttl_sec=ttl)
 
 
+def close_markupgo_breaker(reason: str = "recovered", *, skill: str = "markupgo", location: str = "unknown") -> None:
+    global _BREAKER_UNTIL
+    _BREAKER_UNTIL = 0.0
+    log_render_guard("breaker_closed", reason, skill=skill, location=location)
+
+
 def promote_known_good_template_if_needed(current_template_id: str, *, tenant: str = "ea_bot") -> str:
     template_id = (current_template_id or "").strip()
     known = known_good_template_ids()

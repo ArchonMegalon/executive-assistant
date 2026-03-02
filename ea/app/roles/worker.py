@@ -1,4 +1,5 @@
-import asyncio, traceback
+import asyncio, traceback, time, os
+from app.repair.engine import process_repair_jobs
 from app.queue import claim_update, mark_update_done, mark_update_error
 import app.poll_listener as pl
 
@@ -21,7 +22,16 @@ async def run_worker():
     # Keeps the watchdog thread from killing us
     asyncio.create_task(pl.heartbeat_pinger())
     
+    next_repair_tick = 0.0
     while True:
+        now = time.time()
+        if now >= next_repair_tick:
+            try:
+                await asyncio.to_thread(process_repair_jobs, 4)
+            except Exception:
+                pass
+            next_repair_tick = now + max(2.0, float(os.getenv("EA_MUM_BRAIN_TICK_SEC", "5")))
+
         job = None
         try:
             job = await asyncio.to_thread(claim_update)
