@@ -3,11 +3,8 @@ from __future__ import annotations
 import functools
 import inspect
 import json
-import logging
 import re
 from typing import Any
-
-LOG = logging.getLogger(__name__)
 
 SAFE_SIMPLIFIED_COPY = "Delivered in simplified mode today. Visual formatting is temporarily unavailable."
 SAFE_PLACEHOLDER_COPY = "Preparing your briefing in safe mode..."
@@ -60,26 +57,24 @@ def _sanitize_args(args: tuple[Any, ...], kwargs: dict[str, Any], key: str, *, p
         kwargs = dict(kwargs)
         kwargs[key] = sanitize_telegram_text(kwargs.get(key), placeholder=placeholder)
         return args, kwargs
-
-    # Common bound-method layout: (self, chat_id, text, ...)
-    if key == 'text' and len(args) >= 3:
+    if key in {"text", "message", "body"} and len(args) >= 3 and isinstance(args[2], (str, dict, list, tuple)):
         tmp = list(args)
         tmp[2] = sanitize_telegram_text(tmp[2], placeholder=placeholder)
         return tuple(tmp), kwargs
-
-    # Common caption layout: (self, chat_id, photo, caption, ...)
-    if key == 'caption' and len(args) >= 4:
+    if key == "caption" and len(args) >= 4 and isinstance(args[3], (str, dict, list, tuple)):
         tmp = list(args)
         tmp[3] = sanitize_telegram_text(tmp[3], placeholder=placeholder)
         return tuple(tmp), kwargs
-
+    if key in {"text", "message", "body"} and len(args) >= 2 and isinstance(args[1], (str, dict, list, tuple)):
+        tmp = list(args)
+        tmp[1] = sanitize_telegram_text(tmp[1], placeholder=placeholder)
+        return tuple(tmp), kwargs
     return args, kwargs
 
 
 def _wrap_method(fn, key: str, *, placeholder: bool = False):
-    if getattr(fn, '_ea_safe_wrapped', False):
+    if getattr(fn, "_ea_safe_wrapped", False):
         return fn
-
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
         async def async_wrapper(*args, **kwargs):
@@ -87,7 +82,6 @@ def _wrap_method(fn, key: str, *, placeholder: bool = False):
             return await fn(*a, **k)
         async_wrapper._ea_safe_wrapped = True  # type: ignore[attr-defined]
         return async_wrapper
-
     @functools.wraps(fn)
     def sync_wrapper(*args, **kwargs):
         a, k = _sanitize_args(args, kwargs, key, placeholder=placeholder)
@@ -96,43 +90,18 @@ def _wrap_method(fn, key: str, *, placeholder: bool = False):
     return sync_wrapper
 
 
-def install_telegram_safety() -> list[str]:
+def install_telegram_safety(target: Any) -> list[str]:
     patched: list[str] = []
-
-    try:
-        from telegram import Bot, Message  # type: ignore
-
-        for name, key in (
-            ('send_message', 'text'),
-            ('edit_message_text', 'text'),
-            ('send_photo', 'caption'),
-            ('send_document', 'caption'),
-        ):
-            if hasattr(Bot, name):
-                setattr(Bot, name, _wrap_method(getattr(Bot, name), key))
-        if hasattr(Message, 'reply_text'):
-            Message.reply_text = _wrap_method(Message.reply_text, 'text')
-        patched.append('python-telegram-bot')
-    except Exception:
-        pass
-
-    try:
-        from aiogram import Bot as AioBot  # type: ignore
-
-        for name, key in (
-            ('send_message', 'text'),
-            ('edit_message_text', 'text'),
-            ('send_photo', 'caption'),
-            ('send_document', 'caption'),
-        ):
-            if hasattr(AioBot, name):
-                setattr(AioBot, name, _wrap_method(getattr(AioBot, name), key))
-        patched.append('aiogram')
-    except Exception:
-        pass
-
-    if patched:
-        LOG.info('EA Telegram safety installed for: %s', ', '.join(patched))
-    else:
-        LOG.info('EA Telegram safety bootstrap loaded; no supported Telegram SDK detected for monkeypatching')
+    for name, key in (
+        ("send_message", "text"),
+        ("edit_message_text", "text"),
+        ("reply_text", "text"),
+        ("send", "text"),
+        ("edit", "text"),
+        ("send_photo", "caption"),
+        ("send_document", "caption"),
+    ):
+        if hasattr(target, name):
+            setattr(target, name, _wrap_method(getattr(target, name), key))
+            patched.append(name)
     return patched
