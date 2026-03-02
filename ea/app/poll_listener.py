@@ -14,6 +14,7 @@ from app.sepa_qr import generate_epc_qr
 from app.sepa_xml import generate_pain001_xml
 from app.open_loops import OpenLoops
 from app.briefings import build_briefing_for_tenant, get_val, call_llm, call_powerful_llm
+from app.articles_digest import fetch_browseract_articles, select_interesting, render_articles_pdf, collect_user_signal_terms
 from app.memory import get_button_context, save_button_context
 from app.render_guard import classify_markupgo_error, log_render_guard, markupgo_breaker_open, open_markupgo_breaker, promote_known_good_template_if_needed
 from app.repair.healer import system_health_snapshot
@@ -171,6 +172,43 @@ async def check_security(chat_id: int) -> tuple[str, dict]:
     except:
         pass
     return (None, None)
+
+
+async def _send_browseract_articles_pdf(chat_id: int, tenant_name: str, tenant_cfg: dict, *, force: bool = False) -> bool:
+    try:
+        signal_terms = await collect_user_signal_terms(
+            openclaw_container=get_val(tenant_cfg, 'openclaw_container', ''),
+            google_account=get_val(tenant_cfg, 'google_account', ''),
+        )
+        tenant_candidates = [
+            tenant_name,
+            get_val(tenant_cfg, 'key', ''),
+            get_val(tenant_cfg, 'google_account', ''),
+            'tibor.girschele',
+            'ea_bot',
+        ]
+        articles = await asyncio.to_thread(
+            fetch_browseract_articles,
+            tenant_candidates=[x for x in tenant_candidates if x],
+            lookback_days=7,
+            max_events=180,
+        )
+        picked = select_interesting(articles, max_items=12, signal_terms=signal_terms)
+        if not picked:
+            if force:
+                await tg.send_message(chat_id, '🗞️ No recent BrowserAct articles found yet for Economist/Atlantic/NYT.')
+            return False
+        title = f"Executive Reading Brief | {datetime.now().strftime('%Y-%m-%d')}"
+        pdf_bytes = await render_articles_pdf(picked, title=title)
+        filename = f"EA_Reading_Brief_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        caption = f"🗞️ <b>{len(picked)} interesting articles</b> from Economist / Atlantic / NYT."
+        await tg.send_document(chat_id, pdf_bytes, filename, caption=caption, parse_mode='HTML')
+        return True
+    except Exception as e:
+        log_render_guard('articles_pdf_failed', str(e)[:140], location='poll_listener')
+        if force:
+            await tg.send_message(chat_id, f'⚠️ Articles PDF failed: {_safe_err(e)}')
+        return False
 
 def build_dynamic_ui(report_text: str, context_prompt: str, fwd_name: str=None) -> dict:
     kb = []
@@ -572,6 +610,17 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 return await tg.send_message(chat_id, msg, parse_mode='HTML')
             except Exception as e:
                 return await tg.send_message(chat_id, f'⚠️ Mum Brain status error: {_safe_err(e)}')
+        if cmd in ('/briefpdf', '/articlespdf'):
+            wait_msg = await tg.send_message(chat_id, '🗞️ <i>Building reading PDF from BrowserAct...</i>', parse_mode='HTML')
+            sent = await _send_browseract_articles_pdf(chat_id, tenant_name, t, force=True)
+            if sent:
+                try:
+                    await tg.delete_message(chat_id, wait_msg.get('message_id'))
+                except Exception:
+                    pass
+            else:
+                await tg.edit_message_text(chat_id, wait_msg['message_id'], '🗞️ No qualifying Economist/Atlantic/NYT BrowserAct articles in the last 7 days.', parse_mode='HTML')
+            return
         if cmd == '/remember':
             rem_text = text[len('/remember'):].strip()
             if not rem_text:
@@ -655,6 +704,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                         from app.outbox import enqueue_outbox
                         payload = {'type': 'photo', 'artifact_id': art_id, 'caption': safe_txt[:1000] + ('...' if len(safe_txt) > 1000 else ''), 'parse_mode': 'HTML'}
                         await asyncio.to_thread(enqueue_outbox, tenant_name, chat_id, payload)
+                        asyncio.create_task(safe_task('Articles PDF', _send_browseract_articles_pdf(chat_id, tenant_name, t)))
                         try:
                             await tg.delete_message(chat_id, res['message_id'])
                         except:
@@ -708,6 +758,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                         safe_txt += '\n\n📝 <i>Visual template unavailable, switched to safe text mode.</i>'
                 try:
                     await tg.edit_message_text(chat_id, res['message_id'], safe_txt, parse_mode='HTML', reply_markup=markup, disable_web_page_preview=True)
+                    asyncio.create_task(safe_task('Articles PDF', _send_browseract_articles_pdf(chat_id, tenant_name, t)))
                 except Exception as tg_err:
                     print(f'Telegram HTML Parse Error: {tg_err}', flush=True)
                     import html as pyhtml

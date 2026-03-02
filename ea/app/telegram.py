@@ -48,7 +48,8 @@ class TelegramClient:
     async def send_document(self, chat_id: int, doc_bytes: bytes, filename: str, caption: str = "", parse_mode: str = "HTML", reply_markup: dict = None):
         data = {"chat_id": str(chat_id), "caption": caption, "parse_mode": parse_mode}
         if reply_markup: data["reply_markup"] = json.dumps(reply_markup)
-        async with httpx.AsyncClient(timeout=60.0) as c: return (await c.post(self._url("sendDocument"), data=data, files={"document": (filename, doc_bytes, "application/xml")})).json().get("result", {})
+        mime = "application/pdf" if str(filename).lower().endswith(".pdf") else "application/octet-stream"
+        async with httpx.AsyncClient(timeout=60.0) as c: return (await c.post(self._url("sendDocument"), data=data, files={"document": (filename, doc_bytes, mime)})).json().get("result", {})
 
     async def delete_message(self, chat_id: int, message_id: int):
         async with httpx.AsyncClient(timeout=10.0) as c: await c.get(self._url("deleteMessage"), params={"chat_id": chat_id, "message_id": message_id})
