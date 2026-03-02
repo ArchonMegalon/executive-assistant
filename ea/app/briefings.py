@@ -497,20 +497,22 @@ async def v19_meta_ai_wrapper(*args, **kwargs):
     res = await _orig_build_v19(*args, **kwargs)
 
     if isinstance(res, str):
-        # v1.12.1 SUPERVISED ESCALATION (Mum Brain Boundary)
-        if "MarkupGo" in str(res) or "FST_ERR_VALIDATION" in str(res):
-            import re as regex
-            try:
-                from app.supervisor import trigger_mum_brain
-                # L1 gives up, L2 steps in. Sync fallback to user, async logging to DB.
-                cid = trigger_mum_brain(None, "MarkupGo HTTP 400 Validation Error", fallback="telegram_text", failure_class="markup_api_400", intent="render_visuals")
-                res = regex.sub(r'⚙️\s*OODA Diagnostic \(Rendering\):.*', '', res, flags=regex.DOTALL).strip()
-                res = f"⚠️ *Degraded Service*\nVisual rendering failed (Ticket `{cid}`). Showing plain text fallback.\n\n" + res
-            except Exception as e:
-                res = regex.sub(r'⚙️\s*OODA Diagnostic \(Rendering\):.*', '', res, flags=regex.DOTALL).strip()
-                res = f"⚠️ *Degraded Service*\nVisual rendering failed. (Fallback error: {e})\n\n" + res
-
-        # 2. Coaching MetaSurvey Übernahme
+        # v1.12.5 SUPERVISED ESCALATION (Phase A & B Boundary)
+                if isinstance(res, str) and ("MarkupGo" in res or "FST_ERR_VALIDATION" in res or "statusCode" in res):
+                    try:
+                        from app.supervisor import trigger_mum_brain
+                        from app.telegram.safety import sanitize_for_telegram
+                        import builtins
+                        db = getattr(builtins, '_ooda_global_db', None)
+                        
+                        # Phase B Queueing (status-first for loading experience since we lack a full body)
+                        mode = "status-first" if len(res) < 300 else "simplified-first"
+                        cid = trigger_mum_brain(db, res, fallback_mode=mode, failure_class="markup_api_400", intent="render_visuals")
+                        
+                        # Phase A Fast Path (Sanitized)
+                        res = sanitize_for_telegram(res, cid, mode=mode)
+                    except Exception as e:
+                        res = "⏳ *Preparing your briefing in safe mode...*\n_(Formatting repair running in background.)_"
         try:
             from app.db import get_db
             db = get_db()
