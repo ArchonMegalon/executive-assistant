@@ -303,27 +303,7 @@ class AIDatabaseProxy:
             if _universal_heal(self._db, e, query): return self._db.execute(query, *safe_args, **kwargs)
             raise e
 
-# =================================================================
-# 🌐 GLOBAL APP-CATCHER (Hooks into builtins.print)
-# =================================================================
-if not hasattr(builtins, '_meta_ooda_hooked'):
-    _orig_print = builtins.print
-    def _ooda_print(*args, **kwargs):
-        _orig_print(*args, **kwargs)
-        text = " ".join(str(a) for a in args)
-        
-        # Ignoriere Type-Errors, da diese vom Pre-Emptive Caster im Hintergrund behoben werden
-        if "[META-OODA" in text or "can't adapt type" in text: return
-        
-        db = getattr(builtins, '_ooda_global_db', None)
-        if not db: return
-        
-        err_keywords = ["failed:", "error:", "act:", "invalid", "http 4", "validation", "bad request", "fst_err"]
-        if any(kw in text.lower() for kw in err_keywords):
-            _universal_heal(db, text)
-            
-    builtins.print = _ooda_print
-    builtins._meta_ooda_hooked = True
+
 
 def get_db(*args, **kwargs):
     raw = _raw_get_db(*args, **kwargs)

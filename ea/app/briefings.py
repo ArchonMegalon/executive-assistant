@@ -423,7 +423,12 @@ async def call_llm_async(prompt, *args, **kwargs):
         while True:
             ticks += 1
             try:
-                msg = f"▶️ Synthesizing Executive Action Report... {emojis[ticks % len(emojis)]} ({ticks * 2}s)"
+                elapsed = ticks * 2
+                sub = ''
+                if elapsed >= 12: sub = '\n\n🚨 <i>[Timeout]: All neural uplinks dead. Graceful Fallback...</i>'
+                elif elapsed >= 8: sub = '\n\n🧠 <i>[OODA]: Attempting internal WAF Bypass...</i>'
+                elif elapsed >= 4: sub = '\n\n📡 <i>[Network]: Contacting Cognitive Router...</i>'
+                msg = f'▶️ <b>Synthesizing Executive Action...</b> {emojis[ticks % len(emojis)]} ({elapsed}s){sub}'
                 
                 # Awaitable check (entscheidend für asynchrone Telegram API updates)
                 res = status_cb(msg)
