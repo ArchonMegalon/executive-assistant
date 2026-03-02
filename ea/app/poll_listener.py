@@ -15,7 +15,7 @@ from app.sepa_xml import generate_pain001_xml
 from app.open_loops import OpenLoops
 from app.briefings import build_briefing_for_tenant, get_val, call_llm, call_powerful_llm
 from app.memory import get_button_context, save_button_context
-from app.render_guard import classify_markupgo_error, log_render_guard, markupgo_breaker_open, open_markupgo_breaker
+from app.render_guard import classify_markupgo_error, log_render_guard, markupgo_breaker_open, open_markupgo_breaker, promote_known_good_template_if_needed
 from app.policy.household import gate_household_document_action
 LAST_HEARTBEAT = time.time()
 
@@ -551,6 +551,25 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 return await tg.send_message(chat_id, '\n'.join(lines), parse_mode='HTML')
             except Exception as e:
                 return await tg.send_message(chat_id, f'⚠️ Brain error: {_safe_err(e)}')
+        if cmd == '/mumbrain':
+            try:
+                from app.db import get_db
+
+                db = get_db()
+                pending = db.fetchone("SELECT count(*) AS c FROM repair_jobs WHERE status = 'pending'")
+                active = db.fetchone("SELECT count(*) AS c FROM delivery_sessions WHERE status = 'active'")
+                replay_q = db.fetchone("SELECT count(*) AS c FROM replay_events WHERE status IN ('queued', 'retry')")
+                dead = db.fetchone("SELECT count(*) AS c FROM replay_events WHERE status = 'deadletter'")
+                msg = (
+                    "🧠 <b>Mum Brain Status</b>\n\n"
+                    f"• Phase A active deliveries: <b>{int((active or {}).get('c') or 0)}</b>\n"
+                    f"• Phase B pending repairs: <b>{int((pending or {}).get('c') or 0)}</b>\n"
+                    f"• Replay queue: <b>{int((replay_q or {}).get('c') or 0)}</b>\n"
+                    f"• Dead letters: <b>{int((dead or {}).get('c') or 0)}</b>"
+                )
+                return await tg.send_message(chat_id, msg, parse_mode='HTML')
+            except Exception as e:
+                return await tg.send_message(chat_id, f'⚠️ Mum Brain status error: {_safe_err(e)}')
         if cmd == '/remember':
             rem_text = text[len('/remember'):].strip()
             if not rem_text:
@@ -608,6 +627,9 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     template_id = row['template_id'] if row else ''
                     if not template_id:
                         raise ValueError("OODA: No active template found for 'briefing.image'. Act: Run SQL: INSERT INTO template_registry (tenant, key, provider, template_id) VALUES ('ea_bot', 'briefing.image', 'markupgo', 'YOUR_ID');")
+                    template_id = promote_known_good_template_if_needed(str(template_id), tenant='ea_bot')
+                    if str(template_id).strip().lower().startswith('ooda_auto_tpl_') or str(template_id).strip().upper() == 'YOUR_ID':
+                        raise RuntimeError("EA render guard: markupgo template not configured")
                     context = {'briefing_text': txt}
                     options = {'format': 'png'}
                     req_hash = render_request_hash(template_id, context, options, 'png')
@@ -638,6 +660,11 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     _ea_fault = classify_markupgo_error(mg_err)
                     if _ea_fault in ('invalid_template_id', 'renderer_unavailable'):
                         open_markupgo_breaker(_ea_fault, skill='markupgo', location='poll_listener')
+                    try:
+                        from app.supervisor import trigger_mum_brain
+                        trigger_mum_brain(None, str(mg_err), fallback_mode='simplified-first', failure_class='renderer_fault', intent='brief_render', chat_id=str(chat_id))
+                    except Exception:
+                        pass
                     log_render_guard('renderer_text_only', _ea_fault, skill='markupgo', location='poll_listener')
                     # Keep raw renderer diagnostics in logs, not in normal user-visible briefings.
                     if str((os.getenv('EA_RENDER_DIAGNOSTIC_TO_CHAT', '') or '')).strip().lower() in ('1', 'true', 'yes', 'on'):

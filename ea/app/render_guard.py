@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 _INVALID_TEMPLATE_RE = re.compile(r"(?i)(invalid template id|source/data/id:\s*invalid template id|template[_ /-]?id)")
@@ -72,3 +73,43 @@ def open_markupgo_breaker(reason: str, *, skill: str = "markupgo", location: str
     ttl = max(60, int(os.getenv("EA_MARKUPGO_BREAKER_TTL_SEC", "21600")))
     _BREAKER_UNTIL = max(_BREAKER_UNTIL, _now() + ttl)
     log_render_guard("breaker_open_optional_skill", reason, skill=skill, location=location, ttl_sec=ttl)
+
+
+def promote_known_good_template_if_needed(current_template_id: str, *, tenant: str = "ea_bot") -> str:
+    template_id = (current_template_id or "").strip()
+    known = known_good_template_ids()
+    if not known:
+        return template_id
+    is_placeholder = (not template_id) or template_id.lower().startswith("ooda_auto_tpl_") or template_id.upper() == "YOUR_ID"
+    if (not is_placeholder) and template_id in known:
+        return template_id
+    candidate = known[0]
+    try:
+        from app.db import get_db
+
+        now = datetime.now(timezone.utc)
+        get_db().execute(
+            """
+            INSERT INTO template_registry (tenant, key, provider, template_id, is_active, version)
+            VALUES (%s, 'briefing.image', 'markupgo', %s, TRUE, 999)
+            ON CONFLICT (tenant, key, provider)
+            DO UPDATE SET template_id = EXCLUDED.template_id, is_active = TRUE
+            """,
+            (tenant, candidate),
+        )
+        # Keep ea_bot canonical row aligned too if tenant differs.
+        if tenant != "ea_bot":
+            get_db().execute(
+                """
+                INSERT INTO template_registry (tenant, key, provider, template_id, is_active, version)
+                VALUES ('ea_bot', 'briefing.image', 'markupgo', %s, TRUE, 999)
+                ON CONFLICT (tenant, key, provider)
+                DO UPDATE SET template_id = EXCLUDED.template_id, is_active = TRUE
+                """,
+                (candidate,),
+            )
+        log_render_guard("renderer_template_swap", "known_good_promoted", tenant=tenant, from_template=template_id or "none", to_template=candidate, ts=str(now))
+        return candidate
+    except Exception as exc:
+        log_render_guard("renderer_template_swap", "promotion_failed", tenant=tenant, err=str(exc)[:120])
+        return template_id
