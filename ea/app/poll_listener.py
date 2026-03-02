@@ -16,6 +16,7 @@ from app.open_loops import OpenLoops
 from app.briefings import build_briefing_for_tenant, get_val, call_llm, call_powerful_llm
 from app.memory import get_button_context, save_button_context
 from app.render_guard import classify_markupgo_error, log_render_guard, markupgo_breaker_open, open_markupgo_breaker
+from app.policy.household import gate_household_document_action
 LAST_HEARTBEAT = time.time()
 
 def _watchdog_loop():
@@ -122,6 +123,38 @@ def clean_html_for_telegram(text: str) -> str:
 
 def _safe_err(e) -> str:
     return html.escape(str(e), quote=False)
+
+
+def _household_confidence_for_message(chat_id: int, msg: dict) -> float:
+    try:
+        override = (os.getenv('EA_HOUSEHOLD_CONFIDENCE_OVERRIDE', '') or '').strip()
+        if override:
+            return max(0.0, min(1.0, float(override)))
+    except Exception:
+        pass
+    confidence = 0.99
+    chat_type = str((msg.get('chat') or {}).get('type') or '').lower()
+    if chat_type in ('group', 'supergroup', 'channel'):
+        confidence = min(confidence, 0.70)
+    if msg.get('forward_origin') or msg.get('forward_from') or msg.get('forward_from_chat'):
+        confidence = min(confidence, 0.70)
+    sender_id = str((msg.get('from') or {}).get('id') or '')
+    if sender_id and sender_id != str(chat_id):
+        confidence = min(confidence, 0.75)
+    return confidence
+
+
+def _message_document_ref(chat_id: int, msg: dict, doc: dict | None, photo: list | None) -> tuple[str, str]:
+    file_id = ''
+    if doc and doc.get('file_id'):
+        file_id = str(doc.get('file_unique_id') or doc.get('file_id') or '')
+    elif photo and isinstance(photo, list):
+        last = photo[-1] if photo else {}
+        file_id = str(last.get('file_unique_id') or last.get('file_id') or '')
+    message_id = str(msg.get('message_id') or '0')
+    document_id = file_id or f'chat{chat_id}_msg{message_id}'
+    raw_ref = f'telegram:chat:{chat_id}:message:{message_id}:file:{file_id or "none"}'
+    return document_id, raw_ref
 
 async def check_security(chat_id: int) -> tuple[str, dict]:
     t = get_tenant(chat_id)
@@ -359,6 +392,22 @@ async def handle_intent(chat_id: int, msg: dict):
         if is_image_calendar:
             res = await tg.send_message(chat_id, '🖼️ <b>Extracting schedule via 1min.ai gpt-4o...</b>', parse_mode='HTML')
             try:
+                document_id, raw_ref = _message_document_ref(chat_id, msg, doc, photo)
+                gate = gate_household_document_action(
+                    document_id=document_id,
+                    user_id=str(chat_id),
+                    confidence_score=_household_confidence_for_message(chat_id, msg),
+                    raw_document_ref=raw_ref,
+                    pipeline_stage='intent.image_calendar',
+                    correlation_id=f'hh-{chat_id}-{int(time.time() * 1000)}',
+                )
+                if not gate.get('action_allowed'):
+                    return await tg.edit_message_text(
+                        chat_id,
+                        res['message_id'],
+                        '🔒 <b>Household Safety Hold</b>\n\nA new family document needs review before action.',
+                        parse_mode='HTML',
+                    )
                 file_id = photo[-1]['file_id'] if photo else doc['file_id']
                 meta = await tg.get_file(file_id)
                 img_bytes = await tg.download_file_bytes(meta['file_path'])
@@ -376,6 +425,22 @@ async def handle_intent(chat_id: int, msg: dict):
         if is_invoice:
             res = await tg.send_message(chat_id, '💸 <b>Rechnung erkannt. Lese Daten (1min.ai gpt-4o)...</b>', parse_mode='HTML')
             try:
+                document_id, raw_ref = _message_document_ref(chat_id, msg, doc, photo)
+                gate = gate_household_document_action(
+                    document_id=document_id,
+                    user_id=str(chat_id),
+                    confidence_score=_household_confidence_for_message(chat_id, msg),
+                    raw_document_ref=raw_ref,
+                    pipeline_stage='intent.invoice',
+                    correlation_id=f'hh-{chat_id}-{int(time.time() * 1000)}',
+                )
+                if not gate.get('action_allowed'):
+                    return await tg.edit_message_text(
+                        chat_id,
+                        res['message_id'],
+                        '🔒 <b>Household Safety Hold</b>\n\nA new family document needs review before payment extraction.',
+                        parse_mode='HTML',
+                    )
                 file_id = doc['file_id'] if doc else photo[-1]['file_id']
                 meta = await tg.get_file(file_id)
                 file_bytes = await tg.download_file_bytes(meta['file_path'])
