@@ -525,8 +525,10 @@ import traceback
 
 async def build_briefing_for_tenant(*args, **kwargs):
     old_stdout = sys.stdout
+    old_stderr = sys.stderr
     captured_output = io.StringIO()
     sys.stdout = captured_output
+    sys.stderr = captured_output
     
     res = None
     exc = None
@@ -539,6 +541,7 @@ async def build_briefing_for_tenant(*args, **kwargs):
     finally:
         # 2. Output wieder freigeben
         sys.stdout = old_stdout
+        sys.stderr = old_stderr
         
     printed_str = captured_output.getvalue()
     if printed_str:
