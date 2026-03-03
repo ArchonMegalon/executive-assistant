@@ -709,15 +709,33 @@ def build_dynamic_ui(report_text: str, context_prompt: str, fwd_name: str=None) 
 async def handle_photo(chat_id: int, msg: dict):
     await handle_intent(chat_id, msg)
 
+
+def _openclaw_candidates(t: dict) -> list[str]:
+    configured = str(get_val(t, "openclaw_container", "") or "").strip()
+    env_default = str(os.environ.get("EA_DEFAULT_OPENCLAW_CONTAINER", "") or "").strip()
+    csv_fallback = str(os.environ.get("EA_OPENCLAW_FALLBACK_CONTAINERS", "") or "").strip()
+    candidates: list[str] = []
+    for raw in [configured, env_default]:
+        c = str(raw or "").strip()
+        if c and c not in candidates:
+            candidates.append(c)
+    if csv_fallback:
+        for item in csv_fallback.split(","):
+            c = str(item or "").strip()
+            if c and c not in candidates:
+                candidates.append(c)
+    # Last-resort defaults for common gateway naming.
+    for c in ("openclaw-gateway-tibor", "openclaw-gateway-family-girschele", "openclaw-gateway-liz", "openclaw-gateway"):
+        if c not in candidates:
+            candidates.append(c)
+    return candidates
+
+
 async def trigger_auth_flow(chat_id: int, email: str, t: dict, scopes: str=''):
     res = await tg.send_message(chat_id, f'🔄 Generating secure OAuth link for <b>{email}</b>...', parse_mode='HTML')
-    t_openclaw = get_val(t, 'openclaw_container', os.environ.get("EA_DEFAULT_OPENCLAW_CONTAINER", "openclaw-gateway"))
+    candidates = _openclaw_candidates(t or {})
     is_admin = bool(get_val(t, 'is_admin', False)) or str(chat_id) == str(get_admin_chat_id() or "")
     try:
-        await docker_exec(t_openclaw, ['pkill', '-f', 'gog'], user='root', timeout_s=8.0)
-        await asyncio.sleep(0.5)
-        await docker_exec(t_openclaw, ['gog', 'auth', 'remove', email], user='root', timeout_s=10.0)
-        await asyncio.sleep(0.5)
         scopes_arg = 'calendar' if 'cal' in scopes else 'gmail' if 'mail' in scopes else 'gmail,calendar,tasks'
         keyring_password = (
             getattr(settings, 'gog_keyring_password', None)
@@ -726,23 +744,34 @@ async def trigger_auth_flow(chat_id: int, email: str, t: dict, scopes: str=''):
         )
         if not keyring_password:
             raise RuntimeError('Missing GOG_KEYRING_PASSWORD')
-        out_str = await docker_exec(
-            t_openclaw,
-            ['gog', 'auth', 'add', email, '--services', scopes_arg, '--remote', '--step', '1'],
-            user='root',
-            extra_env={'GOG_KEYRING_PASSWORD': keyring_password},
-            timeout_s=18.0,
-        )
-        m_url = re.search('(https://accounts\\.google\\.com/[^\\s"\\\'><]+)', out_str)
-        if m_url:
-            AUTH_SESSIONS.set(chat_id, {'email': email, 'openclaw': t_openclaw, 'services': scopes_arg, 'ts': time.time()})
-            admin_note = f'\n\n💡 <b>Admin Troubleshooting:</b>\nEnsure <code>{email}</code> is a Test User in Google Cloud.' if is_admin else ''
-            auth_msg = f"🔗 <b>Authorization Required</b>\n\n1. 👉 <b><a href='{m_url.group(1).replace('&amp;', '&').strip()}'>Click here to open Google Login</a></b> 👈\n2. Select <code>{email}</code>.\n3. Copy the broken '127.0.0.1' URL from your browser and paste it here.{admin_note}"
-            await tg.edit_message_text(chat_id, res['message_id'], auth_msg, parse_mode='HTML', disable_web_page_preview=True)
-        else:
-            ref = _incident_ref("AUTH")
-            print(f'AUTH ERROR [{ref}] step1 output={out_str[-1200:]}', flush=True)
-            await tg.edit_message_text(chat_id, res['message_id'], f'⚠️ <b>Auth Error.</b>\nReference: <code>{ref}</code>', parse_mode='HTML')
+        last_output = ""
+        for t_openclaw in candidates:
+            try:
+                await docker_exec(t_openclaw, ['pkill', '-f', 'gog'], user='root', timeout_s=8.0)
+                await asyncio.sleep(0.25)
+                await docker_exec(t_openclaw, ['gog', 'auth', 'remove', email], user='root', timeout_s=10.0)
+                await asyncio.sleep(0.25)
+                out_str = await docker_exec(
+                    t_openclaw,
+                    ['gog', 'auth', 'add', email, '--services', scopes_arg, '--remote', '--step', '1'],
+                    user='root',
+                    extra_env={'GOG_KEYRING_PASSWORD': keyring_password},
+                    timeout_s=18.0,
+                )
+                m_url = re.search('(https://accounts\\.google\\.com/[^\\s"\\\'><]+)', out_str)
+                if m_url:
+                    AUTH_SESSIONS.set(chat_id, {'email': email, 'openclaw': t_openclaw, 'services': scopes_arg, 'ts': time.time()})
+                    admin_note = f'\n\n💡 <b>Admin Troubleshooting:</b>\nEnsure <code>{email}</code> is a Test User in Google Cloud.' if is_admin else ''
+                    auth_msg = f"🔗 <b>Authorization Required</b>\n\n1. 👉 <b><a href='{m_url.group(1).replace('&amp;', '&').strip()}'>Click here to open Google Login</a></b> 👈\n2. Select <code>{email}</code>.\n3. Copy the broken '127.0.0.1' URL from your browser and paste it here.{admin_note}"
+                    await tg.edit_message_text(chat_id, res['message_id'], auth_msg, parse_mode='HTML', disable_web_page_preview=True)
+                    return
+                last_output = out_str[-1200:]
+            except Exception as loop_err:
+                last_output = str(loop_err)[-1200:]
+
+        ref = _incident_ref("AUTH")
+        print(f'AUTH ERROR [{ref}] step1_no_url containers={candidates} output={last_output}', flush=True)
+        await tg.edit_message_text(chat_id, res['message_id'], f'⚠️ <b>Auth Error.</b>\nReference: <code>{ref}</code>', parse_mode='HTML')
     except Exception as e:
         ref = _incident_ref("AUTH")
         print(f'AUTH ERROR [{ref}] exception={traceback.format_exc()}', flush=True)

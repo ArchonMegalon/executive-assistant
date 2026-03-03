@@ -81,6 +81,10 @@ def get_tenant(chat_id):
                     t = _default_admin_from_tenants(tenants) or _fallback_admin_tenant()
                     t['telegram_chat_id'] = chat_id
                     t['google_account'] = u.get("email", t.get('google_account'))
+                    env_default_openclaw = os.environ.get("EA_DEFAULT_OPENCLAW_CONTAINER", "").strip()
+                    current_openclaw = str(t.get("openclaw_container", "") or "").strip()
+                    if env_default_openclaw and (not current_openclaw or current_openclaw.endswith("-demo") or current_openclaw == "openclaw-gateway"):
+                        t['openclaw_container'] = env_default_openclaw
                     return t
                 return TenantConfig({
                     "key": f"user_{chat_id}",
