@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from uuid import uuid4
+
+ROOT = Path(__file__).resolve().parents[1] / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.db import get_db
 from app.integrations.avomap.finalize import finalize_avomap_render_event
@@ -80,8 +86,27 @@ def test_v126_avomap() -> None:
     ready = svc.get_ready_asset(tenant=tenant, person_id=person, date_key=day)
     assert ready and str(ready.get("object_ref", "")).startswith("https://"), ready
 
+    person2 = "p2"
+    jobs_before = db.fetchone("SELECT COUNT(*) AS c FROM browser_jobs WHERE tenant=%s", (tenant,))
+    decision_p2 = svc.plan_for_briefing(tenant=tenant, person_id=person2, day_context=_ctx("Zurich"), date_key=day)
+    assert decision_p2["status"] in {"cache_hit", "existing_spec"}, decision_p2
+    jobs_after = db.fetchone("SELECT COUNT(*) AS c FROM browser_jobs WHERE tenant=%s", (tenant,))
+    assert int((jobs_after or {}).get("c") or 0) == int((jobs_before or {}).get("c") or 0), (jobs_before, jobs_after)
+    ready_p2 = svc.get_ready_asset(tenant=tenant, person_id=person2, date_key=day)
+    assert ready_p2 and str(ready_p2.get("object_ref") or "") == payload_ok["object_ref"], ready_p2
+
+    place_hist_ok = db.fetchone(
+        """
+        SELECT COUNT(*) AS c
+        FROM travel_place_history
+        WHERE tenant=%s AND person_id=%s
+        """,
+        (tenant, person),
+    )
+    assert int((place_hist_ok or {}).get("c") or 0) > 0, place_hist_ok
+
     tenant_fail = f"e2e_v126_fail_{uuid4().hex[:8]}"
-    day_fail = "2026-03-05"
+    day_fail = "2026-03-07"
     decision_fail = svc.plan_for_briefing(tenant=tenant_fail, person_id=person, day_context=_ctx("Geneva"), date_key=day_fail)
     assert decision_fail["status"] in {"dispatched", "existing_spec"}, decision_fail
     spec_fail = db.fetchone(
@@ -106,6 +131,15 @@ def test_v126_avomap() -> None:
 
     failed_row = db.fetchone("SELECT status FROM travel_video_specs WHERE spec_id=%s", (str(spec_fail["spec_id"]),))
     assert (failed_row or {}).get("status") == "failed", failed_row
+    fail_hist = db.fetchone(
+        """
+        SELECT COUNT(*) AS c
+        FROM travel_place_history
+        WHERE tenant=%s AND person_id=%s
+        """,
+        (tenant_fail, person),
+    )
+    assert int((fail_hist or {}).get("c") or 0) == 0, fail_hist
     p("[E2E][PASS] v1.12.6 avomap candidate/spec/job/finalize/idempotence")
 
 

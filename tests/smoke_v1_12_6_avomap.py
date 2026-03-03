@@ -10,6 +10,7 @@ APP = ROOT / "ea/app"
 SETTINGS = APP / "settings.py"
 MAIN = APP / "main.py"
 BROWSERACT = APP / "intake/browseract.py"
+EVENT_WORKER = APP / "workers/event_worker.py"
 BRIEFINGS = APP / "briefings.py"
 DB = APP / "db.py"
 SCHEMA = ROOT / "ea/schema/v1_12_6_avomap.sql"
@@ -25,7 +26,7 @@ AVOMAP_FILES = [
     APP / "integrations/avomap/finalize.py",
 ]
 
-for path in [SETTINGS, MAIN, BROWSERACT, BRIEFINGS, DB, E2E_SCRIPT, *AVOMAP_FILES]:
+for path in [SETTINGS, MAIN, BROWSERACT, EVENT_WORKER, BRIEFINGS, DB, E2E_SCRIPT, *AVOMAP_FILES]:
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.12.6 modules parse")
 
@@ -68,6 +69,9 @@ print("[SMOKE][HOST][PASS] AVOMAP_* settings wired")
 browseract_src = BROWSERACT.read_text(encoding="utf-8")
 assert "finalize_avomap_render_event" in browseract_src
 assert "startswith(\"avomap.\")" in browseract_src
+assert "status IN ('new', 'queued', 'retry', 'failed')" in browseract_src
+event_worker_src = EVENT_WORKER.read_text(encoding="utf-8")
+assert "status IN ('new', 'queued')" in event_worker_src
 print("[SMOKE][HOST][PASS] browseract finalize path wired")
 
 brief_src = BRIEFINGS.read_text(encoding="utf-8")

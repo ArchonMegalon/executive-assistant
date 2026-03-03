@@ -34,6 +34,41 @@ def _is_success(payload: dict[str, Any]) -> bool:
     return bool(_pick(payload, ("object_ref",), ("data", "object_ref"), ("asset_url",), ("data", "asset_url")))
 
 
+def _record_places(db, *, tenant: str, person_id: str, route_stops: list[dict[str, Any]]) -> None:
+    for stop in route_stops[:10]:
+        place_key = str(
+            stop.get("place_key")
+            or f"{str(stop.get('city') or '').strip().lower()}|{str(stop.get('country') or '').strip().lower()}"
+        ).strip()
+        if not place_key:
+            continue
+        db.execute(
+            """
+            INSERT INTO travel_place_history (
+                tenant, person_id, place_key, city, country, lat, lon, first_seen, last_seen, seen_count
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), 1)
+            ON CONFLICT (tenant, person_id, place_key)
+            DO UPDATE SET
+                city = COALESCE(EXCLUDED.city, travel_place_history.city),
+                country = COALESCE(EXCLUDED.country, travel_place_history.country),
+                lat = COALESCE(EXCLUDED.lat, travel_place_history.lat),
+                lon = COALESCE(EXCLUDED.lon, travel_place_history.lon),
+                last_seen = NOW(),
+                seen_count = travel_place_history.seen_count + 1
+            """,
+            (
+                tenant,
+                person_id,
+                place_key,
+                stop.get("city"),
+                stop.get("country"),
+                stop.get("lat"),
+                stop.get("lon"),
+            ),
+        )
+
+
 def finalize_avomap_render_event(
     *,
     event_id: str,
@@ -117,6 +152,24 @@ def finalize_avomap_render_event(
             """,
             (spec_id,),
         )
+        spec_row = db.fetchone(
+            """
+            SELECT person_id, route_json
+            FROM travel_video_specs
+            WHERE spec_id=%s
+            """,
+            (spec_id,),
+        ) or {}
+        person_id = str((spec_row or {}).get("person_id") or "").strip()
+        route_json = (spec_row or {}).get("route_json") or {}
+        if isinstance(route_json, str):
+            try:
+                route_json = json.loads(route_json)
+            except Exception:
+                route_json = {}
+        route_stops = route_json.get("stops") if isinstance(route_json, dict) else []
+        if person_id and isinstance(route_stops, list) and route_stops:
+            _record_places(db, tenant=tenant, person_id=person_id, route_stops=route_stops)
         return {"ok": True, "status": "completed", "spec_id": spec_id, "external_id": external_id}
 
     err = str(_pick(data, ("error",), ("message",), ("result", "error"), ("data", "error")) or "render_failed")

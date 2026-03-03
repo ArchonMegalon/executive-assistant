@@ -12,7 +12,7 @@ async def process_browseract_event(event_id: str):
             SET status='processing', updated_at=NOW()
             WHERE COALESCE(to_jsonb(external_events)->>'id', to_jsonb(external_events)->>'event_id')=%s
               AND (
-                  status IN ('queued', 'retry', 'failed')
+                  status IN ('new', 'queued', 'retry', 'failed')
                   OR (status='processing' AND updated_at < NOW() - INTERVAL '15 minutes')
               )
             RETURNING tenant, event_type, payload_json

@@ -288,10 +288,24 @@ class AvoMapService:
                     spec.cache_key,
                 ),
             )
+            spec_id = str((row or {}).get("spec_id") or "")
+            if spec_id:
+                # Keep cache-hit assets discoverable for the current day by linking
+                # the cached asset row to the current spec record.
+                self.db.execute(
+                    """
+                    UPDATE avomap_assets
+                    SET spec_id=%s, updated_at=NOW()
+                    WHERE tenant=%s
+                      AND cache_key=%s
+                      AND status='ready'
+                    """,
+                    (spec_id, tenant, cache_key),
+                )
             self._inc_ledger_cached(tenant, person_id, day)
             return {
                 "status": "cache_hit",
-                "spec_id": str((row or {}).get("spec_id") or ""),
+                "spec_id": spec_id,
                 "asset_id": str((cached or {}).get("asset_id") or ""),
                 "object_ref": str((cached or {}).get("object_ref") or ""),
                 "mode": mode,
@@ -407,7 +421,6 @@ class AvoMapService:
             """,
             (spec_id,),
         )
-        self._record_places(tenant, person_id, route_stops)
         self._inc_ledger_used(tenant, person_id, day)
         return {
             "status": "dispatched",
