@@ -12,6 +12,9 @@ from app.planner.proactive import ProactivePlanner
 from app.supervisor import trigger_mum_brain
 from app.repair.engine import process_repair_jobs
 from app.db import get_db
+from app.integrations.avomap.service import AvoMapService
+from app.integrations.avomap.finalize import finalize_avomap_render_event
+from app.settings import settings
 
 
 def p(msg: str) -> None:
@@ -228,6 +231,56 @@ def test_mum_brain() -> None:
     p('[REAL][PASS] Mum Brain autonomous repair pipeline functional')
 
 
+def test_v126_travel_video() -> None:
+    db = get_db()
+    svc = AvoMapService(db, enabled=True)
+    tenant = f"real_v126_{uuid4().hex[:8]}"
+    person = "p1"
+    day = "2026-03-06"
+    ctx = {
+        "home_base": {"lat": 48.2082, "lon": 16.3738, "city": "Vienna"},
+        "route_stops": [
+            {"label": "Zurich Airport", "city": "Zurich", "country": "CH", "lat": 47.4582, "lon": 8.5555},
+            {"label": "Zurich Hotel", "city": "Zurich", "country": "CH", "lat": 47.3769, "lon": 8.5417},
+            {"label": "Zurich HQ", "city": "Zurich", "country": "CH", "lat": 47.3780, "lon": 8.5400},
+        ],
+        "travel_email_hints": ["Flight booking to Zurich", "Hotel confirmation in Zurich"],
+    }
+    decision = svc.plan_for_briefing(tenant=tenant, person_id=person, day_context=ctx, date_key=day)
+    assert decision["status"] in {"dispatched", "existing_spec", "cache_hit"}, decision
+
+    spec = db.fetchone(
+        """
+        SELECT spec_id, cache_key
+        FROM travel_video_specs
+        WHERE tenant=%s AND person_id=%s AND date_key=%s
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (tenant, person, day),
+    )
+    assert spec and spec.get("spec_id"), spec
+
+    fin = finalize_avomap_render_event(
+        event_id=str(uuid4()),
+        tenant=tenant,
+        workflow=settings.avomap_browseract_workflow,
+        payload={
+            "status": "completed",
+            "spec_id": str(spec["spec_id"]),
+            "cache_key": str(spec.get("cache_key") or ""),
+            "object_ref": f"https://cdn.example.com/real/{uuid4().hex}.mp4",
+            "render_id": f"real-{uuid4().hex[:10]}",
+        },
+        db=db,
+    )
+    assert fin["status"] == "completed", fin
+
+    ready = svc.get_ready_asset(tenant=tenant, person_id=person, date_key=day)
+    assert ready and ready.get("object_ref"), ready
+    p("[REAL][PASS] v1.12.6 travel-video candidate/spec/job/asset flow")
+
+
 if __name__ == "__main__":
     test_v113()
     test_v114()
@@ -235,5 +288,6 @@ if __name__ == "__main__":
     test_v116()
     test_v117()
     test_v118()
+    test_v126_travel_video()
     test_mum_brain()
     p("[REAL][PASS] all milestone functional tests completed")

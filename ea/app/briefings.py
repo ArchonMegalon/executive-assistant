@@ -48,6 +48,50 @@ def get_val(obj, key, default=''):
         return obj.get(key, default)
     return getattr(obj, key, default)
 
+
+async def _avomap_prepare_card(
+    *,
+    tenant_key: str,
+    person_id: str,
+    calendar_events: list[dict],
+    travel_emails: list[dict],
+) -> tuple[str, dict | None]:
+    if not settings.avomap_enabled:
+        return "", None
+    try:
+        from app.db import get_db
+        from app.integrations.avomap.service import AvoMapService, build_day_context
+
+        svc = AvoMapService(get_db())
+        day_ctx = build_day_context(calendar_events=calendar_events, travel_emails=travel_emails)
+        decision = await asyncio.to_thread(
+            svc.plan_for_briefing,
+            tenant=str(tenant_key),
+            person_id=str(person_id),
+            day_context=day_ctx,
+        )
+        ready = await asyncio.to_thread(
+            svc.get_ready_asset,
+            tenant=str(tenant_key),
+            person_id=str(person_id),
+        )
+        if not ready:
+            return "", decision if isinstance(decision, dict) else None
+
+        mode = str((ready or {}).get("mode") or "").replace("_", " ").strip().title() or "Travel"
+        object_ref = str((ready or {}).get("object_ref") or "").strip()
+        if object_ref.startswith("http://") or object_ref.startswith("https://"):
+            link = f"\n<a href='{html.escape(object_ref, quote=True)}'>▶ Open travel video</a>"
+        elif object_ref:
+            link = f"\n<code>{html.escape(object_ref, quote=False)}</code>"
+        else:
+            link = ""
+        card = f"\n\n<b>Travel Video ({mode}):</b>{link}"
+        return card, decision if isinstance(decision, dict) else None
+    except Exception as e:
+        return "", {"status": "error", "error": str(e)[:120]}
+
+
 async def safe_gog(container, cmd, account, timeout=20.0):
     try:
         return await asyncio.wait_for(gog_cli(container, cmd, account), timeout=timeout)
@@ -311,6 +355,18 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         else:
             html_out += '<i>No critical items require your immediate attention.</i>\n\n'
         html_out += f'<b>Calendars:</b>\n{_sanitize_telegram_html(obj.get('calendar_summary', 'No upcoming events.'))}'
+        avomap_card, avomap_state = await _avomap_prepare_card(
+            tenant_key=str(t_key),
+            person_id=str(t_account or t_key),
+            calendar_events=list(clean_cal),
+            travel_emails=list(clean_mails),
+        )
+        if avomap_card:
+            html_out += avomap_card
+        elif isinstance(avomap_state, dict):
+            st = str(avomap_state.get('status') or '').strip()
+            if st:
+                diag_logs.append(f'🎬 AvoMap: {st}')
         if diag_logs:
             diag_str = '\n'.join(diag_logs)
             if len(diag_str) > 1000:
