@@ -18,6 +18,7 @@ pristine_creds.json
 # DBs & Attachments (Personal data)
 attachments/
 logs/
+config/*.local.yml
 
 # Backups & Patch Scripts
 backups/

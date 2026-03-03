@@ -1,12 +1,12 @@
 places:
-  - id: "billa_vienna"
-    name: "Billa"
-    lat: 48.2082
-    lon: 16.3738
+  - id: "sample_store"
+    name: "Sample Store"
+    lat: 0.0
+    lon: 0.0
     radius_m: 300
     suggestions:
       - key: "grocery_run"
-        notify_tenant: "tibor"
-        message: "You are near Billa!"
-        match_shopping_keywords: ["milk", "bread", "eggs", "beer"]
+        notify_tenant: "demo"
+        message: "You are near a grocery store."
+        match_shopping_keywords: ["milk", "bread", "eggs"]
         cooldown_minutes: 180

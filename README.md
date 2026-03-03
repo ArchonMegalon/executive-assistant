@@ -6,6 +6,7 @@ This bundle fixes the issues identified in the audit:
 - **Sudo ownership trap**: deploy script chowns to the real (non-root) operator.
 - **Rootless Docker support**: docker socket path configurable via `DOCKER_SOCK`.
 - **Ingest endpoints secured**: require `Authorization: Bearer $EA_INGEST_TOKEN`.
+- **Operator/debug endpoints secured**: require `Authorization: Bearer $EA_OPERATOR_TOKEN`.
 - **Better OCR for German scans**: installs `tesseract-ocr-deu`.
 - **Logging**: JSONL file logs + Postgres audit table + `/debug/audit` endpoint.
 - **Telegram**: sends daily briefing + a multi-select poll; listens for poll answers and reacts.
@@ -14,7 +15,8 @@ This bundle fixes the issues identified in the audit:
 
 1) Copy this folder to `/docker/EA` on your VPS.
 2) Create `.env` from `.env.example` and fill in secrets.
-3) Edit `config/tenants.yml` and set the right OpenClaw container names and Telegram chat IDs.
+3) Edit `config/tenants.yml` and `config/places.yml` with your local tenant/chat/location data.
+   Do not commit personal addresses, chat IDs, or geolocation coordinates.
 4) Deploy:
 
 ```bash
@@ -27,7 +29,11 @@ bash scripts/deploy.sh
 ```bash
 bash scripts/smoke.sh
 bash scripts/runbook.sh
+bash scripts/docker_e2e.sh
+bash scripts/docker_e2e_design_workflows.sh
 ```
+
+Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 
 ## Notes
 - The EA container joins the existing `openclaw-net` network to reach LiteLLM and to exec into OpenClaw containers via docker socket.

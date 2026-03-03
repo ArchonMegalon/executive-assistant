@@ -1,31 +1,10 @@
 tenants:
-  family:
-    display_name: Girschele Family
-    google_account: family@girschele.com
-    openclaw_container: openclaw-gateway-family-girschele
-  liz:
-    display_name: Liz
-    google_account: liz@girschele.com
-    ignore_list:
-    - Manfred
-    - Susi
-    include_family: true
-    openclaw_container: openclaw-gateway-liz
-    task_list_name: My Tasks
+  demo:
+    display_name: "Demo Tenant"
+    google_account: "user@example.com"
+    openclaw_container: "openclaw-gateway-demo"
+    include_family: false
+    task_list_name: "My Tasks"
+    tasks_enabled: false
     telegram:
       chat_id: 0
-  tibor:
-    display_name: Tibor
-    family_google_account: the.girscheles@gmail.com
-    family_openclaw_container: openclaw-gateway-tibor
-    google_account: tibor.girschele@gmail.com
-    ignore_list:
-    - Manfred
-    - Susi
-    include_family: true
-    liz_google_account: elisabeth.girschele@gmail.com
-    openclaw_container: openclaw-gateway-tibor
-    task_list_name: My Tasks
-    tasks_enabled: true
-    telegram:
-      chat_id: 1354554303
