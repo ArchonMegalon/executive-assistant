@@ -143,6 +143,35 @@ def init_db_sync() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_external_approvals_status ON external_approvals(status, updated_at DESC);
 
+        CREATE TABLE IF NOT EXISTS external_events (
+            event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant TEXT NOT NULL,
+            source TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL,
+            payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            status TEXT NOT NULL DEFAULT 'queued',
+            attempt_count INT NOT NULL DEFAULT 0,
+            next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_error TEXT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(tenant, source, dedupe_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ext_events_poll ON external_events(status, next_attempt_at);
+
+        CREATE TABLE IF NOT EXISTS delivery_sessions (
+            session_id SERIAL PRIMARY KEY,
+            correlation_id TEXT,
+            chat_id TEXT,
+            initial_message_id TEXT,
+            mode TEXT,
+            status TEXT,
+            enhancement_deadline_ts TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_delivery_sessions_corr ON delivery_sessions(correlation_id);
+
         CREATE TABLE IF NOT EXISTS location_events (
             id BIGSERIAL PRIMARY KEY,
             tenant TEXT NOT NULL,

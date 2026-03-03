@@ -1,11 +1,13 @@
 import logging, builtins, datetime
+from app.settings import settings
 
 def register_delivery_session(correlation_id, chat_id, mode):
     """v1.12.5: Tracks Phase A delivery so Mum Brain (Phase B) knows if it has an enhancement window."""
     db = getattr(builtins, '_ooda_global_db', None)
     if not db: return
     try:
-        deadline = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+        window_sec = int(getattr(settings, "avomap_late_attach_window_sec", 900) or 900)
+        deadline = datetime.datetime.utcnow() + datetime.timedelta(seconds=max(60, window_sec))
         sql = "INSERT INTO delivery_sessions (correlation_id, chat_id, mode, status, enhancement_deadline_ts) VALUES (%s, %s, %s, %s, %s)"
         
         if hasattr(db, 'execute'): db.execute(sql, (correlation_id, str(chat_id), mode, 'active', deadline))

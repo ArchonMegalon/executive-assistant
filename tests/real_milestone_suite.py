@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from uuid import uuid4
 
 from app.onboarding.service import OnboardingService
@@ -12,8 +14,8 @@ from app.planner.proactive import ProactivePlanner
 from app.supervisor import trigger_mum_brain
 from app.repair.engine import process_repair_jobs
 from app.db import get_db
+from app.intake.browseract import process_browseract_event
 from app.integrations.avomap.service import AvoMapService
-from app.integrations.avomap.finalize import finalize_avomap_render_event
 from app.settings import settings
 
 
@@ -261,20 +263,41 @@ def test_v126_travel_video() -> None:
     )
     assert spec and spec.get("spec_id"), spec
 
-    fin = finalize_avomap_render_event(
-        event_id=str(uuid4()),
-        tenant=tenant,
-        workflow=settings.avomap_browseract_workflow,
-        payload={
-            "status": "completed",
-            "spec_id": str(spec["spec_id"]),
-            "cache_key": str(spec.get("cache_key") or ""),
-            "object_ref": f"https://cdn.example.com/real/{uuid4().hex}.mp4",
-            "render_id": f"real-{uuid4().hex[:10]}",
-        },
-        db=db,
+    event_pk_col = "event_id"
+    has_legacy_id = db.fetchone(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name='external_events' AND column_name='id'
+        LIMIT 1
+        """
     )
-    assert fin["status"] == "completed", fin
+    if has_legacy_id:
+        event_pk_col = "id"
+    row = db.fetchone(
+        f"""
+        INSERT INTO external_events (tenant, source, event_type, dedupe_key, payload_json, status, next_attempt_at)
+        VALUES (%s, 'browseract', %s, %s, %s::jsonb, 'new', NOW())
+        RETURNING {event_pk_col}::text AS event_pk
+        """,
+        (
+            tenant,
+            settings.avomap_browseract_workflow,
+            str(uuid4()),
+            json.dumps(
+                {
+                    "status": "completed",
+                    "spec_id": str(spec["spec_id"]),
+                    "cache_key": str(spec.get("cache_key") or ""),
+                    "object_ref": f"https://cdn.example.com/real/{uuid4().hex}.mp4",
+                    "render_id": f"real-{uuid4().hex[:10]}",
+                }
+            ),
+        ),
+    )
+    event_pk = str((row or {}).get("event_pk") or "")
+    assert event_pk, row
+    asyncio.run(process_browseract_event(event_pk))
 
     ready = svc.get_ready_asset(tenant=tenant, person_id=person, date_key=day)
     assert ready and ready.get("object_ref"), ready
