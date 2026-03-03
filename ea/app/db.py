@@ -274,6 +274,8 @@ def init_db_sync() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        ALTER TABLE IF EXISTS browser_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE IF EXISTS browser_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
         CREATE INDEX IF NOT EXISTS idx_browser_jobs_ready ON browser_jobs(status, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS travel_place_history (

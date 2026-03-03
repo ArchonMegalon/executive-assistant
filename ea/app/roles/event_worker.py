@@ -11,21 +11,36 @@ async def run_event_worker():
     
     while True:
         try:
-            row = await asyncio.to_thread(db.fetchone, """
-                UPDATE external_events 
-                SET status = 'processing', updated_at = NOW() 
-                WHERE id = (
-                    SELECT id FROM external_events 
-                    WHERE status IN ('queued', 'retry') AND next_attempt_at <= NOW() 
-                    ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
-                ) RETURNING *;
-            """)
+            row = await asyncio.to_thread(
+                db.fetchone,
+                """
+                WITH picked AS (
+                    SELECT COALESCE(to_jsonb(e)->>'id', to_jsonb(e)->>'event_id') AS event_pk
+                    FROM external_events e
+                    WHERE status IN ('new', 'queued')
+                       OR (status IN ('retry', 'failed') AND next_attempt_at <= NOW())
+                       OR (status='processing' AND updated_at < NOW() - INTERVAL '15 minutes')
+                    ORDER BY created_at ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                )
+                UPDATE external_events e
+                SET status = 'processing', updated_at = NOW()
+                FROM picked
+                WHERE COALESCE(to_jsonb(e)->>'id', to_jsonb(e)->>'event_id') = picked.event_pk
+                RETURNING
+                    COALESCE(to_jsonb(e)->>'id', to_jsonb(e)->>'event_id') AS event_pk,
+                    e.source,
+                    e.tenant,
+                    e.payload_json
+                """,
+            )
             
             if not row:
                 await asyncio.sleep(2)
                 continue
                 
-            event_id, source, tenant, payload = row['id'], row['source'], row['tenant'], row['payload_json']
+            event_id, source, tenant, payload = row['event_pk'], row['source'], row['tenant'], row['payload_json']
             print(f"⚙️ Processing {source} for {tenant} (ID: {event_id})", flush=True)
             
             # Y3. Inbound adapters rule: 
@@ -53,7 +68,15 @@ async def run_event_worker():
                     VALUES ((SELECT chat_id FROM tenants WHERE id = %s LIMIT 1), %s)
                 """, (tenant, json.dumps({"text": f"🔔 <b>Generic Webhook Received</b>\nSource: {source}", "parse_mode": "HTML"})))
                 
-            await asyncio.to_thread(db.execute, "UPDATE external_events SET status = 'processed', updated_at = NOW() WHERE id = %s", (event_id,))
+            await asyncio.to_thread(
+                db.execute,
+                """
+                UPDATE external_events
+                SET status = 'processed', updated_at = NOW()
+                WHERE COALESCE(to_jsonb(external_events)->>'id', to_jsonb(external_events)->>'event_id') = %s
+                """,
+                (str(event_id),),
+            )
             print(f"✅ Event {event_id} successfully processed.", flush=True)
             
         except Exception as e:
