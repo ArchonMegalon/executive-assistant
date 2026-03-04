@@ -144,6 +144,7 @@ run_step "smoke_v1_20_execution_sessions" python3 tests/smoke_v1_20_execution_se
 run_step "smoke_v1_20_doc_alignment" python3 tests/smoke_v1_20_doc_alignment.py
 run_step "smoke_v1_20_typed_action_sessions" python3 tests/smoke_v1_20_typed_action_sessions.py
 run_step "smoke_v1_20_browseract_event_sessions" python3 tests/smoke_v1_20_browseract_event_sessions.py
+run_step "smoke_v1_20_external_event_sessions" python3 tests/smoke_v1_20_external_event_sessions.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py
 run_step "smoke_v1_19_3_briefing_runtime_behavior" python3 tests/smoke_v1_19_3_briefing_runtime_behavior.py

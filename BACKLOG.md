@@ -66,10 +66,13 @@ Branch: `main`
   - durable BrowserAct event processing now writes execution sessions.
   - event execution outcome (`processed`/`discarded`/`failed`) is persisted in session step results.
   - `smoke_v1_20_browseract_event_sessions.py` added and wired into host/docker/CI gates.
+- [DONE] MetaSurvey + ApproveThis event sessionization:
+  - durable MetaSurvey and ApproveThis event processors now write execution sessions.
+  - `smoke_v1_20_external_event_sessions.py` added and wired into host/docker/CI gates.
 
 ## Blocked
 - None.
 
 ## Next Queue (on new feedback)
 - [TODO] Evolve execution-session seed from free-text path into shared planner/session runtime
-  for slash-command execution paths and non-BrowserAct webhook processors.
+  for slash-command execution paths.

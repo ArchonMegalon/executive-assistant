@@ -53,10 +53,18 @@ be tracked as deterministic steps.
    - Session source: `external_event_browseract`.
    - Step tracking added for event execution and persistence outcome (`processed` / `discarded` / `failed`).
 
-7. Gate coverage:
+7. MetaSurvey + ApproveThis event sessionization:
+   - `ea/app/intake/metasurvey_feedback.py` now wraps webhook processing with execution sessions.
+   - `ea/app/approvals/normalizer.py` now wraps ApproveThis event normalization with execution sessions.
+   - Session sources:
+     - `external_event_metasurvey`
+     - `external_event_approvethis`
+
+8. Gate coverage:
    - `tests/smoke_v1_20_execution_sessions.py`
    - `tests/smoke_v1_20_typed_action_sessions.py`
    - `tests/smoke_v1_20_browseract_event_sessions.py`
+   - `tests/smoke_v1_20_external_event_sessions.py`
    - wired into:
      - `scripts/run_v119_smoke.sh`
      - `scripts/docker_e2e.sh`
