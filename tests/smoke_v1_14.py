@@ -11,6 +11,7 @@ REPLAY = ROOT / "ea/app/repair/replay_worker.py"
 EPICS = ROOT / "ea/app/intelligence/epics.py"
 MODES = ROOT / "ea/app/intelligence/modes.py"
 BRIEFINGS = ROOT / "ea/app/briefings.py"
+HUMAN_COMPOSE = ROOT / "ea/app/intelligence/human_compose.py"
 
 schema = SCHEMA.read_text(encoding="utf-8")
 for table in (
@@ -45,10 +46,12 @@ assert "epics:" in modes_src
 assert "epic_focus_mode" in modes_src
 
 brief_src = BRIEFINGS.read_text(encoding="utf-8")
+compose_src = HUMAN_COMPOSE.read_text(encoding="utf-8")
 assert "from app.intelligence.epics import (" in brief_src
 assert "build_epics_from_dossiers(profile_ctx, dossiers)" in brief_src
 assert "summarize_epic_deltas(previous_epics, epics)" in brief_src
 assert "save_epic_snapshot(epic_snapshot_path, epics)" in brief_src
-assert "<b>Active Epics:</b>" in brief_src
-assert "<b>Epic Deltas:</b>" in brief_src
+assert "from app.intelligence.human_compose import compose_briefing_html" in brief_src
+assert "<b>Active Epics:</b>" in compose_src
+assert "<b>What Changed:</b>" in compose_src
 print("[SMOKE][HOST][PASS] v1.14 epic narrative contracts wired")

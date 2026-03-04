@@ -37,6 +37,8 @@ jobs:
           python3 tests/smoke_v1_19_2_snapshot_persistence.py
           python3 tests/smoke_v1_19_2_llm_egress_policy.py
           python3 tests/smoke_v1_19_2_missingness.py
+          python3 tests/smoke_v1_19_3_human_compose_behavior.py
+          python3 tests/smoke_v1_19_3_source_acquisition_split.py
           python3 tests/smoke_v1_18_1_runtime_alignment.py
           python3 tests/smoke_newspaper_issue_pipeline.py
           python3 tests/smoke_newspaper_brief_wiring.py

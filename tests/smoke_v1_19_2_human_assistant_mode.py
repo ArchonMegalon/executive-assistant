@@ -16,22 +16,24 @@ def _pass(name: str) -> None:
 
 
 def test_briefing_uses_multi_dossier_compose() -> None:
-    src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
-    assert "build_health_dossier" in src
-    assert "build_household_ops_dossier" in src
-    assert "build_project_dossier" in src
-    assert "build_finance_commitment_dossier" in src
-    assert "build_critical_actions(profile_ctx, dossiers, future_situations=future_situations)" in src
-    assert "build_future_situations(" in src and "dossiers=dossiers" in src
-    assert "build_readiness_dossier(" in src and "dossiers=dossiers" in src
-    assert "No immediate action blocks detected right now." in src
-    assert "Runtime confidence is reduced; urgent status may be incomplete." in src
-    assert "Standard scan found no urgent items, but runtime confidence is reduced." not in src
-    assert "No critical items require your immediate attention." not in src
-    assert "Exposure/Decision score:" not in src
-    assert "Risk urgency:" in src
-    assert "Decision window:" in src
-    assert " | salience " not in src
+    brief_src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
+    compose_src = (ROOT / "ea/app/intelligence/human_compose.py").read_text(encoding="utf-8")
+    acq_src = (ROOT / "ea/app/intelligence/source_acquisition.py").read_text(encoding="utf-8")
+    assert "build_health_dossier" in brief_src
+    assert "build_household_ops_dossier" in brief_src
+    assert "build_project_dossier" in brief_src
+    assert "build_finance_commitment_dossier" in brief_src
+    assert "build_critical_actions(profile_ctx, dossiers, future_situations=future_situations)" in brief_src
+    assert "build_future_situations(" in brief_src and "dossiers=dossiers" in brief_src
+    assert "build_readiness_dossier(" in brief_src and "dossiers=dossiers" in brief_src
+    assert "from app.intelligence.human_compose import compose_briefing_html" in brief_src
+    assert "from app.intelligence.source_acquisition import collect_briefing_sources" in brief_src
+    assert "No immediate action blocks detected right now." in compose_src
+    assert "Runtime confidence is reduced; urgent status may be incomplete." in compose_src
+    assert "No critical items require your immediate attention." not in compose_src
+    assert "Risk urgency:" in compose_src
+    assert "Decision window:" in compose_src
+    assert "def collect_briefing_sources(" in acq_src
     _pass("v1.19.2 multi-dossier compose wiring")
 
 

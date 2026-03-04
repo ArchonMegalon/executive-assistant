@@ -114,7 +114,7 @@ optional design direction.
   - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_OUTPUT_CHARS`
-  - `EA_LLM_GATEWAY_TASK_TYPE`
+  - `EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE` (transition-only override)
   - `EA_LLM_GATEWAY_AUDIT_PATH`
 - Added host smoke: `tests/smoke_v1_19_1_llm_gateway_boundary.py`.
 
@@ -293,6 +293,32 @@ optional design direction.
   keeping PDF validation internals inline.
 - Updated wiring smoke:
   - `tests/smoke_newspaper_pdf_gate_wiring.py`
+
+24. v1.19.3 human composer + source-acquisition split
+- Added `ea/app/intelligence/human_compose.py` and moved user-facing section
+  assembly there (`compose_briefing_html(...)`).
+- Added `ea/app/intelligence/source_acquisition.py` and moved OpenClaw
+  source-fetching + filtering there (`collect_briefing_sources(...)`).
+- `ea/app/briefings.py` now orchestrates intelligence assembly and delegates:
+  - acquisition to source-acquisition module
+  - final user-surface compose to human composer module
+- Added behavioral host smokes:
+  - `tests/smoke_v1_19_3_human_compose_behavior.py`
+  - `tests/smoke_v1_19_3_source_acquisition_split.py`
+- Wired these into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
+25. v1.19.3 LLM gateway explicit task typing
+- `ea/app/contracts/llm_gateway.py` now requires explicit `task_type` by
+  default and blocks implicit calls with verdict `blocked_missing_task_type`.
+- Added transitional override env only:
+  - `EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE=true`
+- Updated gateway boundary smoke coverage:
+  - `tests/smoke_v1_19_1_llm_gateway_boundary.py`
+  - explicit task-type checks
+  - missing-task-type blocking behavior
 
 ## Rollout checklist
 

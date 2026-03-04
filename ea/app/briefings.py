@@ -2,10 +2,8 @@ from __future__ import annotations
 import os
 import re, json, asyncio, traceback, time, html
 from datetime import datetime, timezone, timedelta
-from app.gog import gog_cli, docker_exec
 from app.settings import settings
 from app.open_loops import OpenLoops
-from app.calendar_store import list_events_range
 from app.contracts.llm_gateway import ask_text as gateway_ask_text
 from app.contracts.repair import open_repair_incident
 from app.contracts.telegram import sanitize_incident_copy
@@ -29,36 +27,9 @@ from app.intelligence.future_situations import build_future_situations
 from app.intelligence.preparation_planner import build_preparation_plan
 from app.intelligence.readiness import build_readiness_dossier
 from app.intelligence.household_graph import build_household_graph, ensure_profile_isolation
-from app.intelligence.modes import mode_label, select_briefing_mode
-
-def _sanitize_telegram_html(text: str) -> str:
-    return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
-def _safe_extract_array(text: str) -> list:
-    try:
-        clean = re.sub('\\x1b\\[[0-9;]*m', '', text).strip()
-        start = -1
-        for i, c in enumerate(clean):
-            if c in '[{':
-                start = i
-                break
-        if start >= 0:
-            obj = json.loads(clean[start:])
-            if isinstance(obj, list):
-                return obj
-            if isinstance(obj, dict):
-                for k in ['items', 'messages', 'events', 'result', 'data']:
-                    if k in obj and isinstance(obj[k], list):
-                        return obj[k]
-    except:
-        pass
-    try:
-        m = re.search('\\[[\\s\\S]*\\]', text)
-        if m:
-            return json.loads(m.group(0))
-    except:
-        pass
-    return []
+from app.intelligence.modes import select_briefing_mode
+from app.intelligence.human_compose import compose_briefing_html
+from app.intelligence.source_acquisition import collect_briefing_sources
 
 def _safe_extract_obj(text: str) -> dict:
     try:
@@ -126,24 +97,6 @@ def _runtime_confidence_note() -> str | None:
     )
 
 
-def _score_band(score: int | float) -> str:
-    value = int(score or 0)
-    if value >= 75:
-        return "high"
-    if value >= 45:
-        return "medium"
-    return "low"
-
-
-def _decision_label(score: int | float) -> str:
-    value = int(score or 0)
-    if value >= 75:
-        return "act now"
-    if value >= 45:
-        return "soon"
-    return "monitor"
-
-
 async def _avomap_prepare_card(
     *,
     tenant_key: str,
@@ -180,13 +133,6 @@ async def _avomap_prepare_card(
         return "", {"status": "error", "error": str(e)[:120]}
 
 
-async def safe_gog(container, cmd, account, timeout=20.0):
-    try:
-        return await asyncio.wait_for(gog_cli(container, cmd, account), timeout=timeout)
-    except asyncio.TimeoutError:
-        await docker_exec(container, ["pkill", "-f", "gog"], user="root", timeout_s=8.0)
-        raise TimeoutError(f'CLI hung on command: {' '.join(cmd[:3])}')
-
 async def call_powerful_llm(prompt: str, temp=0.1, tenant: str = "", person_id: str = "") -> str:
     return await asyncio.to_thread(
         gateway_ask_text,
@@ -217,7 +163,6 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
             except:
                 pass
         ui_history.append(msg)
-    await _log('Discovering Authorized Google Accounts...')
     try:
         if settings.litellm_base_url:
             diag_logs.append('🔑 LLM Gateway: ✅ LiteLLM route configured.')
@@ -227,139 +172,16 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
             diag_logs.append('🔑 LLM Gateway: ⚠️ no provider credentials configured.')
     except Exception as e:
         diag_logs.append(f'🔑 LLM Gateway: ⚠️ status check error ({e})')
-    try:
-        raw_auths = await safe_gog(t_openclaw, ['auth', 'list'], '', timeout=10.0)
-        accounts = list(set(re.findall('[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+', raw_auths)))
-        if not accounts:
-            accounts = [t_account] if t_account else ['']
-        diag_logs.append(f'🔑 Accounts: {', '.join([a.split('@')[0] for a in accounts if a])}')
-    except Exception as e:
-        accounts = [t_account] if t_account else ['']
-        diag_logs.append(f'⚠️ Auth List Err: {str(e)[:50]}')
-    await _log('Fetching & Python Filtering Emails...')
-    clean_mails = []
-    junk_kws = ['eff', 'andrew lock', 'stack overflow', 'dodo', 'appsumo', 'dyson', 'facebook', 'linkedin', 'bestsecret', 'mediamarkt', 'voyage', 'babysits', 'stacksocial', 'digital trends', 'the futurist', 'newsletter', 'spiceworks', 'ikea', 'paypal', 'gog.com', 'steam', 'humble bundle', 'indie gala', 'promotions', 'penny', 'chummer', 'samsung', 'mtg', 'omi ai', 'omi', 'akupara', 'cinecenter', 'beta', 'early access', 'n8n', 'versandinformation', 'danke für', 'we got your full', 'out for delivery', 'ihre bestellung bei', 'paket kommt', 'order confirmed', 'wird zugestellt', 'hardloop', 'bergzeit', 'betzold', 'immmo', 'zalando', 'klarna', 'amazon', 'lieferando']
-    keep_kws = ['nicht zugestellt', 'wartet auf abholung', 'fehlgeschlagen', 'abholbereit', 'action required']
-    for acc in accounts:
-        try:
-            raw_mails = await safe_gog(t_openclaw, ['gmail', 'messages', 'search', 'newer_than:1d', '--max', '40', '--json'], acc, timeout=20.0)
-            mails = _safe_extract_array(raw_mails)
-            for m in mails:
-                raw_val = json.dumps(m, ensure_ascii=False).lower()
-                if any((kp in raw_val for kp in keep_kws)):
-                    m['_account'] = acc
-                    clean_mails.append(m)
-                    continue
-                if any((j in raw_val for j in junk_kws)):
-                    continue
-                m['_account'] = acc
-                clean_mails.append(m)
-        except Exception as e:
-            diag_logs.append(f'⚠️ Mails ({(acc.split('@')[0] if acc else 'def')}) Err: {str(e)[:30]}')
-    deduped_mails = []
-    seen_subj = set()
-    for m in clean_mails:
-        subj = str(m.get('subject', '')).lower().strip()[:80]
-        if subj not in seen_subj:
-            seen_subj.add(subj)
-            deduped_mails.append(m)
-    clean_mails = deduped_mails
-    await _log('Fetching Calendar Events (Rewinding to Midnight)...')
-    clean_cal = []
-    processed_events = set()
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
-    target_cals = []
-    for acc in accounts:
-        target_cals.append((acc, 'primary', 'primary'))
-        target_cals.append((acc, 'Executive Assistant', 'EA Shared'))
-    for acc, cid, cname in target_cals:
-        acc_lbl = acc.split('@')[0] if acc else 'def'
-        try:
-            flags_to_try = [['--timeMin', today_start], ['--time-min', today_start], ['--start', today_start], []]
-            events = []
-            # Try common gog list syntaxes and explicit calendar selection.
-            cmd_variants = [
-                ['calendar', 'events', '--max', '50', '--json', '--calendar', cid],
-                ['calendar', 'events', 'list', '--max', '50', '--json', '--calendar', cid],
-                ['calendar', 'events', '--calendar', cid, '--max', '50', '--json'],
-                ['calendar', 'events', '--max', '50', '--json'],
-            ]
-            last_err = None
-            for base_cmd in cmd_variants:
-                for flags in flags_to_try:
-                    cmd = base_cmd + flags
-                    try:
-                        raw_cal = await safe_gog(t_openclaw, cmd, acc, timeout=12.0)
-                        events = _safe_extract_array(raw_cal)
-                        if events:
-                            break
-                    except Exception as e:
-                        last_err = e
-                        continue
-                if events:
-                    break
-            if not events:
-                if last_err is not None:
-                    diag_logs.append(f"ℹ️ Cal '{cname}' ({acc_lbl}): 0 events (last err: {str(last_err)[:60]})")
-                else:
-                    diag_logs.append(f"ℹ️ Cal '{cname}' ({acc_lbl}): 0 events.")
-                continue
-            added = 0
-            for ev in events:
-                dt_str = ''
-                end_val = ev.get('end', {})
-                if isinstance(end_val, dict):
-                    dt_str = end_val.get('dateTime') or end_val.get('date') or ''
-                elif isinstance(end_val, str):
-                    dt_str = end_val
-                if dt_str:
-                    dt_str = dt_str.replace('Z', '+00:00')
-                    if ' ' in dt_str and '+' not in dt_str:
-                        dt_str = dt_str.replace(' ', 'T') + '+01:00'
-                    try:
-                        end_ts = datetime.fromisoformat(dt_str)
-                        if end_ts.tzinfo is None:
-                            end_ts = end_ts.replace(tzinfo=timezone.utc)
-                        if end_ts <= now - timedelta(days=7):
-                            continue
-                        ev_title = str(ev.get('summary') or ev.get('title') or '')
-                        dedupe_key = f'{ev_title}_{dt_str}'
-                        if dedupe_key not in processed_events:
-                            processed_events.add(dedupe_key)
-                            ev['_calendar'] = cname
-                            clean_cal.append(ev)
-                            added += 1
-                    except:
-                        clean_cal.append(ev)
-                        added += 1
-                else:
-                    clean_cal.append(ev)
-                    added += 1
-            diag_logs.append(f"✅ Cal '{cname}' ({acc_lbl}): kept {added} events.")
-        except Exception as e:
-            err_str = str(e).lower()
-            if 'not found' not in err_str and '404' not in err_str:
-                diag_logs.append(f"⚠️ Cal '{cname}' ({acc_lbl}) Err: {str(e)[:30]}")
+    source_bundle = await collect_briefing_sources(
+        openclaw_container=str(t_openclaw or ""),
+        primary_account=str(t_account or ""),
+        tenant_key=str(t_key or ""),
+        status_cb=_log,
+    )
+    clean_mails = list(source_bundle.mails or [])
+    clean_cal = list(source_bundle.calendar_events or [])
+    diag_logs.extend(list(source_bundle.diagnostics or []))
     await _log('Synthesizing Executive Action Report...')
-    # Fallback: if remote calendar fetch produced no events, use locally persisted imports.
-    if not clean_cal:
-        try:
-            now_utc = datetime.now(timezone.utc)
-            end_utc = now_utc + timedelta(days=2)
-            local_rows = list_events_range(t_key, now_utc - timedelta(hours=12), end_utc) or []
-            for r in local_rows:
-                clean_cal.append({
-                    "summary": str(r.get("title") or ""),
-                    "title": str(r.get("title") or ""),
-                    "start": {"dateTime": str(r.get("start_ts") or "")},
-                    "end": {"dateTime": str(r.get("end_ts") or "")},
-                    "_calendar": "EA Local",
-                })
-            if local_rows:
-                diag_logs.append(f"✅ Local calendar fallback ({t_key}): {len(local_rows)} events.")
-        except Exception as e:
-            diag_logs.append(f"⚠️ Local calendar fallback error: {str(e)[:40]}")
 
     confidence_note = _runtime_confidence_note()
     profile_ctx = build_profile_context(
@@ -485,89 +307,17 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         if not obj:
             raise ValueError('No valid JSON found in LLM response.')
         loops_txt, loop_btns = OpenLoops.get_dashboard(t_key)
-        html_out = '🎩 <b>Executive Action Briefing</b>\n\n'
-        html_out += f"<i>Mode:</i> { _sanitize_telegram_html(mode_label(compose_mode)) }\n\n"
-        immediate_actions = [str(x) for x in critical.actions if str(x).strip()]
-        if immediate_actions:
-            html_out += '<b>Immediate Action:</b>\n'
-            for a in immediate_actions[:4]:
-                html_out += f'• {_sanitize_telegram_html(a)}\n'
-            if critical.exposure_score or critical.decision_window_score:
-                html_out += (
-                    f"<i>Risk urgency:</i> {_sanitize_telegram_html(_score_band(critical.exposure_score).title())} | "
-                    f"<i>Decision window:</i> {_sanitize_telegram_html(_decision_label(critical.decision_window_score).title())}\n"
-                )
-            ev = [str(x) for x in critical.evidence if str(x).strip()]
-            if ev:
-                html_out += f"<i>Signal source:</i> {_sanitize_telegram_html(' | '.join(ev[:2]))}\n"
-            html_out += '\n'
-        if readiness.blockers:
-            html_out += "<b>Why It Matters:</b>\n"
-            for blocker in list(readiness.blockers)[:2]:
-                html_out += f"• {_sanitize_telegram_html(str(blocker))}\n"
-            html_out += "\n"
-        ranked_epics = rank_epics(epics)
-        if ranked_epics:
-            html_out += '<b>Active Epics:</b>\n'
-            for epic in ranked_epics[:3]:
-                title = _sanitize_telegram_html(str(epic.title or "Epic"))
-                status = _sanitize_telegram_html(str(epic.status or "watch"))
-                summary = _sanitize_telegram_html(str(epic.summary or ""))
-                unresolved = int(epic.unresolved_count or 0)
-                if unresolved > 0:
-                    follow_up = f"{unresolved} open item(s) need follow-up"
-                else:
-                    follow_up = "on track"
-                html_out += (
-                    f"• <b>{title}</b> ({status})"
-                    f" | {_sanitize_telegram_html(follow_up)}\n"
-                )
-                if summary:
-                    html_out += f"  └ <i>{summary}</i>\n"
-            html_out += '\n'
-        if epic_deltas:
-            html_out += '<b>Epic Deltas:</b>\n'
-            for line in list(epic_deltas)[:3]:
-                html_out += f"• {_sanitize_telegram_html(str(line))}\n"
-            html_out += '\n'
-        html_out += (
-            f"<b>Readiness:</b> {_sanitize_telegram_html(str(readiness.status).title())} "
-            f"(score {int(readiness.score)}/100)\n"
+        html_out, clean_opts = compose_briefing_html(
+            compose_mode=str(compose_mode),
+            critical=critical,
+            readiness=readiness,
+            prep_plan=prep_plan,
+            ranked_epics=rank_epics(epics),
+            epic_deltas=list(epic_deltas or []),
+            llm_obj=obj,
+            loops_txt=loops_txt,
+            confidence_note=confidence_note,
         )
-        if readiness.watch_items:
-            html_out += "<i>Watch:</i> "
-            html_out += _sanitize_telegram_html(" | ".join(list(readiness.watch_items)[:2])) + "\n"
-        if prep_plan.actions:
-            html_out += "<b>Preparation Plan:</b>\n"
-            for step in list(prep_plan.actions)[:4]:
-                html_out += f"• {_sanitize_telegram_html(str(step))}\n"
-        if prep_plan.confidence_note:
-            html_out += f"<i>Confidence:</i> {_sanitize_telegram_html(prep_plan.confidence_note)}\n"
-        html_out += "\n"
-        html_out += loops_txt
-        options = []
-        seen_btns = set()
-        if obj.get('emails') and len(obj['emails']) > 0:
-            html_out += '<b>Requires Attention:</b>\n'
-            for e in obj['emails']:
-                s_name = _sanitize_telegram_html(e.get('sender', 'Unknown'))
-                subj = _sanitize_telegram_html(e.get('subject', ''))
-                reason = _sanitize_telegram_html(e.get('churchill_action', ''))
-                html_out += f'• <b>{s_name}</b>: <i>{subj}</i>\n  └ <i>{reason}</i>\n\n'
-                btn = str(e.get('action_button') or '').strip()
-                if btn and 'option' not in btn.lower():
-                    btn_lower = btn.lower()
-                    if btn_lower not in seen_btns:
-                        seen_btns.add(btn_lower)
-                        options.append(btn)
-        else:
-            if critical.actions:
-                html_out += '<i>No additional inbox-critical items after deterministic critical scan.</i>\n\n'
-            elif confidence_note:
-                html_out += '<i>Runtime confidence is reduced; urgent status may be incomplete. Please verify high-impact commitments.</i>\n\n'
-            else:
-                html_out += '<i>No immediate action blocks detected right now.</i>\n\n'
-        html_out += f'<b>Calendars:</b>\n{_sanitize_telegram_html(obj.get('calendar_summary', 'No upcoming events.'))}'
         avomap_card, avomap_state = await _avomap_prepare_card(
             tenant_key=str(t_key),
             person_id=str(t_account or t_key),
@@ -581,7 +331,7 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
             if st:
                 diag_logs.append(f'🎬 AvoMap: {st}')
         _emit_internal_diagnostics(diag_logs)
-        clean_opts = [str(o) for o in options][:5]
+        clean_opts = [str(o) for o in clean_opts][:5]
         return {'text': html_out, 'options': clean_opts, 'dynamic_buttons': loop_btns}
     except Exception as e:
         print(f"Briefing composition error: {e}", flush=True)

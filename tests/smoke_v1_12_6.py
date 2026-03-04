@@ -223,6 +223,8 @@ def test_prewarm_day_window_timezone_math() -> None:
 
 def test_critical_commitment_lane_wiring() -> None:
     brief_src = (EA_ROOT / "app/briefings.py").read_text(encoding="utf-8")
+    compose_src = (EA_ROOT / "app/intelligence/human_compose.py").read_text(encoding="utf-8")
+    acq_src = (EA_ROOT / "app/intelligence/source_acquisition.py").read_text(encoding="utf-8")
     assert "def _runtime_confidence_note(" in brief_src
     assert "from app.intelligence.profile import build_profile_context" in brief_src
     assert "build_trip_dossier" in brief_src
@@ -230,15 +232,18 @@ def test_critical_commitment_lane_wiring() -> None:
     assert "build_finance_commitment_dossier" in brief_src
     assert "from app.intelligence.critical_lane import build_critical_actions" in brief_src
     assert "from app.intelligence.household_graph import build_household_graph, ensure_profile_isolation" in brief_src
-    assert "from app.intelligence.modes import mode_label, select_briefing_mode" in brief_src
+    assert "from app.intelligence.modes import select_briefing_mode" in brief_src
+    assert "from app.intelligence.human_compose import compose_briefing_html" in brief_src
+    assert "from app.intelligence.source_acquisition import collect_briefing_sources" in brief_src
     assert "build_household_graph(" in brief_src
     assert "ensure_profile_isolation(household)" in brief_src
     assert "select_briefing_mode(profile_ctx, dossiers, critical)" in brief_src
-    assert "<i>Mode:</i>" in brief_src
+    assert "compose_briefing_html(" in brief_src
     assert "build_critical_actions(profile_ctx, dossiers, future_situations=future_situations)" in brief_src
-    assert "<b>Immediate Action:</b>" in brief_src
-    assert "No additional inbox-critical items after deterministic critical scan." in brief_src
-    assert "No immediate action blocks detected right now." in brief_src
+    assert "<b>Immediate Action:</b>" in compose_src
+    assert "No additional inbox-critical items after deterministic critical scan." in compose_src
+    assert "No immediate action blocks detected right now." in compose_src
+    assert "def collect_briefing_sources(" in acq_src
     assert "def _emit_internal_diagnostics(" in brief_src
     assert "⚙️ Diagnostics:" not in brief_src
     assert "Fatal Briefing Error" not in brief_src

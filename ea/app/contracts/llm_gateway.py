@@ -98,14 +98,24 @@ def _contains_raw_document_payload(text: str) -> bool:
 def _normalize_task_type(task_type: str | None) -> str:
     raw = str(task_type or "").strip().lower()
     if not raw:
-        raw = str(os.getenv("EA_LLM_GATEWAY_TASK_TYPE", "briefing_compose") or "briefing_compose").strip().lower()
+        return ""
     if raw in _TASK_POLICIES:
         return raw
     if raw in ("briefing", "summary"):
         return "briefing_compose"
     if raw in ("profile", "profile_context"):
         return "profile_summary"
-    return "briefing_compose"
+    return ""
+
+
+def _allow_implicit_task_type() -> bool:
+    # Transitional override only. Production should require explicit task_type.
+    return str(os.getenv("EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE", "0")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _policy_for(task_type: str) -> TaskPolicy:
@@ -191,9 +201,6 @@ def ask_text(
         minimum=256,
         maximum=50000,
     )
-    normalized_task_type = _normalize_task_type(task_type)
-    policy = _policy_for(normalized_task_type)
-
     safe_prompt = _sanitize_prompt(str(prompt or ""), max_chars=max_prompt)
     safe_system = _sanitize_prompt(str(system_prompt or DEFAULT_SYSTEM_PROMPT), max_chars=max_system)
     redaction_applied = safe_prompt != str(prompt or "") or safe_system != str(system_prompt or DEFAULT_SYSTEM_PROMPT)
@@ -203,6 +210,25 @@ def ask_text(
         safe_system = DEFAULT_SYSTEM_PROMPT
     if not safe_prompt:
         safe_prompt = "Provide a concise, user-safe summary."
+    normalized_task_type = _normalize_task_type(task_type)
+    if not normalized_task_type:
+        if _allow_implicit_task_type():
+            normalized_task_type = "briefing_compose"
+        else:
+            _audit_egress(
+                purpose=purpose,
+                task_type="missing",
+                correlation_id=correlation_id,
+                data_class=data_class,
+                prompt_chars=len(safe_prompt),
+                system_chars=len(safe_system),
+                redaction_applied=redaction_applied,
+                verdict="blocked_missing_task_type",
+                tenant=tenant_key,
+                person_id=person_key,
+            )
+            return _BLOCKED_COPY
+    policy = _policy_for(normalized_task_type)
     if is_egress_denied(
         tenant=tenant_key or "*",
         person_id=person_key,
