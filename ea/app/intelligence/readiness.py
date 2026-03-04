@@ -67,6 +67,13 @@ def build_readiness_dossier(
             if dossier.near_term:
                 watch.append("Health follow-up window is near-term.")
                 actions.append("Prepare a concise health context pack before the appointment.")
+        if dossier.kind == "household_ops":
+            if "overdue" in dossier.risk_hits or "cancellation_risk" in dossier.risk_hits or "service_interruption" in dossier.risk_hits:
+                blockers.append("Household operations risk signals detected (payment/service continuity).")
+                actions.append("Resolve household ops risk now to avoid service disruption or missed commitments.")
+            if dossier.near_term:
+                watch.append("Household operations window is near-term.")
+                actions.append("Prepare household ops context, owner, and next-step checklist.")
         for item in dossier.evidence:
             if item and item not in evidence and len(evidence) < 3:
                 evidence.append(item)

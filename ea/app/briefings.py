@@ -13,6 +13,7 @@ from app.intelligence.profile import build_profile_context
 from app.intelligence.dossiers import (
     build_finance_commitment_dossier,
     build_health_dossier,
+    build_household_ops_dossier,
     build_project_dossier,
     build_trip_dossier,
 )
@@ -393,9 +394,19 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         mails=list(clean_mails),
         calendar_events=list(clean_cal),
     )
+    household_ops_dossier = build_household_ops_dossier(
+        mails=list(clean_mails),
+        calendar_events=list(clean_cal),
+    )
     dossiers = [
         d
-        for d in (trip_dossier, project_dossier, finance_dossier, health_dossier)
+        for d in (
+            trip_dossier,
+            project_dossier,
+            finance_dossier,
+            health_dossier,
+            household_ops_dossier,
+        )
         if int(getattr(d, "signal_count", 0)) > 0
     ]
     future_situations = build_future_situations(

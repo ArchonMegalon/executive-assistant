@@ -18,6 +18,7 @@ def _pass(name: str) -> None:
 def test_briefing_uses_multi_dossier_compose() -> None:
     src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
     assert "build_health_dossier" in src
+    assert "build_household_ops_dossier" in src
     assert "build_project_dossier" in src
     assert "build_finance_commitment_dossier" in src
     assert "build_critical_actions(profile_ctx, dossiers, future_situations=future_situations)" in src

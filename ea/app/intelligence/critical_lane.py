@@ -98,6 +98,18 @@ def build_critical_actions(
                 actions.append(
                     "Health follow-up is near-term. Prepare a concise symptom/treatment context before the appointment."
                 )
+        elif d.kind == "household_ops" and d.signal_count:
+            if d.near_term:
+                decision_window_score = max(decision_window_score, 65)
+            if "overdue" in d.risk_hits or "cancellation_risk" in d.risk_hits or "service_interruption" in d.risk_hits:
+                exposure_score = max(exposure_score, 55)
+                actions.append(
+                    "Household operations risk detected (service/payment continuity). Confirm owner and resolve today."
+                )
+            elif d.near_term:
+                actions.append(
+                    "Household operations follow-up is near-term. Prepare a concise owner-and-action plan now."
+                )
         for ev in d.evidence:
             if ev and ev not in evidence and len(evidence) < 3:
                 evidence.append(ev)
