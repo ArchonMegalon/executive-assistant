@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import os
+import re
 from typing import Any
 
 from app.db import get_db
@@ -18,15 +19,124 @@ def _extract_city(text: str) -> str:
     raw = str(text or "").strip()
     if not raw:
         return ""
-    parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
-    if parts:
-        return parts[0]
-    return raw[:64]
+    # Prefer comma/semicolon separated geo parts and walk from the end to avoid
+    # venue names like "Hilton Vienna Park, Vienna, Austria".
+    parts = [p.strip() for p in re.split(r"[;,|]", raw) if p.strip()]
+    country_like = {
+        "austria",
+        "germany",
+        "switzerland",
+        "france",
+        "italy",
+        "spain",
+        "united kingdom",
+        "uk",
+        "england",
+        "usa",
+        "united states",
+        "netherlands",
+        "belgium",
+        "portugal",
+        "ireland",
+        "poland",
+        "czech republic",
+        "slovakia",
+        "hungary",
+        "slovenia",
+        "croatia",
+        "romania",
+        "bulgaria",
+        "greece",
+        "norway",
+        "sweden",
+        "finland",
+        "denmark",
+        "at",
+        "de",
+        "ch",
+        "fr",
+        "it",
+        "es",
+        "nl",
+        "be",
+        "pt",
+        "ie",
+        "pl",
+        "cz",
+        "sk",
+        "hu",
+        "si",
+        "hr",
+        "ro",
+        "bg",
+        "gr",
+        "no",
+        "se",
+        "fi",
+        "dk",
+    }
+    venue_tokens = (
+        "hotel",
+        "airport",
+        "station",
+        "bahnhof",
+        "terminal",
+        "gate",
+        "hq",
+        "office",
+        "campus",
+        "center",
+        "centre",
+        "conference",
+        "meeting",
+    )
+    for part in reversed(parts):
+        cleaned = re.sub(r"\s+", " ", re.sub(r"[^A-Za-zÀ-ÿ0-9 .'\-]", " ", part)).strip()
+        if not cleaned:
+            continue
+        cleaned = re.sub(r"(?i)^(flight|train|trip|offsite|conference|meeting|hotel|stay|arrival|departure)\s+(to|at|in)\s+", "", cleaned).strip()
+        if not cleaned:
+            continue
+        low = cleaned.lower()
+        if low in country_like:
+            continue
+        if len(cleaned) <= 3 and low in {"at", "de", "ch", "fr", "it", "uk", "us", "eu"}:
+            continue
+        if any(tok in low for tok in venue_tokens):
+            # Try to salvage city-like prefix in tokens such as "Zurich Airport".
+            stripped = cleaned
+            for tok in venue_tokens:
+                stripped = re.sub(rf"(?i)\b{re.escape(tok)}\b", "", stripped).strip(" -_,")
+            stripped = re.sub(r"(?i)^(flight|train|trip|offsite|conference|meeting|hotel|stay|arrival|departure)\s+(to|at|in)\s+", "", stripped).strip()
+            if stripped and stripped.lower() != low:
+                return stripped[:64]
+            continue
+        return cleaned[:64]
+    # Fallback: best-effort first token-like phrase
+    first = parts[0] if parts else raw
+    first = re.sub(r"\s+", " ", re.sub(r"[^A-Za-zÀ-ÿ0-9 .'\-]", " ", first)).strip()
+    return first[:64]
 
 
 def _has_travel_signal(text: str) -> bool:
     low = str(text or "").lower()
-    for kw in ("flight", "hotel", "airport", "rail", "train", "trip", "offsite", "conference"):
+    for kw in (
+        "flight",
+        "hotel",
+        "airport",
+        "rail",
+        "train",
+        "trip",
+        "offsite",
+        "conference",
+        "itinerary",
+        "boarding",
+        "check-in",
+        "departure",
+        "arrival",
+        "layover",
+        "shuttle",
+    ):
         if kw in low:
             return True
     return False
@@ -40,7 +150,13 @@ def build_day_context(*, calendar_events: list[dict] | None, travel_emails: list
     for ev in events:
         if not isinstance(ev, dict):
             continue
-        location = str(ev.get("location") or ev.get("summary") or ev.get("title") or "").strip()
+        location_field = str(ev.get("location") or "").strip()
+        summary = str(ev.get("summary") or ev.get("title") or "").strip()
+        # Prefer explicit location. Only derive location from summary/title for
+        # travel-like events to avoid generic meeting-title false positives.
+        location = location_field
+        if not location and summary and _has_travel_signal(summary):
+            location = summary
         if not location:
             continue
         stops.append(
@@ -62,6 +178,20 @@ def build_day_context(*, calendar_events: list[dict] | None, travel_emails: list
                 m.get("sender"),
                 m.get("snippet"),
                 m.get("preview"),
+            )
+        ).strip()
+        if text and _has_travel_signal(text):
+            hints.append(text[:220])
+    # Calendar events can also carry strong travel intent signals.
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        text = " ".join(
+            str(x or "")
+            for x in (
+                ev.get("title"),
+                ev.get("summary"),
+                ev.get("location"),
             )
         ).strip()
         if text and _has_travel_signal(text):

@@ -39,6 +39,7 @@ Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 
 - Contract stabilization baseline: `docs/v1_12_7_contract_freeze.md`
 - Product roadmap: `docs/ea_os_design_roadmap_v2026.md`
+- Change guide (this rollout state): `docs/EA_OS_Change_Guide_for_Dev_v1_12_7.md`
 
 ## Notes
 - The EA container joins the existing `openclaw-net` network to reach LiteLLM and to exec into OpenClaw containers via docker socket.

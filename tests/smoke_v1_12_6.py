@@ -151,6 +151,29 @@ def test_budget_exhaustion() -> None:
     _print_pass("test_budget_exhaustion")
 
 
+def test_day_context_quality() -> None:
+    from app.integrations.avomap.service import build_day_context
+
+    ctx = build_day_context(
+        calendar_events=[
+            {"location": "Hilton Vienna Park, Vienna, Austria", "summary": "Client day"},
+            {"summary": "Flight to Zurich Airport"},
+            {"summary": "Weekly Team Sync"},  # non-travel and no location: should be ignored
+        ],
+        travel_emails=[{"subject": "Itinerary", "snippet": "Boarding pass and hotel check-in details"}],
+    )
+
+    stops = [s for s in (ctx.get("route_stops") or []) if isinstance(s, dict)]
+    hints = [str(h) for h in (ctx.get("travel_email_hints") or [])]
+    assert len(stops) >= 2, stops
+    cities = [str(s.get("city") or "").lower() for s in stops]
+    assert any("vienna" in c for c in cities), cities
+    assert any("zurich" in c for c in cities), cities
+    assert not any("weekly team sync" in str(s.get("label") or "").lower() for s in stops), stops
+    assert len(hints) >= 1, hints
+    _print_pass("test_day_context_quality")
+
+
 if __name__ == "__main__":
     runpy.run_path(str(Path(__file__).with_name("smoke_v1_12_6_avomap.py")), run_name="__main__")
     test_opsec_fuzzing()
@@ -158,3 +181,4 @@ if __name__ == "__main__":
     test_telegram_size_guard()
     test_webhook_auth_rejection()
     test_budget_exhaustion()
+    test_day_context_quality()
