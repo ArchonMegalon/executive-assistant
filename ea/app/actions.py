@@ -4,9 +4,14 @@ from app.db import get_db
 def create_action(tenant: str, action_type: str, payload: dict, days: int = 7) -> str:
     db = get_db()
     act_id = str(uuid.uuid4())
-    # Format the days natively in Python to avoid Psycopg2 string literal crashes
-    db.execute(f"INSERT INTO typed_actions (id, tenant, action_type, payload_json, expires_at) VALUES (%s, %s, %s, %s, NOW() + interval '{days} days')",
-               (act_id, tenant, action_type, json.dumps(payload)))
+    safe_days = max(1, int(days))
+    db.execute(
+        """
+        INSERT INTO typed_actions (id, tenant, action_type, payload_json, expires_at)
+        VALUES (%s, %s, %s, %s, NOW() + (%s * INTERVAL '1 day'))
+        """,
+        (act_id, tenant, action_type, json.dumps(payload), safe_days),
+    )
     return act_id
 
 def consume_action(tenant: str, act_id: str):

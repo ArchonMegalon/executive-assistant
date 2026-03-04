@@ -4,15 +4,28 @@ from app.queue import claim_update, mark_update_done, mark_update_error
 import app.poll_listener as pl
 
 async def _route_update(u_data):
-    if 'callback_query' in u_data: await pl.handle_callback(u_data['callback_query'])
-    elif 'message' in u_data:
+    if 'callback_query' in u_data:
+        await pl.handle_callback(u_data['callback_query'])
+        return
+
+    msg = None
+    if 'message' in u_data:
         msg = u_data['message']
-        chat_id = msg.get('chat', {}).get('id')
-        if not chat_id: return
-        cmd_text = str(msg.get('text') or msg.get('caption') or "").strip()
-        if cmd_text.startswith('/'): await pl.handle_command(chat_id, cmd_text, msg)
-        elif msg.get('text') or msg.get('photo') or msg.get('document') or msg.get('voice') or msg.get('audio'):
-            await pl.handle_intent(chat_id, msg)
+    elif 'channel_post' in u_data:
+        msg = u_data['channel_post']
+    elif 'edited_channel_post' in u_data:
+        msg = u_data['edited_channel_post']
+    if not msg:
+        return
+
+    chat_id = msg.get('chat', {}).get('id')
+    if not chat_id:
+        return
+    cmd_text = str(msg.get('text') or msg.get('caption') or "").strip()
+    if cmd_text.startswith('/'):
+        await pl.handle_command(chat_id, cmd_text, msg)
+    elif msg.get('text') or msg.get('photo') or msg.get('document') or msg.get('voice') or msg.get('audio'):
+        await pl.handle_intent(chat_id, msg)
 
 async def run_worker():
     print("==================================================", flush=True)

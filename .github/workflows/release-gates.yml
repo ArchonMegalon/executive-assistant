@@ -1,0 +1,62 @@
+name: Release Gates
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  milestone-smokes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run milestone host smokes
+        run: |
+          python3 tests/smoke_v1_13.py
+          python3 tests/smoke_v1_14.py
+          python3 tests/smoke_v1_15.py
+          python3 tests/smoke_v1_16.py
+          python3 tests/smoke_v1_17.py
+          python3 tests/smoke_v1_18.py
+          python3 tests/smoke_v1_18_1_runtime_alignment.py
+          python3 tests/smoke_newspaper_issue_pipeline.py
+          python3 tests/smoke_newspaper_brief_wiring.py
+          python3 tests/smoke_newspaper_pdf_gate_wiring.py
+          python3 tests/smoke_telegram_payload_sanitized.py
+
+  docker-e2e:
+    runs-on: ubuntu-latest
+    needs: milestone-smokes
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare CI env
+        run: |
+          cat > .env <<'EOF'
+          TZ=Europe/Vienna
+          EA_HOST_PORT=8090
+          POSTGRES_DB=ea
+          POSTGRES_PASSWORD=secure_db_pass_2026
+          EA_DB_PASSWORD=secure_db_pass_2026
+          EA_INGEST_TOKEN=ci_ingest_token
+          EA_OPERATOR_TOKEN=ci_operator_token
+          TELEGRAM_BOT_TOKEN=PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE
+          EOF
+
+      - name: Run Docker E2E gates
+        run: bash scripts/docker_e2e.sh
+
+      - name: Upload gate reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-reports
+          path: logs/gates/*.json
+          if-no-files-found: warn

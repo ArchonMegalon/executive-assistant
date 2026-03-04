@@ -28,15 +28,32 @@ def test_v113() -> None:
     svc = OnboardingService()
     inv = svc.create_invite(tenant_key=t, created_by="real_suite", ttl_hours=1)
     sid = svc.start_session_from_invite(invite_token=inv.token)
+    chat_id = str(100000 + int(uuid4().hex[:3], 16))
     svc.bind_channel(
         session_id=sid,
         channel_type="telegram",
         channel_user_id=f"u_{uuid4().hex[:6]}",
-        chat_id=str(100000 + int(uuid4().hex[:3], 16)),
+        chat_id=chat_id,
         display_name="Real Test",
         locale="en",
         timezone_name="Europe/Vienna",
     )
+    inv2 = svc.create_invite(tenant_key=t, created_by="real_suite", ttl_hours=1)
+    sid2 = svc.start_session_from_invite(invite_token=inv2.token)
+    svc.bind_channel(
+        session_id=sid2,
+        channel_type="telegram",
+        channel_user_id=f"u_{uuid4().hex[:6]}",
+        chat_id=chat_id,
+        display_name="Real Test Rebind",
+        locale="en",
+        timezone_name="Europe/Vienna",
+    )
+    bind_count = get_db().fetchone(
+        "SELECT COUNT(*)::int AS c FROM channel_bindings WHERE channel_type='telegram' AND chat_id=%s",
+        (chat_id,),
+    )["c"]
+    assert bind_count == 1, bind_count
     svc.set_google_oauth_scopes(session_id=sid, provider="google", scopes=["calendar.readonly"], oauth_status="oauth_partial", secret_ref="secret://real/v113/partial")
     svc.set_google_oauth_scopes(session_id=sid, provider="google", scopes=["calendar.readonly", "gmail.readonly"], oauth_status="oauth_ready", secret_ref="secret://real/v113/ready")
     blocked = svc.add_source_connection(

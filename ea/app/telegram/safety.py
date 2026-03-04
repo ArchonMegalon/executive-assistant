@@ -14,6 +14,7 @@ FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("traceback", re.compile(r"(?m)^Traceback \(most recent call last\):")),
     ("exception", re.compile(r"(?m)^\s*[A-Za-z_][A-Za-z0-9_]*(Error|Exception):\s")),
     ("provider_trace", re.compile(r"(?i)\b(openai|anthropic|gemini|claude|gpt-4|gpt-5|mistral|xai|perplexity)\b.*\b(error|trace|payload|response|exception)\b")),
+    ("provider_auth_failure", re.compile(r"(?i)\b(litellm|vertex[_ -]?ai|api[_ -]?key[_ -]?(invalid|expired)|api key expired|googleapis\.com)\b")),
     ("template_id", re.compile(r"(?i)\btemplate[_ -]?id\b")),
     ("internal_identifier", re.compile(r"(?i)\b(ooda|delivery_sessions|repair_jobs|repair_attempts|sanitizer_audits|circuit_breakers|mum brain|llm gateway|account[_ -]?id|component[_ -]?name)\b")),
     ("secret_like", re.compile(r"\b(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z\-_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b")),
@@ -50,6 +51,21 @@ def sanitize_telegram_text(value: Any, *, placeholder: bool = False) -> str:
     if detect_forbidden_pattern(text):
         return SAFE_PLACEHOLDER_COPY if placeholder else SAFE_SIMPLIFIED_COPY
     return text
+
+
+def sanitize_for_telegram(
+    value: Any,
+    correlation_id: str | None = None,
+    *,
+    mode: str = "simplified-first",
+    message_kind: str | None = None,
+) -> str:
+    """Compatibility shim for legacy callers used by supervisor/briefings."""
+    placeholder = str(mode).strip().lower() == "status-first"
+    sanitized = sanitize_telegram_text(value, placeholder=placeholder)
+    if sanitized in (SAFE_SIMPLIFIED_COPY, SAFE_PLACEHOLDER_COPY) and correlation_id:
+        return f"{sanitized} (ref: {correlation_id})"
+    return sanitized
 
 
 def _sanitize_args(args: tuple[Any, ...], kwargs: dict[str, Any], key: str, *, placeholder: bool) -> tuple[tuple[Any, ...], dict[str, Any]]:

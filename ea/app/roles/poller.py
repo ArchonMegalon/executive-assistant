@@ -41,8 +41,14 @@ async def run_poller():
                 
                 tenant = "ea_bot"
                 chat_id = None
-                if 'message' in u: chat_id = u['message'].get('chat', {}).get('id')
-                elif 'callback_query' in u: chat_id = u['callback_query'].get('message', {}).get('chat', {}).get('id')
+                if 'message' in u:
+                    chat_id = u['message'].get('chat', {}).get('id')
+                elif 'callback_query' in u:
+                    chat_id = u['callback_query'].get('message', {}).get('chat', {}).get('id')
+                elif 'channel_post' in u:
+                    chat_id = u['channel_post'].get('chat', {}).get('id')
+                elif 'edited_channel_post' in u:
+                    chat_id = u['edited_channel_post'].get('chat', {}).get('id')
                 if chat_id: tenant = f"chat_{chat_id}"
                 
                 # Throw it instantly into the immortal Postgres Queue

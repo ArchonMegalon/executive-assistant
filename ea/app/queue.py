@@ -17,17 +17,28 @@ def claim_update() -> Optional[dict[str, Any]]:
     db = get_db()
     row = db.fetchone(
         """
-        SELECT tenant, update_id, payload_json, attempt_count
-          FROM tg_updates
-         WHERE status IN ('queued', 'retry')
-           AND next_attempt_at <= NOW()
-         ORDER BY next_attempt_at ASC
-         FOR UPDATE SKIP LOCKED
-         LIMIT 1
+        WITH picked AS (
+            SELECT tenant, update_id
+              FROM tg_updates
+             WHERE next_attempt_at <= NOW()
+               AND (
+                    status IN ('queued', 'retry')
+                    OR (status='processing' AND updated_at < NOW() - INTERVAL '15 minutes')
+               )
+             ORDER BY next_attempt_at ASC
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+        )
+        UPDATE tg_updates t
+           SET status='processing', updated_at=NOW()
+          FROM picked
+         WHERE t.tenant = picked.tenant
+           AND t.update_id = picked.update_id
+        RETURNING t.tenant, t.update_id, t.payload_json, t.attempt_count
         """
     )
-    if not row: return None
-    db.execute("UPDATE tg_updates SET status='processing' WHERE tenant=%s AND update_id=%s", [row["tenant"], row["update_id"]])
+    if not row:
+        return None
     return dict(row)
 
 def mark_update_done(*, tenant: str, update_id: int) -> None:
@@ -37,8 +48,15 @@ def mark_update_error(*, tenant: str, update_id: int, attempt_count: int, error:
     delay = 2 ** int(attempt_count)
     status = 'retry' if attempt_count < 10 else 'deadletter'
     get_db().execute(
-        f"UPDATE tg_updates SET status=%s, attempt_count=attempt_count+1, last_error=%s, next_attempt_at=NOW() + interval '{delay} seconds' WHERE tenant=%s AND update_id=%s",
-        [status, str(error)[:2000], tenant, update_id]
+        """
+        UPDATE tg_updates
+           SET status=%s,
+               attempt_count=attempt_count+1,
+               last_error=%s,
+               next_attempt_at=NOW() + (%s * INTERVAL '1 second')
+         WHERE tenant=%s AND update_id=%s
+        """,
+        [status, str(error)[:2000], int(delay), tenant, update_id]
     )
 
 def enqueue_outbox(*, tenant: str, chat_id: int, payload: dict[str, Any], idempotency_key: str) -> None:
@@ -55,17 +73,27 @@ def claim_outbox_message() -> Optional[dict[str, Any]]:
     db = get_db()
     row = db.fetchone(
         """
-        SELECT id::text as id, tenant, chat_id, payload_json, attempt_count
-          FROM tg_outbox
-         WHERE status IN ('queued', 'retry')
-           AND next_attempt_at <= NOW()
-         ORDER BY next_attempt_at ASC
-         FOR UPDATE SKIP LOCKED
-         LIMIT 1
+        WITH picked AS (
+            SELECT id
+              FROM tg_outbox
+             WHERE next_attempt_at <= NOW()
+               AND (
+                    status IN ('queued', 'retry')
+                    OR (status='processing' AND updated_at < NOW() - INTERVAL '15 minutes')
+               )
+             ORDER BY next_attempt_at ASC
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+        )
+        UPDATE tg_outbox o
+           SET status='processing', updated_at=NOW()
+          FROM picked
+         WHERE o.id = picked.id
+        RETURNING o.id::text as id, o.tenant, o.chat_id, o.payload_json, o.attempt_count
         """
     )
-    if not row: return None
-    db.execute("UPDATE tg_outbox SET status='processing' WHERE id=%s::uuid", [row["id"]])
+    if not row:
+        return None
     return dict(row)
 
 def mark_outbox_sent(*, message_id: str) -> None:
@@ -75,6 +103,13 @@ def mark_outbox_error(*, message_id: str, attempt_count: int, error: str) -> Non
     delay = 2 ** int(attempt_count)
     status = 'retry' if attempt_count < 10 else 'deadletter'
     get_db().execute(
-        f"UPDATE tg_outbox SET status=%s, attempt_count=attempt_count+1, last_error=%s, next_attempt_at=NOW() + interval '{delay} seconds' WHERE id=%s::uuid",
-        [status, str(error)[:2000], message_id]
+        """
+        UPDATE tg_outbox
+           SET status=%s,
+               attempt_count=attempt_count+1,
+               last_error=%s,
+               next_attempt_at=NOW() + (%s * INTERVAL '1 second')
+         WHERE id=%s::uuid
+        """,
+        [status, str(error)[:2000], int(delay), message_id]
     )

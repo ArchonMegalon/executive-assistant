@@ -30,6 +30,11 @@ def _require_debug_auth(authorization: str | None) -> None:
     if not expected or authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+
+def _runtime_role() -> str:
+    return (os.environ.get("EA_ROLE") or "monolith").strip().lower()
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     await init_db()
@@ -38,15 +43,25 @@ async def _startup() -> None:
     except Exception as e:
         log_event(None, "calendar", "warn", "calendar schema init failed", {"error": str(e)})
 
-    asyncio.create_task(scheduler_loop())
-    asyncio.create_task(heartbeat_pinger())
-    role = (os.environ.get("EA_ROLE") or "monolith").strip().lower()
+    role = _runtime_role()
     if role in ("", "monolith"):
+        asyncio.create_task(scheduler_loop())
+        asyncio.create_task(heartbeat_pinger())
         asyncio.create_task(poll_loop())
-    asyncio.create_task(location_loop())
-    asyncio.create_task(calendar_loop())
+        asyncio.create_task(location_loop())
+        asyncio.create_task(calendar_loop())
+    elif role == "api":
+        # API role must expose ingress only; keep exactly one background owner
+        # for AvoMap prewarm/dispatch without poller/location/calendar side-effects.
+        asyncio.create_task(scheduler_loop())
 
-    log_event(None, "server", "startup", "EA server starting", {"tz": settings.tz, "version": "0.9"})
+    log_event(
+        None,
+        "server",
+        "startup",
+        "EA server starting",
+        {"tz": settings.tz, "version": "0.9", "role": role},
+    )
 
 @app.get("/health")
 async def health() -> Dict[str, Any]:

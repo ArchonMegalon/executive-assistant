@@ -28,6 +28,7 @@ backups/
 *healer*.py
 *validator*.sh
 *.sh
+!scripts/*.sh
 
 # Python cache
 __pycache__/

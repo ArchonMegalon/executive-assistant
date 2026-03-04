@@ -18,6 +18,7 @@ ROUTING = APP / "integrations/routing/service.py"
 SANITIZER = APP / "integrations/avomap/sanitizer.py"
 AVOMAP_SECURITY = APP / "integrations/avomap/security.py"
 TG_MEDIA = APP / "telegram/media.py"
+RUNNER = APP / "runner.py"
 SCHEMA = ROOT / "ea/schema/v1_12_6_avomap.sql"
 E2E_SCRIPT = ROOT / "tests/e2e_v1_12_6_avomap.py"
 DESIGN_E2E_SCRIPT = ROOT / "scripts/docker_e2e_design_workflows.sh"
@@ -35,7 +36,7 @@ AVOMAP_FILES = [
     APP / "telegram/media.py",
 ]
 
-for path in [SETTINGS, MAIN, BROWSERACT, EVENT_WORKER, BRIEFINGS, SCHEDULER, DB, ROUTING, SANITIZER, AVOMAP_SECURITY, TG_MEDIA, E2E_SCRIPT, *AVOMAP_FILES]:
+for path in [SETTINGS, MAIN, BROWSERACT, EVENT_WORKER, BRIEFINGS, SCHEDULER, DB, ROUTING, SANITIZER, AVOMAP_SECURITY, TG_MEDIA, RUNNER, E2E_SCRIPT, *AVOMAP_FILES]:
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.12.6 modules parse")
 
@@ -86,9 +87,15 @@ assert "status IN ('new', 'queued')" in event_worker_src
 print("[SMOKE][HOST][PASS] browseract finalize path wired")
 
 main_src = MAIN.read_text(encoding="utf-8")
+assert "/webhooks/browseract/{tenant}/{workflow}" in main_src
 assert "x-webhook-signature" in main_src
 assert "verify_webhook_signature" in main_src
 print("[SMOKE][HOST][PASS] avomap webhook signature gate wired")
+
+runner_src = RUNNER.read_text(encoding="utf-8")
+assert 'if r == "api":' in runner_src
+assert 'uvicorn.run("app.main:app"' in runner_src
+print("[SMOKE][HOST][PASS] api role serves BrowserAct ingress app")
 
 brief_src = BRIEFINGS.read_text(encoding="utf-8")
 assert "_avomap_prepare_card" in brief_src

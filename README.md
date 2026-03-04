@@ -38,3 +38,5 @@ Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 ## Notes
 - The EA container joins the existing `openclaw-net` network to reach LiteLLM and to exec into OpenClaw containers via docker socket.
 - If you run rootless Docker, set `DOCKER_SOCK=/run/user/<uid>/docker.sock` in `.env`.
+- Default bootstrap admin creation is disabled unless `EA_ALLOW_BOOTSTRAP_ADMIN=true` is explicitly set.
+- You can override generic OpenClaw fallback container names with `EA_DEFAULT_OPENCLAW_CONTAINER`.

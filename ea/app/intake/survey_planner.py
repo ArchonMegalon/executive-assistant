@@ -65,3 +65,45 @@ async def plan_article_preference_survey(*, tenant: str, principal: str, article
         {"request_id": str(req_id), "spec": spec},
     )
     return True
+
+
+async def plan_briefing_feedback_survey(*, tenant: str, principal: str, briefing_excerpt: str) -> bool:
+    """
+    Post-/brief feedback loop for personalization:
+    asks what to prioritize/suppress and preferred depth.
+    """
+    db = get_db()
+    spec = {
+        "title": "Briefing Feedback Calibration",
+        "questions": [
+            "Which topics should be prioritized in your next briefing?",
+            "Which topics should be suppressed?",
+            "Which sources/publishers were useful today?",
+            "Preferred detail depth for briefings? (short / medium / full)",
+        ],
+        "choices": {
+            "depth": ["short", "medium", "full"],
+        },
+        "hidden_fields": {
+            "tenant": tenant,
+            "principal": principal,
+            "kind": "briefing_feedback",
+            "briefing_excerpt": (briefing_excerpt or "")[:1200],
+        },
+    }
+    row = db.fetchone(
+        """
+        INSERT INTO survey_requests (tenant, blueprint_key, target_name, event_id, objective, context_json)
+        VALUES (%s, 'briefing_feedback', %s, %s, 'Personalization', %s)
+        RETURNING request_id
+        """,
+        (tenant, principal, f"brief_pref_{principal}", json.dumps(spec)),
+    )
+    req_id = row["request_id"] if isinstance(row, dict) else row[0]
+    await trigger_browseract_rpa(
+        tenant,
+        "metasurvey",
+        "create_survey",
+        {"request_id": str(req_id), "spec": spec},
+    )
+    return True

@@ -197,13 +197,15 @@ class AvoMapService:
             """
             SELECT a.asset_id, a.object_ref, a.cache_key, a.mime_type, a.duration_sec,
                    s.mode, s.date_key
-            FROM avomap_assets a
-            JOIN travel_video_specs s ON s.spec_id = a.spec_id
+            FROM travel_video_specs s
+            JOIN avomap_assets a
+              ON a.tenant = s.tenant
+             AND a.cache_key = s.cache_key
+             AND a.status='ready'
             WHERE s.tenant=%s
               AND s.person_id=%s
               AND s.date_key=%s
-              AND a.status='ready'
-            ORDER BY a.updated_at DESC
+            ORDER BY s.updated_at DESC, a.updated_at DESC
             LIMIT 1
             """,
             (tenant, person_id, day),
@@ -298,19 +300,6 @@ class AvoMapService:
                 ),
             )
             spec_id = str((row or {}).get("spec_id") or "")
-            if spec_id:
-                # Keep cache-hit assets discoverable for the current day by linking
-                # the cached asset row to the current spec record.
-                self.db.execute(
-                    """
-                    UPDATE avomap_assets
-                    SET spec_id=%s, updated_at=NOW()
-                    WHERE tenant=%s
-                      AND cache_key=%s
-                      AND status='ready'
-                    """,
-                    (spec_id, tenant, cache_key),
-                )
             self._inc_ledger_cached(tenant, person_id, day)
             return {
                 "status": "cache_hit",

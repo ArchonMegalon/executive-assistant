@@ -10,7 +10,7 @@ class DummyDB:
 import builtins
 builtins._ooda_global_db = DummyDB()
 
-@supervised(fallback="telegram_text", failure_class="markup_api_400", intent="render_visuals")
+@supervised(fallback_mode="simplified-first", failure_class="markup_api_400", intent="render_visuals")
 def failing_renderer():
     logging.info("Child EA (L1) trying to hit MarkupGo API...")
     raise Exception("HTTP 400 Validation Error: Invalid template id")

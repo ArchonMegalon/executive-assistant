@@ -53,3 +53,16 @@ class TelegramClient:
 
     async def delete_message(self, chat_id: int, message_id: int):
         async with httpx.AsyncClient(timeout=10.0) as c: await c.get(self._url("deleteMessage"), params={"chat_id": chat_id, "message_id": message_id})
+
+    async def set_my_commands(self, commands: list[dict], scope: dict | None = None, language_code: str | None = None):
+        body = {"commands": commands}
+        if scope:
+            body["scope"] = scope
+        if language_code:
+            body["language_code"] = language_code
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            r = await c.post(self._url("setMyCommands"), json=body)
+            data = r.json()
+            if not data.get("ok"):
+                raise RuntimeError(data.get("description", r.text))
+            return data.get("result", False)

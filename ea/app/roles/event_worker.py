@@ -3,6 +3,17 @@ import json
 import traceback
 from app.db import get_db
 
+
+def _chat_id_from_tenant(tenant: str) -> int | None:
+    raw = str(tenant or "")
+    if not raw.startswith("chat_"):
+        return None
+    try:
+        return int(raw.split("_", 1)[1])
+    except Exception:
+        return None
+
+
 async def run_event_worker():
     print("==================================================", flush=True)
     print("📥 EA OS EVENT WORKER: External Events Ingress Online", flush=True)
@@ -42,6 +53,7 @@ async def run_event_worker():
                 
             event_id, source, tenant, payload = row['event_pk'], row['source'], row['tenant'], row['payload_json']
             print(f"⚙️ Processing {source} for {tenant} (ID: {event_id})", flush=True)
+            outbox_chat_id = _chat_id_from_tenant(str(tenant))
             
             # Y3. Inbound adapters rule: 
             # "Gmail/Drive ingest creates an artifact-ingest job, not a direct payment execution."
@@ -56,17 +68,42 @@ async def run_event_worker():
                 """, (tenant, json.dumps(action_payload)))
                 
                 # Notify operator
-                await asyncio.to_thread(db.execute, """
-                    INSERT INTO tg_outbox (chat_id, payload_json)
-                    VALUES ((SELECT chat_id FROM tenants WHERE id = %s LIMIT 1), %s)
-                """, (tenant, json.dumps({"text": f"🔔 <b>New Document Ingested ({source})</b>\nArtifact ingest job successfully queued.", "parse_mode": "HTML"})))
+                if outbox_chat_id is not None:
+                    await asyncio.to_thread(
+                        db.execute,
+                        """
+                        INSERT INTO tg_outbox (tenant, chat_id, payload_json, status)
+                        VALUES (%s, %s, %s::jsonb, 'queued')
+                        """,
+                        (
+                            tenant,
+                            int(outbox_chat_id),
+                            json.dumps(
+                                {
+                                    "text": f"🔔 <b>New Document Ingested ({source})</b>\nArtifact ingest job successfully queued.",
+                                    "parse_mode": "HTML",
+                                }
+                            ),
+                        ),
+                    )
                 
             else:
                 print(f"🌐 Processing generic webhook...", flush=True)
-                await asyncio.to_thread(db.execute, """
-                    INSERT INTO tg_outbox (chat_id, payload_json)
-                    VALUES ((SELECT chat_id FROM tenants WHERE id = %s LIMIT 1), %s)
-                """, (tenant, json.dumps({"text": f"🔔 <b>Generic Webhook Received</b>\nSource: {source}", "parse_mode": "HTML"})))
+                if outbox_chat_id is not None:
+                    await asyncio.to_thread(
+                        db.execute,
+                        """
+                        INSERT INTO tg_outbox (tenant, chat_id, payload_json, status)
+                        VALUES (%s, %s, %s::jsonb, 'queued')
+                        """,
+                        (
+                            tenant,
+                            int(outbox_chat_id),
+                            json.dumps(
+                                {"text": f"🔔 <b>Generic Webhook Received</b>\nSource: {source}", "parse_mode": "HTML"}
+                            ),
+                        ),
+                    )
                 
             await asyncio.to_thread(
                 db.execute,

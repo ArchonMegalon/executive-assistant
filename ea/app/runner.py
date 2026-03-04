@@ -1,5 +1,5 @@
 import os
-import runpy
+import uvicorn
 
 def role() -> str:
     return (os.environ.get("EA_ROLE") or "monolith").strip().lower()
@@ -11,8 +11,7 @@ def main() -> None:
     print("==================================================")
     
     if r == "api":
-        from app.roles.api import run_api
-        import asyncio; asyncio.run(run_api())
+        uvicorn.run("app.main:app", host="0.0.0.0", port=8090, log_level="warning")
     elif r == "poller":
         from app.roles.poller import run_poller
         import asyncio; asyncio.run(run_poller())
@@ -22,12 +21,10 @@ def main() -> None:
     elif r == "outbox":
         from app.roles.outbox import run_outbox
         import asyncio; asyncio.run(run_outbox())
+    elif r == "monolith":
+        uvicorn.run("app.main:app", host="0.0.0.0", port=8090, log_level="warning")
     else:
-        # V1.5 Monolith Bridge (Runs your original code seamlessly)
-        try:
-            runpy.run_module("app.main", run_name="__main__")
-        except ImportError:
-            runpy.run_module("app.poll_listener", run_name="__main__")
+        raise ValueError(f"Unknown EA_ROLE: {r}")
 
 if __name__ == "__main__":
     main()

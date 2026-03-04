@@ -1,0 +1,11 @@
+services:
+  ea-worker:
+    volumes:
+      - ./ea/app/briefings.py:/app/app/briefings.py:ro
+      - ./ea/app/runner.py:/app/app/runner.py:ro
+      - ./ea/app/telegram:/app/app/telegram:ro
+  ea-poller:
+    volumes:
+      - ./ea/app/briefings.py:/app/app/briefings.py:ro
+      - ./ea/app/runner.py:/app/app/runner.py:ro
+      - ./ea/app/telegram:/app/app/telegram:ro

@@ -31,6 +31,10 @@ for path in (EGRESS, ONBOARD, REGISTRY):
 print("[SMOKE][HOST][PASS] v1.13 modules parse")
 
 assert "evaluate_connector_url" in EGRESS.read_text(encoding="utf-8")
-assert "class OnboardingService" in ONBOARD.read_text(encoding="utf-8")
+onboard_src = ONBOARD.read_text(encoding="utf-8")
+assert "class OnboardingService" in onboard_src
+assert "def _upsert_channel_binding" in onboard_src
+assert "ON CONFLICT DO NOTHING" in onboard_src
+assert "DELETE FROM channel_bindings" in onboard_src
 assert "CONNECTOR_REGISTRY" in REGISTRY.read_text(encoding="utf-8")
 print("[SMOKE][HOST][PASS] v1.13 core symbols present")

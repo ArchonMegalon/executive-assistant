@@ -167,6 +167,112 @@ class OnboardingService:
         row["status"] = next_state
         return row
 
+    def _upsert_channel_binding(
+        self,
+        *,
+        tenant_key: str,
+        principal_id: int,
+        channel_type: str,
+        channel_user_id: str,
+        chat_id: str,
+    ) -> int:
+        quiet_hours_json = '{"start":"22:00","end":"07:00"}'
+        for _ in range(3):
+            binding = self.db.fetchone(
+                """
+                SELECT binding_id
+                FROM channel_bindings
+                WHERE channel_type = %s
+                  AND (channel_user_id = %s OR chat_id = %s)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (channel_type, channel_user_id, chat_id),
+            )
+            if binding and binding.get("binding_id"):
+                binding_id = int(binding["binding_id"])
+                self.db.execute(
+                    """
+                    DELETE FROM channel_bindings
+                    WHERE channel_type = %s
+                      AND (channel_user_id = %s OR chat_id = %s)
+                      AND binding_id <> %s
+                    """,
+                    (channel_type, channel_user_id, chat_id, binding_id),
+                )
+                try:
+                    self.db.execute(
+                        """
+                        UPDATE channel_bindings
+                        SET tenant_key = %s,
+                            principal_id = %s,
+                            channel_user_id = %s,
+                            chat_id = %s,
+                            quiet_hours_json = %s::jsonb,
+                            is_primary = TRUE
+                        WHERE binding_id = %s
+                        """,
+                        (
+                            tenant_key,
+                            principal_id,
+                            channel_user_id,
+                            chat_id,
+                            quiet_hours_json,
+                            binding_id,
+                        ),
+                    )
+                    return binding_id
+                except Exception:
+                    continue
+
+            inserted = self.db.fetchone(
+                """
+                INSERT INTO channel_bindings (tenant_key, principal_id, channel_type, channel_user_id, chat_id, quiet_hours_json, is_primary)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, TRUE)
+                ON CONFLICT DO NOTHING
+                RETURNING binding_id
+                """,
+                (tenant_key, principal_id, channel_type, channel_user_id, chat_id, quiet_hours_json),
+            )
+            if inserted and inserted.get("binding_id"):
+                return int(inserted["binding_id"])
+
+        fallback = self.db.fetchone(
+            """
+            SELECT binding_id
+            FROM channel_bindings
+            WHERE channel_type = %s
+              AND (channel_user_id = %s OR chat_id = %s)
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (channel_type, channel_user_id, chat_id),
+        )
+        if fallback and fallback.get("binding_id"):
+            binding_id = int(fallback["binding_id"])
+            self.db.execute(
+                """
+                UPDATE channel_bindings
+                SET tenant_key = %s,
+                    principal_id = %s,
+                    channel_user_id = %s,
+                    chat_id = %s,
+                    quiet_hours_json = %s::jsonb,
+                    is_primary = TRUE
+                WHERE binding_id = %s
+                """,
+                (
+                    tenant_key,
+                    principal_id,
+                    channel_user_id,
+                    chat_id,
+                    quiet_hours_json,
+                    binding_id,
+                ),
+            )
+            return binding_id
+        raise RuntimeError("channel_binding_upsert_failed")
+
     def bind_channel(
         self,
         *,
@@ -196,54 +302,20 @@ class OnboardingService:
             (tenant_key, channel_user_id, display_name, locale, timezone_name),
         )
         principal_id = int(principal["principal_id"])
-        binding = self.db.fetchone(
-            """
-            SELECT binding_id
-            FROM channel_bindings
-            WHERE channel_type = %s
-              AND (channel_user_id = %s OR chat_id = %s)
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (channel_type, channel_user_id, chat_id),
+        binding_id = self._upsert_channel_binding(
+            tenant_key=tenant_key,
+            principal_id=principal_id,
+            channel_type=channel_type,
+            channel_user_id=channel_user_id,
+            chat_id=chat_id,
         )
-        if binding and binding.get("binding_id"):
-            self.db.execute(
-                """
-                UPDATE channel_bindings
-                SET tenant_key = %s,
-                    principal_id = %s,
-                    channel_user_id = %s,
-                    chat_id = %s,
-                    quiet_hours_json = %s::jsonb,
-                    is_primary = TRUE
-                WHERE binding_id = %s
-                """,
-                (
-                    tenant_key,
-                    principal_id,
-                    channel_user_id,
-                    chat_id,
-                    '{"start":"22:00","end":"07:00"}',
-                    int(binding["binding_id"]),
-                ),
-            )
-        else:
-            binding = self.db.fetchone(
-                """
-                INSERT INTO channel_bindings (tenant_key, principal_id, channel_type, channel_user_id, chat_id, quiet_hours_json, is_primary)
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, TRUE)
-                RETURNING binding_id
-                """,
-                (tenant_key, principal_id, channel_type, channel_user_id, chat_id, '{"start":"22:00","end":"07:00"}'),
-            )
         self.db.execute(
             """
             UPDATE onboarding_sessions
             SET principal_id = %s, channel_binding_id = %s, locale = %s, timezone = %s, updated_at = NOW()
             WHERE session_id = %s
             """,
-            (principal_id, int(binding["binding_id"]), locale, timezone_name, session_id),
+            (principal_id, binding_id, locale, timezone_name, session_id),
         )
         self._transition(session_id=session_id, next_state="channel_bound")
         return self._transition(session_id=session_id, next_state="principal_ready")

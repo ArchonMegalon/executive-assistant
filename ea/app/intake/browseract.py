@@ -14,10 +14,51 @@ def _parse_chat_id_from_tenant(tenant: str) -> int | None:
         return None
 
 
+def _claim_active_briefing_session(db, *, chat_id: int) -> int | None:
+    try:
+        row = db.fetchone(
+            """
+            SELECT session_id
+            FROM delivery_sessions
+            WHERE chat_id=%s
+              AND mode='briefing'
+              AND status='active'
+              AND enhancement_deadline_ts >= NOW()
+            ORDER BY enhancement_deadline_ts DESC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """,
+            (str(chat_id),),
+        ) or {}
+    except Exception:
+        return None
+    sid = row.get("session_id")
+    return int(sid) if sid is not None else None
+
+
 def _maybe_enqueue_late_attach_followup(db, *, tenant: str, spec_id: str) -> None:
     chat_id = _parse_chat_id_from_tenant(tenant)
     if not chat_id:
         return
+    session_id = _claim_active_briefing_session(db, chat_id=chat_id)
+    if not session_id:
+        return
+
+    asset = db.fetchone(
+        """
+        SELECT object_ref
+        FROM avomap_assets
+        WHERE spec_id=%s
+          AND status='ready'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (spec_id,),
+    ) or {}
+    object_ref = str((asset or {}).get("object_ref") or "").strip()
+    if not object_ref:
+        return
+
     claimed = db.fetchone(
         """
         UPDATE avomap_jobs
@@ -39,21 +80,6 @@ def _maybe_enqueue_late_attach_followup(db, *, tenant: str, spec_id: str) -> Non
     if not claimed:
         return
 
-    asset = db.fetchone(
-        """
-        SELECT object_ref
-        FROM avomap_assets
-        WHERE spec_id=%s
-          AND status='ready'
-        ORDER BY updated_at DESC
-        LIMIT 1
-        """,
-        (spec_id,),
-    ) or {}
-    object_ref = str((asset or {}).get("object_ref") or "").strip()
-    if not object_ref:
-        return
-
     payload = {
         "text": f"🎬 <b>Travel video ready</b>\n<a href=\"{object_ref}\">▶ Open video</a>",
         "parse_mode": "HTML",
@@ -66,6 +92,15 @@ def _maybe_enqueue_late_attach_followup(db, *, tenant: str, spec_id: str) -> Non
         ON CONFLICT (tenant, idempotency_key) DO NOTHING
         """,
         (tenant, int(chat_id), json.dumps(payload), idem),
+    )
+    db.execute(
+        """
+        UPDATE delivery_sessions
+        SET status='enhanced'
+        WHERE session_id=%s
+          AND status='active'
+        """,
+        (int(session_id),),
     )
 
 

@@ -1,0 +1,8 @@
+NAME              IMAGE                                                                     COMMAND                  SERVICE           CREATED          STATUS                        PORTS
+ea-api            ea-os:latest                                                              "python -m app.runner"   ea-api            56 minutes ago   Up 56 minutes                 0.0.0.0:8090->8090/tcp, [::]:8090->8090/tcp
+ea-db             postgres:16-alpine                                                        "docker-entrypoint.s…"   ea-db             20 hours ago     Up 20 hours (healthy)         5432/tcp
+ea-event-worker   ea-ea-event-worker                                                        "python -m app.worke…"   ea-event-worker   20 hours ago     Up 20 hours                   
+ea-outbox         sha256:a131a1f58a9bbc47d526f15329305107d9f5892fd5484395017e78cb70e3ae25   "python -m app.runner"   ea-outbox         20 hours ago     Up 20 hours                   
+ea-poller         ea-os:latest                                                              "python -m app.runner"   ea-poller         6 seconds ago    Up Less than a second         
+ea-teable-sync    sha256:a131a1f58a9bbc47d526f15329305107d9f5892fd5484395017e78cb70e3ae25   "python -m app.integ…"   ea-teable-sync    20 hours ago     Up 20 hours                   
+ea-worker         ea-os:latest                                                              "python -m app.runner"   ea-worker         6 seconds ago    Restarting (1) 1 second ago   
