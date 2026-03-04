@@ -31,6 +31,12 @@ owning provider-specific and repair-specific internals.
 - Rule: user-visible fallback/error text must pass through contract sanitizers.
 - Current adopters: `app/briefings.py` (incident-safe fallback copy)
 
+### 4) Vision Gateway Contract
+- Module: `app/contracts/vision_gateway.py`
+- Function: `extract_calendar_events_from_image(img_bytes, mime_type) -> dict`
+- Rule: feature modules use this adapter for provider-specific image extraction.
+- Current adopters: `app/vision.py`
+
 ## Runtime Invariants
 1. No direct provider LLM HTTP calls from feature modules.
 2. No direct `trigger_mum_brain` imports in feature modules.

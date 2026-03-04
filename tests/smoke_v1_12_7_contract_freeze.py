@@ -11,23 +11,36 @@ DOCS = ROOT / "docs"
 BRIEFINGS = APP / "briefings.py"
 POLL_LISTENER = APP / "poll_listener.py"
 COACHING = APP / "coaching.py"
+VISION = APP / "vision.py"
 LLM_CONTRACT = CONTRACTS / "llm_gateway.py"
 REPAIR_CONTRACT = CONTRACTS / "repair.py"
 TELEGRAM_CONTRACT = CONTRACTS / "telegram.py"
+VISION_CONTRACT = CONTRACTS / "vision_gateway.py"
 FREEZE_DOC = DOCS / "v1_12_7_contract_freeze.md"
 ROADMAP_DOC = DOCS / "ea_os_design_roadmap_v2026.md"
 
 
-for path in (BRIEFINGS, POLL_LISTENER, COACHING, LLM_CONTRACT, REPAIR_CONTRACT, TELEGRAM_CONTRACT):
+for path in (
+    BRIEFINGS,
+    POLL_LISTENER,
+    COACHING,
+    VISION,
+    LLM_CONTRACT,
+    REPAIR_CONTRACT,
+    TELEGRAM_CONTRACT,
+    VISION_CONTRACT,
+):
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.12.7 contract modules parse")
 
 llm_src = LLM_CONTRACT.read_text(encoding="utf-8")
 repair_src = REPAIR_CONTRACT.read_text(encoding="utf-8")
 tg_src = TELEGRAM_CONTRACT.read_text(encoding="utf-8")
+vision_contract_src = VISION_CONTRACT.read_text(encoding="utf-8")
 assert "def ask_text(" in llm_src
 assert "def open_repair_incident(" in repair_src
 assert "def sanitize_incident_copy(" in tg_src
+assert "def extract_calendar_events_from_image(" in vision_contract_src
 print("[SMOKE][HOST][PASS] v1.12.7 contract symbols present")
 
 brief_src = BRIEFINGS.read_text(encoding="utf-8")
@@ -50,6 +63,11 @@ coach_src = COACHING.read_text(encoding="utf-8")
 assert "from app.contracts.llm_gateway import ask_text as gateway_ask_text" in coach_src
 assert "from app.llm import ask_llm" not in coach_src
 print("[SMOKE][HOST][PASS] coaching uses llm contract")
+
+vision_src = VISION.read_text(encoding="utf-8")
+assert "from app.contracts.vision_gateway import extract_calendar_events_from_image" in vision_src
+assert "generativelanguage.googleapis.com" not in vision_src
+print("[SMOKE][HOST][PASS] vision uses vision contract")
 
 assert FREEZE_DOC.exists(), FREEZE_DOC
 assert ROADMAP_DOC.exists(), ROADMAP_DOC
