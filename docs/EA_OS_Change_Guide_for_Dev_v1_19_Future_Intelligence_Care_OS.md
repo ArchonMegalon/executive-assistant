@@ -183,6 +183,25 @@ optional design direction.
 - Readiness + critical lane now promote near-term or urgent health signals.
 - Added host smoke: `tests/smoke_v1_19_2_health_dossier.py`.
 
+16. v1.19.2 LLM gateway DB-audit sink
+- `ea/app/contracts/llm_gateway.py` now mirrors egress audit metadata to DB
+  audit log records (`component=llm_gateway`, `event_type=egress_audit`) in
+  addition to JSONL file logging.
+- New env toggle:
+  - `EA_LLM_GATEWAY_DB_AUDIT_ENABLED` (default enabled).
+- Extended host smoke: `tests/smoke_v1_19_1_llm_gateway_boundary.py` verifies
+  the DB-audit write path contract.
+
+17. v1.19.2 calmer briefing presentation
+- `ea/app/briefings.py` now renders human-readable urgency labels instead of raw
+  numeric telemetry in user chat:
+  - `Risk urgency: High/Medium/Low`
+  - `Decision window: Act now/Soon/Monitor`
+- Active epics now avoid raw `salience/open` counters in Telegram output and use
+  follow-up wording (for example `2 open item(s) need follow-up`).
+- Extended host smoke: `tests/smoke_v1_19_2_human_assistant_mode.py` enforces
+  absence of `Exposure/Decision score` and `salience` phrasing in compose code.
+
 ## Rollout checklist
 
 1. Host gate:

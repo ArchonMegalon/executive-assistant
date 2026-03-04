@@ -136,6 +136,9 @@ Behavior:
   - correlation_id
   - data_class
   - verdict
+- optional DB-backed audit mirror:
+  - `EA_LLM_GATEWAY_DB_AUDIT_ENABLED` (default on)
+  - writes `llm_gateway/egress_audit` rows to `audit_log` for operator traceability.
 - primary call sites now pass explicit task metadata:
   - briefing compose: `task_type=briefing_compose`
   - chat-assist in poll listener: `task_type=profile_summary`
@@ -158,6 +161,10 @@ Behavior:
 - critical/readiness/future/preparation/mode are fed from `dossiers`.
 - removed user-facing diagnostics append from briefing output (logs only).
 - calmer status text during compose and safer dict-shaped fallback payloads.
+- user-facing urgency is now phrased as labels instead of raw telemetry:
+  - `Risk urgency: High/Medium/Low`
+  - `Decision window: Act now/Soon/Monitor`
+- active epics now use follow-up wording instead of raw salience counters.
 - hidden `/mumbrain` from user menu by default (operator command remains available).
 
 ### H. Missingness engine (v1.19.2)
@@ -264,6 +271,14 @@ Table:
 - `tests/smoke_v1_19_1_llm_gateway_boundary.py`
   - prompt safety/redaction/length cap behavior
   - blocked output behavior for tool-like model responses
+  - DB-audit write-path behavior (driver-free stubbed contract check)
+
+- `tests/smoke_v1_19_2_human_assistant_mode.py`
+  - diagnostics not appended to user chat
+  - no raw score/salience phrasing in compose source
+
+- `tests/smoke_v1_19_2_health_dossier.py`
+  - health dossier detection/future/readiness/critical wiring
 
 ### End-to-end gates
 
@@ -277,7 +292,7 @@ Table:
 
 1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`, `poll_listener.py`).
 2. Persist dossier/future/readiness snapshots in DB (profile snapshot is now landed).
-3. Expand dossier set with health/household ops/evidence-first dossier types.
+3. Expand dossier set with household ops/evidence-first dossier types.
 4. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).
 
 ## Release checklist
@@ -288,6 +303,7 @@ Table:
 4. `python3 tests/smoke_v1_19_1_llm_gateway_boundary.py`
 5. `python3 tests/smoke_v1_19_2_human_assistant_mode.py`
 6. `python3 tests/smoke_v1_19_2_missingness.py`
-7. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
-8. `bash scripts/run_v119_smoke.sh /docker/EA`
-9. `bash scripts/docker_e2e.sh`
+7. `python3 tests/smoke_v1_19_2_health_dossier.py`
+8. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
+9. `bash scripts/run_v119_smoke.sh /docker/EA`
+10. `bash scripts/docker_e2e.sh`
