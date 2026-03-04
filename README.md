@@ -34,6 +34,9 @@ bash scripts/docker_e2e_design_workflows.sh
 bash scripts/run_v113_smoke.sh
 ```
 
+For `scripts/release_v113_onboarding.sh`, full docker gates run by default after
+v1.13 smoke checks. Set `EA_SKIP_FULL_GATES=1` to skip that final full-gate step.
+
 Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 `scripts/docker_e2e.sh` includes the real milestone functional suite as part of design E2E.
 
