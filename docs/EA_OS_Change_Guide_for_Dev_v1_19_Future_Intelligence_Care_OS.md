@@ -393,6 +393,18 @@ optional design direction.
   - verifies `brain_commands` ownership and absence of inline brain command
     implementation strings in `poll_listener.py`.
 
+32. v1.19.3 poll-listener UI helper extraction
+- Added `ea/app/poll_ui.py`:
+  - `clean_html_for_telegram(...)`
+  - `build_dynamic_ui(...)`
+- `ea/app/poll_listener.py` now delegates Telegram HTML cleanup and dynamic
+  inline keyboard assembly to `poll_ui` instead of owning these formatting/UI
+  helpers inline.
+- Updated decomposition smoke contract:
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`
+  - verifies `poll_ui` ownership and absence of inline `clean_html_for_telegram`
+    and `build_dynamic_ui` definitions in `poll_listener.py`.
+
 ## Rollout checklist
 
 1. Host gate:

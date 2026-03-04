@@ -11,7 +11,6 @@ import sys
 import threading
 import time
 import traceback
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -37,6 +36,7 @@ from app.contracts.repair import open_repair_incident
 from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report
 from app.brain_commands import remember_fact as _remember_fact, show_brain as _show_brain
 from app.newspaper.preferences import build_preference_snapshot
+from app.poll_ui import build_dynamic_ui, clean_html_for_telegram
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
 from app.message_security import check_security, household_confidence_for_message as _household_confidence_for_message, message_document_ref as _message_document_ref
@@ -65,24 +65,6 @@ async def _ensure_bot_command_menu():
         pass
 
 AUTH_SESSIONS = AuthSessionStore(path='/attachments/auth_sessions.json', ttl_sec=900)
-
-def clean_html_for_telegram(text: str) -> str:
-    if not text:
-        return ''
-    t = text.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n\n').replace('<p>', '')
-    t = t.replace('<ul>', '').replace('</ul>', '').replace('<ol>', '').replace('</ol>', '')
-    t = t.replace('<li>', '• ').replace('</li>', '\n').replace('<h1>', '\n\n<b>').replace('</h1>', '</b>\n').replace('<h2>', '\n\n<b>').replace('</h2>', '</b>\n')
-    t = t.replace('<strong>', '<b>').replace('</strong>', '</b>').replace('<em>', '<i>').replace('</em>', '</i>')
-    t = t.replace('<html>', '').replace('</html>', '').replace('<body>', '').replace('</body>', '').replace('<div>', '').replace('</div>', '')
-    t = re.sub('&(?![A-Za-z0-9#]+;)', '&amp;', t)
-
-    def repl(m):
-        tag = m.group(1).lower()
-        if tag in ['b', 'i', 'a', 'code', 'pre', 's', 'u']:
-            return m.group(0)
-        return ''
-    t = re.sub('</?([a-zA-Z0-9]+)[^>]*>', repl, t)
-    return re.sub('\\n{3,}', '\n\n', t).strip()
 
 
 def _safe_err(e) -> str:
@@ -168,23 +150,6 @@ async def _send_briefing_newspaper_pdf(chat_id: int, tenant_name: str, tenant_cf
     except Exception as e:
         log_render_guard('brief_newspaper_pdf_failed', str(e)[:140], location='poll_listener')
         return False
-
-def build_dynamic_ui(report_text: str, context_prompt: str, fwd_name: str=None) -> dict:
-    kb = []
-    if fwd_name:
-        if 'liz' in fwd_name.lower() or 'elisabeth' in fwd_name.lower():
-            kb.append([{'text': f'🤖 Ask to reply to {fwd_name}', 'callback_data': f'fwd_liz:{save_button_context(report_text)}'}])
-        else:
-            kb.append([{'text': f'📤 Forward to {fwd_name}', 'url': f'https://t.me/share/url?url={urllib.parse.quote('Antwort:\n' + report_text)}'}])
-    opt_match = re.search('\\[OPTIONS:\\s*(.+?)\\]', report_text)
-    if opt_match:
-        for opt in [o.strip() for o in opt_match.group(1).split('|') if o.strip()][:5]:
-            is_rej = any((w in opt.lower() for w in ['do not', 'no', 'cancel', 'stop', 'abort', 'skip']))
-            if is_rej:
-                kb.append([{'text': f'🎯 {opt}', 'callback_data': f'act:{save_button_context(f'CONTINUING TASK:\n{context_prompt[:1500]}\n\nUser selected: {opt}. REJECTED. Propose alternatives.')}'}])
-            else:
-                kb.append([{'text': f'🎯 {opt}', 'callback_data': f'act:{save_button_context(f'CONTINUING TASK:\n{context_prompt[:1500]}\n\nUser selected: {opt}. Proceed.')}'}])
-    return {'inline_keyboard': kb} if kb else None
 
 async def handle_photo(chat_id: int, msg: dict):
     await handle_intent(chat_id, msg)
@@ -409,7 +374,7 @@ async def handle_callback(cb):
                 pass
         try:
             report = await asyncio.wait_for(gog_scout(get_val(t, 'openclaw_container', ''), enhanced_prompt, get_val(t, 'google_account', ''), _ui_updater, task_name=f'Button: {clean_btn}'), timeout=240.0)
-            kb_dict = build_dynamic_ui(report, enhanced_prompt)
+            kb_dict = build_dynamic_ui(report, enhanced_prompt, save_ctx=save_button_context)
             clean_rep = clean_html_for_telegram(re.sub('\\[OPTIONS:.*?\\]', '', _humanize_agent_report(report)).replace('[YES/NO]', ''))
             if not clean_rep.strip() or clean_rep.strip() == '[]':
                 clean_rep = '✅ Task executed successfully!'
@@ -645,7 +610,7 @@ async def handle_intent(chat_id: int, msg: dict):
                     pass
             try:
                 report = await asyncio.wait_for(gog_scout(t_openclaw, prompt, get_val(t, 'google_account', ''), _ui_updater, task_name='Intent: Free Text'), timeout=240.0)
-                kb_dict = build_dynamic_ui(report, prompt)
+                kb_dict = build_dynamic_ui(report, prompt, save_ctx=save_button_context)
                 clean_rep = clean_html_for_telegram(re.sub('\\[OPTIONS:.*?\\]', '', _humanize_agent_report(report)).replace('[YES/NO]', ''))
                 if not clean_rep.strip() or clean_rep.strip() == '[]':
                     clean_rep = '✅ Task executed successfully!'
