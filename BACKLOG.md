@@ -35,6 +35,15 @@ Branch: `main`
     `EA_BRIEFING_DIAGNOSTICS_LOG_ENABLED=1`.
   - `smoke_v1_19_4_briefing_diagnostics_log_gate.py` added and wired into
     all gates.
+- [DONE] Skill planning consistency fixes:
+  - `/skill` preview now uses each skill's `planning_task_type`, matching
+    runtime dispatch behavior.
+  - `trip_context_pack` capability priority is now explicit travel-first.
+  - diagnostics log gate smoke now validates runtime behavior (with stubs),
+    not only source text.
+- [DONE] Auditor LTD inventory:
+  - `LTD_INVENTORY.md` added at repo root with product/tier/capability mapping.
+  - `smoke_v1_19_4_ltd_inventory_doc.py` added and wired into all gates.
 - [DONE] Full Docker E2E gate pass after each slice.
 
 ## Blocked

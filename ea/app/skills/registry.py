@@ -17,6 +17,7 @@ class SkillContract:
     operations: tuple[str, ...]
     handler: SkillHandler
     capabilities: tuple[str, ...]
+    planning_task_type: str = ""
 
 
 def _payments_handler(
@@ -44,6 +45,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
         operations=("generate_demo_draft", "handle_action"),
         handler=_payments_handler,
         capabilities=("approvethis",),
+        planning_task_type="typed_safe_action",
     ),
     "travel_rescue": SkillContract(
         key="travel_rescue",
@@ -55,6 +57,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="travel_rescue",
         ),
         capabilities=("oneair", "avomap", "browseract"),
+        planning_task_type="travel_rescue",
     ),
     "guided_intake": SkillContract(
         key="guided_intake",
@@ -66,6 +69,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="collect_structured_intake",
         ),
         capabilities=("involve_me", "metasurvey", "apix_drive"),
+        planning_task_type="collect_structured_intake",
     ),
     "draft_and_polish": SkillContract(
         key="draft_and_polish",
@@ -77,6 +81,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="polish_human_tone",
         ),
         capabilities=("prompting_systems", "undetectable"),
+        planning_task_type="polish_human_tone",
     ),
     "prompt_compiler": SkillContract(
         key="prompt_compiler",
@@ -88,6 +93,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="compile_prompt_pack",
         ),
         capabilities=("prompting_systems", "paperguide", "vizologi"),
+        planning_task_type="compile_prompt_pack",
     ),
     "multimodal_burst": SkillContract(
         key="multimodal_burst",
@@ -99,6 +105,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="generate_multimodal_support_asset",
         ),
         capabilities=("one_min_ai", "ai_magicx", "peekshot"),
+        planning_task_type="generate_multimodal_support_asset",
     ),
     "evidence_pack_builder": SkillContract(
         key="evidence_pack_builder",
@@ -110,6 +117,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="collect_structured_intake",
         ),
         capabilities=("involve_me", "prompting_systems", "undetectable"),
+        planning_task_type="collect_structured_intake",
     ),
     "trip_context_pack": SkillContract(
         key="trip_context_pack",
@@ -121,6 +129,7 @@ SKILL_REGISTRY: dict[str, SkillContract] = {
             planning_task_type="trip_context_pack",
         ),
         capabilities=("oneair", "avomap", "one_min_ai", "ai_magicx"),
+        planning_task_type="trip_context_pack",
     ),
 }
 
@@ -152,6 +161,7 @@ def list_skills() -> list[dict[str, Any]]:
                 "key": contract.key,
                 "display_name": contract.display_name,
                 "operations": list(contract.operations),
+                "planning_task_type": str(contract.planning_task_type or ""),
                 "capabilities": capability_rows,
             }
         )

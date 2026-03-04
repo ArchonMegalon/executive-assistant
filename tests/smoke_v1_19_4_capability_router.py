@@ -34,6 +34,11 @@ def test_capability_router_behavior() -> None:
     assert intake.get("primary") == "metasurvey"
     assert "involve_me" in list(intake.get("fallbacks") or [])
 
+    trip_pack = build_capability_plan("trip_context_pack")
+    assert trip_pack.get("ok") is True
+    assert trip_pack.get("primary") == "oneair"
+    assert "avomap" in list(trip_pack.get("fallbacks") or [])
+
     missing = build_capability_plan("unknown_task_zzz")
     assert missing.get("ok") is False
     assert missing.get("status") == "no_capability_for_task"

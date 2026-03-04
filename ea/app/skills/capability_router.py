@@ -5,6 +5,7 @@ from app.skills.capability_registry import capability_or_raise, capabilities_for
 
 _TASK_PRIORITY: dict[str, tuple[str, ...]] = {
     "travel_rescue": ("oneair", "avomap", "browseract"),
+    "trip_context_pack": ("oneair", "avomap", "one_min_ai", "ai_magicx"),
     "collect_structured_intake": ("involve_me", "metasurvey", "apix_drive"),
     "guided_intake": ("involve_me", "metasurvey", "apix_drive"),
     "compile_prompt_pack": ("prompting_systems", "paperguide", "vizologi"),

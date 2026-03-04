@@ -62,7 +62,8 @@ async def handle_skill_command(
         payload=action_payload,
         days=2,
     )
-    plan = build_capability_plan(skill_key)
+    planning_task = str(getattr(contract, "planning_task_type", "") or "").strip().lower() or skill_key
+    plan = build_capability_plan(planning_task)
     primary = str((plan or {}).get("primary") or "").strip()
     fallbacks = list((plan or {}).get("fallbacks") or [])
     lines = [

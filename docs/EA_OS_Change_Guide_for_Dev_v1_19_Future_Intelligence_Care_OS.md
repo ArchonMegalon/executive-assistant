@@ -653,6 +653,31 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+52. v1.19.4 audit fix: skill planning consistency
+- Updated `ea/app/skills/registry.py`:
+  - `SkillContract` now carries `planning_task_type`.
+  - every skill declares explicit planning task type metadata.
+  - `list_skills()` now surfaces `planning_task_type` for runtime introspection.
+- Updated `ea/app/skill_commands.py`:
+  - `/skill` capability preview now uses `contract.planning_task_type`
+    instead of raw `skill_key`, aligning preview with execution behavior.
+- Updated `ea/app/skills/capability_router.py`:
+  - added explicit `trip_context_pack` task priority:
+    `oneair -> avomap -> one_min_ai -> ai_magicx`.
+- Updated `tests/smoke_v1_19_4_briefing_diagnostics_log_gate.py`:
+  - now uses runtime stubs and exercises `_emit_internal_diagnostics(...)`
+    behavior directly instead of source-only string checks.
+
+53. v1.19.4 auditor LTD inventory document
+- Added root-level `LTD_INVENTORY.md`:
+  - operator-declared LTD stack with tier/plan values.
+  - capability-key mapping for every runtime sidecar in registry.
+  - explicit marker for assumed/unverified entries.
+- Added `tests/smoke_v1_19_4_ltd_inventory_doc.py` and wired into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:

@@ -17,10 +17,13 @@ def _pass(name: str) -> None:
 def test_skill_command_wiring_in_poller() -> None:
     src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
     skill_src = (ROOT / "ea/app/skill_commands.py").read_text(encoding="utf-8")
+    reg_src = (ROOT / "ea/app/skills/registry.py").read_text(encoding="utf-8")
     assert "if cmd == '/skill':" in src
     assert "from app.skill_commands import handle_skill_command as _handle_skill_command" in src
     assert "create_action(" in skill_src
     assert "build_capability_plan(" in skill_src
+    assert "planning_task = str(getattr(contract, \"planning_task_type\"" in skill_src
+    assert "planning_task_type" in reg_src
     assert "action_type=f\"skill:{skill_key}\"" in skill_src
     assert "Execute Skill Plan" in skill_src
     _pass("v1.19.4 skill command runtime wiring")
