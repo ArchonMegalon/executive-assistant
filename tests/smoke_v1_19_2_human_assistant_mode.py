@@ -64,6 +64,8 @@ def test_mumbrain_hidden_from_user_menu_by_default() -> None:
     assert "def _household_confidence_for_message(" not in poll_src
     assert "def _message_document_ref(" not in poll_src
     assert "async def check_security(" not in poll_src
+    assert "async def _collect_briefing_articles(" not in poll_src
+    assert "def _briefing_newspaper_html(" not in poll_src
     assert "class AuthSessionStore" not in poll_src
     assert "def _humanize_agent_report(" not in poll_src
     assert "def _ask_llm_text(" not in poll_src

@@ -331,6 +331,13 @@ optional design direction.
   - `tests/smoke_v1_12_7_contract_freeze.py`
   - `tests/smoke_v1_19_2_human_assistant_mode.py`
 
+27. v1.19.3 poll-listener dead-code pruning
+- Removed unused legacy helpers from `ea/app/poll_listener.py`:
+  - `_collect_briefing_articles(...)`
+  - `_briefing_newspaper_html(...)`
+- This trims non-executed compose/render code from the listener runtime path
+  and reduces control-plane clutter.
+
 ## Rollout checklist
 
 1. Host gate:
