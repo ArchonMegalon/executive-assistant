@@ -562,6 +562,17 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+46. v1.19.4 generic-skill planning wiring
+- Updated `ea/app/skills/generic.py`:
+  - generic placeholder handlers now call `build_capability_plan(...)` and
+    return deterministic `plan` metadata (primary + fallback capabilities).
+- Updated `ea/app/skills/registry.py`:
+  - each generic skill now declares explicit `planning_task_type`.
+- Expanded capability task mappings in `ea/app/skills/capability_registry.py`
+  for `trip_context_pack` routing across relevant travel/multimodal sidecars.
+- Updated `tests/smoke_v1_19_4_skill_inventory.py` to assert plan metadata in
+  skill dispatch results.
+
 ## Rollout checklist
 
 1. Host gate:

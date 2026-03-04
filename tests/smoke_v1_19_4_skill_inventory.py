@@ -49,6 +49,10 @@ def test_generic_skill_dispatch_contract() -> None:
     assert out.get("status") == "not_implemented"
     assert out.get("skill") == "travel_rescue"
     assert "oneair" in list(out.get("capabilities") or [])
+    plan = out.get("plan") if isinstance(out.get("plan"), dict) else {}
+    assert plan.get("ok") is True
+    assert plan.get("primary") == "oneair"
+    assert "avomap" in list(plan.get("fallbacks") or [])
     _pass("v1.19.4 generic skill dispatch contract")
 
 
