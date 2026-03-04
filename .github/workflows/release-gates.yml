@@ -21,6 +21,7 @@ jobs:
           python3 tests/smoke_v1_12_6.py
           python3 tests/smoke_v1_12_7_contract_freeze.py
           python3 tests/smoke_v1_13.py
+          python3 tests/smoke_v1_13_future_intelligence_pack.py
           python3 tests/smoke_v1_14.py
           python3 tests/smoke_v1_15.py
           python3 tests/smoke_v1_16.py

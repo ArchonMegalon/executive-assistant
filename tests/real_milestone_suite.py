@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from app.onboarding.service import OnboardingService
@@ -16,6 +17,15 @@ from app.repair.engine import process_repair_jobs
 from app.db import get_db
 from app.intake.browseract import process_browseract_event
 from app.integrations.avomap.service import AvoMapService
+from app.intelligence.critical_lane import build_critical_actions
+from app.intelligence.dossiers import Dossier
+from app.intelligence.epics import build_epics_from_dossiers, rank_epics
+from app.intelligence.future_situations import build_future_situations
+from app.intelligence.modes import select_briefing_mode
+from app.intelligence.preparation_planner import build_preparation_plan
+from app.intelligence.profile import build_profile_context
+from app.intelligence.readiness import build_readiness_dossier
+from app.intelligence.scores import decision_window_score, exposure_score, readiness_score
 from app.settings import settings
 
 
@@ -70,6 +80,64 @@ def test_v113() -> None:
     row = svc.mark_ready(session_id=sid)
     assert row["status"] == "ready"
     p("[REAL][PASS] v1.13 onboarding state machine + SSRF block")
+
+
+def test_v113_future_intelligence() -> None:
+    profile = build_profile_context(
+        tenant=f"real_v113_future_{uuid4().hex[:8]}",
+        person_id="p1",
+        timezone_name="Europe/Vienna",
+        runtime_confidence_note="Runtime recovered recently; verify high-impact commitments.",
+        mode="standard_morning_briefing",
+    )
+    dossier = Dossier(
+        kind="trip",
+        title="Trip Dossier",
+        signal_count=4,
+        exposure_eur=12500.0,
+        risk_hits=("iran", "advisory"),
+        near_term=True,
+        evidence=("Holiday booking invoice", "Layover update"),
+    )
+    calendar_events = [
+        {
+            "summary": "Flight to Zurich",
+            "start": {"dateTime": (datetime.now(timezone.utc) + timedelta(hours=18)).isoformat()},
+            "location": "Vienna Airport",
+        },
+        {
+            "summary": "Hotel check-in",
+            "start": {"dateTime": (datetime.now(timezone.utc) + timedelta(hours=22)).isoformat()},
+            "location": "Zurich",
+        },
+    ]
+    future = build_future_situations(
+        profile=profile,
+        dossiers=[dossier],
+        calendar_events=calendar_events,
+        horizon_hours=72,
+    )
+    readiness = build_readiness_dossier(
+        profile=profile,
+        dossiers=[dossier],
+        future_situations=future,
+    )
+    epics = build_epics_from_dossiers(profile, [dossier])
+    ranked_epics = rank_epics(epics)
+    critical = build_critical_actions(profile, [dossier])
+    prep = build_preparation_plan(profile=profile, readiness=readiness, epics=ranked_epics)
+    mode = select_briefing_mode(profile, [dossier], critical, epics=ranked_epics)
+
+    assert len(future) >= 2, future
+    assert readiness.status in {"watch", "critical"}, readiness
+    assert readiness.score <= 70, readiness
+    assert len(prep.actions) >= 1, prep
+    assert len(critical.actions) >= 1, critical
+    assert mode in {"risk_mode", "low_confidence"}, mode
+    assert exposure_score(dossier) >= 60
+    assert decision_window_score(dossier) >= 70
+    assert readiness_score(profile, [dossier], has_future_risk_intersection=True) <= readiness.score
+    p("[REAL][PASS] v1.13 future intelligence core contracts functional")
 
 
 def test_v114() -> None:
@@ -323,6 +391,7 @@ def test_v126_travel_video() -> None:
 
 if __name__ == "__main__":
     test_v113()
+    test_v113_future_intelligence()
     test_v114()
     test_v115()
     test_v116()
