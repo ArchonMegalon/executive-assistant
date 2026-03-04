@@ -192,7 +192,11 @@ async def process_browseract_event(event_id: str):
                 """,
                 (str(event_id),),
             )
-            logging.warning("🤖 AUTO-HEALING ABORTED: Kein template_id gefunden.")
+            logging.info(
+                "BrowserAct event discarded: no template_id (workflow=%s, tenant=%s)",
+                str(workflow),
+                str(tenant),
+            )
 
         if hasattr(db, 'commit'): db.commit()
         

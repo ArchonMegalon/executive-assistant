@@ -80,6 +80,9 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - Added in-process lock around Open Loops read/modify/write operations to reduce concurrent callback races.
 - Kept atomic replace semantics with explicit UTF-8 I/O.
 
+12. BrowserAct ingress log hygiene
+- Non-AvoMap events without `template_id` are now logged as informative discard entries instead of warning-level “auto-healing aborted” noise.
+
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
 - `tests/e2e_browseract_http_ingress.py` (updated)

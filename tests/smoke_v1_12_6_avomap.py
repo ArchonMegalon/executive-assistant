@@ -84,6 +84,8 @@ browseract_src = BROWSERACT.read_text(encoding="utf-8")
 assert "finalize_avomap_render_event" in browseract_src
 assert "startswith(\"avomap.\")" in browseract_src
 assert "status IN ('new', 'queued', 'retry', 'failed')" in browseract_src
+assert "BrowserAct event discarded: no template_id" in browseract_src
+assert "AUTO-HEALING ABORTED: Kein template_id gefunden." not in browseract_src
 event_worker_src = EVENT_WORKER.read_text(encoding="utf-8")
 assert "status IN ('new', 'queued')" in event_worker_src
 print("[SMOKE][HOST][PASS] browseract finalize path wired")
