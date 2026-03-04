@@ -51,6 +51,12 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - Added profile-intelligence contracts (`profile`, `dossiers`, `critical_lane`, `household_graph`, `modes`) and wiring in briefing compose.
 - Added host smoke guard `tests/smoke_v1_12_6.py::test_critical_commitment_lane_wiring`.
 
+7. v1.13 future-intelligence gate hardening
+- Added `tests/smoke_v1_13_future_intelligence_pack.py` to mirror the external v1.13 future-intelligence contract pack in repo-native smoke format.
+- `scripts/run_v113_smoke.sh` now executes both `tests/smoke_v1_13.py` and `tests/smoke_v1_13_future_intelligence_pack.py`.
+- `scripts/docker_e2e_design_workflows.sh` now runs `tests/real_milestone_suite.py` inside the API container.
+- `scripts/docker_e2e.sh` now includes `smoke_v1_13_future_intelligence_pack` as a tracked gate step.
+
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
 - `tests/e2e_browseract_http_ingress.py` (updated)
