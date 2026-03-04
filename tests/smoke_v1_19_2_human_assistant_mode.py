@@ -35,11 +35,16 @@ def test_briefing_diagnostics_not_appended_to_chat() -> None:
 
 
 def test_mumbrain_hidden_from_user_menu_by_default() -> None:
-    src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
-    assert "def _mumbrain_user_visible(" in src
-    assert "EA_EXPOSE_MUMBRAIN_MENU" in src
-    assert "if _mumbrain_user_visible():" in src
-    assert "This command is operator-only." in src
+    poll_src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
+    menu_src = (ROOT / "ea/app/telegram_menu.py").read_text(encoding="utf-8")
+    auth_src = (ROOT / "ea/app/auth_sessions.py").read_text(encoding="utf-8")
+    assert "from app.telegram_menu import" in poll_src
+    assert "from app.auth_sessions import AuthSessionStore" in poll_src
+    assert "class AuthSessionStore" not in poll_src
+    assert "def mumbrain_user_visible(" in menu_src
+    assert "EA_EXPOSE_MUMBRAIN_MENU" in menu_src
+    assert "This command is operator-only." in poll_src
+    assert "class AuthSessionStore" in auth_src
     _pass("v1.19.2 calm menu surface")
 
 

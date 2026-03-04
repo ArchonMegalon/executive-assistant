@@ -142,6 +142,18 @@ optional design direction.
   - critical gap types can raise decision-window and exposure scoring
 - Added host smoke: `tests/smoke_v1_19_2_missingness.py`.
 
+14. v1.19.2 control-plane decomposition (poll listener)
+- Extracted Telegram menu surface logic into `ea/app/telegram_menu.py`:
+  - `mumbrain_user_visible()`
+  - `bot_commands()`
+  - `menu_text()`
+- Extracted auth session persistence into `ea/app/auth_sessions.py`:
+  - `AuthSessionStore`
+- `ea/app/poll_listener.py` now imports these modules instead of owning the
+  command-menu/auth-session implementations inline.
+- Host smoke updated to lock this decomposition contract:
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`.
+
 ## Rollout checklist
 
 1. Host gate:

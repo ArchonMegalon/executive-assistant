@@ -172,6 +172,20 @@ Behavior:
 - critical lane now consumes missingness signals and promotes critical gaps to
   deterministic immediate actions with upgraded decision-window scoring.
 
+### I. Poll-listener control-plane split (v1.19.2)
+
+Files:
+- `ea/app/telegram_menu.py`
+- `ea/app/auth_sessions.py`
+- `ea/app/poll_listener.py`
+- `tests/smoke_v1_19_2_human_assistant_mode.py`
+
+Behavior:
+- command menu and `/mumbrain` visibility policy moved into `telegram_menu.py`.
+- auth session storage moved into `auth_sessions.py`.
+- `poll_listener.py` now consumes these modules instead of carrying that logic
+  inline, reducing control-plane coupling without changing command semantics.
+
 ## SQL additions landed in this patch
 
 Migration file: `ea/schema/20260304_v1_19_1_profile_core.sql`
@@ -226,7 +240,7 @@ Table:
 
 ## Remaining gaps after v1.19.2
 
-1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`).
+1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`, `poll_listener.py`).
 2. Persist dossier/future/readiness snapshots in DB (profile snapshot is now landed).
 3. Expand dossier set with health/household ops/evidence-first dossier types.
 4. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).

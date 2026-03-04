@@ -25,6 +25,8 @@ from app.intake.calendar_import_result import build_calendar_import_response
 from app.intake.calendar_events import normalize_extracted_calendar_events
 from app.contracts.llm_gateway import ask_text as gateway_ask_text
 from app.contracts.repair import open_repair_incident
+from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
+from app.auth_sessions import AuthSessionStore
 LAST_HEARTBEAT = time.monotonic()
 WATCHDOG_BOOT_TS = time.monotonic()
 _BRIEF_INFLIGHT_LOCK = threading.Lock()
@@ -194,49 +196,6 @@ async def heartbeat_pinger():
 tg = TelegramClient(settings.telegram_bot_token)
 MENU_REGISTERED = False
 
-
-def _mumbrain_user_visible() -> bool:
-    raw = str(os.getenv("EA_EXPOSE_MUMBRAIN_MENU", "false")).strip().lower()
-    return raw in ("1", "true", "yes", "on")
-
-
-def _bot_commands() -> list[dict]:
-    commands = [
-        {"command": "brief", "description": "Executive briefing + personal newspaper PDF"},
-        {"command": "auth", "description": "Authorize Google account/services"},
-        {"command": "briefpdf", "description": "Standalone article PDF"},
-        {"command": "articlespdf", "description": "Alias for article PDF"},
-        {"command": "remember", "description": "Store memory fact"},
-        {"command": "brain", "description": "Show stored memory"},
-        {"command": "menu", "description": "Show all commands"},
-        {"command": "help", "description": "Show all commands"},
-        {"command": "start", "description": "Start and show command menu"},
-    ]
-    if _mumbrain_user_visible():
-        commands.insert(6, {"command": "mumbrain", "description": "Repair and system health status"})
-    return commands
-
-
-def _menu_text() -> str:
-    txt = (
-        "📋 <b>Command Menu</b>\n\n"
-        "• <code>/brief</code> - Executive briefing + personal newspaper PDF\n"
-        "• <code>/auth [email]</code> - Authenticate Google services\n"
-        "• <code>/briefpdf</code> - Standalone interesting-articles PDF\n"
-        "• <code>/articlespdf</code> - Alias for <code>/briefpdf</code>\n"
-        "• <code>/remember &lt;text&gt;</code> - Save a memory fact\n"
-        "• <code>/brain</code> - Show saved memory\n"
-        "• <code>/menu</code> or <code>/help</code> - Show this menu"
-    )
-    if _mumbrain_user_visible():
-        txt = txt.replace(
-            "• <code>/menu</code> or <code>/help</code> - Show this menu",
-            "• <code>/mumbrain</code> - System/repair diagnostics\n"
-            "• <code>/menu</code> or <code>/help</code> - Show this menu",
-        )
-    return txt
-
-
 async def _ensure_bot_command_menu():
     global MENU_REGISTERED
     if MENU_REGISTERED or not settings.telegram_bot_token:
@@ -247,50 +206,7 @@ async def _ensure_bot_command_menu():
     except Exception:
         pass
 
-class AuthSessionStore:
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._path = '/attachments/auth_sessions.json'
-
-    def _read(self):
-        if not __import__('os').path.exists(self._path):
-            return {}
-        try:
-            with open(self._path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return {}
-
-    def _write(self, data):
-        tmp = self._path + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
-        os.replace(tmp, self._path)
-
-    def set(self, chat_id: int, session: dict):
-        with self._lock:
-            data = self._read()
-            data[str(chat_id)] = session
-            self._write(data)
-
-    def get_and_clear(self, chat_id: int) -> dict | None:
-        with self._lock:
-            data = self._read()
-            if str(chat_id) in data:
-                sess = data.pop(str(chat_id))
-                self._write(data)
-                if time.time() - sess.get('ts', 0) < 900:
-                    return sess
-            return None
-
-    def clear(self, chat_id: int):
-        with self._lock:
-            data = self._read()
-            if str(chat_id) in data:
-                del data[str(chat_id)]
-                self._write(data)
-AUTH_SESSIONS = AuthSessionStore()
+AUTH_SESSIONS = AuthSessionStore(path='/attachments/auth_sessions.json', ttl_sec=900)
 
 def _atomic_write_json(path: str, data: dict):
     tmp = path + '.tmp'
