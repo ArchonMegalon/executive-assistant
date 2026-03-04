@@ -360,6 +360,28 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+30. v1.19.3 LLM gateway identity hardening
+- Hardened `ea/app/contracts/llm_gateway.py` to require explicit request
+  identity metadata for all model egress:
+  - `task_type` (already enforced)
+  - `data_class` (allow-listed)
+  - `tenant`
+  - `person_id`
+  - `correlation_id`
+- Missing identity metadata now fails closed with audit verdicts:
+  - `blocked_missing_data_class`
+  - `blocked_missing_identity`
+  - `blocked_missing_correlation_id`
+- Updated all in-repo call paths to pass explicit correlation IDs and
+  person/tenant metadata:
+  - `ea/app/briefings.py`
+  - `ea/app/chat_assist.py`
+  - `ea/app/coaching.py`
+- Expanded gateway smokes:
+  - `tests/smoke_v1_19_1_llm_gateway_boundary.py`
+  - added identity/correlation/data-class blocking behavior checks and updated
+    callsite contract assertions.
+
 ## Rollout checklist
 
 1. Host gate:

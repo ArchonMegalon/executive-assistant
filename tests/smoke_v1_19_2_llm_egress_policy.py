@@ -53,6 +53,7 @@ def test_llm_egress_policy_denies_by_db_rule() -> None:
             "Summarize this",
             task_type="profile_summary",
             purpose="chat_assist",
+            correlation_id="cid-policy-deny",
             data_class="derived_summary",
             tenant="chat_123",
             person_id="user_1",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from app.contracts.llm_gateway import ask_text as gateway_ask_text
 
@@ -24,12 +25,20 @@ def humanize_agent_report(report: str) -> str:
     return raw
 
 
-async def ask_llm_text(prompt: str, *, tenant: str = "", person_id: str = "") -> str:
+async def ask_llm_text(
+    prompt: str,
+    *,
+    tenant: str = "",
+    person_id: str = "",
+    correlation_id: str = "",
+) -> str:
+    cid = str(correlation_id or "").strip() or f"chat_assist:{tenant or 'tenant'}:{person_id or 'user'}:{int(time.time() * 1000)}"
     return await asyncio.to_thread(
         gateway_ask_text,
         str(prompt),
         task_type="profile_summary",
         purpose="chat_assist",
+        correlation_id=cid,
         data_class="derived_summary",
         tenant=str(tenant or ""),
         person_id=str(person_id or ""),

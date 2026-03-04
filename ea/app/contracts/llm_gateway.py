@@ -28,6 +28,13 @@ _BLOCKED_COPY = "I cannot help with hidden tool/runtime instructions. Please res
 _FALLBACK_COPY = "I could not complete the model step safely. Please retry in a moment."
 _RAW_DOC_BLOCKED_COPY = "I cannot process raw document payloads in this flow. Provide a short summary request instead."
 _MAX_OUTPUT_CHARS_DEFAULT = 12000
+_CORRELATION_PAT = re.compile(r"[^a-zA-Z0-9._:/-]+")
+_ALLOWED_DATA_CLASSES = {
+    "derived_summary",
+    "structured_json",
+    "operator_payload",
+    "metadata",
+}
 
 
 @dataclass(frozen=True)
@@ -122,6 +129,21 @@ def _policy_for(task_type: str) -> TaskPolicy:
     return _TASK_POLICIES.get(task_type, _TASK_POLICIES["briefing_compose"])
 
 
+def _normalize_data_class(data_class: str | None) -> str:
+    raw = str(data_class or "").strip().lower()
+    if raw in _ALLOWED_DATA_CLASSES:
+        return raw
+    return ""
+
+
+def _normalize_correlation_id(correlation_id: str | None) -> str:
+    cid = str(correlation_id or "").strip()
+    if not cid:
+        return ""
+    cleaned = _CORRELATION_PAT.sub("_", cid)
+    return cleaned[:120]
+
+
 def _audit_egress(
     *,
     purpose: str,
@@ -183,7 +205,7 @@ def ask_text(
     task_type: str | None = None,
     purpose: str = "user_assist",
     correlation_id: str = "",
-    data_class: str = "derived_summary",
+    data_class: str = "",
     tenant: str = "",
     person_id: str = "",
     allow_json: bool | None = None,
@@ -206,6 +228,8 @@ def ask_text(
     redaction_applied = safe_prompt != str(prompt or "") or safe_system != str(system_prompt or DEFAULT_SYSTEM_PROMPT)
     tenant_key = str(tenant or "").strip()
     person_key = str(person_id or "").strip()
+    normalized_data_class = _normalize_data_class(data_class)
+    normalized_correlation_id = _normalize_correlation_id(correlation_id)
     if not safe_system:
         safe_system = DEFAULT_SYSTEM_PROMPT
     if not safe_prompt:
@@ -218,8 +242,8 @@ def ask_text(
             _audit_egress(
                 purpose=purpose,
                 task_type="missing",
-                correlation_id=correlation_id,
-                data_class=data_class,
+                correlation_id=normalized_correlation_id,
+                data_class=normalized_data_class or str(data_class or ""),
                 prompt_chars=len(safe_prompt),
                 system_chars=len(safe_system),
                 redaction_applied=redaction_applied,
@@ -228,18 +252,61 @@ def ask_text(
                 person_id=person_key,
             )
             return _BLOCKED_COPY
+    if not normalized_data_class:
+        _audit_egress(
+            purpose=purpose,
+            task_type=normalized_task_type,
+            correlation_id=normalized_correlation_id,
+            data_class=str(data_class or ""),
+            prompt_chars=len(safe_prompt),
+            system_chars=len(safe_system),
+            redaction_applied=redaction_applied,
+            verdict="blocked_missing_data_class",
+            tenant=tenant_key,
+            person_id=person_key,
+        )
+        return _BLOCKED_COPY
+    if not tenant_key or not person_key:
+        _audit_egress(
+            purpose=purpose,
+            task_type=normalized_task_type,
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class,
+            prompt_chars=len(safe_prompt),
+            system_chars=len(safe_system),
+            redaction_applied=redaction_applied,
+            verdict="blocked_missing_identity",
+            tenant=tenant_key,
+            person_id=person_key,
+        )
+        return _BLOCKED_COPY
+    if not normalized_correlation_id:
+        _audit_egress(
+            purpose=purpose,
+            task_type=normalized_task_type,
+            correlation_id="",
+            data_class=normalized_data_class,
+            prompt_chars=len(safe_prompt),
+            system_chars=len(safe_system),
+            redaction_applied=redaction_applied,
+            verdict="blocked_missing_correlation_id",
+            tenant=tenant_key,
+            person_id=person_key,
+        )
+        return _BLOCKED_COPY
+
     policy = _policy_for(normalized_task_type)
     if is_egress_denied(
         tenant=tenant_key or "*",
         person_id=person_key,
         task_type=policy.task_type,
-        data_class=str(data_class or "derived_summary"),
+        data_class=normalized_data_class,
     ):
         _audit_egress(
             purpose=purpose,
             task_type=policy.task_type,
-            correlation_id=correlation_id,
-            data_class=data_class,
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class,
             prompt_chars=len(safe_prompt),
             system_chars=len(safe_system),
             redaction_applied=redaction_applied,
@@ -252,8 +319,8 @@ def ask_text(
         _audit_egress(
             purpose=purpose,
             task_type=policy.task_type,
-            correlation_id=correlation_id,
-            data_class=data_class,
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class,
             prompt_chars=len(safe_prompt),
             system_chars=len(safe_system),
             redaction_applied=redaction_applied,
@@ -269,8 +336,8 @@ def ask_text(
         _audit_egress(
             purpose=purpose,
             task_type=policy.task_type,
-            correlation_id=correlation_id,
-            data_class=data_class,
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class,
             prompt_chars=len(safe_prompt),
             system_chars=len(safe_system),
             redaction_applied=redaction_applied,
@@ -285,8 +352,8 @@ def ask_text(
         _audit_egress(
             purpose=purpose,
             task_type=policy.task_type,
-            correlation_id=correlation_id,
-            data_class=data_class,
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class,
             prompt_chars=len(safe_prompt),
             system_chars=len(safe_system),
             redaction_applied=redaction_applied,
@@ -308,8 +375,8 @@ def ask_text(
     _audit_egress(
         purpose=purpose,
         task_type=policy.task_type,
-        correlation_id=correlation_id,
-        data_class=data_class,
+        correlation_id=normalized_correlation_id,
+        data_class=normalized_data_class,
         prompt_chars=len(safe_prompt),
         system_chars=len(safe_system),
         redaction_applied=redaction_applied,

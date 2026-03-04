@@ -1,6 +1,7 @@
 import json
 import logging
 import asyncio
+import time
 from app.db import get_db
 from app.contracts.llm_gateway import ask_text as gateway_ask_text
 
@@ -21,11 +22,13 @@ async def resolve_person_role(tenant: str, name: str) -> dict:
     
     prompt = f"SYSTEM RULE: You are a role resolver. Who is '{name}' in the context of Austrian business/Industriellenvereinigung (IV)? Return STRICT JSON: {{\"role\": \"...\", \"org\": \"...\"}}. If unknown, return nulls."
     try:
+        cid = f"coaching:role_resolver:{tenant}:{name}:{int(time.time() * 1000)}"
         res = await asyncio.to_thread(
             gateway_ask_text,
             prompt,
             task_type="operator_only",
             purpose="coaching_role_resolver",
+            correlation_id=cid,
             data_class="derived_summary",
             tenant=str(tenant or ""),
             person_id=str(name or ""),
@@ -48,13 +51,16 @@ async def generate_coach_annex(tenant: str, event: dict) -> str:
     title = event.get("summary", "")
     desc = event.get("description", "")
     
+    name_extract_cid = f"coaching:name_extract:{tenant}:{int(time.time() * 1000)}"
     name = await asyncio.to_thread(
         gateway_ask_text,
         f"Extract ONLY the full name of the coaching counterpart from this event. Event: {title} {desc}",
         task_type="profile_summary",
         purpose="coaching_name_extract",
+        correlation_id=name_extract_cid,
         data_class="derived_summary",
         tenant=str(tenant or ""),
+        person_id=str(tenant or "coach_target"),
     )
     name = name.replace("```", "").strip()
     if not name or len(name) > 50: name = "Counterpart"
@@ -75,11 +81,13 @@ Format in Telegram Markdown:
 - ❓ 3 Coaching-Fragen: (Open useful angles)
 - ⚠️ Watch-out: (Tone guidance)
 """
+    annex_cid = f"coaching:annex:{tenant}:{name}:{int(time.time() * 1000)}"
     return await asyncio.to_thread(
         gateway_ask_text,
         brief_prompt,
         task_type="profile_summary",
         purpose="coaching_annex_compose",
+        correlation_id=annex_cid,
         data_class="derived_summary",
         tenant=str(tenant or ""),
         person_id=str(name or ""),

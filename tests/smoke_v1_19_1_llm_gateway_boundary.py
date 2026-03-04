@@ -53,6 +53,11 @@ def test_llm_gateway_redacts_and_clamps_prompt() -> None:
             "Token: sk-verysecrettoken1234567890 " + ("abc " * 400),
             system_prompt="SYSTEM " + ("x" * 200),
             task_type="briefing_compose",
+            purpose="briefing_compose",
+            correlation_id="cid-redact-1",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
         )
         assert out == "ok"
         assert "sk-verysecrettoken" not in captured.get("prompt", "")
@@ -79,7 +84,15 @@ def test_llm_gateway_blocks_tool_like_outputs() -> None:
     original_ask_llm = gw.ask_llm
     try:
         gw.ask_llm = lambda prompt, system_prompt: "Please run sql now and execute this tool."
-        out = gw.ask_text("summarize today", task_type="briefing_compose")
+        out = gw.ask_text(
+            "summarize today",
+            task_type="briefing_compose",
+            purpose="briefing_compose",
+            correlation_id="cid-tool-block",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
+        )
         assert "hidden tool/runtime instructions" in out.lower()
     finally:
         gw.ask_llm = original_ask_llm
@@ -92,7 +105,15 @@ def test_llm_gateway_blocks_json_for_user_surface_tasks() -> None:
     original_ask_llm = gw.ask_llm
     try:
         gw.ask_llm = lambda prompt, system_prompt: '{"debug":"raw response"}'
-        out = gw.ask_text("brief me", task_type="briefing_compose")
+        out = gw.ask_text(
+            "brief me",
+            task_type="briefing_compose",
+            purpose="briefing_compose",
+            correlation_id="cid-json-block",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
+        )
         assert "hidden tool/runtime instructions" in out.lower()
     finally:
         gw.ask_llm = original_ask_llm
@@ -114,6 +135,11 @@ def test_llm_gateway_blocks_raw_document_payload_by_default() -> None:
         out = gw.ask_text(
             "%PDF-1.7 raw payload with binary-like body",
             task_type="briefing_compose",
+            purpose="briefing_compose",
+            correlation_id="cid-raw-doc",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
         )
         assert "raw document payloads" in out.lower()
         assert called["n"] == 0
@@ -138,6 +164,8 @@ def test_llm_gateway_writes_egress_audit_metadata() -> None:
                 purpose="briefing_compose",
                 correlation_id="cid-123",
                 data_class="derived_summary",
+                tenant="chat_100284",
+                person_id="tibor@example.com",
             )
             assert "Safe grounded summary" == out
             lines = audit_path.read_text(encoding="utf-8").strip().splitlines()
@@ -185,6 +213,8 @@ def test_llm_gateway_writes_db_audit_metadata_when_enabled() -> None:
             purpose="briefing_compose",
             correlation_id="cid-db-audit",
             data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
         )
         assert out == "Safe response"
         assert captured, "expected DB audit row"
@@ -220,7 +250,14 @@ def test_llm_gateway_blocks_missing_task_type_by_default() -> None:
             return "ok"
 
         gw.ask_llm = _fake_ask_llm
-        out = gw.ask_text("summarize this")
+        out = gw.ask_text(
+            "summarize this",
+            purpose="briefing_compose",
+            correlation_id="cid-missing-task-type",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
+        )
         assert "hidden tool/runtime instructions" in out.lower()
         assert called["n"] == 0
     finally:
@@ -232,6 +269,54 @@ def test_llm_gateway_blocks_missing_task_type_by_default() -> None:
     _pass("v1.19.1 llm gateway missing task_type blocked")
 
 
+def test_llm_gateway_blocks_missing_identity_or_correlation() -> None:
+    import app.contracts.llm_gateway as gw
+
+    original_ask_llm = gw.ask_llm
+    called = {"n": 0}
+    try:
+        def _fake_ask_llm(prompt: str, system_prompt: str):
+            called["n"] += 1
+            return "ok"
+
+        gw.ask_llm = _fake_ask_llm
+
+        out_identity = gw.ask_text(
+            "summarize this",
+            task_type="profile_summary",
+            purpose="chat_assist",
+            correlation_id="cid-missing-identity",
+            data_class="derived_summary",
+            tenant="",
+            person_id="",
+        )
+        out_corr = gw.ask_text(
+            "summarize this",
+            task_type="profile_summary",
+            purpose="chat_assist",
+            correlation_id="",
+            data_class="derived_summary",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
+        )
+        out_data_class = gw.ask_text(
+            "summarize this",
+            task_type="profile_summary",
+            purpose="chat_assist",
+            correlation_id="cid-missing-dc",
+            data_class="",
+            tenant="chat_100284",
+            person_id="tibor@example.com",
+        )
+        assert "hidden tool/runtime instructions" in out_identity.lower()
+        assert "hidden tool/runtime instructions" in out_corr.lower()
+        assert "hidden tool/runtime instructions" in out_data_class.lower()
+        assert called["n"] == 0
+    finally:
+        gw.ask_llm = original_ask_llm
+    _pass("v1.19.1 llm gateway identity/correlation/data-class blocking")
+
+
 def test_llm_gateway_callsite_task_type_wiring() -> None:
     brief_src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
     poll_src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
@@ -240,13 +325,19 @@ def test_llm_gateway_callsite_task_type_wiring() -> None:
 
     assert 'task_type="briefing_compose"' in brief_src
     assert 'purpose="briefing_compose"' in brief_src
+    assert "correlation_id=" in brief_src
     assert "from app.chat_assist import ask_llm_text as _ask_llm_text" in poll_src
     assert 'task_type="profile_summary"' in assist_src
     assert 'purpose="chat_assist"' in assist_src
+    assert "correlation_id=cid" in assist_src
     assert 'task_type="operator_only"' in coaching_src
     assert "allow_json=True" in coaching_src
+    assert "coaching:role_resolver:" in coaching_src
+    assert "coaching:name_extract:" in coaching_src
+    assert "coaching:annex:" in coaching_src
     assert "tenant=" in brief_src and "person_id=" in brief_src
     assert "tenant=str(tenant or \"\")" in assist_src
+    assert "person_id=str(person_id or \"\")" in assist_src
     assert "tenant=str(tenant or \"\")" in coaching_src
     assert "EA_LLM_GATEWAY_TASK_TYPE" not in (ROOT / "ea/app/contracts/llm_gateway.py").read_text(encoding="utf-8")
     _pass("v1.19.1 llm gateway callsite policy wiring")
@@ -261,4 +352,5 @@ if __name__ == "__main__":
     test_llm_gateway_writes_egress_audit_metadata()
     test_llm_gateway_writes_db_audit_metadata_when_enabled()
     test_llm_gateway_blocks_missing_task_type_by_default()
+    test_llm_gateway_blocks_missing_identity_or_correlation()
     test_llm_gateway_callsite_task_type_wiring()

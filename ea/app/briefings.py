@@ -133,19 +133,39 @@ async def _avomap_prepare_card(
         return "", {"status": "error", "error": str(e)[:120]}
 
 
-async def call_powerful_llm(prompt: str, temp=0.1, tenant: str = "", person_id: str = "") -> str:
+async def call_powerful_llm(
+    prompt: str,
+    temp=0.1,
+    tenant: str = "",
+    person_id: str = "",
+    correlation_id: str = "",
+) -> str:
+    cid = str(correlation_id or "").strip() or f"briefing:{tenant or 'tenant'}:{person_id or 'user'}:{int(time.time() * 1000)}"
     return await asyncio.to_thread(
         gateway_ask_text,
         str(prompt),
         task_type="briefing_compose",
         purpose="briefing_compose",
+        correlation_id=cid,
         data_class="derived_summary",
         tenant=str(tenant or ""),
         person_id=str(person_id or ""),
     )
 
-async def call_llm(prompt: str, temp=0.1, tenant: str = "", person_id: str = "") -> str:
-    return await call_powerful_llm(prompt, temp=temp, tenant=tenant, person_id=person_id)
+async def call_llm(
+    prompt: str,
+    temp=0.1,
+    tenant: str = "",
+    person_id: str = "",
+    correlation_id: str = "",
+) -> str:
+    return await call_powerful_llm(
+        prompt,
+        temp=temp,
+        tenant=tenant,
+        person_id=person_id,
+        correlation_id=correlation_id,
+    )
 
 async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
     t_openclaw = get_val(tenant, 'openclaw_container', '')
@@ -296,7 +316,13 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         '  "calendar_summary":"Clean bulleted timeline grouped by date."\n'
         "}"
     )
-    out = await call_llm(prompt, tenant=str(t_key), person_id=str(t_account or t_key))
+    llm_correlation_id = f"briefing:{safe_tenant}:{int(time.time() * 1000)}"
+    out = await call_llm(
+        prompt,
+        tenant=str(t_key),
+        person_id=str(t_account or t_key),
+        correlation_id=llm_correlation_id,
+    )
     try:
         obj = _safe_extract_obj(out)
         if 'error' in obj:
@@ -413,6 +439,7 @@ async def call_llm_async(prompt, *args, **kwargs):
     status_cb = current_status_cb.get()
     tenant = str(kwargs.get("tenant") or "")
     person_id = str(kwargs.get("person_id") or "")
+    correlation_id = str(kwargs.get("correlation_id") or "").strip() or f"briefing:{tenant or 'tenant'}:{person_id or 'user'}:{int(time.time() * 1000)}"
 
     async def _heartbeat():
         if not status_cb:
@@ -452,6 +479,7 @@ async def call_llm_async(prompt, *args, **kwargs):
             str(prompt),
             task_type="briefing_compose",
             purpose="briefing_compose",
+            correlation_id=correlation_id,
             data_class="derived_summary",
             tenant=tenant,
             person_id=person_id,
