@@ -38,6 +38,11 @@ Consolidation before expansion:
 ### Phase 6: v1.18 Planner + Runtime Alignment
 - Shift from reactive loop to proactive precompute/planning loop.
 
+### Phase 7: v1.19 Future Intelligence Care OS
+- Promote commitment-protection behavior into first-class runtime contracts.
+- Prioritize high-exposure commitments + risk intersections before generic summarize/ranking paths.
+- Enforce confidence-aware composition and bounded preparation planning through smoke + real milestone gates.
+
 ## Execution Rule
 No new feature wave ships without an explicit contract owner and smoke test
 coverage for boundary invariants.

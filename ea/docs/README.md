@@ -12,6 +12,9 @@
 ## v1.13 Forward Design
 - `v1_13_actionable_briefings_design.md`
 
+## v1.19 Forward Design (root docs/)
+- `../docs/EA_OS_Design_v1_19_Future_Intelligence_Care_OS.md`
+- `../docs/EA_OS_Change_Guide_for_Dev_v1_19_Future_Intelligence_Care_OS.md`
+
 ## Execution Backlog
 - `v1_12_6a_to_v1_13_issue_backlog.md`
-

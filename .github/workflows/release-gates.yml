@@ -27,6 +27,7 @@ jobs:
           python3 tests/smoke_v1_16.py
           python3 tests/smoke_v1_17.py
           python3 tests/smoke_v1_18.py
+          python3 tests/smoke_v1_19_future_intelligence_pack.py
           python3 tests/smoke_v1_18_1_runtime_alignment.py
           python3 tests/smoke_newspaper_issue_pipeline.py
           python3 tests/smoke_newspaper_brief_wiring.py

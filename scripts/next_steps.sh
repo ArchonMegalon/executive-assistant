@@ -100,5 +100,6 @@ UFW
 echo
 echo "[7] Smoke tests"
 bash scripts/smoke.sh || true
+EA_SKIP_FULL_GATES=1 bash scripts/run_v119_smoke.sh /docker/EA || true
 echo
 echo "Done. Next: configure gog Tasks commands if needed and wire PayPal/refund + delivery tracker workflows."
