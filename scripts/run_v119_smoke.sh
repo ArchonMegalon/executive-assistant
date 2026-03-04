@@ -27,6 +27,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_19_3_skill_router.py" \
   "$ROOT/tests/smoke_v1_19_4_capability_registry.py" \
   "$ROOT/tests/smoke_v1_19_4_skill_inventory.py" \
+  "$ROOT/tests/smoke_v1_19_4_doc_alignment.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
   "$ROOT/tests/smoke_v1_19_3_briefing_runtime_behavior.py"
@@ -46,6 +47,7 @@ python3 "$ROOT/tests/smoke_v1_19_3_human_compose_behavior.py"
 python3 "$ROOT/tests/smoke_v1_19_3_skill_router.py"
 python3 "$ROOT/tests/smoke_v1_19_4_capability_registry.py"
 python3 "$ROOT/tests/smoke_v1_19_4_skill_inventory.py"
+python3 "$ROOT/tests/smoke_v1_19_4_doc_alignment.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"
 python3 "$ROOT/tests/smoke_v1_19_3_briefing_runtime_behavior.py"

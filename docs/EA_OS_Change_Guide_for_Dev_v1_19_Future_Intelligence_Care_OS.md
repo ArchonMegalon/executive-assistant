@@ -543,6 +543,15 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+44. v1.19.4 doc/code drift guard
+- Added `tests/smoke_v1_19_4_doc_alignment.py`:
+  - enforces README runtime positioning contract
+  - enforces that key v1.19 guide file claims map to files that actually exist
+- Wired this smoke into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:
