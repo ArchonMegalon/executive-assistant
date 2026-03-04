@@ -16,7 +16,15 @@ echo "[SMOKE][v1.13] Host compile"
 python3 -m py_compile \
   "$ROOT/ea/app/net/egress_guard.py" \
   "$ROOT/ea/app/connectors/registry.py" \
-  "$ROOT/ea/app/onboarding/service.py"
+  "$ROOT/ea/app/onboarding/service.py" \
+  "$ROOT/ea/app/intelligence/future_situations.py" \
+  "$ROOT/ea/app/intelligence/readiness.py" \
+  "$ROOT/ea/app/intelligence/scores.py" \
+  "$ROOT/ea/app/intelligence/preparation_planner.py"
+
+echo "[SMOKE][v1.13] Future intelligence + regression contract smoke"
+python3 "$ROOT/tests/smoke_v1_13.py"
+python3 "$ROOT/tests/smoke_v1_13_future_intelligence_pack.py"
 
 echo "[SMOKE][v1.13] Container onboarding flow smoke"
 "${DC[@]}" exec -T ea-worker python - <<'PY'
