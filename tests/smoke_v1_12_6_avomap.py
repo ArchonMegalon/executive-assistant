@@ -110,7 +110,8 @@ scheduler_src = SCHEDULER.read_text(encoding="utf-8")
 assert "_maybe_avomap_prewarm" in scheduler_src
 assert "plan_for_briefing" in scheduler_src
 assert "datetime.now(ZoneInfo(settings.tz))" in scheduler_src
-assert "astimezone(timezone.utc)" in scheduler_src
+assert "from app.time_windows import local_next_day_window_utc" in scheduler_src
+assert "local_next_day_window_utc(now_local, days_ahead=1)" in scheduler_src
 print("[SMOKE][HOST][PASS] scheduler prewarm wiring")
 
 design_script = DESIGN_E2E_SCRIPT.read_text(encoding="utf-8")

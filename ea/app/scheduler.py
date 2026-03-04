@@ -3,12 +3,13 @@ import contextlib
 import httpx
 import os
 import traceback
-from datetime import datetime, timedelta, timezone, time as dtime
+from datetime import datetime
 from typing import Awaitable
 from zoneinfo import ZoneInfo
 
 from app.poll_listener import tg, handle_callback, handle_photo, handle_command
 from app.settings import settings
+from app.time_windows import local_next_day_window_utc
 
 _LAST_AVOMAP_PREWARM_DAY: str = ""
 
@@ -38,13 +39,7 @@ def _run_avomap_prewarm_sync() -> int:
     svc = AvoMapService(db, enabled=True)
     local_tz = ZoneInfo(settings.tz)
     now_local = datetime.now(local_tz)
-    target_day_local = (now_local + timedelta(days=1)).date()
-    target_day = target_day_local.isoformat()
-    window_start_local = datetime.combine(target_day_local, dtime.min, tzinfo=local_tz)
-    window_end_local = window_start_local + timedelta(days=1)
-    # Calendar rows are stored/queried in UTC; convert the local "tomorrow" window.
-    window_start = window_start_local.astimezone(timezone.utc)
-    window_end = window_end_local.astimezone(timezone.utc)
+    target_day, window_start, window_end = local_next_day_window_utc(now_local, days_ahead=1)
 
     warmed = 0
     for tenant_key in _collect_prewarm_tenants():

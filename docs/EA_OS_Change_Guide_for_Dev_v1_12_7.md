@@ -24,6 +24,8 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 3. Prewarm timezone window fix
 - `ea/app/scheduler.py` now derives tomorrow from local timezone (`settings.tz`) and converts that local-day window to UTC for DB queries.
 - This removes midnight-edge drift between local scheduler hour and UTC window boundaries.
+- Added shared helper `ea/app/time_windows.py::local_next_day_window_utc()` so local-day boundaries are computed from local midnights (DST-safe).
+- Added regression `tests/smoke_v1_12_6.py::test_prewarm_day_window_timezone_math` for Europe/Vienna DST start/end windows (23h/25h UTC spans).
 
 4. Late-attach delivery mode option
 - `ea/app/intake/browseract.py` supports `EA_AVOMAP_LATE_ATTACH_MODE`:

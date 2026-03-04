@@ -6,6 +6,7 @@ import runpy
 import sys
 import tempfile
 import types
+from datetime import datetime
 from pathlib import Path
 
 
@@ -184,6 +185,42 @@ def test_day_context_quality() -> None:
     _print_pass("test_day_context_quality")
 
 
+def test_prewarm_day_window_timezone_math() -> None:
+    from zoneinfo import ZoneInfo
+    from app.time_windows import local_next_day_window_utc
+
+    tz = ZoneInfo("Europe/Vienna")
+
+    # DST start: local next-day window should span 23h in UTC.
+    day_key_s, start_s, end_s = local_next_day_window_utc(
+        datetime(2026, 3, 28, 23, 30, tzinfo=tz),
+        days_ahead=1,
+    )
+    assert day_key_s == "2026-03-29", day_key_s
+    assert int((end_s - start_s).total_seconds()) == 23 * 3600, (start_s, end_s)
+
+    # DST end: local next-day window should span 25h in UTC.
+    day_key_f, start_f, end_f = local_next_day_window_utc(
+        datetime(2026, 10, 24, 23, 30, tzinfo=tz),
+        days_ahead=1,
+    )
+    assert day_key_f == "2026-10-25", day_key_f
+    assert int((end_f - start_f).total_seconds()) == 25 * 3600, (start_f, end_f)
+
+    # Guard against accidental naive datetime usage.
+    try:
+        local_next_day_window_utc(datetime(2026, 3, 1, 10, 0), days_ahead=1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for naive datetime")
+
+    scheduler_src = (EA_ROOT / "app/scheduler.py").read_text(encoding="utf-8")
+    assert "from app.time_windows import local_next_day_window_utc" in scheduler_src
+    assert "local_next_day_window_utc(now_local, days_ahead=1)" in scheduler_src
+    _print_pass("test_prewarm_day_window_timezone_math")
+
+
 def test_critical_commitment_lane_wiring() -> None:
     brief_src = (EA_ROOT / "app/briefings.py").read_text(encoding="utf-8")
     assert "def _runtime_confidence_note(" in brief_src
@@ -212,4 +249,5 @@ if __name__ == "__main__":
     test_webhook_auth_rejection()
     test_budget_exhaustion()
     test_day_context_quality()
+    test_prewarm_day_window_timezone_math()
     test_critical_commitment_lane_wiring()
