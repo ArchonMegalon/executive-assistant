@@ -17,14 +17,14 @@ def test_browseract_http_ingress() -> None:
         return
 
     tenant = f"chat_{100000 + int(uuid4().hex[:3], 16)}"
-    use_signed_avomap = bool(settings.avomap_webhook_secret)
-    workflow = settings.avomap_browseract_workflow if use_signed_avomap else "browseract.http_ingress_test"
+    # Keep this test as pure ingress durability only. Do not use the real
+    # AvoMap workflow here, otherwise event workers may treat synthetic payloads
+    # as real finalize jobs and produce noisy "failed" events.
+    workflow = "browseract.http_ingress_test"
     dedupe = f"http-wh-{uuid4().hex}"
     payload = {
-        "status": "completed",
-        "spec_id": f"spec-{uuid4().hex[:10]}",
-        "cache_key": f"cache-{uuid4().hex[:10]}",
-        "object_ref": f"https://example.invalid/{uuid4().hex}.mp4",
+        "probe": "http_ingress",
+        "run_id": str(uuid4()),
     }
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 

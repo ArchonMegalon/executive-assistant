@@ -21,6 +21,8 @@ TG_MEDIA = APP / "telegram/media.py"
 RUNNER = APP / "runner.py"
 SCHEMA = ROOT / "ea/schema/v1_12_6_avomap.sql"
 E2E_SCRIPT = ROOT / "tests/e2e_v1_12_6_avomap.py"
+HTTP_CHAIN_E2E_SCRIPT = ROOT / "tests/e2e_browseract_http_to_ready_asset.py"
+HTTP_INGRESS_E2E_SCRIPT = ROOT / "tests/e2e_browseract_http_ingress.py"
 DESIGN_E2E_SCRIPT = ROOT / "scripts/docker_e2e_design_workflows.sh"
 
 AVOMAP_FILES = [
@@ -36,7 +38,7 @@ AVOMAP_FILES = [
     APP / "telegram/media.py",
 ]
 
-for path in [SETTINGS, MAIN, BROWSERACT, EVENT_WORKER, BRIEFINGS, SCHEDULER, DB, ROUTING, SANITIZER, AVOMAP_SECURITY, TG_MEDIA, RUNNER, E2E_SCRIPT, *AVOMAP_FILES]:
+for path in [SETTINGS, MAIN, BROWSERACT, EVENT_WORKER, BRIEFINGS, SCHEDULER, DB, ROUTING, SANITIZER, AVOMAP_SECURITY, TG_MEDIA, RUNNER, E2E_SCRIPT, HTTP_CHAIN_E2E_SCRIPT, HTTP_INGRESS_E2E_SCRIPT, *AVOMAP_FILES]:
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.12.6 modules parse")
 
@@ -107,12 +109,19 @@ print("[SMOKE][HOST][PASS] briefing integration wired")
 scheduler_src = SCHEDULER.read_text(encoding="utf-8")
 assert "_maybe_avomap_prewarm" in scheduler_src
 assert "plan_for_briefing" in scheduler_src
+assert "datetime.now(ZoneInfo(settings.tz))" in scheduler_src
+assert "astimezone(timezone.utc)" in scheduler_src
 print("[SMOKE][HOST][PASS] scheduler prewarm wiring")
 
 design_script = DESIGN_E2E_SCRIPT.read_text(encoding="utf-8")
 assert "v1_12_6_avomap.sql" in design_script
 assert "e2e_v1_12_6_avomap.py" in design_script
+assert "e2e_browseract_http_to_ready_asset.py" in design_script
 print("[SMOKE][HOST][PASS] design E2E script includes v1.12.6 flow")
+
+ingress_e2e_src = HTTP_INGRESS_E2E_SCRIPT.read_text(encoding="utf-8")
+assert "workflow = \"browseract.http_ingress_test\"" in ingress_e2e_src
+print("[SMOKE][HOST][PASS] ingress E2E uses isolated non-AvoMap workflow")
 
 sys.path.insert(0, str(ROOT / "ea"))
 from app.settings import settings  # noqa: E402

@@ -36,6 +36,7 @@ echo "== Design E2E: sync test script into API container =="
 docker cp "${EA_ROOT}/tests/e2e_design_workflows.py" "${API_CONT}:/tmp/e2e_design_workflows.py"
 docker cp "${EA_ROOT}/tests/e2e_v1_12_6_avomap.py" "${API_CONT}:/tmp/e2e_v1_12_6_avomap.py"
 docker cp "${EA_ROOT}/tests/e2e_browseract_http_ingress.py" "${API_CONT}:/tmp/e2e_browseract_http_ingress.py"
+docker cp "${EA_ROOT}/tests/e2e_browseract_http_to_ready_asset.py" "${API_CONT}:/tmp/e2e_browseract_http_to_ready_asset.py"
 
 echo "== Design E2E: run all design workflows (onboarding/surveys/trust/rag/actions/personalization/planner/mum) =="
 docker exec "${API_CONT}" sh -lc "PYTHONPATH=/app python /tmp/e2e_design_workflows.py"
@@ -45,5 +46,8 @@ docker exec "${API_CONT}" sh -lc "PYTHONPATH=/app python /tmp/e2e_v1_12_6_avomap
 
 echo "== Design E2E: run real HTTP BrowserAct ingress acceptance =="
 docker exec "${API_CONT}" sh -lc "PYTHONPATH=/app python /tmp/e2e_browseract_http_ingress.py"
+
+echo "== Design E2E: run full BrowserAct HTTP -> worker -> asset chain =="
+docker exec "${API_CONT}" sh -lc "PYTHONPATH=/app python /tmp/e2e_browseract_http_to_ready_asset.py"
 
 echo "PASS: design workflow E2E suite passed"

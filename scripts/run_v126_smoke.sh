@@ -30,7 +30,9 @@ python3 "$ROOT/tests/smoke_v1_12_6.py"
 echo "[SMOKE][v1.12.6] Container E2E"
 docker cp "$ROOT/tests/e2e_v1_12_6_avomap.py" ea-api:/tmp/e2e_v1_12_6_avomap.py
 docker cp "$ROOT/tests/e2e_browseract_http_ingress.py" ea-api:/tmp/e2e_browseract_http_ingress.py
+docker cp "$ROOT/tests/e2e_browseract_http_to_ready_asset.py" ea-api:/tmp/e2e_browseract_http_to_ready_asset.py
 "${DC[@]}" exec -T ea-api sh -lc "PYTHONPATH=/app python /tmp/e2e_v1_12_6_avomap.py"
 "${DC[@]}" exec -T ea-api sh -lc "PYTHONPATH=/app python /tmp/e2e_browseract_http_ingress.py"
+"${DC[@]}" exec -T ea-api sh -lc "PYTHONPATH=/app python /tmp/e2e_browseract_http_to_ready_asset.py"
 
 echo "[SMOKE][v1.12.6] PASS"
