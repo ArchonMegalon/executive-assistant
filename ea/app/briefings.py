@@ -19,6 +19,9 @@ from app.intelligence.epics import (
     save_epic_snapshot,
     summarize_epic_deltas,
 )
+from app.intelligence.future_situations import build_future_situations
+from app.intelligence.preparation_planner import build_preparation_plan
+from app.intelligence.readiness import build_readiness_dossier
 from app.intelligence.household_graph import build_household_graph, ensure_profile_isolation
 from app.intelligence.modes import mode_label, select_briefing_mode
 
@@ -344,6 +347,22 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
     previous_epics = load_epic_snapshot(epic_snapshot_path)
     epic_deltas = summarize_epic_deltas(previous_epics, epics)
     save_epic_snapshot(epic_snapshot_path, epics)
+    future_situations = build_future_situations(
+        profile=profile_ctx,
+        dossiers=[trip_dossier],
+        calendar_events=list(clean_cal),
+        horizon_hours=max(24, int(os.getenv("EA_FUTURE_SITUATION_HORIZON_HOURS", "72"))),
+    )
+    readiness = build_readiness_dossier(
+        profile=profile_ctx,
+        dossiers=[trip_dossier],
+        future_situations=future_situations,
+    )
+    prep_plan = build_preparation_plan(
+        profile=profile_ctx,
+        readiness=readiness,
+        epics=epics,
+    )
     compose_mode = select_briefing_mode(profile_ctx, [trip_dossier], critical, epics=epics)
 
     prompt = f'You are an elite, ruthless Executive Assistant. I demand extreme noise reduction. NO BULLSHIT.\nCRITICAL CULLING RULES:\n1. THE PURGE: You MUST completely delete ALL package delivery updates, shipping notices, order confirmations, and standard payment receipts from the JSON. ERASE THEM ENTIRELY.\n2. EXCEPTION: You MAY include a package/delivery alert ONLY IF it is a FAILURE or requires manual pickup.\n3. CHURCHILL TONE: For the critical emails that remain, state brutally and concisely WHY it requires action in 1 sentence.\n4. CALENDARS: Format ALL events provided into a clean schedule. Group them cleanly by Day/Date. YOU MUST INCLUDE EVENTS FROM THIS MORNING.\n\nDATA:\nMails: {json.dumps(clean_mails, ensure_ascii=False)}\nCalendars: {json.dumps(clean_cal, ensure_ascii=False)}\n\nReturn ONLY valid JSON matching this schema:\n{{\n  "emails": [{{"sender": "Sender", "subject": "Subject", "churchill_action": "1 sentence: What must I do?", "action_button": "Short Command"}}],\n  "calendar_summary": "Clean, bulleted timeline of the schedule across all calendars, grouped by date."\n}}'
@@ -393,6 +412,20 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
             for line in list(epic_deltas)[:3]:
                 html_out += f"• {_sanitize_telegram_html(str(line))}\n"
             html_out += '\n'
+        html_out += (
+            f"<b>Readiness:</b> {_sanitize_telegram_html(str(readiness.status).title())} "
+            f"(score {int(readiness.score)}/100)\n"
+        )
+        if readiness.watch_items:
+            html_out += "<i>Watch:</i> "
+            html_out += _sanitize_telegram_html(" | ".join(list(readiness.watch_items)[:2])) + "\n"
+        if prep_plan.actions:
+            html_out += "<b>Preparation Plan:</b>\n"
+            for step in list(prep_plan.actions)[:4]:
+                html_out += f"• {_sanitize_telegram_html(str(step))}\n"
+        if prep_plan.confidence_note:
+            html_out += f"<i>Confidence:</i> {_sanitize_telegram_html(prep_plan.confidence_note)}\n"
+        html_out += "\n"
         html_out += loops_txt
         options = []
         seen_btns = set()

@@ -48,15 +48,31 @@ exposure if no deterministic critical lane exists.
 - `app/intelligence/modes.py`
   - `select_briefing_mode(...)`
   - `mode_label(...)`
+- `app/intelligence/future_situations.py`
+  - `FutureSituation`
+  - `build_future_situations(...)`
+- `app/intelligence/readiness.py`
+  - `ReadinessDossier`
+  - `build_readiness_dossier(...)`
+- `app/intelligence/scores.py`
+  - `exposure_score(...)`
+  - `decision_window_score(...)`
+  - `readiness_score(...)`
+  - `priority_score(...)`
+- `app/intelligence/preparation_planner.py`
+  - `PreparationPlan`
+  - `build_preparation_plan(...)`
 
 ## Runtime Integration (implemented)
 - `app/briefings.py` now:
   - builds profile context,
   - builds household graph and validates profile isolation invariant,
   - builds trip dossier,
+  - builds future situations and readiness dossier,
+  - builds deterministic preparation plan,
   - runs critical lane,
   - selects compose mode (`standard`, `travel_mode`, `risk_mode`, `low_confidence`),
-  - renders `Immediate Action` before normal summary blocks.
+  - renders `Immediate Action` and preparation/readiness blocks before normal summary blocks.
 - User-facing diagnostics remain hidden by default unless
   `EA_BRIEFING_DIAGNOSTIC_TO_CHAT=true`.
 
