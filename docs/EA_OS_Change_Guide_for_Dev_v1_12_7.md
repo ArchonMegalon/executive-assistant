@@ -66,6 +66,11 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - `remote imported = N`, `local commit status = committed`, `persisted = 0` now reports successful deduplication instead of a hard failure with `/auth` prompt.
 - Added pure contract helper `ea/app/intake/calendar_import_result.py` and wired callback path through it.
 
+9. Calendar image intake timeout + copy alignment
+- Calendar image intake status text now uses provider-agnostic copy (`Extracting schedule from image...`) instead of stale provider-specific wording.
+- Added bounded timeout around calendar vision extraction in `poll_listener` via `asyncio.wait_for`.
+- On timeout, users get an explicit retry hint instead of a long silent wait.
+
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
 - `tests/e2e_browseract_http_ingress.py` (updated)
@@ -86,6 +91,8 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
   - `EA_TRAVEL_RISK_KEYWORDS` (optional comma-separated override/extension)
   - `EA_BRIEFING_CONFIDENCE_DEGRADE_WINDOW_SEC` (default `21600`)
   - `EA_BRIEFING_DIAGNOSTIC_TO_CHAT` (default `false`)
+- Calendar image intake knob:
+  - `EA_CALENDAR_VISION_TIMEOUT_SEC` (default `90`)
 
 ## Guarded rollout checklist
 1. Set ingest auth token in runtime (`EA_INGEST_TOKEN` or `APIXDRIVE_SHARED_SECRET`).

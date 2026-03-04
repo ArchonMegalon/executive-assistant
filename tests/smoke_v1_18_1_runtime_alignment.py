@@ -126,6 +126,11 @@ assert "'/vrief': '/brief'" in poll_src
 assert ".rstrip(':')" in poll_src
 assert "from app.intake.calendar_import_result import build_calendar_import_response" in poll_src
 assert "build_calendar_import_response(" in poll_src
+assert "EA_CALENDAR_VISION_TIMEOUT_SEC" in poll_src
+assert "extract_calendar_from_image(img_bytes, 'image/jpeg')" in poll_src
+assert "asyncio.wait_for(" in poll_src
+assert "Calendar extraction timed out" in poll_src
+assert "Extracting schedule via 1min.ai gpt-4o" not in poll_src
 assert "_sentinel_enabled_for_role" in poll_src
 assert "_sentinel_alert_throttled" in poll_src
 assert "EA_SENTINEL_ALERT_MIN_INTERVAL_SEC" in poll_src

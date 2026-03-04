@@ -1074,7 +1074,7 @@ async def handle_intent(chat_id: int, msg: dict):
         if sess and text:
             AUTH_SESSIONS.set(chat_id, sess)
         if is_image_calendar:
-            res = await tg.send_message(chat_id, '🖼️ <b>Extracting schedule via 1min.ai gpt-4o...</b>', parse_mode='HTML')
+            res = await tg.send_message(chat_id, '🖼️ <b>Extracting schedule from image...</b>', parse_mode='HTML')
             try:
                 document_id, raw_ref = _message_document_ref(chat_id, msg, doc, photo)
                 gate = gate_household_document_action(
@@ -1095,7 +1095,11 @@ async def handle_intent(chat_id: int, msg: dict):
                 file_id = photo[-1]['file_id'] if photo else doc['file_id']
                 meta = await tg.get_file(file_id)
                 img_bytes = await tg.download_file_bytes(meta['file_path'])
-                extracted = await extract_calendar_from_image(img_bytes, 'image/jpeg')
+                vision_timeout_sec = float(os.getenv("EA_CALENDAR_VISION_TIMEOUT_SEC", "90") or 90)
+                extracted = await asyncio.wait_for(
+                    extract_calendar_from_image(img_bytes, 'image/jpeg'),
+                    timeout=max(10.0, vision_timeout_sec),
+                )
                 events = extracted.get('events', [])
                 if not events:
                     return await tg.edit_message_text(chat_id, res['message_id'], '⚠️ No calendar events detected.')
@@ -1103,6 +1107,13 @@ async def handle_intent(chat_id: int, msg: dict):
                 cid = OpenLoops.add_calendar(tenant_name, preview, events)
                 kb = [[{'text': f'✅ Execute Import to EA', 'callback_data': f'exec_cal:{cid}'}], [{'text': f'🛑 Discard', 'callback_data': f'drop_cal:{cid}'}]]
                 await tg.edit_message_text(chat_id, res['message_id'], preview + '\n\n<i>This import request has been added to your Open Loops.</i>', parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+            except asyncio.TimeoutError:
+                await tg.edit_message_text(
+                    chat_id,
+                    res['message_id'],
+                    '⚠️ Calendar extraction timed out. Please retry with a clearer image.',
+                    parse_mode='HTML',
+                )
             except Exception as e:
                 await tg.edit_message_text(chat_id, res['message_id'], f'⚠️ Vision Error: {_safe_err(e)}', parse_mode='HTML')
             return
