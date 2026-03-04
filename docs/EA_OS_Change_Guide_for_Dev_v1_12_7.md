@@ -38,6 +38,16 @@ This guide starts from the post-ingress-fix runtime and captures the hardening p
   - adds calendar-derived travel hints
 - Added regression in `tests/smoke_v1_12_6.py::test_day_context_quality`.
 
+6. Deterministic critical-commitment lane (must-never-miss)
+- `ea/app/briefings.py` now runs a deterministic pre-LLM critical scan for:
+  - high-value travel commitment signals,
+  - route/layover risk keywords,
+  - near-term travel windows.
+- Briefings now render an **Immediate Action** block before normal summary content when critical signals are present.
+- Added runtime confidence degradation notice when recent sentinel auto-recovery was observed.
+- User-facing diagnostics are now hidden by default and only shown if `EA_BRIEFING_DIAGNOSTIC_TO_CHAT=true`.
+- Added host smoke guard `tests/smoke_v1_12_6.py::test_critical_commitment_lane_wiring`.
+
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
 - `tests/e2e_browseract_http_ingress.py` (updated)
@@ -50,6 +60,12 @@ This guide starts from the post-ingress-fix runtime and captures the hardening p
 - To enable native video late attach:
   - set `EA_AVOMAP_LATE_ATTACH_MODE=video`
 - Default late-attach mode remains link-only for conservative rollout.
+- New knobs for critical lane:
+  - `EA_CRITICAL_TRAVEL_EUR_THRESHOLD` (default `5000`)
+  - `EA_CRITICAL_TRAVEL_WINDOW_HOURS` (default `72`)
+  - `EA_TRAVEL_RISK_KEYWORDS` (optional comma-separated override/extension)
+  - `EA_BRIEFING_CONFIDENCE_DEGRADE_WINDOW_SEC` (default `21600`)
+  - `EA_BRIEFING_DIAGNOSTIC_TO_CHAT` (default `false`)
 
 ## Guarded rollout checklist
 1. Set ingest auth token in runtime (`EA_INGEST_TOKEN` or `APIXDRIVE_SHARED_SECRET`).

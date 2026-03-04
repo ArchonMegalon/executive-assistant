@@ -174,6 +174,17 @@ def test_day_context_quality() -> None:
     _print_pass("test_day_context_quality")
 
 
+def test_critical_commitment_lane_wiring() -> None:
+    brief_src = (EA_ROOT / "app/briefings.py").read_text(encoding="utf-8")
+    assert "def _scan_critical_commitments(" in brief_src
+    assert "def _runtime_confidence_note(" in brief_src
+    assert "<b>Immediate Action:</b>" in brief_src
+    assert "No additional inbox-critical items after deterministic critical scan." in brief_src
+    assert "EA_BRIEFING_DIAGNOSTIC_TO_CHAT" in brief_src
+    assert "Fatal Briefing Error" not in brief_src
+    _print_pass("test_critical_commitment_lane_wiring")
+
+
 if __name__ == "__main__":
     runpy.run_path(str(Path(__file__).with_name("smoke_v1_12_6_avomap.py")), run_name="__main__")
     test_opsec_fuzzing()
@@ -182,3 +193,4 @@ if __name__ == "__main__":
     test_webhook_auth_rejection()
     test_budget_exhaustion()
     test_day_context_quality()
+    test_critical_commitment_lane_wiring()
