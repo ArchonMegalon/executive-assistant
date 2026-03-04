@@ -78,6 +78,7 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - `tests/smoke_v1_12_6.py` (new day-context quality test)
 - `tests/smoke_sentinel_user_message.py` (sentinel copy/throttle contract)
 - `tests/smoke_calendar_import_result.py` (calendar import outcome contract)
+- `tests/smoke_calendar_preview_html_safety.py` (calendar preview HTML sanitization contract)
 - `tests/smoke_outbox_entity_fallback.py` (sendVideo branch guard)
 
 ## Runtime notes

@@ -101,6 +101,7 @@ run_step "smoke_v1_12_6_avomap" python3 tests/smoke_v1_12_6.py
 run_step "smoke_v1_12_7_contract_freeze" python3 tests/smoke_v1_12_7_contract_freeze.py
 run_step "smoke_sentinel_user_message" python3 tests/smoke_sentinel_user_message.py
 run_step "smoke_calendar_import_result" python3 tests/smoke_calendar_import_result.py
+run_step "smoke_calendar_preview_html_safety" python3 tests/smoke_calendar_preview_html_safety.py
 run_step "smoke_v1_13" python3 tests/smoke_v1_13.py
 run_step "smoke_v1_13_future_intelligence_pack" python3 tests/smoke_v1_13_future_intelligence_pack.py
 run_step "smoke_v1_14" python3 tests/smoke_v1_14.py

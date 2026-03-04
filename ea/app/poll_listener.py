@@ -1103,7 +1103,12 @@ async def handle_intent(chat_id: int, msg: dict):
                 events = extracted.get('events', [])
                 if not events:
                     return await tg.edit_message_text(chat_id, res['message_id'], '⚠️ No calendar events detected.')
-                preview = '📅 <b>Found Events:</b>\n' + ''.join([f'• {e.get('start')} - {e.get('title')}\n' for e in events])
+                lines = []
+                for e in events:
+                    start_txt = html.escape(str((e or {}).get('start') or ''), quote=False)
+                    title_txt = html.escape(str((e or {}).get('title') or ''), quote=False)
+                    lines.append(f'• {start_txt} - {title_txt}\n')
+                preview = '📅 <b>Found Events:</b>\n' + ''.join(lines)
                 cid = OpenLoops.add_calendar(tenant_name, preview, events)
                 kb = [[{'text': f'✅ Execute Import to EA', 'callback_data': f'exec_cal:{cid}'}], [{'text': f'🛑 Discard', 'callback_data': f'drop_cal:{cid}'}]]
                 await tg.edit_message_text(chat_id, res['message_id'], preview + '\n\n<i>This import request has been added to your Open Loops.</i>', parse_mode='HTML', reply_markup={'inline_keyboard': kb})
