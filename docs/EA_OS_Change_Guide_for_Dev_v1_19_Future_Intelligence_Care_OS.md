@@ -235,6 +235,27 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+20. v1.19.2 tenant-scoped LLM egress policy seam
+- Added policy resolver:
+  - `ea/app/llm_gateway/policy.py` (`is_egress_denied(...)`)
+- Added DB contract for policy rules:
+  - table `llm_egress_policies` in `ea/app/db.py`
+  - migration SQL `ea/schema/20260304_v1_19_2_llm_egress_policies.sql`
+- `ea/app/contracts/llm_gateway.py` now enforces tenant/person/task/data-class
+  deny rules before provider egress and emits `blocked_policy` audit verdict.
+- Gateway audit metadata now includes `tenant` and `person_id`.
+- Main call paths now pass tenant/person context into gateway calls:
+  - `ea/app/briefings.py`
+  - `ea/app/poll_listener.py`
+  - `ea/app/coaching.py`
+- Added host smoke: `tests/smoke_v1_19_2_llm_egress_policy.py`.
+- Wired smoke/gates:
+  - `tests/smoke_v1_19_1_llm_gateway_boundary.py` callsite assertions
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `scripts/docker_e2e_design_workflows.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:

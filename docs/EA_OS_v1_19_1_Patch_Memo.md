@@ -276,6 +276,36 @@ Behavior:
 - briefing compose now includes household-ops dossier alongside trip/project/
   finance/health.
 
+### M. Tenant-scoped LLM egress deny policies (v1.19.2)
+
+Files:
+- `ea/app/llm_gateway/policy.py`
+- `ea/app/contracts/llm_gateway.py`
+- `ea/app/db.py`
+- `ea/schema/20260304_v1_19_2_llm_egress_policies.sql`
+- `ea/app/briefings.py`
+- `ea/app/poll_listener.py`
+- `ea/app/coaching.py`
+- `tests/smoke_v1_19_2_llm_egress_policy.py`
+- `tests/smoke_v1_19_1_llm_gateway_boundary.py`
+- `scripts/run_v119_smoke.sh`
+- `scripts/docker_e2e.sh`
+- `scripts/docker_e2e_design_workflows.sh`
+- `.github/workflows/release-gates.yml`
+
+Behavior:
+- adds DB-backed `llm_egress_policies` rule evaluation with wildcard support
+  across:
+  - tenant
+  - person
+  - task_type
+  - data_class
+- gateway now blocks egress with `blocked_policy` verdict before provider call
+  when matching deny rules are active.
+- gateway audit metadata now records tenant/person context.
+- briefing/chat/coaching call paths now pass tenant/person metadata into the
+  gateway boundary.
+
 ## SQL additions landed in this patch
 
 Migration file: `ea/schema/20260304_v1_19_1_profile_core.sql`
@@ -340,7 +370,7 @@ Table:
 
 1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`, `poll_listener.py`).
 2. Expand dossier set with evidence-first dossier types.
-3. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).
+3. Add policy lifecycle tooling for trust-boundary rules (authoring/review/audit UX).
 
 ## Release checklist
 
@@ -353,6 +383,7 @@ Table:
 7. `python3 tests/smoke_v1_19_2_health_dossier.py`
 8. `python3 tests/smoke_v1_19_2_snapshot_persistence.py`
 9. `python3 tests/smoke_v1_19_2_household_dossier.py`
-10. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
-11. `bash scripts/run_v119_smoke.sh /docker/EA`
-12. `bash scripts/docker_e2e.sh`
+10. `python3 tests/smoke_v1_19_2_llm_egress_policy.py`
+11. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
+12. `bash scripts/run_v119_smoke.sh /docker/EA`
+13. `bash scripts/docker_e2e.sh`
