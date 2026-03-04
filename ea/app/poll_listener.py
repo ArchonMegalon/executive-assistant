@@ -1408,8 +1408,15 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     except Exception as html_fb_err:
                         log_render_guard('renderer_html_fallback_failed', str(html_fb_err)[:120], skill='markupgo', location='poll_listener')
                     try:
-                        from app.supervisor import trigger_mum_brain
-                        trigger_mum_brain(None, str(mg_err), fallback_mode='simplified-first', failure_class='renderer_fault', intent='brief_render', chat_id=str(chat_id))
+                        from app.contracts.repair import open_repair_incident
+                        open_repair_incident(
+                            db_conn=None,
+                            error_message=str(mg_err),
+                            fallback_mode='simplified-first',
+                            failure_class='renderer_fault',
+                            intent='brief_render',
+                            chat_id=str(chat_id),
+                        )
                     except Exception:
                         pass
                     log_render_guard('renderer_text_only', _ea_fault, skill='markupgo', location='poll_listener')

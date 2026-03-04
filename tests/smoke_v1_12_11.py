@@ -13,7 +13,7 @@ REPAIR = ROOT / "ea/app/renderer_repair.py"
 poll_src = POLL.read_text(encoding="utf-8")
 assert "log_render_guard(" in poll_src
 assert "renderer_text_only" in poll_src
-assert "trigger_mum_brain(" in poll_src
+assert ("open_repair_incident(" in poll_src) or ("trigger_mum_brain(" in poll_src)
 print("[SMOKE][HOST][PASS] poll_listener renderer guard wiring")
 
 spec = importlib.util.spec_from_file_location("ea_renderer_repair_host", REPAIR)

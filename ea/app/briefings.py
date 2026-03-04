@@ -1,11 +1,14 @@
 from __future__ import annotations
 import os
-import re, json, httpx, asyncio, traceback, time, html, random
+import re, json, httpx, asyncio, traceback, time, html
 from datetime import datetime, timezone, timedelta
 from app.gog import gog_cli, docker_exec
 from app.settings import settings
 from app.open_loops import OpenLoops
 from app.calendar_store import list_events_range
+from app.contracts.llm_gateway import ask_text as gateway_ask_text
+from app.contracts.repair import open_repair_incident
+from app.contracts.telegram import sanitize_incident_copy
 
 def _sanitize_telegram_html(text: str) -> str:
     return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -93,54 +96,10 @@ async def safe_gog(container, cmd, account, timeout=20.0):
         raise TimeoutError(f'CLI hung on command: {' '.join(cmd[:3])}')
 
 async def call_powerful_llm(prompt: str, temp=0.1) -> str:
-    url = (getattr(settings, 'magixx_base_url', None) or 'https://beta.aimagicx.com').rstrip('/') + '/api/v1/chat'
-    api_key = getattr(settings, 'magixx_api_key', None)
-    if not api_key:
-        return '{"error":"Missing MAGIXX_API_KEY"}'
-    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
-    payload = {'model': '4o-mini', 'message': prompt, 'temperature': temp}
-    import httpx
-    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-        try:
-            r = await client.post(url, headers=headers, json=payload)
-        except Exception as e:
-            return f'{{"error": "Magix Network Crash: {e}"}}'
-        try:
-            data = r.json()
-        except:
-            return f'{{"error": "Magix non-JSON (HTTP {r.status_code}): {r.text[:200]}"}}'
-        if isinstance(data, dict) and data.get('success') is False:
-            return f'{{"error": "Magix API Error: {data.get('error')}"}}'
-        inner = data.get('data', data)
-        if isinstance(inner, dict) and 'choices' in inner and (len(inner['choices']) > 0):
-            return inner['choices'][0].get('message', {}).get('content', '')
-        return f'{{"error": "Unexpected Magix payload: {data}"}}'
+    return await asyncio.to_thread(gateway_ask_text, str(prompt))
 
 async def call_llm(prompt: str, temp=0.1) -> str:
-    keys = [os.environ.get('GEMINI_API_KEY', '')]
-    random.shuffle(keys)
-    errors = []
-    for key in keys:
-        url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}'
-        payload = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'temperature': temp}}
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                r = await client.post(url, headers={'Content-Type': 'application/json'}, json=payload)
-                if r.status_code == 200:
-                    data = r.json()
-                    if 'candidates' in data:
-                        return data['candidates'][0]['content']['parts'][0]['text']
-                else:
-                    try:
-                        err_msg = r.json().get('error', {}).get('message', r.text[:100])
-                    except:
-                        err_msg = r.text[:100]
-                    errors.append(f'🔑 ...{key[-4:]} ❌ {err_msg}')
-            except Exception as e:
-                errors.append(f'🔑 ...{key[-4:]} ❌ Network Error')
-    joined_errs = '\n'.join(errors)
-    err_report = f'🚨 ALL GEMINI KEYS FAILED!\n\n{joined_errs}\n\n💡 FIX: Google revoked these keys because they were posted in chat. Generate ONE new key and use the update_keys.sh script!'
-    return json.dumps({'error': err_report})
+    return await call_powerful_llm(prompt, temp=temp)
 
 async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
     t_openclaw = get_val(tenant, 'openclaw_container', '')
@@ -364,15 +323,8 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         return {'text': html_out, 'options': clean_opts, 'dynamic_buttons': loop_btns}
     except Exception as e:
         return {'text': f'⚠️ <b>Fatal Briefing Error:</b>\n<pre>{html.escape(str(e), quote=False)}</pre>', 'options': ['🔁 Retry']}
-import urllib.request
-import json
-import asyncio
 import inspect
 import contextvars
-try:
-    from app.llm import ask_llm
-except ImportError:
-    ask_llm = lambda p: f'❌ Router Error: llm module not found.'
 current_status_cb = contextvars.ContextVar('current_status_cb', default=None)
 if 'orig_build_briefing_for_tenant' not in globals():
     orig_build_briefing_for_tenant = _raw_build_briefing_for_tenant
@@ -478,7 +430,7 @@ async def call_llm_async(prompt, *args, **kwargs):
             await asyncio.sleep(2.0)
     hb_task = asyncio.create_task(_heartbeat())
     try:
-        return await asyncio.to_thread(ask_llm, prompt)
+        return await asyncio.to_thread(gateway_ask_text, str(prompt))
     finally:
         hb_task.cancel()
 call_llm = call_llm_async
@@ -511,14 +463,19 @@ async def build_briefing_for_tenant(*args, **kwargs):
     if 'MarkupGo' in res_str or 'FST_ERR' in res_str or '"statusCode":' in res_str or exc:
         print('🚨 [L2 WRAPPER] Intercepted toxic payload! Triggering Mum Brain Phase B...', flush=True)
         try:
-            from app.supervisor import trigger_mum_brain
-            from app.telegram.safety import sanitize_for_telegram
             db = getattr(builtins, '_ooda_global_db', None)
             mode = 'status-first' if len(str(res)) < 300 else 'simplified-first'
             chat_id = args[0] if len(args) > 0 else 'system'
             error_payload = str(exc) if exc else res_str
-            cid = trigger_mum_brain(db, error_payload, fallback_mode=mode, failure_class='markup_api_400', intent='render_visuals', chat_id=chat_id)
-            return sanitize_for_telegram(error_payload, correlation_id=cid, mode=mode, message_kind='briefing')
+            cid = open_repair_incident(
+                db_conn=db,
+                error_message=error_payload,
+                fallback_mode=mode,
+                failure_class='markup_api_400',
+                intent='render_visuals',
+                chat_id=str(chat_id),
+            )
+            return sanitize_incident_copy(error_payload, correlation_id=cid, mode=mode)
         except Exception as inner_e:
             print(f'L2 Wrapper crashed: {inner_e}')
             return '⏳ *Preparing your briefing in safe mode...*\n_(Formatting repair running in background.)_'

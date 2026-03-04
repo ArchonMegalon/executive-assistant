@@ -41,6 +41,7 @@ __pycache__/
 EA_OS_*.pdf
 photo_*.jpg
 sonos_shredder.log
+briefing_cron.log
 
 # Root-level ad-hoc exports/screenshots (keep docs/ assets unaffected)
 /*.pdf

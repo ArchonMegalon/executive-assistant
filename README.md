@@ -35,6 +35,11 @@ bash scripts/docker_e2e_design_workflows.sh
 
 Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 
+## Design docs
+
+- Contract stabilization baseline: `docs/v1_12_7_contract_freeze.md`
+- Product roadmap: `docs/ea_os_design_roadmap_v2026.md`
+
 ## Notes
 - The EA container joins the existing `openclaw-net` network to reach LiteLLM and to exec into OpenClaw containers via docker socket.
 - If you run rootless Docker, set `DOCKER_SOCK=/run/user/<uid>/docker.sock` in `.env`.
