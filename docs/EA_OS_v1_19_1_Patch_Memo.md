@@ -177,12 +177,17 @@ Behavior:
 Files:
 - `ea/app/telegram_menu.py`
 - `ea/app/auth_sessions.py`
+- `ea/app/watchdog.py`
 - `ea/app/poll_listener.py`
 - `tests/smoke_v1_19_2_human_assistant_mode.py`
+ - `tests/smoke_sentinel_user_message.py`
+ - `tests/smoke_v1_18_1_runtime_alignment.py`
 
 Behavior:
 - command menu and `/mumbrain` visibility policy moved into `telegram_menu.py`.
 - auth session storage moved into `auth_sessions.py`.
+- watchdog/sentinel lifecycle moved into `watchdog.py` with explicit heartbeat
+  and alert-throttle contracts.
 - `poll_listener.py` now consumes these modules instead of carrying that logic
   inline, reducing control-plane coupling without changing command semantics.
 

@@ -18,10 +18,11 @@ EVENT_WORKER = APP / "workers/event_worker.py"
 BROWSERACT = APP / "intake/browseract.py"
 NORMALIZER = APP / "approvals/normalizer.py"
 POLL_LISTENER = APP / "poll_listener.py"
+WATCHDOG = APP / "watchdog.py"
 TG_SAFETY = APP / "telegram/safety.py"
 SCHEMA = ROOT / "ea/schema/20260303_v1_18_1_runtime_alignment.sql"
 
-for path in (SETTINGS, MAIN, RUNNER, DB, SERVER, OUTBOX_ROLE, QUEUE, EVENT_WORKER, BROWSERACT, NORMALIZER, POLL_LISTENER, TG_SAFETY):
+for path in (SETTINGS, MAIN, RUNNER, DB, SERVER, OUTBOX_ROLE, QUEUE, EVENT_WORKER, BROWSERACT, NORMALIZER, POLL_LISTENER, WATCHDOG, TG_SAFETY):
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.18.1 patched modules parse")
 
@@ -137,18 +138,24 @@ assert "_calendar_progress_ticker" in poll_src
 assert "with contextlib.suppress(asyncio.CancelledError)" in poll_src
 assert "Calendar extraction timed out" in poll_src
 assert "Extracting schedule via 1min.ai gpt-4o" not in poll_src
-assert "_sentinel_enabled_for_role" in poll_src
-assert "_sentinel_alert_throttled" in poll_src
-assert "EA_SENTINEL_ALERT_MIN_INTERVAL_SEC" in poll_src
-assert "EA_SENTINEL_HEARTBEAT_TIMEOUT_SEC" in poll_src
-assert "EA_SENTINEL_STARTUP_GRACE_SEC" in poll_src
-assert "EA_SENTINEL_EXIT_ON_STALL" in poll_src
+assert "from app.watchdog import heartbeat_pinger, mark_heartbeat, start_watchdog_thread" in poll_src
+assert "start_watchdog_thread(" in poll_src
+assert "mark_heartbeat()" in poll_src
 assert "EA_BRIEF_COMMAND_MIN_INTERVAL_SEC" in poll_src
 assert "def _brief_command_throttled(" in poll_src
 assert "def _brief_enter(" in poll_src
 assert "def _brief_exit(" in poll_src
-assert "threading.Thread(target=_watchdog_loop, daemon=True).start()" in poll_src
 print("[SMOKE][HOST][PASS] /vrief alias + ':' command normalization wired")
+
+watchdog_src = WATCHDOG.read_text(encoding="utf-8")
+assert "def sentinel_enabled_for_role()" in watchdog_src
+assert "def sentinel_alert_throttled()" in watchdog_src
+assert "EA_SENTINEL_ALERT_MIN_INTERVAL_SEC" in watchdog_src
+assert "EA_SENTINEL_HEARTBEAT_TIMEOUT_SEC" in watchdog_src
+assert "EA_SENTINEL_STARTUP_GRACE_SEC" in watchdog_src
+assert "EA_SENTINEL_EXIT_ON_STALL" in watchdog_src
+assert "threading.Thread(" in watchdog_src and "target=_watchdog_loop" in watchdog_src
+print("[SMOKE][HOST][PASS] sentinel watchdog module wiring")
 
 briefings_src = (APP / "briefings.py").read_text(encoding="utf-8")
 assert "urllib.request.urlopen = _monkey_urlopen" not in briefings_src

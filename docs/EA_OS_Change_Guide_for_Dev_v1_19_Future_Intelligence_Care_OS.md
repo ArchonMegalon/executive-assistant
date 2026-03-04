@@ -149,10 +149,16 @@ optional design direction.
   - `menu_text()`
 - Extracted auth session persistence into `ea/app/auth_sessions.py`:
   - `AuthSessionStore`
+- Extracted watchdog/sentinel logic into `ea/app/watchdog.py`:
+  - watchdog thread startup + heartbeat timeout policy
+  - alert throttling state
+  - shared `heartbeat_pinger()` + `mark_heartbeat()` contract
 - `ea/app/poll_listener.py` now imports these modules instead of owning the
   command-menu/auth-session implementations inline.
 - Host smoke updated to lock this decomposition contract:
   - `tests/smoke_v1_19_2_human_assistant_mode.py`.
+  - `tests/smoke_sentinel_user_message.py`
+  - `tests/smoke_v1_18_1_runtime_alignment.py`
 
 ## Rollout checklist
 
