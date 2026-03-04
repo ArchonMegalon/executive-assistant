@@ -123,6 +123,12 @@ def _audit_egress(
     verdict: str,
 ) -> None:
     path = os.getenv("EA_LLM_GATEWAY_AUDIT_PATH", "/attachments/llm_egress_audit.jsonl")
+    db_audit_enabled = str(os.getenv("EA_LLM_GATEWAY_DB_AUDIT_ENABLED", "1")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
     row = {
         "ts": int(time.time()),
         "purpose": str(purpose or "user_assist"),
@@ -140,6 +146,19 @@ def _audit_egress(
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
         pass
+    if db_audit_enabled:
+        try:
+            from app.db import log_to_db
+
+            log_to_db(
+                tenant=None,
+                component="llm_gateway",
+                event_type="egress_audit",
+                message=f"{row['task_type']}:{row['verdict']}",
+                payload=row,
+            )
+        except Exception:
+            pass
 
 
 def ask_text(

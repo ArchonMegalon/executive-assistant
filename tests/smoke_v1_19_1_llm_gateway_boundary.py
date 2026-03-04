@@ -25,6 +25,8 @@ def test_llm_gateway_contract_symbols() -> None:
     assert "def ask_text(" in src
     assert "validate_model_output" in src
     assert "EA_LLM_GATEWAY_MAX_PROMPT_CHARS" in src
+    assert "EA_LLM_GATEWAY_DB_AUDIT_ENABLED" in src
+    assert "log_to_db(" in src
     _pass("v1.19.1 llm gateway boundary symbols")
 
 
@@ -176,6 +178,62 @@ def test_llm_gateway_writes_egress_audit_metadata() -> None:
     _pass("v1.19.1 llm gateway egress audit")
 
 
+def test_llm_gateway_writes_db_audit_metadata_when_enabled() -> None:
+    import app.contracts.llm_gateway as gw
+    import types
+
+    original_ask_llm = gw.ask_llm
+    old_db_toggle = os.environ.get("EA_LLM_GATEWAY_DB_AUDIT_ENABLED")
+    old_task = os.environ.get("EA_LLM_GATEWAY_TASK_TYPE")
+    original_db_module = sys.modules.get("app.db")
+    captured: list[dict] = []
+    try:
+        os.environ["EA_LLM_GATEWAY_DB_AUDIT_ENABLED"] = "1"
+        os.environ["EA_LLM_GATEWAY_TASK_TYPE"] = "future_reasoning"
+        gw.ask_llm = lambda prompt, system_prompt: "Safe response"
+
+        def _capture_log_to_db(tenant=None, component=None, event_type=None, message=None, payload=None):
+            captured.append(
+                {
+                    "tenant": tenant,
+                    "component": component,
+                    "event_type": event_type,
+                    "message": message,
+                    "payload": payload or {},
+                }
+            )
+
+        sys.modules["app.db"] = types.SimpleNamespace(log_to_db=_capture_log_to_db)
+        out = gw.ask_text(
+            "Summarize tomorrow",
+            purpose="briefing_compose",
+            correlation_id="cid-db-audit",
+            data_class="derived_summary",
+        )
+        assert out == "Safe response"
+        assert captured, "expected DB audit row"
+        row = captured[-1]
+        assert row["component"] == "llm_gateway"
+        assert row["event_type"] == "egress_audit"
+        assert "future_reasoning:ok" in str(row["message"] or "")
+        assert row["payload"].get("correlation_id") == "cid-db-audit"
+    finally:
+        gw.ask_llm = original_ask_llm
+        if original_db_module is None:
+            sys.modules.pop("app.db", None)
+        else:
+            sys.modules["app.db"] = original_db_module
+        if old_db_toggle is None:
+            os.environ.pop("EA_LLM_GATEWAY_DB_AUDIT_ENABLED", None)
+        else:
+            os.environ["EA_LLM_GATEWAY_DB_AUDIT_ENABLED"] = old_db_toggle
+        if old_task is None:
+            os.environ.pop("EA_LLM_GATEWAY_TASK_TYPE", None)
+        else:
+            os.environ["EA_LLM_GATEWAY_TASK_TYPE"] = old_task
+    _pass("v1.19.1 llm gateway db audit")
+
+
 def test_llm_gateway_callsite_task_type_wiring() -> None:
     brief_src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
     poll_src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
@@ -197,4 +255,5 @@ if __name__ == "__main__":
     test_llm_gateway_blocks_json_for_user_surface_tasks()
     test_llm_gateway_blocks_raw_document_payload_by_default()
     test_llm_gateway_writes_egress_audit_metadata()
+    test_llm_gateway_writes_db_audit_metadata_when_enabled()
     test_llm_gateway_callsite_task_type_wiring()
