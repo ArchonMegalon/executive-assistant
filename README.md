@@ -55,3 +55,4 @@ Gate reports are written to `logs/gates/*.json` and uploaded by CI.
 - If you run rootless Docker, set `DOCKER_SOCK=/run/user/<uid>/docker.sock` in `.env`.
 - Default bootstrap admin creation is disabled unless `EA_ALLOW_BOOTSTRAP_ADMIN=true` is explicitly set.
 - You can override generic OpenClaw fallback container names with `EA_DEFAULT_OPENCLAW_CONTAINER`.
+- `scripts/runbook.sh` scans EA services by default; set `EA_SCAN_ALL_CONTAINERS=1` for cross-stack scan.

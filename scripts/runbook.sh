@@ -7,6 +7,7 @@ OP_TOKEN="$(grep -E '^EA_OPERATOR_TOKEN=' "${EA_ROOT}/.env" | tail -n1 | cut -d=
 SCAN_MINUTES="${EA_LOG_SCAN_MINUTES:-20}"
 SCAN_PATTERN='error|exception|traceback|fatal|deadlock|panic|failed|sentinel|api_key_invalid|api key expired|permission denied'
 IGNORE_CONTAINERS="${EA_LOG_SCAN_IGNORE_CONTAINERS:-tautulli}"
+SCAN_ALL_CONTAINERS="${EA_SCAN_ALL_CONTAINERS:-0}"
 
 echo "== ps =="
 docker compose ps
@@ -29,6 +30,28 @@ else
   echo
 fi
 
+echo -e "\n== latest gate reports =="
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+root = Path("/docker/EA/logs/gates")
+reports = sorted(root.glob("docker_e2e_*.json"))[-3:]
+if not reports:
+    print("No docker_e2e gate reports found.")
+    raise SystemExit(0)
+for p in reports:
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        print(f"{p.name}: unreadable")
+        continue
+    status = obj.get("overall_status", "unknown")
+    code = obj.get("exit_code", "n/a")
+    ts = obj.get("generated_at_utc", "")
+    print(f"{p.name}: status={status} exit={code} generated_at_utc={ts}")
+PY
+
 echo -e "\n== EA stack: error scan (last ${SCAN_MINUTES}m) =="
 for c in ea-api ea-worker ea-poller ea-outbox ea-event-worker ea-teable-sync ea-db; do
   hits="$(docker logs --since "${SCAN_MINUTES}m" "${c}" 2>&1 | grep -Ei "${SCAN_PATTERN}" || true)"
@@ -39,15 +62,20 @@ for c in ea-api ea-worker ea-poller ea-outbox ea-event-worker ea-teable-sync ea-
   fi
 done
 
-echo -e "\n== all running containers: error scan (last ${SCAN_MINUTES}m) =="
-for c in $(docker ps --format '{{.Names}}'); do
-  if [[ " ${IGNORE_CONTAINERS} " == *" ${c} "* ]]; then
-    continue
-  fi
-  hits="$(docker logs --since "${SCAN_MINUTES}m" "${c}" 2>&1 | grep -Ei "${SCAN_PATTERN}" || true)"
-  if [[ -n "${hits}" ]]; then
-    echo
-    echo "----- ${c} -----"
-    echo "${hits}" | tail -n 40
-  fi
-done
+if [[ "${SCAN_ALL_CONTAINERS}" == "1" ]]; then
+  echo -e "\n== all running containers: error scan (last ${SCAN_MINUTES}m) =="
+  for c in $(docker ps --format '{{.Names}}'); do
+    if [[ " ${IGNORE_CONTAINERS} " == *" ${c} "* ]]; then
+      continue
+    fi
+    hits="$(docker logs --since "${SCAN_MINUTES}m" "${c}" 2>&1 | grep -Ei "${SCAN_PATTERN}" || true)"
+    if [[ -n "${hits}" ]]; then
+      echo
+      echo "----- ${c} -----"
+      echo "${hits}" | tail -n 40
+    fi
+  done
+else
+  echo -e "\n== all running containers: error scan =="
+  echo "Skipped by default. Set EA_SCAN_ALL_CONTAINERS=1 to enable cross-stack scanning."
+fi
