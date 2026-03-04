@@ -20,5 +20,11 @@ echo "[v1.15] Building shared ea-os image and recreating worker/poller"
 echo "[v1.15] Running retrieval and prompt-safety tests"
 "$ROOT/scripts/run_v115_retrieval_security_tests.sh"
 "$ROOT/scripts/run_v115_prompt_injection_tests.sh"
+if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then
+  echo "[v1.15] Running full docker gate suite"
+  "$ROOT/scripts/docker_e2e.sh"
+else
+  echo "[v1.15] Skipping full docker gate suite (EA_SKIP_FULL_GATES=1)"
+fi
 
 echo "[v1.15] DONE"

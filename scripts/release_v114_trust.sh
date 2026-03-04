@@ -19,5 +19,11 @@ echo "[v1.14] Building shared ea-os image and recreating worker/poller"
 
 echo "[v1.14] Running trust-layer tests"
 "$ROOT/scripts/run_v114_replay_and_dlq_tests.sh"
+if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then
+  echo "[v1.14] Running full docker gate suite"
+  "$ROOT/scripts/docker_e2e.sh"
+else
+  echo "[v1.14] Skipping full docker gate suite (EA_SKIP_FULL_GATES=1)"
+fi
 
 echo "[v1.14] DONE"

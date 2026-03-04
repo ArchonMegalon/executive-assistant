@@ -55,7 +55,8 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - Added `tests/smoke_v1_13_future_intelligence_pack.py` to mirror the external v1.13 future-intelligence contract pack in repo-native smoke format.
 - `scripts/run_v113_smoke.sh` now executes both `tests/smoke_v1_13.py` and `tests/smoke_v1_13_future_intelligence_pack.py`.
 - `scripts/docker_e2e_design_workflows.sh` now runs `tests/real_milestone_suite.py` inside the API container.
-- `scripts/docker_e2e.sh` now includes `smoke_v1_13_future_intelligence_pack` as a tracked gate step.
+- `scripts/docker_e2e.sh` now includes full milestone host smokes (`v1.12.7` through `v1.18`) including `smoke_v1_13_future_intelligence_pack`, plus the real milestone functional suite.
+- Milestone release scripts (`release_v113`..`release_v118_1`) now run full `docker_e2e` gates by default after milestone-specific checks; set `EA_SKIP_FULL_GATES=1` to skip.
 
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
@@ -83,4 +84,5 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
    - `python3 tests/smoke_v1_12_6.py`
    - `python3 tests/smoke_v1_12_7_contract_freeze.py`
    - `bash scripts/run_v126_smoke.sh`
+   - `bash scripts/docker_e2e.sh`
 4. Confirm `e2e_browseract_http_to_ready_asset.py` is `PASS` (not `SKIP`) in staging/prod-like env.

@@ -19,5 +19,11 @@ echo "[v1.18.1] Building shared ea-os image and recreating services"
 
 echo "[v1.18.1] Running smoke checks"
 python3 "$ROOT/tests/smoke_v1_18_1_runtime_alignment.py"
+if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then
+  echo "[v1.18.1] Running full docker gate suite"
+  "$ROOT/scripts/docker_e2e.sh"
+else
+  echo "[v1.18.1] Skipping full docker gate suite (EA_SKIP_FULL_GATES=1)"
+fi
 
 echo "[v1.18.1] DONE"
