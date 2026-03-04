@@ -573,6 +573,17 @@ optional design direction.
 - Updated `tests/smoke_v1_19_4_skill_inventory.py` to assert plan metadata in
   skill dispatch results.
 
+47. v1.19.4 execution-backlog contract
+- Added `BACKLOG.md` as runtime execution source-of-truth with explicit DoD:
+  - all items done/blocked
+  - latest full gate pass
+  - clean working tree
+  - local commits present
+- Added `tests/smoke_v1_19_4_backlog_contract.py` and wired it into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:

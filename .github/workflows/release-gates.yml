@@ -43,6 +43,7 @@ jobs:
           python3 tests/smoke_v1_19_4_skill_inventory.py
           python3 tests/smoke_v1_19_4_capability_router.py
           python3 tests/smoke_v1_19_4_doc_alignment.py
+          python3 tests/smoke_v1_19_4_backlog_contract.py
           python3 tests/smoke_v1_19_3_control_plane_decomposition.py
           python3 tests/smoke_v1_19_3_source_acquisition_split.py
           python3 tests/smoke_v1_19_3_briefing_runtime_behavior.py

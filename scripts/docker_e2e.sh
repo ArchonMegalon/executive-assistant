@@ -128,6 +128,7 @@ run_step "smoke_v1_19_4_capability_registry" python3 tests/smoke_v1_19_4_capabil
 run_step "smoke_v1_19_4_skill_inventory" python3 tests/smoke_v1_19_4_skill_inventory.py
 run_step "smoke_v1_19_4_capability_router" python3 tests/smoke_v1_19_4_capability_router.py
 run_step "smoke_v1_19_4_doc_alignment" python3 tests/smoke_v1_19_4_doc_alignment.py
+run_step "smoke_v1_19_4_backlog_contract" python3 tests/smoke_v1_19_4_backlog_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py
 run_step "smoke_v1_19_3_briefing_runtime_behavior" python3 tests/smoke_v1_19_3_briefing_runtime_behavior.py
