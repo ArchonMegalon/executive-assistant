@@ -44,8 +44,13 @@ be tracked as deterministic steps.
 4. Poller callsite alignment:
    - `ea/app/poll_listener.py` passes `tenant_name` into free-text handler for session attribution.
 
-5. Gate coverage:
+5. Typed-action callback sessionization:
+   - `ea/app/callback_commands.py` now applies the same execution-session lifecycle to `act:*` typed actions.
+   - `/skill` queued actions executed through callback now persist compile/execute/render status in the same ledger.
+
+6. Gate coverage:
    - `tests/smoke_v1_20_execution_sessions.py`
+   - `tests/smoke_v1_20_typed_action_sessions.py`
    - wired into:
      - `scripts/run_v119_smoke.sh`
      - `scripts/docker_e2e.sh`

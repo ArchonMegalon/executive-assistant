@@ -59,6 +59,9 @@ Branch: `main`
   - `docs/EA_OS_Change_Guide_for_Dev_v1_20_Commitment_OS.md` added.
   - `scripts/run_v120_smoke.sh` added.
   - `smoke_v1_20_doc_alignment.py` added and wired into host/docker/CI gates.
+- [DONE] Typed-action sessionization:
+  - `act:*` callback path now writes execution sessions and step transitions.
+  - `smoke_v1_20_typed_action_sessions.py` added and wired into host/docker/CI gates.
 
 ## Blocked
 - None.

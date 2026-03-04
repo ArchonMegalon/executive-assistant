@@ -3,10 +3,20 @@ from __future__ import annotations
 import asyncio
 import html
 import re
+import time
 from typing import Any, Awaitable, Callable
 
 from app.briefings import get_val
 from app.chat_assist import humanize_agent_report
+from app.execution import (
+    append_execution_event,
+    build_plan_steps,
+    compile_intent_spec,
+    create_execution_session,
+    finalize_execution_session,
+    mark_execution_session_running,
+    mark_execution_step_status,
+)
 from app.gog import gog_scout
 from app.intake.calendar_events import normalize_extracted_calendar_events
 from app.intake.calendar_import_result import build_calendar_import_response
@@ -46,14 +56,126 @@ async def _execute_typed_action_callback(
     tenant_name: str,
     action_row: dict[str, Any],
 ) -> None:
-    executed = execute_typed_action(
-        tenant_name=str(tenant_name or ""),
+    action = dict(action_row or {})
+    action_type = str(action.get("action_type") or "").strip() or "typed_action"
+    intent_spec = compile_intent_spec(
+        text=f"Execute typed action {action_type}",
+        tenant=str(tenant_name or ""),
         chat_id=int(chat_id),
-        action_row=dict(action_row or {}),
-        dispatch_skill=_dispatch_skill,
+        has_url=False,
     )
-    text = str(executed.get("text") or "").strip() or "⚠️ Action execution produced no response."
-    return await tg.send_message(chat_id, text, parse_mode="HTML")
+    intent_spec["action_type"] = action_type
+    plan_steps = build_plan_steps(intent_spec=intent_spec)
+    session_id = create_execution_session(
+        tenant=str(tenant_name or ""),
+        chat_id=int(chat_id),
+        intent_spec=intent_spec,
+        plan_steps=plan_steps,
+        source="typed_action_callback",
+        correlation_id=(
+            f"{tenant_name}:{chat_id}:typed_action:{str(action.get('id') or int(time.time() * 1000))}"
+        ),
+    )
+    current_step = "compile_intent"
+    if session_id:
+        mark_execution_session_running(session_id)
+        mark_execution_step_status(session_id, "compile_intent", "completed", result=intent_spec)
+        append_execution_event(
+            session_id,
+            event_type="typed_action_received",
+            message="Typed action callback execution started.",
+            payload={"action_type": action_type},
+        )
+    try:
+        if session_id and any(str((row or {}).get("step_key") or "") == "safety_gate" for row in plan_steps):
+            mark_execution_step_status(
+                session_id,
+                "safety_gate",
+                "running",
+                result={"gate_mode": "typed_action", "reason": "approval-required intent class"},
+            )
+            mark_execution_step_status(
+                session_id,
+                "safety_gate",
+                "completed",
+                result={"gate_mode": "typed_action", "decision": "continue"},
+            )
+        current_step = "execute_intent"
+        if session_id:
+            mark_execution_step_status(
+                session_id,
+                "execute_intent",
+                "running",
+                evidence={"action_type": action_type},
+            )
+        executed = execute_typed_action(
+            tenant_name=str(tenant_name or ""),
+            chat_id=int(chat_id),
+            action_row=action,
+            dispatch_skill=_dispatch_skill,
+        )
+        result = executed.get("result") if isinstance(executed.get("result"), dict) else {}
+        exec_ok = bool((result or {}).get("ok"))
+        exec_status = "completed" if exec_ok else "failed"
+        if session_id:
+            mark_execution_step_status(
+                session_id,
+                "execute_intent",
+                exec_status,
+                result={"action_status": (result or {}).get("status"), "ok": exec_ok},
+            )
+            append_execution_event(
+                session_id,
+                event_type="typed_action_executed",
+                level="info" if exec_ok else "error",
+                message="Typed action execution finished.",
+                payload={"action_type": action_type, "ok": exec_ok, "status": (result or {}).get("status")},
+            )
+
+        text = str(executed.get("text") or "").strip() or "⚠️ Action execution produced no response."
+        current_step = "render_reply"
+        if session_id:
+            mark_execution_step_status(
+                session_id,
+                "render_reply",
+                "running",
+                result={"payload_chars": len(text)},
+            )
+        await tg.send_message(chat_id, text, parse_mode="HTML")
+        if session_id:
+            mark_execution_step_status(
+                session_id,
+                "render_reply",
+                "completed",
+                result={"payload_chars": len(text)},
+            )
+            finalize_execution_session(
+                session_id,
+                status="completed" if exec_ok else "failed",
+                outcome={
+                    "result": "delivered",
+                    "action_type": action_type,
+                    "action_status": (result or {}).get("status"),
+                    "ok": exec_ok,
+                },
+                last_error=None if exec_ok else str((result or {}).get("status") or "typed_action_failed"),
+            )
+        return None
+    except Exception as err:
+        if session_id:
+            mark_execution_step_status(
+                session_id,
+                current_step,
+                "failed",
+                error_text=_safe_err(err),
+            )
+            finalize_execution_session(
+                session_id,
+                status="failed",
+                outcome={"result": "failed", "action_type": action_type, "failed_step": current_step},
+                last_error=_safe_err(err),
+            )
+        return await tg.send_message(chat_id, f"❌ Action execution failed: {_safe_err(err)}", parse_mode="HTML")
 
 
 async def handle_callback_command(
