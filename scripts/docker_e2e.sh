@@ -126,6 +126,7 @@ run_step "smoke_v1_19_3_human_compose_behavior" python3 tests/smoke_v1_19_3_huma
 run_step "smoke_v1_19_3_skill_router" python3 tests/smoke_v1_19_3_skill_router.py
 run_step "smoke_v1_19_4_capability_registry" python3 tests/smoke_v1_19_4_capability_registry.py
 run_step "smoke_v1_19_4_skill_inventory" python3 tests/smoke_v1_19_4_skill_inventory.py
+run_step "smoke_v1_19_4_capability_router" python3 tests/smoke_v1_19_4_capability_router.py
 run_step "smoke_v1_19_4_doc_alignment" python3 tests/smoke_v1_19_4_doc_alignment.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py

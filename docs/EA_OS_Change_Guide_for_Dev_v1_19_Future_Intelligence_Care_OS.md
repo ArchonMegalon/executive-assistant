@@ -552,6 +552,16 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+45. v1.19.4 capability routing plan contract
+- Added `ea/app/skills/capability_router.py`:
+  - `build_capability_plan(task_type, preferred=...)`
+  - returns deterministic primary + fallback capability plan per task type
+    using registry-backed candidates.
+- Added `tests/smoke_v1_19_4_capability_router.py` and wired it into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:
