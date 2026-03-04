@@ -37,6 +37,7 @@ from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
 from app.brief_commands import brief_command_throttled as _brief_command_throttled, brief_enter as _brief_enter, brief_exit as _brief_exit
+from app.briefing_delivery_sessions import create_briefing_delivery_session, activate_briefing_delivery_session
 from app.offset_store import atomic_write_offset, read_offset
 from app.watchdog import heartbeat_pinger, mark_heartbeat, start_watchdog_thread
 from app.update_router import route_update
@@ -85,39 +86,6 @@ def _safe_err(e) -> str:
 
 def _incident_ref(prefix: str = "EA") -> str:
     return f"{prefix}-{int(time.time())}"
-
-
-def _create_briefing_delivery_session(chat_id: int, *, status: str = "pending") -> int | None:
-    from app.db import get_db
-
-    window_sec = max(60, int(getattr(settings, "avomap_late_attach_window_sec", 900) or 900))
-    deadline = datetime.now(timezone.utc) + timedelta(seconds=window_sec)
-    row = get_db().fetchone(
-        """
-        INSERT INTO delivery_sessions (correlation_id, chat_id, mode, status, enhancement_deadline_ts)
-        VALUES (%s, %s, 'briefing', %s, %s)
-        RETURNING session_id
-        """,
-        (f"brief-{chat_id}-{int(time.time() * 1000)}", str(chat_id), str(status), deadline),
-    )
-    if not row:
-        return None
-    return int(row["session_id"])
-
-
-def _activate_delivery_session(session_id: int) -> None:
-    from app.db import get_db
-
-    window_sec = max(60, int(getattr(settings, "avomap_late_attach_window_sec", 900) or 900))
-    get_db().execute(
-        """
-        UPDATE delivery_sessions
-        SET status='active',
-            enhancement_deadline_ts=NOW() + (%s * INTERVAL '1 second')
-        WHERE session_id=%s
-        """,
-        (window_sec, int(session_id)),
-    )
 
 
 def _count_pdf_images(pdf_reader) -> int:
@@ -1286,7 +1254,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     if img_bytes:
                         from app.outbox import enqueue_outbox
                         delivery_session_id = await asyncio.to_thread(
-                            _create_briefing_delivery_session,
+                            create_briefing_delivery_session,
                             chat_id,
                             status="pending",
                         )
@@ -1336,7 +1304,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                             with open(f'{pdir}/{art_id}.png', 'wb') as f:
                                 f.write(img_bytes)
                             delivery_session_id = await asyncio.to_thread(
-                                _create_briefing_delivery_session,
+                                create_briefing_delivery_session,
                                 chat_id,
                                 status="pending",
                             )
@@ -1379,13 +1347,13 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                     safe_txt += '\n\n📝 <i>Visual template unavailable, switched to safe text mode.</i>'
                 try:
                     delivery_session_id = await asyncio.to_thread(
-                        _create_briefing_delivery_session,
+                        create_briefing_delivery_session,
                         chat_id,
                         status="active",
                     )
                     await tg.edit_message_text(chat_id, res['message_id'], safe_txt, parse_mode='HTML', reply_markup=markup, disable_web_page_preview=True)
                     if delivery_session_id:
-                        await asyncio.to_thread(_activate_delivery_session, int(delivery_session_id))
+                        await asyncio.to_thread(activate_briefing_delivery_session, int(delivery_session_id))
                     await safe_task('Briefing PDF', _send_briefing_newspaper_pdf(chat_id, tenant_name, t, txt))
                     asyncio.create_task(safe_task('Briefing Survey', plan_briefing_feedback_survey(
                         tenant=(get_val(t, 'google_account', '') or tenant_name),
@@ -1400,13 +1368,13 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                         plain_txt = plain_txt[:4000] + '...[truncated]'
                     try:
                         delivery_session_id = await asyncio.to_thread(
-                            _create_briefing_delivery_session,
+                            create_briefing_delivery_session,
                             chat_id,
                             status="active",
                         )
                         await tg.edit_message_text(chat_id, res['message_id'], plain_txt, parse_mode=None, reply_markup=markup, disable_web_page_preview=True)
                         if delivery_session_id:
-                            await asyncio.to_thread(_activate_delivery_session, int(delivery_session_id))
+                            await asyncio.to_thread(activate_briefing_delivery_session, int(delivery_session_id))
                     except Exception:
                         await tg.edit_message_text(chat_id, res['message_id'], '⚠️ Fatal error rendering briefing.', parse_mode=None)
             except Exception as e:

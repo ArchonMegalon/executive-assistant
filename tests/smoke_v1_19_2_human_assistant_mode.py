@@ -50,9 +50,13 @@ def test_mumbrain_hidden_from_user_menu_by_default() -> None:
     menu_src = (ROOT / "ea/app/telegram_menu.py").read_text(encoding="utf-8")
     auth_src = (ROOT / "ea/app/auth_sessions.py").read_text(encoding="utf-8")
     assist_src = (ROOT / "ea/app/chat_assist.py").read_text(encoding="utf-8")
+    delivery_src = (ROOT / "ea/app/briefing_delivery_sessions.py").read_text(encoding="utf-8")
     assert "from app.telegram_menu import" in poll_src
     assert "from app.auth_sessions import AuthSessionStore" in poll_src
     assert "from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report" in poll_src
+    assert "from app.briefing_delivery_sessions import create_briefing_delivery_session, activate_briefing_delivery_session" in poll_src
+    assert "def _create_briefing_delivery_session(" not in poll_src
+    assert "def _activate_delivery_session(" not in poll_src
     assert "class AuthSessionStore" not in poll_src
     assert "def _humanize_agent_report(" not in poll_src
     assert "def _ask_llm_text(" not in poll_src
@@ -62,6 +66,8 @@ def test_mumbrain_hidden_from_user_menu_by_default() -> None:
     assert "class AuthSessionStore" in auth_src
     assert "def ask_llm_text(" in assist_src
     assert "def humanize_agent_report(" in assist_src
+    assert "def create_briefing_delivery_session(" in delivery_src
+    assert "def activate_briefing_delivery_session(" in delivery_src
     _pass("v1.19.2 calm menu surface")
 
 

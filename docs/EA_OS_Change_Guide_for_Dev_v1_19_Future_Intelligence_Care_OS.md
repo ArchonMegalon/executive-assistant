@@ -268,6 +268,23 @@ optional design direction.
   - `tests/smoke_v1_19_1_llm_gateway_boundary.py`
   - `tests/smoke_v1_19_2_human_assistant_mode.py`
 
+22. v1.19.3 Telegram hard-boundary + poller split continuation
+- Enforced a hard no-diagnostics-to-chat boundary for render fallback:
+  - `ea/app/poll_listener.py` no longer appends renderer diagnostics based on
+    env toggles; it always emits safe simplified user copy.
+- Tightened briefing diagnostics behavior:
+  - `ea/app/briefings.py` keeps diagnostics log-only and treats user-surface
+    diagnostics exposure as permanently disabled.
+- Continued poll-listener responsibility split:
+  - Added `ea/app/briefing_delivery_sessions.py`
+    (`create_briefing_delivery_session`, `activate_briefing_delivery_session`)
+  - `ea/app/poll_listener.py` now imports these helpers instead of owning DB
+    delivery-session helpers inline.
+- Updated host smokes:
+  - `tests/smoke_v1_12_6.py`
+  - `tests/smoke_v1_12_7_contract_freeze.py`
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`
+
 ## Rollout checklist
 
 1. Host gate:
