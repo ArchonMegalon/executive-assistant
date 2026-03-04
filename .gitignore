@@ -33,3 +33,11 @@ backups/
 # Python cache
 __pycache__/
 *.pyc
+
+# Local artifacts accidentally created during runs
+.ea*.log
+.ea*.yml
+.ea_*.log
+EA_OS_*.pdf
+photo_*.jpg
+sonos_shredder.log
