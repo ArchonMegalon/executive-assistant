@@ -238,15 +238,17 @@ def test_llm_gateway_callsite_task_type_wiring() -> None:
     brief_src = (ROOT / "ea/app/briefings.py").read_text(encoding="utf-8")
     poll_src = (ROOT / "ea/app/poll_listener.py").read_text(encoding="utf-8")
     coaching_src = (ROOT / "ea/app/coaching.py").read_text(encoding="utf-8")
+    assist_src = (ROOT / "ea/app/chat_assist.py").read_text(encoding="utf-8")
 
     assert 'task_type="briefing_compose"' in brief_src
     assert 'purpose="briefing_compose"' in brief_src
-    assert 'task_type="profile_summary"' in poll_src
-    assert 'purpose="chat_assist"' in poll_src
+    assert "from app.chat_assist import ask_llm_text as _ask_llm_text" in poll_src
+    assert 'task_type="profile_summary"' in assist_src
+    assert 'purpose="chat_assist"' in assist_src
     assert 'task_type="operator_only"' in coaching_src
     assert "allow_json=True" in coaching_src
     assert "tenant=" in brief_src and "person_id=" in brief_src
-    assert "tenant=str(tenant or \"\")" in poll_src
+    assert "tenant=str(tenant or \"\")" in assist_src
     assert "tenant=str(tenant or \"\")" in coaching_src
     _pass("v1.19.1 llm gateway callsite policy wiring")
 

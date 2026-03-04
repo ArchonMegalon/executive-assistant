@@ -32,8 +32,8 @@ from app.policy.household import gate_household_document_action
 from app.intake.survey_planner import plan_article_preference_survey, plan_briefing_feedback_survey
 from app.intake.calendar_import_result import build_calendar_import_response
 from app.intake.calendar_events import normalize_extracted_calendar_events
-from app.contracts.llm_gateway import ask_text as gateway_ask_text
 from app.contracts.repair import open_repair_incident
+from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
 from app.brief_commands import brief_command_throttled as _brief_command_throttled, brief_enter as _brief_enter, brief_exit as _brief_exit
@@ -80,41 +80,11 @@ def clean_html_for_telegram(text: str) -> str:
     return re.sub('\\n{3,}', '\n\n', t).strip()
 
 
-def _humanize_agent_report(report: str) -> str:
-    raw = str(report or "").strip()
-    if not raw:
-        return raw
-    lowered = raw.lower()
-    if "no such file or directory: 'docker'" in lowered or "executable file not found" in lowered:
-        return "⚠️ Execution backend is temporarily unavailable. Please try again in a moment."
-    if (
-        "api key expired" in lowered
-        or "api_key_invalid" in lowered
-        or "litellm.badrequesterror" in lowered
-        or "vertex_ai_betaexception" in lowered
-    ):
-        return "⚠️ AI provider authentication failed. Please retry shortly while credentials refresh."
-    if lowered.startswith("error:") or "badrequesterror" in lowered:
-        return "⚠️ I could not complete that request right now. Please try again."
-    return raw
-
 def _safe_err(e) -> str:
     return html.escape(str(e), quote=False)
 
 def _incident_ref(prefix: str = "EA") -> str:
     return f"{prefix}-{int(time.time())}"
-
-
-async def _ask_llm_text(prompt: str, *, tenant: str = "", person_id: str = "") -> str:
-    return await asyncio.to_thread(
-        gateway_ask_text,
-        str(prompt),
-        task_type="profile_summary",
-        purpose="chat_assist",
-        data_class="derived_summary",
-        tenant=str(tenant or ""),
-        person_id=str(person_id or ""),
-    )
 
 
 def _create_briefing_delivery_session(chat_id: int, *, status: str = "pending") -> int | None:
