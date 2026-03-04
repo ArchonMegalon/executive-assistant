@@ -79,6 +79,31 @@ optional design direction.
   signals in addition to trip-only detection.
 - Added host smoke: `tests/smoke_v1_19_1_future_intelligence_expansion.py`.
 
+10. v1.19.1 profile persistence core
+- Added persisted profile state load/save in `ea/app/intelligence/profile.py`.
+- `build_profile_context()` now merges:
+  - default profile layers,
+  - persisted `profile_context_state` layer snapshots,
+  - learned preference hints from `user_interest_profiles`,
+  - runtime confidence downgrade note precedence.
+- Added bootstrap + migration DDL for `profile_context_state`:
+  - `ea/app/db.py` (`init_db_sync()`)
+  - `ea/schema/20260304_v1_19_1_profile_core.sql`
+- Added host smoke: `tests/smoke_v1_19_1_profile_persistence.py`.
+
+11. v1.19.1 LLM gateway trust-boundary hardening
+- Expanded `ea/app/contracts/llm_gateway.py` from thin pass-through to contract boundary:
+  - prompt sanitization (control-char stripping),
+  - secret redaction in prompt payloads,
+  - prompt/system max-char enforcement via env knobs,
+  - safe fallback copy on provider-call failures,
+  - output validation via `validate_model_output(...)` and block copy on tool-like responses.
+- New env knobs:
+  - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
+  - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
+  - `EA_LLM_GATEWAY_TASK_TYPE`
+- Added host smoke: `tests/smoke_v1_19_1_llm_gateway_boundary.py`.
+
 ## Rollout checklist
 
 1. Host gate:

@@ -114,6 +114,8 @@ run_step "smoke_v1_17" python3 tests/smoke_v1_17.py
 run_step "smoke_v1_18" python3 tests/smoke_v1_18.py
 run_step "smoke_v1_19_future_intelligence_pack" python3 tests/smoke_v1_19_future_intelligence_pack.py
 run_step "smoke_v1_19_1_future_intelligence_expansion" python3 tests/smoke_v1_19_1_future_intelligence_expansion.py
+run_step "smoke_v1_19_1_profile_persistence" python3 tests/smoke_v1_19_1_profile_persistence.py
+run_step "smoke_v1_19_1_llm_gateway_boundary" python3 tests/smoke_v1_19_1_llm_gateway_boundary.py
 
 echo "== Docker E2E: newspaper integration smokes =="
 run_step "smoke_newspaper_issue_pipeline" python3 tests/smoke_newspaper_issue_pipeline.py

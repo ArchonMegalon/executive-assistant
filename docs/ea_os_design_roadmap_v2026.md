@@ -46,6 +46,8 @@ Consolidation before expansion:
 ### Phase 7.1: v1.19.1 Reliability + Expansion
 - Add duplicate-briefing guardrails and watchdog false-positive reduction.
 - Extend intelligence contracts beyond travel with project and finance commitment seams.
+- Persist layered profile context state and merge it into briefing intelligence context.
+- Harden cloud LLM contract boundary with prompt/output safety guards.
 - Publish implementation patch memo with file-level and gate-level mapping.
 
 ## Execution Rule

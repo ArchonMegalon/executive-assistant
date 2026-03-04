@@ -16,6 +16,8 @@ expected SQL deltas, and gate coverage.
 2. Harden sentinel watchdog timing to reduce false deadlock restarts.
 3. Expand future-intelligence beyond travel with project + finance commitment seams.
 4. Keep runbook output operationally actionable (reduce expected-noise dominance).
+5. Persist layered profile state and merge it into briefing intelligence context.
+6. Strengthen the cloud LLM contract boundary from thin adapter to guarded gateway.
 
 ## Implemented in this repo state
 
@@ -80,55 +82,61 @@ Behavior:
 - configurable DB log filter pattern / tail size
 - expected idempotency duplicate noise no longer dominates the runbook output
 
-## Proposed SQL additions (next patch)
+### E. Profile persistence + learned merge
 
-No SQL migration was required for the changes above, but v1.19.1 should include
-new persistence surfaces in the next schema increment.
+Files:
+- `ea/app/intelligence/profile.py`
+- `ea/app/db.py`
+- `ea/schema/20260304_v1_19_1_profile_core.sql`
+- `tests/smoke_v1_19_1_profile_persistence.py`
+- `scripts/run_v119_smoke.sh`
+- `scripts/docker_e2e.sh`
+- `.github/workflows/release-gates.yml`
 
-Proposed migration file: `ea/schema/20260304_v1_19_1_intelligence_expansion.sql`
+Behavior:
+- `build_profile_context()` now merges persisted layers from `profile_context_state`:
+  - `stable_json`
+  - `situational_json`
+  - `learned_json`
+  - `confidence_json`
+- learned profile enrichment now also derives from `user_interest_profiles`.
+- runtime confidence note still takes precedence and forces degraded-confidence mode.
+- best-effort load/save path:
+- missing DB env/table safely falls back to defaults
+- `save_profile_context(...)` provides contract-level persistence API.
 
-Suggested tables:
+### F. LLM gateway contract hardening
 
-1. `profile_snapshots`
-- `snapshot_id uuid pk`
-- `tenant_key text`
-- `person_id text`
+Files:
+- `ea/app/contracts/llm_gateway.py`
+- `tests/smoke_v1_19_1_llm_gateway_boundary.py`
+- `scripts/run_v119_smoke.sh`
+- `scripts/docker_e2e.sh`
+- `.github/workflows/release-gates.yml`
+
+Behavior:
+- prompt sanitization and control-character stripping before provider calls.
+- redaction of common token/secret shapes before prompt egress.
+- bounded prompt/system sizes:
+  - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
+  - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
+- task-type-aware output validation via trust-boundary contract.
+- safe fallback copy on model call failures and blocked tool-like outputs.
+
+## SQL additions landed in this patch
+
+Migration file: `ea/schema/20260304_v1_19_1_profile_core.sql`
+
+Table:
+
+1. `profile_context_state`
+- primary key `(tenant, person_id)`
 - `stable_json jsonb`
 - `situational_json jsonb`
 - `learned_json jsonb`
 - `confidence_json jsonb`
-- `created_at timestamptz`
-- unique `(tenant_key, person_id, created_at)`
-
-2. `dossier_snapshots`
-- `dossier_id uuid pk`
-- `tenant_key text`
-- `person_id text`
-- `kind text` (`trip`, `project`, `finance_commitment`, ...)
-- `status text`
-- `payload_json jsonb`
-- `evidence_json jsonb`
-- `created_at timestamptz`
-- index `(tenant_key, person_id, kind, created_at desc)`
-
-3. `future_situation_snapshots`
-- `situation_id uuid pk`
-- `tenant_key text`
-- `person_id text`
-- `kind text`
-- `horizon_hours int`
-- `confidence numeric`
-- `evidence_json jsonb`
-- `created_at timestamptz`
-
-4. `readiness_snapshots`
-- `readiness_id uuid pk`
-- `tenant_key text`
-- `person_id text`
-- `status text`
-- `score int`
-- `payload_json jsonb`
-- `created_at timestamptz`
+- `updated_at timestamptz`
+- index `(tenant, person_id, updated_at desc)`
 
 ## Test mapping
 
@@ -150,6 +158,15 @@ Suggested tables:
 - `tests/smoke_v1_19_1_future_intelligence_expansion.py`
   - project/finance dossier + future/readiness/critical behavior
 
+- `tests/smoke_v1_19_1_profile_persistence.py`
+  - profile state persistence contracts
+  - persisted-state merge behavior
+  - runtime-confidence precedence over persisted confidence
+
+- `tests/smoke_v1_19_1_llm_gateway_boundary.py`
+  - prompt safety/redaction/length cap behavior
+  - blocked output behavior for tool-like model responses
+
 ### End-to-end gates
 
 - `scripts/docker_e2e.sh`
@@ -161,16 +178,17 @@ Suggested tables:
 ## Remaining gaps after v1.19.1
 
 1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`).
-2. Persist profile/dossier/future/readiness snapshots in DB (schema above).
+2. Persist dossier/future/readiness snapshots in DB (profile snapshot is now landed).
 3. Add missingness engine for "expected-but-missing" commitments.
 4. Expand dossier set with health/household ops/evidence-first dossier types.
-5. Strengthen LLM gateway from adapter to full trust-boundary implementation.
+5. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).
 
 ## Release checklist
 
 1. `python3 tests/smoke_v1_19_future_intelligence_pack.py`
 2. `python3 tests/smoke_v1_19_1_future_intelligence_expansion.py`
-3. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
-4. `bash scripts/run_v119_smoke.sh /docker/EA`
-5. `bash scripts/docker_e2e.sh`
-
+3. `python3 tests/smoke_v1_19_1_profile_persistence.py`
+4. `python3 tests/smoke_v1_19_1_llm_gateway_boundary.py`
+5. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
+6. `bash scripts/run_v119_smoke.sh /docker/EA`
+7. `bash scripts/docker_e2e.sh`
