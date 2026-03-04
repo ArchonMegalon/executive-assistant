@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
+import time
 from uuid import uuid4
 
 from app.onboarding.service import OnboardingService
@@ -17,6 +18,7 @@ from app.repair.engine import process_repair_jobs
 from app.db import get_db
 from app.intake.browseract import process_browseract_event
 from app.integrations.avomap.service import AvoMapService
+from app.integrations.avomap.security import issue_job_token
 from app.intelligence.critical_lane import build_critical_actions
 from app.intelligence.dossiers import Dossier
 from app.intelligence.epics import build_epics_from_dossiers, rank_epics
@@ -347,6 +349,25 @@ def test_v126_travel_video() -> None:
         (tenant, person, day),
     )
     assert spec and spec.get("spec_id"), spec
+    spec_id = str(spec.get("spec_id"))
+    cache_key = str(spec.get("cache_key") or "")
+    job = db.fetchone(
+        """
+        SELECT job_id
+        FROM avomap_jobs
+        WHERE spec_id=%s
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (spec_id,),
+    ) or {}
+    job_id = str((job or {}).get("job_id") or "")
+    job_token = issue_job_token(
+        settings.avomap_webhook_secret,
+        tenant=tenant,
+        job_id=job_id,
+        spec_id=spec_id,
+    )
 
     event_pk_col = "event_id"
     has_legacy_id = db.fetchone(
@@ -372,10 +393,11 @@ def test_v126_travel_video() -> None:
             json.dumps(
                 {
                     "status": "completed",
-                    "spec_id": str(spec["spec_id"]),
-                    "cache_key": str(spec.get("cache_key") or ""),
+                    "spec_id": spec_id,
+                    "cache_key": cache_key,
                     "object_ref": f"https://cdn.example.com/real/{uuid4().hex}.mp4",
                     "render_id": f"real-{uuid4().hex[:10]}",
+                    "job_token": job_token,
                 }
             ),
         ),
@@ -384,8 +406,24 @@ def test_v126_travel_video() -> None:
     assert event_pk, row
     asyncio.run(process_browseract_event(event_pk))
 
-    ready = svc.get_ready_asset(tenant=tenant, person_id=person, date_key=day)
-    assert ready and ready.get("object_ref"), ready
+    ready = None
+    for _ in range(15):
+        ready = svc.get_ready_asset(tenant=tenant, person_id=person, date_key=day)
+        if ready and ready.get("object_ref"):
+            break
+        time.sleep(0.2)
+    if not (ready and ready.get("object_ref")):
+        job_status = db.fetchone(
+            "SELECT status, COALESCE(last_error,'') AS last_error FROM avomap_jobs WHERE spec_id=%s ORDER BY updated_at DESC LIMIT 1",
+            (spec_id,),
+        ) or {}
+        spec_status = db.fetchone(
+            "SELECT status, COALESCE(last_error,'') AS last_error FROM travel_video_specs WHERE spec_id=%s",
+            (spec_id,),
+        ) or {}
+        raise AssertionError(
+            f"ready asset missing for spec={spec_id}; job={job_status}; spec={spec_status}"
+        )
     p("[REAL][PASS] v1.12.6 travel-video candidate/spec/job/asset flow")
 
 

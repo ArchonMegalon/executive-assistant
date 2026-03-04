@@ -35,6 +35,7 @@ bash scripts/run_v113_smoke.sh
 ```
 
 Gate reports are written to `logs/gates/*.json` and uploaded by CI.
+`scripts/docker_e2e.sh` includes the real milestone functional suite as part of design E2E.
 
 ## Design docs
 
