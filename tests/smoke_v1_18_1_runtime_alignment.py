@@ -124,8 +124,8 @@ poll_src = POLL_LISTENER.read_text(encoding="utf-8")
 assert "cmd_aliases" in poll_src
 assert "'/vrief': '/brief'" in poll_src
 assert ".rstrip(':')" in poll_src
-assert "Calendar Import Partial" in poll_src
-assert "Calendar Import Failed" in poll_src
+assert "from app.intake.calendar_import_result import build_calendar_import_response" in poll_src
+assert "build_calendar_import_response(" in poll_src
 assert "_sentinel_enabled_for_role" in poll_src
 assert "_sentinel_alert_throttled" in poll_src
 assert "EA_SENTINEL_ALERT_MIN_INTERVAL_SEC" in poll_src

@@ -61,11 +61,18 @@ For next-wave architecture, see `docs/EA_OS_Design_v1_13_Profile_Intelligence_Co
 - `scripts/docker_e2e.sh` now includes full milestone host smokes (`v1.12.7` through `v1.18`) including `smoke_v1_13_future_intelligence_pack`, plus the real milestone functional suite.
 - Milestone release scripts (`release_v113`..`release_v118_1`) now run full `docker_e2e` gates by default after milestone-specific checks; set `EA_SKIP_FULL_GATES=1` to skip.
 
+8. Calendar import result classification fix
+- Fixed false-failure messaging in Telegram callback import execution (`exec_cal:*`).
+- `remote imported = N`, `local commit status = committed`, `persisted = 0` now reports successful deduplication instead of a hard failure with `/auth` prompt.
+- Added pure contract helper `ea/app/intake/calendar_import_result.py` and wired callback path through it.
+
 ## New/updated tests
 - `tests/e2e_browseract_http_to_ready_asset.py` (new)
 - `tests/e2e_browseract_http_ingress.py` (updated)
 - `tests/smoke_v1_12_6_avomap.py` (new guards)
 - `tests/smoke_v1_12_6.py` (new day-context quality test)
+- `tests/smoke_sentinel_user_message.py` (sentinel copy/throttle contract)
+- `tests/smoke_calendar_import_result.py` (calendar import outcome contract)
 - `tests/smoke_outbox_entity_fallback.py` (sendVideo branch guard)
 
 ## Runtime notes

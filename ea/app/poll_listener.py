@@ -20,6 +20,7 @@ from app.render_guard import classify_markupgo_error, log_render_guard, markupgo
 from app.repair.healer import system_health_snapshot
 from app.policy.household import gate_household_document_action
 from app.intake.survey_planner import plan_article_preference_survey, plan_briefing_feedback_survey
+from app.intake.calendar_import_result import build_calendar_import_response
 from app.contracts.llm_gateway import ask_text as gateway_ask_text
 from app.contracts.repair import open_repair_incident
 LAST_HEARTBEAT = time.time()
@@ -947,19 +948,15 @@ async def handle_callback(cb):
                     persist_status = "failed"
                     persist_err = str(e)[:120]
             total = len(cal_data.get('events') or [])
-            commit_ok = bool(normalized_events) and persist_status == "committed" and persisted > 0
-            if imported == total and total > 0 and commit_ok and persisted >= imported:
-                await tg.send_message(chat_id, f'✅ <b>Calendar Events Imported.</b>\nImported: <b>{imported}/{total}</b>\nPersisted: <b>{persisted}</b>', parse_mode='HTML')
-            elif imported > 0 and commit_ok:
-                note = ''
-                if persisted < imported:
-                    note = '\nℹ️ Some events were deduplicated or dropped during persistence.'
-                await tg.send_message(chat_id, f'⚠️ <b>Calendar Import Partial.</b>\nImported: <b>{imported}/{total}</b>\nPersisted: <b>{persisted}</b>\nFailed: <b>{failed}</b>{note}', parse_mode='HTML')
-            else:
-                reason = f'Local commit status: <b>{persist_status}</b>.'
-                if persist_err:
-                    reason += f'\n<code>{html.escape(persist_err, quote=False)}</code>'
-                await tg.send_message(chat_id, f'❌ <b>Calendar Import Failed.</b>\nImported remotely: <b>{imported}/{total}</b>\nPersisted locally: <b>{persisted}</b>\n{reason}\nPlease run <code>/auth</code> and retry.', parse_mode='HTML')
+            response = build_calendar_import_response(
+                imported=imported,
+                total=total,
+                persisted=persisted,
+                persist_status=persist_status,
+                failed=failed,
+                persist_err=persist_err,
+            )
+            await tg.send_message(chat_id, response.text, parse_mode=response.parse_mode)
         return
     if cb['data'].startswith('drop_cal:'):
         cid = cb['data'].split(':')[1]
