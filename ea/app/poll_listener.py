@@ -24,10 +24,12 @@ LAST_HEARTBEAT = time.time()
 
 
 def _sentinel_enabled_for_role() -> bool:
+    role = (os.getenv("EA_ROLE") or "monolith").strip().lower()
     override = os.getenv("EA_SENTINEL_ENABLED")
     if override is not None:
         return str(override).strip().lower() in ("1", "true", "yes", "on")
-    return True
+    # Default watchdog only where heartbeat_pinger is expected to run.
+    return role in ("", "monolith", "poller")
 
 def _watchdog_loop():
     while True:
