@@ -31,6 +31,7 @@ bash scripts/smoke.sh
 bash scripts/runbook.sh
 bash scripts/docker_e2e.sh
 bash scripts/docker_e2e_design_workflows.sh
+bash scripts/run_v113_smoke.sh
 ```
 
 Gate reports are written to `logs/gates/*.json` and uploaded by CI.

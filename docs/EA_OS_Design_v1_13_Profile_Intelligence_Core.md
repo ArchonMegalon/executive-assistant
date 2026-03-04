@@ -76,6 +76,13 @@ exposure if no deterministic critical lane exists.
 - User-facing diagnostics remain hidden by default unless
   `EA_BRIEFING_DIAGNOSTIC_TO_CHAT=true`.
 
+## Test Integration
+- `tests/smoke_v1_13.py` validates profile + future-intelligence contracts.
+- `tests/smoke_v1_13_future_intelligence_pack.py` mirrors the external
+  v1.13 future-intelligence test-pack contract expectations in repo-native smoke format.
+- `scripts/run_v113_smoke.sh` now runs both host smoke files as part of the
+  standard v1.13 release smoke path.
+
 ## Guardrails / Invariants
 1. No “nothing urgent” certainty when confidence is degraded.
 2. Critical lane must run before LLM-composed summary.
