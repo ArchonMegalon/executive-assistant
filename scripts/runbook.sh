@@ -6,6 +6,7 @@ HOST_PORT="${HOST_PORT:-8090}"
 OP_TOKEN="$(grep -E '^EA_OPERATOR_TOKEN=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 SCAN_MINUTES="${EA_LOG_SCAN_MINUTES:-20}"
 SCAN_PATTERN='error|exception|traceback|fatal|deadlock|panic|failed|sentinel|api_key_invalid|api key expired|permission denied'
+IGNORE_ERROR_PATTERN="${EA_LOG_SCAN_IGNORE_PATTERN:-duplicate key value violates unique constraint \"action_drafts_tenant_key_idempotency_key_key\"}"
 IGNORE_CONTAINERS="${EA_LOG_SCAN_IGNORE_CONTAINERS:-tautulli}"
 SCAN_ALL_CONTAINERS="${EA_SCAN_ALL_CONTAINERS:-0}"
 
@@ -55,6 +56,9 @@ PY
 echo -e "\n== EA stack: error scan (last ${SCAN_MINUTES}m) =="
 for c in ea-api ea-worker ea-poller ea-outbox ea-event-worker ea-teable-sync ea-db; do
   hits="$(docker logs --since "${SCAN_MINUTES}m" "${c}" 2>&1 | grep -Ei "${SCAN_PATTERN}" || true)"
+  if [[ -n "${IGNORE_ERROR_PATTERN}" && -n "${hits}" ]]; then
+    hits="$(echo "${hits}" | grep -Evi "${IGNORE_ERROR_PATTERN}" || true)"
+  fi
   if [[ -n "${hits}" ]]; then
     echo
     echo "----- ${c} -----"
@@ -69,6 +73,9 @@ if [[ "${SCAN_ALL_CONTAINERS}" == "1" ]]; then
       continue
     fi
     hits="$(docker logs --since "${SCAN_MINUTES}m" "${c}" 2>&1 | grep -Ei "${SCAN_PATTERN}" || true)"
+    if [[ -n "${IGNORE_ERROR_PATTERN}" && -n "${hits}" ]]; then
+      hits="$(echo "${hits}" | grep -Evi "${IGNORE_ERROR_PATTERN}" || true)"
+    fi
     if [[ -n "${hits}" ]]; then
       echo
       echo "----- ${c} -----"
