@@ -28,6 +28,7 @@ from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_
 from app.auth_sessions import AuthSessionStore
 from app.brief_commands import brief_command_throttled as _brief_command_throttled, brief_enter as _brief_enter, brief_exit as _brief_exit
 from app.watchdog import heartbeat_pinger, mark_heartbeat, start_watchdog_thread
+from app.update_router import route_update
 
 
 start_watchdog_thread(
@@ -1466,24 +1467,18 @@ async def poll_loop():
                 offset = u['update_id'] + 1
                 await asyncio.to_thread(_atomic_write_offset, offset)
 
-                async def _route_update(u_data):
-                    if 'callback_query' in u_data:
-                        await handle_callback(u_data['callback_query'])
-                    elif 'message' in u_data:
-                        msg = u_data['message']
-                        chat_id = msg.get('chat', {}).get('id')
-                        if not chat_id:
-                            return
-                        cmd_text = str(msg.get('text') or msg.get('caption') or '').strip()
-                        if cmd_text.startswith('/'):
-                            await handle_command(chat_id, cmd_text, msg)
-                        elif msg.get('text') or msg.get('photo') or msg.get('document') or msg.get('voice') or msg.get('audio'):
-                            await handle_intent(chat_id, msg)
-
                 async def _run_with_guard(u_data):
                     async with sem:
                         try:
-                            await asyncio.wait_for(_route_update(u_data), timeout=240.0)
+                            await asyncio.wait_for(
+                                route_update(
+                                    u_data,
+                                    on_callback=handle_callback,
+                                    on_command=handle_command,
+                                    on_intent=handle_intent,
+                                ),
+                                timeout=240.0,
+                            )
                         except asyncio.TimeoutError:
                             print('🚨 SENTINEL: Task timed out!', flush=True)
                 asyncio.create_task(safe_task('Route Update', _run_with_guard(u)))

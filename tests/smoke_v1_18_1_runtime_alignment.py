@@ -20,10 +20,11 @@ NORMALIZER = APP / "approvals/normalizer.py"
 POLL_LISTENER = APP / "poll_listener.py"
 WATCHDOG = APP / "watchdog.py"
 BRIEF_COMMANDS = APP / "brief_commands.py"
+UPDATE_ROUTER = APP / "update_router.py"
 TG_SAFETY = APP / "telegram/safety.py"
 SCHEMA = ROOT / "ea/schema/20260303_v1_18_1_runtime_alignment.sql"
 
-for path in (SETTINGS, MAIN, RUNNER, DB, SERVER, OUTBOX_ROLE, QUEUE, EVENT_WORKER, BROWSERACT, NORMALIZER, POLL_LISTENER, WATCHDOG, BRIEF_COMMANDS, TG_SAFETY):
+for path in (SETTINGS, MAIN, RUNNER, DB, SERVER, OUTBOX_ROLE, QUEUE, EVENT_WORKER, BROWSERACT, NORMALIZER, POLL_LISTENER, WATCHDOG, BRIEF_COMMANDS, UPDATE_ROUTER, TG_SAFETY):
     ast.parse(path.read_text(encoding="utf-8"))
 print("[SMOKE][HOST][PASS] v1.18.1 patched modules parse")
 
@@ -140,6 +141,7 @@ assert "with contextlib.suppress(asyncio.CancelledError)" in poll_src
 assert "Calendar extraction timed out" in poll_src
 assert "Extracting schedule via 1min.ai gpt-4o" not in poll_src
 assert "from app.watchdog import heartbeat_pinger, mark_heartbeat, start_watchdog_thread" in poll_src
+assert "from app.update_router import route_update" in poll_src
 assert "start_watchdog_thread(" in poll_src
 assert "mark_heartbeat()" in poll_src
 assert "from app.brief_commands import brief_command_throttled as _brief_command_throttled, brief_enter as _brief_enter, brief_exit as _brief_exit" in poll_src
@@ -162,6 +164,12 @@ assert "def brief_enter(" in brief_cmd_src
 assert "def brief_exit(" in brief_cmd_src
 assert ".brief_last_command.json" in brief_cmd_src
 print("[SMOKE][HOST][PASS] brief command guard module wiring")
+
+update_router_src = UPDATE_ROUTER.read_text(encoding="utf-8")
+assert "async def route_update(" in update_router_src
+assert "if \"callback_query\" in u_data" in update_router_src
+assert "if cmd_text.startswith(\"/\")" in update_router_src
+print("[SMOKE][HOST][PASS] update router module wiring")
 
 briefings_src = (APP / "briefings.py").read_text(encoding="utf-8")
 assert "urllib.request.urlopen = _monkey_urlopen" not in briefings_src

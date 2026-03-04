@@ -157,8 +157,11 @@ optional design direction.
   - brief throttling interval policy
   - persisted short-window dedupe state
   - in-flight command lock/guard
+- Extracted shared Telegram update routing into `ea/app/update_router.py` and
+  reused it in both poller and worker paths.
 - `ea/app/poll_listener.py` now imports these modules instead of owning the
-  command-menu/auth-session/watchdog/brief-guard implementations inline.
+  command-menu/auth-session/watchdog/brief-guard/update-routing
+  implementations inline.
 - Host smoke updated to lock this decomposition contract:
   - `tests/smoke_v1_19_2_human_assistant_mode.py`.
   - `tests/smoke_sentinel_user_message.py`

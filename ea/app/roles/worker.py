@@ -2,30 +2,7 @@ import asyncio, traceback, time, os
 from app.repair.engine import process_repair_jobs
 from app.queue import claim_update, mark_update_done, mark_update_error
 import app.poll_listener as pl
-
-async def _route_update(u_data):
-    if 'callback_query' in u_data:
-        await pl.handle_callback(u_data['callback_query'])
-        return
-
-    msg = None
-    if 'message' in u_data:
-        msg = u_data['message']
-    elif 'channel_post' in u_data:
-        msg = u_data['channel_post']
-    elif 'edited_channel_post' in u_data:
-        msg = u_data['edited_channel_post']
-    if not msg:
-        return
-
-    chat_id = msg.get('chat', {}).get('id')
-    if not chat_id:
-        return
-    cmd_text = str(msg.get('text') or msg.get('caption') or "").strip()
-    if cmd_text.startswith('/'):
-        await pl.handle_command(chat_id, cmd_text, msg)
-    elif msg.get('text') or msg.get('photo') or msg.get('document') or msg.get('voice') or msg.get('audio'):
-        await pl.handle_intent(chat_id, msg)
+from app.update_router import route_update
 
 async def run_worker():
     print("==================================================", flush=True)
@@ -55,7 +32,15 @@ async def run_worker():
             print(f"⚙️ Worker: Claimed job {job['update_id']}! Executing...", flush=True)
             
             # Execute your existing monolithic processing logic safely!
-            await asyncio.wait_for(_route_update(job["payload_json"]), timeout=240.0)
+            await asyncio.wait_for(
+                route_update(
+                    job["payload_json"],
+                    on_callback=pl.handle_callback,
+                    on_command=pl.handle_command,
+                    on_intent=pl.handle_intent,
+                ),
+                timeout=240.0,
+            )
             
             await asyncio.to_thread(mark_update_done, tenant=job["tenant"], update_id=job["update_id"])
             print(f"✅ Worker: Job {job['update_id']} finished and committed.", flush=True)
