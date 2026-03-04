@@ -382,6 +382,17 @@ optional design direction.
   - added identity/correlation/data-class blocking behavior checks and updated
     callsite contract assertions.
 
+31. v1.19.3 poll-listener brain command extraction
+- Added `ea/app/brain_commands.py`:
+  - `show_brain(...)`
+  - `remember_fact(...)`
+- `ea/app/poll_listener.py` now delegates `/brain` and `/remember` command
+  handling to this module instead of keeping memory command flows inline.
+- Updated decomposition smoke contract:
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`
+  - verifies `brain_commands` ownership and absence of inline brain command
+    implementation strings in `poll_listener.py`.
+
 ## Rollout checklist
 
 1. Host gate:

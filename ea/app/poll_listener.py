@@ -35,6 +35,7 @@ from app.intake.calendar_import_result import build_calendar_import_response
 from app.intake.calendar_events import normalize_extracted_calendar_events
 from app.contracts.repair import open_repair_incident
 from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report
+from app.brain_commands import remember_fact as _remember_fact, show_brain as _show_brain
 from app.newspaper.preferences import build_preference_snapshot
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
@@ -694,20 +695,7 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 kb = [[{'text': '🔑 All Features', 'callback_data': f'auth_cb:{save_button_context(f'all|{target_email}')}'}], [{'text': '📅 Calendar Only', 'callback_data': f'auth_cb:{save_button_context(f'cal|{target_email}')}'}], [{'text': '✉️ Gmail Only', 'callback_data': f'auth_cb:{save_button_context(f'mail|{target_email}')}'}], [{'text': '✏️ Type a different email...', 'callback_data': 'cmd_auth_custom'}], [{'text': '❌ Cancel', 'callback_data': f'auth_cb:{save_button_context('cancel|none')}'}]]
                 return await tg.send_message(chat_id, f'ℹ️ <b>Features for {target_email}</b>\nWhich features do you want to enable?', parse_mode='HTML', reply_markup={'inline_keyboard': kb})
         if cmd == '/brain':
-            try:
-                import json
-                if not __import__('os').path.exists('/attachments/brain.json'):
-                    return await tg.send_message(chat_id, '🧠 Brain is empty. Use /remember <text>.')
-                with open('/attachments/brain.json', 'r', encoding='utf-8') as f:
-                    brain = json.load(f)
-                if not brain:
-                    return await tg.send_message(chat_id, '🧠 Brain is empty.')
-                lines = ['🧠 <b>Active Memories:</b>']
-                for k, v in brain.items():
-                    lines.append(f'• <b>{k}</b>: {v}')
-                return await tg.send_message(chat_id, '\n'.join(lines), parse_mode='HTML')
-            except Exception as e:
-                return await tg.send_message(chat_id, f'⚠️ Brain error: {_safe_err(e)}')
+            return await _show_brain(tg=tg, chat_id=chat_id)
         if cmd == '/mumbrain':
             is_admin = bool(get_val(t, 'is_admin', False)) or str(chat_id) == str(get_admin_chat_id() or "")
             if not is_admin:
@@ -747,34 +735,13 @@ async def handle_command(chat_id: int, text: str, msg: dict):
                 await tg.edit_message_text(chat_id, wait_msg['message_id'], '🗞️ No qualifying Economist/Atlantic/NYT BrowserAct articles in the last 7 days.', parse_mode='HTML')
             return
         if cmd == '/remember':
-            rem_text = text[len('/remember'):].strip()
-            if not rem_text:
-                return await tg.send_message(chat_id, 'Usage: /remember <fact to remember>')
-            res = await tg.send_message(chat_id, '🧠 <i>Normalizing memory...</i>', parse_mode='HTML')
-            try:
-                import json
-                prompt = f'Extract a short 3-5 word title and the core fact from this text. Return STRICT JSON: {{"title": "...", "fact": "..."}}. Text: {rem_text}'
-                out = await _ask_llm_text(
-                    prompt,
-                    tenant=str(tenant_name or ""),
-                    person_id=str(chat_id),
-                )
-                match = re.search('\\{[\\s\\S]*\\}', out)
-                if match:
-                    data = json.loads(match.group(0))
-                    brain_file = '/attachments/brain.json'
-                    brain = {}
-                    if __import__('os').path.exists(brain_file):
-                        with open(brain_file, 'r', encoding='utf-8') as f:
-                            brain = json.load(f)
-                    brain[data['title']] = data['fact']
-                    with open(brain_file, 'w', encoding='utf-8') as f:
-                        json.dump(brain, f)
-                    return await tg.edit_message_text(chat_id, res['message_id'], f'✅ <b>Remembered:</b> {data['title']}', parse_mode='HTML')
-                else:
-                    return await tg.edit_message_text(chat_id, res['message_id'], '⚠️ Failed to parse memory via AI.')
-            except Exception as e:
-                return await tg.edit_message_text(chat_id, res['message_id'], f'⚠️ Error saving memory: {_safe_err(e)}')
+            return await _remember_fact(
+                tg=tg,
+                chat_id=chat_id,
+                tenant_name=str(tenant_name or ""),
+                command_text=text,
+                ask_llm_text=_ask_llm_text,
+            )
         if cmd == '/brief':
             if _brief_command_throttled(chat_id):
                 return await tg.send_message(
