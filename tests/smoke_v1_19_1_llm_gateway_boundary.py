@@ -20,7 +20,7 @@ def test_llm_gateway_contract_symbols() -> None:
     src = (ROOT / "ea/app/contracts/llm_gateway.py").read_text(encoding="utf-8")
     assert "def _sanitize_prompt(" in src
     assert "class TaskPolicy" in src
-    assert "def _allow_implicit_task_type(" in src
+    assert "EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE" not in src
     assert "def _audit_egress(" in src
     assert "EA_LLM_GATEWAY_AUDIT_PATH" in src
     assert "def ask_text(" in src
@@ -240,11 +240,8 @@ def test_llm_gateway_blocks_missing_task_type_by_default() -> None:
     import app.contracts.llm_gateway as gw
 
     original_ask_llm = gw.ask_llm
-    old_toggle = os.environ.get("EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE")
     called = {"n": 0}
     try:
-        os.environ["EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE"] = "0"
-
         def _fake_ask_llm(prompt: str, system_prompt: str):
             called["n"] += 1
             return "ok"
@@ -262,10 +259,6 @@ def test_llm_gateway_blocks_missing_task_type_by_default() -> None:
         assert called["n"] == 0
     finally:
         gw.ask_llm = original_ask_llm
-        if old_toggle is None:
-            os.environ.pop("EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE", None)
-        else:
-            os.environ["EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE"] = old_toggle
     _pass("v1.19.1 llm gateway missing task_type blocked")
 
 

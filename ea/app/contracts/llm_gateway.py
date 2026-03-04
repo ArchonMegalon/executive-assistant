@@ -115,16 +115,6 @@ def _normalize_task_type(task_type: str | None) -> str:
     return ""
 
 
-def _allow_implicit_task_type() -> bool:
-    # Transitional override only. Production should require explicit task_type.
-    return str(os.getenv("EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE", "0")).strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-
-
 def _policy_for(task_type: str) -> TaskPolicy:
     return _TASK_POLICIES.get(task_type, _TASK_POLICIES["briefing_compose"])
 
@@ -236,22 +226,19 @@ def ask_text(
         safe_prompt = "Provide a concise, user-safe summary."
     normalized_task_type = _normalize_task_type(task_type)
     if not normalized_task_type:
-        if _allow_implicit_task_type():
-            normalized_task_type = "briefing_compose"
-        else:
-            _audit_egress(
-                purpose=purpose,
-                task_type="missing",
-                correlation_id=normalized_correlation_id,
-                data_class=normalized_data_class or str(data_class or ""),
-                prompt_chars=len(safe_prompt),
-                system_chars=len(safe_system),
-                redaction_applied=redaction_applied,
-                verdict="blocked_missing_task_type",
-                tenant=tenant_key,
-                person_id=person_key,
-            )
-            return _BLOCKED_COPY
+        _audit_egress(
+            purpose=purpose,
+            task_type="missing",
+            correlation_id=normalized_correlation_id,
+            data_class=normalized_data_class or str(data_class or ""),
+            prompt_chars=len(safe_prompt),
+            system_chars=len(safe_system),
+            redaction_applied=redaction_applied,
+            verdict="blocked_missing_task_type",
+            tenant=tenant_key,
+            person_id=person_key,
+        )
+        return _BLOCKED_COPY
     if not normalized_data_class:
         _audit_egress(
             purpose=purpose,

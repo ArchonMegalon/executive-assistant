@@ -114,7 +114,6 @@ optional design direction.
   - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_OUTPUT_CHARS`
-  - `EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE` (transition-only override)
   - `EA_LLM_GATEWAY_AUDIT_PATH`
 - Added host smoke: `tests/smoke_v1_19_1_llm_gateway_boundary.py`.
 
@@ -313,8 +312,7 @@ optional design direction.
 25. v1.19.3 LLM gateway explicit task typing
 - `ea/app/contracts/llm_gateway.py` now requires explicit `task_type` by
   default and blocks implicit calls with verdict `blocked_missing_task_type`.
-- Added transitional override env only:
-  - `EA_LLM_GATEWAY_ALLOW_IMPLICIT_TASK_TYPE=true`
+- Removed implicit task-type override support from the gateway boundary.
 - Updated gateway boundary smoke coverage:
   - `tests/smoke_v1_19_1_llm_gateway_boundary.py`
   - explicit task-type checks
