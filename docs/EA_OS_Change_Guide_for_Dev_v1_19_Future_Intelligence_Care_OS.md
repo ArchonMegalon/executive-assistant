@@ -320,6 +320,17 @@ optional design direction.
   - explicit task-type checks
   - missing-task-type blocking behavior
 
+26. v1.19.3 poll-listener message-security extraction
+- Added `ea/app/message_security.py`:
+  - `check_security(...)`
+  - `household_confidence_for_message(...)`
+  - `message_document_ref(...)`
+- `ea/app/poll_listener.py` now imports message-security helpers instead of
+  owning these checks inline.
+- Updated host smokes:
+  - `tests/smoke_v1_12_7_contract_freeze.py`
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`
+
 ## Rollout checklist
 
 1. Host gate:

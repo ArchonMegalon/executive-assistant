@@ -15,7 +15,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from app.config import get_tenant, get_admin_chat_id, load_tenants, tenant_by_chat_id
+from app.config import get_admin_chat_id, load_tenants, tenant_by_chat_id
 from app.gog import gog_scout, gog_cli, docker_exec
 from app.settings import settings
 from app.telegram import TelegramClient
@@ -37,6 +37,7 @@ from app.contracts.repair import open_repair_incident
 from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
+from app.message_security import check_security, household_confidence_for_message as _household_confidence_for_message, message_document_ref as _message_document_ref
 from app.brief_commands import brief_command_throttled as _brief_command_throttled, brief_enter as _brief_enter, brief_exit as _brief_exit
 from app.briefing_delivery_sessions import create_briefing_delivery_session, activate_briefing_delivery_session
 from app.offset_store import atomic_write_offset, read_offset
@@ -87,63 +88,6 @@ def _safe_err(e) -> str:
 
 def _incident_ref(prefix: str = "EA") -> str:
     return f"{prefix}-{int(time.time())}"
-
-
-def _household_confidence_for_message(chat_id: int, msg: dict) -> float:
-    try:
-        override = (os.getenv('EA_HOUSEHOLD_CONFIDENCE_OVERRIDE', '') or '').strip()
-        if override:
-            return max(0.0, min(1.0, float(override)))
-    except Exception:
-        pass
-    confidence = 0.99
-    chat_type = str((msg.get('chat') or {}).get('type') or '').lower()
-    if chat_type in ('group', 'supergroup', 'channel'):
-        confidence = min(confidence, 0.70)
-    if msg.get('forward_origin') or msg.get('forward_from') or msg.get('forward_from_chat'):
-        confidence = min(confidence, 0.70)
-    sender_id = str((msg.get('from') or {}).get('id') or '')
-    if sender_id and sender_id != str(chat_id):
-        confidence = min(confidence, 0.75)
-    return confidence
-
-
-def _message_document_ref(chat_id: int, msg: dict, doc: dict | None, photo: list | None) -> tuple[str, str]:
-    file_id = ''
-    if doc and doc.get('file_id'):
-        file_id = str(doc.get('file_unique_id') or doc.get('file_id') or '')
-    elif photo and isinstance(photo, list):
-        last = photo[-1] if photo else {}
-        file_id = str(last.get('file_unique_id') or last.get('file_id') or '')
-    message_id = str(msg.get('message_id') or '0')
-    document_id = file_id or f'chat{chat_id}_msg{message_id}'
-    raw_ref = f'telegram:chat:{chat_id}:message:{message_id}:file:{file_id or "none"}'
-    return document_id, raw_ref
-
-async def check_security(chat_id: int) -> tuple[str, dict]:
-    t = get_tenant(chat_id)
-    if t:
-        return (str(get_val(t, 'key', f'chat_{chat_id}')), t)
-    try:
-        if __import__('os').path.exists('/attachments/dynamic_users.json'):
-            with open('/attachments/dynamic_users.json', 'r') as f:
-                dt = json.load(f)
-            if str(chat_id) in dt:
-                u_info = dt[str(chat_id)]
-                default_openclaw = os.environ.get("EA_DEFAULT_OPENCLAW_CONTAINER", "openclaw-gateway")
-                return (
-                    f'guest_{chat_id}',
-                    {
-                        'key': f'guest_{chat_id}',
-                        'label': u_info.get('name', 'Guest'),
-                        'google_account': u_info.get('email', ''),
-                        'openclaw_container': default_openclaw,
-                        'is_admin': u_info.get('is_admin', False),
-                    },
-                )
-    except:
-        pass
-    return (None, None)
 
 
 async def _send_browseract_articles_pdf(chat_id: int, tenant_name: str, tenant_cfg: dict, *, force: bool = False) -> bool:
