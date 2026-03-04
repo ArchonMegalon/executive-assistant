@@ -1,14 +1,21 @@
 services:
   ea-event-worker:
-    build:
-      context: .
-      dockerfile: ea/Dockerfile
+    image: ea-os:latest
     container_name: ea-event-worker
-    command: python -m app.workers.event_worker
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=event_worker
+      - TZ=Europe/Vienna
+    command: python -m app.runner
+    volumes:
+      - ./config:/config:ro
+      - ./attachments:/attachments:rw
+      - ./logs:/logs:rw
     depends_on:
-      - ea-db
+      ea-db:
+        condition: service_healthy
   ea-api:
     build:
       context: .

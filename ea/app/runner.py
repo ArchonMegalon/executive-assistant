@@ -21,6 +21,9 @@ def main() -> None:
     elif r == "outbox":
         from app.roles.outbox import run_outbox
         import asyncio; asyncio.run(run_outbox())
+    elif r == "event_worker":
+        from app.workers.event_worker import poll_external_events
+        import asyncio; asyncio.run(poll_external_events())
     elif r == "monolith":
         uvicorn.run("app.main:app", host="0.0.0.0", port=8090, log_level="warning")
     else:

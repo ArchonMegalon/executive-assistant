@@ -678,6 +678,21 @@ optional design direction.
   - `scripts/docker_e2e.sh`
   - `.github/workflows/release-gates.yml`
 
+54. v1.19.4 event-worker role-path convergence
+- Updated `ea/app/runner.py`:
+  - added explicit `EA_ROLE=event_worker` branch delegating to
+    `app.workers.event_worker.poll_external_events`.
+- Updated `docker-compose.yml`:
+  - `ea-event-worker` now runs through `python -m app.runner` with
+    `EA_ROLE=event_worker` (same role entry pattern as api/poller/worker/outbox).
+- Updated `ea/app/roles/event_worker.py`:
+  - replaced duplicate implementation with canonical shim that calls
+    `app.workers.event_worker.poll_external_events`.
+- Added `tests/smoke_v1_19_4_event_worker_role_alignment.py` and wired into:
+  - `scripts/run_v119_smoke.sh`
+  - `scripts/docker_e2e.sh`
+  - `.github/workflows/release-gates.yml`
+
 ## Rollout checklist
 
 1. Host gate:

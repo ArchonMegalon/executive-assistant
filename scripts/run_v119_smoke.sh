@@ -35,6 +35,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_19_4_llm_gateway_convergence.py" \
   "$ROOT/tests/smoke_v1_19_4_briefing_diagnostics_log_gate.py" \
   "$ROOT/tests/smoke_v1_19_4_ltd_inventory_doc.py" \
+  "$ROOT/tests/smoke_v1_19_4_event_worker_role_alignment.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
   "$ROOT/tests/smoke_v1_19_3_briefing_runtime_behavior.py"
@@ -62,6 +63,7 @@ python3 "$ROOT/tests/smoke_v1_19_4_sidecar_skill_orchestration.py"
 python3 "$ROOT/tests/smoke_v1_19_4_llm_gateway_convergence.py"
 python3 "$ROOT/tests/smoke_v1_19_4_briefing_diagnostics_log_gate.py"
 python3 "$ROOT/tests/smoke_v1_19_4_ltd_inventory_doc.py"
+python3 "$ROOT/tests/smoke_v1_19_4_event_worker_role_alignment.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"
 python3 "$ROOT/tests/smoke_v1_19_3_briefing_runtime_behavior.py"

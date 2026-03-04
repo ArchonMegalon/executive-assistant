@@ -44,6 +44,11 @@ Branch: `main`
 - [DONE] Auditor LTD inventory:
   - `LTD_INVENTORY.md` added at repo root with product/tier/capability mapping.
   - `smoke_v1_19_4_ltd_inventory_doc.py` added and wired into all gates.
+- [DONE] Event-worker role-path alignment:
+  - `runner.py` now supports `EA_ROLE=event_worker`.
+  - compose event-worker now runs via `python -m app.runner` + role env.
+  - `roles/event_worker.py` reduced to canonical shim over `workers/event_worker`.
+  - `smoke_v1_19_4_event_worker_role_alignment.py` added and wired into all gates.
 - [DONE] Full Docker E2E gate pass after each slice.
 
 ## Blocked
