@@ -61,6 +61,13 @@ optional design direction.
 - Preserved throttled user-facing interruption copy contract and no-leak
   internal phrasing invariant.
 
+8. /brief duplicate-request guard
+- Added `/brief` dedupe + in-flight guard in `ea/app/poll_listener.py`.
+- New env knob: `EA_BRIEF_COMMAND_MIN_INTERVAL_SEC` (default `120`).
+- Prevents duplicate briefing deliveries when two near-identical `/brief`
+  triggers arrive in a short window (for example user retry + delayed poll replay).
+- Added host contract smoke: `tests/smoke_brief_dedupe_guard.py`.
+
 ## Rollout checklist
 
 1. Host gate:
