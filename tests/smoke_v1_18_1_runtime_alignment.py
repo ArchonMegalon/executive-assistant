@@ -134,6 +134,7 @@ assert "extract_calendar_from_image(img_bytes, 'image/jpeg')" in poll_src
 assert "asyncio.wait_for(" in poll_src
 assert "Still processing (" in poll_src
 assert "_calendar_progress_ticker" in poll_src
+assert "with contextlib.suppress(asyncio.CancelledError)" in poll_src
 assert "Calendar extraction timed out" in poll_src
 assert "Extracting schedule via 1min.ai gpt-4o" not in poll_src
 assert "_sentinel_enabled_for_role" in poll_src

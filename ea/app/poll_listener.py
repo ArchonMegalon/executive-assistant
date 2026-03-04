@@ -3,6 +3,7 @@ import os
 import asyncio
 import os
 import httpx, asyncio, os, sys, traceback, re, json, io, base64, urllib.parse, time, threading, html
+import contextlib
 from datetime import datetime, timezone, timedelta
 import urllib.request
 from app.config import get_tenant, get_admin_chat_id, load_tenants, tenant_by_chat_id
@@ -1155,10 +1156,8 @@ async def handle_intent(chat_id: int, msg: dict):
                 stop_progress.set()
                 if progress_task is not None:
                     progress_task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await progress_task
-                    except Exception:
-                        pass
             return
         if is_invoice:
             res = await tg.send_message(chat_id, '💸 <b>Rechnung erkannt. Lese Daten (1min.ai gpt-4o)...</b>', parse_mode='HTML')
