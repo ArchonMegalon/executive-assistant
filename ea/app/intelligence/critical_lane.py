@@ -86,6 +86,18 @@ def build_critical_actions(
                 actions.append(
                     "Project blockers detected in a near-term window. Prepare decisions and unblock critical tasks now."
                 )
+        elif d.kind == "health" and d.signal_count:
+            if d.near_term:
+                decision_window_score = max(decision_window_score, 75)
+            if "urgent" in d.risk_hits or "worsening" in d.risk_hits:
+                exposure_score = max(exposure_score, 70)
+                actions.append(
+                    "Health urgency indicators detected. Confirm immediate follow-up and next clinical step now."
+                )
+            elif d.near_term:
+                actions.append(
+                    "Health follow-up is near-term. Prepare a concise symptom/treatment context before the appointment."
+                )
         for ev in d.evidence:
             if ev and ev not in evidence and len(evidence) < 3:
                 evidence.append(ev)

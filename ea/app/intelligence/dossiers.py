@@ -313,3 +313,75 @@ def build_finance_commitment_dossier(
         near_term=bool(near_term),
         evidence=tuple(evidence),
     )
+
+
+def build_health_dossier(
+    *,
+    mails: list[dict],
+    calendar_events: list[dict],
+    near_term_hours: int | None = None,
+) -> Dossier:
+    health_kws = [
+        "doctor",
+        "clinic",
+        "therapy",
+        "physio",
+        "ergotherapy",
+        "stimulation",
+        "hospital",
+        "medication",
+        "prescription",
+        "appointment",
+        "neurolog",
+        "nms",
+    ]
+    hours = max(12, int(near_term_hours or int(os.getenv("EA_HEALTH_WINDOW_HOURS", "72"))))
+    now_utc = datetime.now(timezone.utc)
+
+    signal_count = 0
+    near_term = False
+    evidence: list[str] = []
+    risk_hits: set[str] = set()
+
+    def _match(raw_text: str) -> bool:
+        lower = str(raw_text or "").lower()
+        if not any(k in lower for k in health_kws):
+            return False
+        if "urgent" in lower or "emergency" in lower:
+            risk_hits.add("urgent")
+        if "worsening" in lower or "severe" in lower or "critical" in lower:
+            risk_hits.add("worsening")
+        if "abnormal" in lower:
+            risk_hits.add("abnormal")
+        return True
+
+    for m in mails or []:
+        subject = str(m.get("subject") or m.get("title") or "").strip()
+        snippet = str(m.get("snippet") or m.get("body") or m.get("text") or "").strip()
+        raw = f"{subject}\n{snippet}"
+        if _match(raw):
+            signal_count += 1
+            if subject and len(evidence) < 3:
+                evidence.append(subject[:110])
+
+    for ev in calendar_events or []:
+        title = str(ev.get("summary") or ev.get("title") or "").strip()
+        location = str(ev.get("location") or "").strip()
+        raw = f"{title}\n{location}"
+        if _match(raw):
+            signal_count += 1
+            if title and len(evidence) < 3:
+                evidence.append(title[:110])
+            ts = _event_start_ts(ev)
+            if ts and now_utc - timedelta(hours=6) <= ts <= now_utc + timedelta(hours=hours):
+                near_term = True
+
+    return Dossier(
+        kind="health",
+        title="Health Dossier",
+        signal_count=int(signal_count),
+        exposure_eur=0.0,
+        risk_hits=tuple(sorted(risk_hits)),
+        near_term=bool(near_term),
+        evidence=tuple(evidence),
+    )

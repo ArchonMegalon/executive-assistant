@@ -176,6 +176,13 @@ optional design direction.
   - `tests/smoke_sentinel_user_message.py`
   - `tests/smoke_v1_18_1_runtime_alignment.py`
 
+15. v1.19.2 health dossier expansion
+- Added `build_health_dossier(...)` in `ea/app/intelligence/dossiers.py`.
+- Briefing compose now includes health dossier in the multi-dossier set.
+- Future situations now include `health_watch_window`.
+- Readiness + critical lane now promote near-term or urgent health signals.
+- Added host smoke: `tests/smoke_v1_19_2_health_dossier.py`.
+
 ## Rollout checklist
 
 1. Host gate:

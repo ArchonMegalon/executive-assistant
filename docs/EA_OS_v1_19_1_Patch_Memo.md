@@ -205,6 +205,22 @@ Behavior:
 - `poll_listener.py` now consumes these modules instead of carrying that logic
   inline, reducing control-plane coupling without changing command semantics.
 
+### J. Health dossier expansion (v1.19.2)
+
+Files:
+- `ea/app/intelligence/dossiers.py`
+- `ea/app/intelligence/future_situations.py`
+- `ea/app/intelligence/readiness.py`
+- `ea/app/intelligence/critical_lane.py`
+- `ea/app/briefings.py`
+- `tests/smoke_v1_19_2_health_dossier.py`
+
+Behavior:
+- adds first-pass `health` dossier detection (mail + calendar).
+- introduces `health_watch_window` future situation type.
+- readiness and critical lane now promote urgent or near-term health follow-ups.
+- briefing compose now includes health dossier alongside trip/project/finance.
+
 ## SQL additions landed in this patch
 
 Migration file: `ea/schema/20260304_v1_19_1_profile_core.sql`

@@ -91,6 +91,16 @@ def build_future_situations(
                     evidence=tuple(dossier.evidence[:2]),
                 )
             )
+        if dossier.kind == "health" and (dossier.near_term or bool(dossier.risk_hits)):
+            out.append(
+                FutureSituation(
+                    kind="health_watch_window",
+                    title="Health follow-up window is near-term",
+                    horizon_hours=horizon_hours,
+                    confidence=0.79,
+                    evidence=tuple(dossier.evidence[:2]),
+                )
+            )
 
     upcoming = 0
     for event in calendar_events or []:

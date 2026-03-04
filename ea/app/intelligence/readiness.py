@@ -60,6 +60,13 @@ def build_readiness_dossier(
             if dossier.near_term:
                 watch.append("Finance deadline window is near-term.")
                 actions.append("Prepare payment/approval path and required documents.")
+        if dossier.kind == "health":
+            if "urgent" in dossier.risk_hits or "worsening" in dossier.risk_hits:
+                blockers.append("Health urgency signals detected and need explicit follow-up.")
+                actions.append("Prioritize health follow-up and validate next care step today.")
+            if dossier.near_term:
+                watch.append("Health follow-up window is near-term.")
+                actions.append("Prepare a concise health context pack before the appointment.")
         for item in dossier.evidence:
             if item and item not in evidence and len(evidence) < 3:
                 evidence.append(item)
