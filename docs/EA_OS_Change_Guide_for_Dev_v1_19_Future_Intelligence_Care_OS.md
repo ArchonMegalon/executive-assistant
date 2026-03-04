@@ -96,12 +96,21 @@ optional design direction.
   - prompt sanitization (control-char stripping),
   - secret redaction in prompt payloads,
   - prompt/system max-char enforcement via env knobs,
-  - safe fallback copy on provider-call failures,
-  - output validation via `validate_model_output(...)` and block copy on tool-like responses.
+  - task-type policy mapping (`briefing_compose`, `profile_summary`, `future_reasoning`, `operator_only`),
+  - raw-document payload blocking for user-surface tasks,
+  - output validation via `validate_model_output(...)`:
+    - blocks tool-like outputs
+    - blocks JSON-like output on user-surface tasks unless explicitly allowlisted
+    - blocks internal/diagnostic phrasing echoes on user-surface tasks
+  - bounded output-size clamp,
+  - egress audit metadata logging (purpose/task/correlation/data-class/verdict),
+  - safe fallback copy on provider-call failures.
 - New env knobs:
   - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
+  - `EA_LLM_GATEWAY_MAX_OUTPUT_CHARS`
   - `EA_LLM_GATEWAY_TASK_TYPE`
+  - `EA_LLM_GATEWAY_AUDIT_PATH`
 - Added host smoke: `tests/smoke_v1_19_1_llm_gateway_boundary.py`.
 
 12. v1.19.2 human-assistant compose wiring
@@ -118,6 +127,17 @@ optional design direction.
 - Bot command menu hides `/mumbrain` by default and supports optional exposure via:
   - `EA_EXPOSE_MUMBRAIN_MENU=true`
 - Added host smoke: `tests/smoke_v1_19_2_human_assistant_mode.py`.
+
+13. v1.19.2 missingness engine
+- Added `ea/app/intelligence/missingness.py` with first missing-gap detections:
+  - `travel_support_gap`
+  - `prep_gap`
+  - `decision_owner_missing`
+  - `missing_dependency`
+- Wired missingness signals into readiness synthesis:
+  - missing critical gaps become blockers + suggested actions
+  - missing watch gaps become watch items + suggested actions
+- Added host smoke: `tests/smoke_v1_19_2_missingness.py`.
 
 ## Rollout checklist
 

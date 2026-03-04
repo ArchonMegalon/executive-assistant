@@ -121,7 +121,21 @@ Behavior:
 - bounded prompt/system sizes:
   - `EA_LLM_GATEWAY_MAX_PROMPT_CHARS`
   - `EA_LLM_GATEWAY_MAX_SYSTEM_PROMPT_CHARS`
+- task policy by request type:
+  - `briefing_compose`
+  - `profile_summary`
+  - `future_reasoning`
+  - `operator_only`
+- raw-document payload guard for user-facing tasks.
 - task-type-aware output validation via trust-boundary contract.
+- JSON-like response blocking for user-facing tasks unless allowlisted.
+- internal diagnostics phrase blocking for user-facing tasks.
+- egress audit metadata logs:
+  - purpose
+  - task_type
+  - correlation_id
+  - data_class
+  - verdict
 - safe fallback copy on model call failures and blocked tool-like outputs.
 
 ### G. Human-assistant compose mode (minus drama)
@@ -141,6 +155,20 @@ Behavior:
 - removed user-facing diagnostics append from briefing output (logs only).
 - calmer status text during compose and safer dict-shaped fallback payloads.
 - hidden `/mumbrain` from user menu by default (operator command remains available).
+
+### H. Missingness engine (v1.19.2)
+
+Files:
+- `ea/app/intelligence/missingness.py`
+- `ea/app/intelligence/readiness.py`
+- `tests/smoke_v1_19_2_missingness.py`
+- `scripts/run_v119_smoke.sh`
+- `scripts/docker_e2e.sh`
+- `.github/workflows/release-gates.yml`
+
+Behavior:
+- new first-pass missingness signals for expected-but-missing support artifacts.
+- readiness synthesis now includes missingness-derived blockers/watch items/actions.
 
 ## SQL additions landed in this patch
 
@@ -194,13 +222,12 @@ Table:
 - `tests/real_milestone_suite.py`
   - continues validating full staged milestone path through v1.19 + v1.12.6 chain
 
-## Remaining gaps after v1.19.1
+## Remaining gaps after v1.19.2
 
 1. De-minify core control-plane files (`main.py`, `supervisor.py`, `briefings.py`, `scheduler.py`).
 2. Persist dossier/future/readiness snapshots in DB (profile snapshot is now landed).
-3. Add missingness engine for "expected-but-missing" commitments.
-4. Expand dossier set with health/household ops/evidence-first dossier types.
-5. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).
+3. Expand dossier set with health/household ops/evidence-first dossier types.
+4. Deepen trust-boundary policy schema (tenant/person/domain-specific egress policies).
 
 ## Release checklist
 
@@ -208,6 +235,8 @@ Table:
 2. `python3 tests/smoke_v1_19_1_future_intelligence_expansion.py`
 3. `python3 tests/smoke_v1_19_1_profile_persistence.py`
 4. `python3 tests/smoke_v1_19_1_llm_gateway_boundary.py`
-5. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
-6. `bash scripts/run_v119_smoke.sh /docker/EA`
-7. `bash scripts/docker_e2e.sh`
+5. `python3 tests/smoke_v1_19_2_human_assistant_mode.py`
+6. `python3 tests/smoke_v1_19_2_missingness.py`
+7. `python3 tests/smoke_v1_18_1_runtime_alignment.py`
+8. `bash scripts/run_v119_smoke.sh /docker/EA`
+9. `bash scripts/docker_e2e.sh`

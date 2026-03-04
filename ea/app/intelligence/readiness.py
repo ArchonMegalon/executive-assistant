@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from app.intelligence.dossiers import Dossier
 from app.intelligence.future_situations import FutureSituation
+from app.intelligence.missingness import build_missingness_signals
 from app.intelligence.profile import PersonProfileContext
 from app.intelligence.scores import readiness_score
 
@@ -70,6 +71,34 @@ def build_readiness_dossier(
             watch.append(title)
         if str(getattr(situation, "kind", "")).strip().lower() == "risk_intersection":
             has_risk_intersection = True
+
+    missing = build_missingness_signals(
+        dossiers=dossiers,
+        future_situations=future_situations,
+    )
+    for sig in missing:
+        title = str(sig.title or "").strip()
+        if not title:
+            continue
+        if str(sig.severity).lower() == "critical":
+            if title not in blockers:
+                blockers.insert(0, title)
+            if "owner" in title.lower():
+                actions.insert(0, "Assign a decision owner and due-time for this finance commitment now.")
+            elif "trip" in title.lower():
+                actions.insert(0, "Fill missing travel support items (hotel/insurance/refundability) before departure.")
+            else:
+                actions.insert(0, "Resolve missing dependency before the decision window closes.")
+        else:
+            if title not in watch:
+                watch.insert(0, title)
+            if "prep" in title.lower():
+                actions.insert(0, "Create a prep pack so future-you has context before the meeting window.")
+            else:
+                actions.insert(0, "Close missing evidence/dependency gaps while action cost is still low.")
+        for ev in tuple(getattr(sig, "evidence", ())):
+            if ev and ev not in evidence and len(evidence) < 3:
+                evidence.append(ev)
 
     score = readiness_score(
         profile=profile,
