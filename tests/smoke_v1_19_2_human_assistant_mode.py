@@ -54,16 +54,19 @@ def test_mumbrain_hidden_from_user_menu_by_default() -> None:
     assist_src = (ROOT / "ea/app/chat_assist.py").read_text(encoding="utf-8")
     delivery_src = (ROOT / "ea/app/briefing_delivery_sessions.py").read_text(encoding="utf-8")
     security_src = (ROOT / "ea/app/message_security.py").read_text(encoding="utf-8")
+    preferences_src = (ROOT / "ea/app/newspaper/preferences.py").read_text(encoding="utf-8")
     assert "from app.telegram_menu import" in poll_src
     assert "from app.auth_sessions import AuthSessionStore" in poll_src
     assert "from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report" in poll_src
     assert "from app.message_security import check_security, household_confidence_for_message as _household_confidence_for_message, message_document_ref as _message_document_ref" in poll_src
     assert "from app.briefing_delivery_sessions import create_briefing_delivery_session, activate_briefing_delivery_session" in poll_src
+    assert "from app.newspaper.preferences import build_preference_snapshot" in poll_src
     assert "def _create_briefing_delivery_session(" not in poll_src
     assert "def _activate_delivery_session(" not in poll_src
     assert "def _household_confidence_for_message(" not in poll_src
     assert "def _message_document_ref(" not in poll_src
     assert "async def check_security(" not in poll_src
+    assert "async def _preference_snapshot(" not in poll_src
     assert "async def _collect_briefing_articles(" not in poll_src
     assert "def _briefing_newspaper_html(" not in poll_src
     assert "class AuthSessionStore" not in poll_src
@@ -80,6 +83,7 @@ def test_mumbrain_hidden_from_user_menu_by_default() -> None:
     assert "def household_confidence_for_message(" in security_src
     assert "def message_document_ref(" in security_src
     assert "async def check_security(" in security_src
+    assert "def build_preference_snapshot(" in preferences_src
     _pass("v1.19.2 calm menu surface")
 
 

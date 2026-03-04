@@ -35,6 +35,7 @@ from app.intake.calendar_import_result import build_calendar_import_response
 from app.intake.calendar_events import normalize_extracted_calendar_events
 from app.contracts.repair import open_repair_incident
 from app.chat_assist import ask_llm_text as _ask_llm_text, humanize_agent_report as _humanize_agent_report
+from app.newspaper.preferences import build_preference_snapshot
 from app.telegram_menu import bot_commands as _bot_commands, menu_text as _menu_text, mumbrain_user_visible as _mumbrain_user_visible
 from app.auth_sessions import AuthSessionStore
 from app.message_security import check_security, household_confidence_for_message as _household_confidence_for_message, message_document_ref as _message_document_ref
@@ -133,59 +134,11 @@ async def _send_browseract_articles_pdf(chat_id: int, tenant_name: str, tenant_c
             await tg.send_message(chat_id, f'⚠️ Articles PDF failed: {_safe_err(e)}')
         return False
 
-async def _preference_snapshot(tenant_name: str, tenant_cfg: dict, chat_id: int) -> dict:
-    prioritize: list[str] = []
-    avoid: list[str] = []
-    try:
-        terms = await collect_user_signal_terms(
-            openclaw_container=get_val(tenant_cfg, 'openclaw_container', ''),
-            google_account=get_val(tenant_cfg, 'google_account', ''),
-        )
-        prioritize = sorted([t for t in terms if t and len(t) > 3])[:12]
-    except Exception:
-        pass
-    try:
-        from app.db import get_db
-        db = get_db()
-        tenant_keys = []
-        for key in (tenant_name, get_val(tenant_cfg, 'google_account', '')):
-            k = str(key or '').strip()
-            if k and k not in tenant_keys:
-                tenant_keys.append(k)
-        rows = []
-        for tk in tenant_keys:
-            part = await asyncio.to_thread(
-                db.fetchall,
-                """
-                SELECT concept_key, weight, hard_dislike
-                FROM user_interest_profiles
-                WHERE tenant_key=%s AND principal_id=%s
-                ORDER BY hard_dislike DESC, weight ASC
-                LIMIT 20
-                """,
-                (tk, str(chat_id)),
-            ) or []
-            rows.extend(part)
-        for r in rows:
-            c = str(r.get("concept_key") or "").strip()
-            if not c:
-                continue
-            if bool(r.get("hard_dislike")) or float(r.get("weight") or 0.0) < -0.35:
-                avoid.append(c)
-            elif float(r.get("weight") or 0.0) > 0.25:
-                prioritize.append(c)
-    except Exception:
-        pass
-    # Keep list deterministic and compact.
-    prioritize = list(dict.fromkeys(prioritize))[:12]
-    avoid = list(dict.fromkeys(avoid))[:12]
-    return {"prioritize": prioritize, "avoid": avoid}
-
 async def _send_briefing_newspaper_pdf(chat_id: int, tenant_name: str, tenant_cfg: dict, briefing_text: str) -> bool:
     try:
         from app.tools.markupgo_client import MarkupGoClient
         from app.newspaper import build_issue_for_brief, render_issue_html, validate_issue
-        pref = await _preference_snapshot(tenant_name, tenant_cfg, chat_id)
+        pref = await build_preference_snapshot(tenant_name, tenant_cfg, chat_id)
         issue = await build_issue_for_brief(
             tenant_name=tenant_name,
             tenant_cfg=tenant_cfg,

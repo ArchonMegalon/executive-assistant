@@ -338,6 +338,16 @@ optional design direction.
 - This trims non-executed compose/render code from the listener runtime path
   and reduces control-plane clutter.
 
+28. v1.19.3 newspaper preference snapshot extraction
+- Added `ea/app/newspaper/preferences.py`:
+  - `build_preference_snapshot(...)`
+- `ea/app/poll_listener.py` now imports this helper instead of keeping
+  preference snapshot aggregation inline.
+- Updated smoke contract coverage:
+  - `tests/smoke_v1_19_2_human_assistant_mode.py`
+  - verifies extracted ownership and absence of inline
+    `_preference_snapshot(...)` in `poll_listener.py`.
+
 ## Rollout checklist
 
 1. Host gate:
