@@ -33,6 +33,7 @@ jobs:
           python3 tests/smoke_v1_19_1_llm_gateway_boundary.py
           python3 tests/smoke_v1_19_2_human_assistant_mode.py
           python3 tests/smoke_v1_19_2_health_dossier.py
+          python3 tests/smoke_v1_19_2_snapshot_persistence.py
           python3 tests/smoke_v1_19_2_missingness.py
           python3 tests/smoke_v1_18_1_runtime_alignment.py
           python3 tests/smoke_newspaper_issue_pipeline.py

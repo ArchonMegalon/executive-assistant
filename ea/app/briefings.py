@@ -426,6 +426,25 @@ async def _raw_build_briefing_for_tenant(tenant, status_cb=None) -> dict:
         epics=epics,
     )
     compose_mode = select_briefing_mode(profile_ctx, dossiers, critical, epics=epics)
+    try:
+        from app.intelligence.snapshots import save_intelligence_snapshot
+
+        await asyncio.to_thread(
+            save_intelligence_snapshot,
+            tenant=str(t_key),
+            person_id=str(t_account or t_key),
+            compose_mode=str(compose_mode),
+            profile=profile_ctx,
+            dossiers=dossiers,
+            future_situations=future_situations,
+            readiness=readiness,
+            critical=critical,
+            preparation=prep_plan,
+            epics=epics,
+            source="briefing_compose",
+        )
+    except Exception:
+        pass
 
     prompt = (
         "You are a calm, concise executive assistant. "

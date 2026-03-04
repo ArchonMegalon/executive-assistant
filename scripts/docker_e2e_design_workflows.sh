@@ -16,6 +16,7 @@ SCHEMAS=(
   "20260303_v1_17_personalization.sql"
   "20260303_v1_18_planner.sql"
   "20260303_v1_18_1_runtime_alignment.sql"
+  "20260304_v1_19_2_intelligence_snapshots.sql"
   "v1.9_meta_ai.sql"
 )
 
