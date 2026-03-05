@@ -5,6 +5,8 @@ from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecution
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.observation import ObservationEventRepository, InMemoryObservationEventRepository
 from app.repositories.observation_postgres import PostgresObservationEventRepository
+from app.repositories.policy_decisions import PolicyDecisionRepository, InMemoryPolicyDecisionRepository
+from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 
 __all__ = [
     "DeliveryOutboxRepository",
@@ -13,8 +15,11 @@ __all__ = [
     "InMemoryArtifactRepository",
     "InMemoryExecutionLedgerRepository",
     "InMemoryObservationEventRepository",
+    "InMemoryPolicyDecisionRepository",
     "ObservationEventRepository",
+    "PolicyDecisionRepository",
     "PostgresDeliveryOutboxRepository",
     "PostgresObservationEventRepository",
+    "PostgresPolicyDecisionRepository",
     "PostgresExecutionLedgerRepository",
 ]

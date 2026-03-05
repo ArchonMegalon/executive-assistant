@@ -64,6 +64,18 @@ class PolicyDecision:
 
 
 @dataclass(frozen=True)
+class PolicyDecisionRecord:
+    decision_id: str
+    session_id: str
+    allow: bool
+    requires_approval: bool
+    reason: str
+    retention_policy: str
+    memory_write_allowed: bool
+    created_at: str
+
+
+@dataclass(frozen=True)
 class ObservationEvent:
     observation_id: str
     principal_id: str

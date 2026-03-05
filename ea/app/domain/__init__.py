@@ -6,6 +6,7 @@ from app.domain.models import (
     IntentSpecV3,
     ObservationEvent,
     PolicyDecision,
+    PolicyDecisionRecord,
     RewriteRequest,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "IntentSpecV3",
     "ObservationEvent",
     "PolicyDecision",
+    "PolicyDecisionRecord",
     "RewriteRequest",
 ]

@@ -7,6 +7,8 @@ from app.domain.models import Artifact, ExecutionEvent, ExecutionSession, Intent
 from app.repositories.memory import InMemoryArtifactRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
+from app.repositories.policy_decisions import PolicyDecisionRepository, InMemoryPolicyDecisionRepository
+from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.settings import Settings, get_settings
 from app.services.policy import PolicyDecisionService, PolicyDeniedError
 
@@ -16,10 +18,12 @@ class RewriteOrchestrator:
         self,
         repo: InMemoryArtifactRepository | None = None,
         ledger: ExecutionLedgerRepository | None = None,
+        policy_repo: PolicyDecisionRepository | None = None,
         policy: PolicyDecisionService | None = None,
     ) -> None:
         self._repo = repo or InMemoryArtifactRepository()
         self._ledger = ledger or InMemoryExecutionLedgerRepository()
+        self._policy_repo = policy_repo or InMemoryPolicyDecisionRepository()
         self._policy = policy or PolicyDecisionService()
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
@@ -43,6 +47,7 @@ class RewriteOrchestrator:
         )
         normalized_text = str(req.text or "").strip()
         policy_decision = self._policy.evaluate_rewrite(intent, normalized_text)
+        self._policy_repo.append(session.session_id, policy_decision)
         self._ledger.append_event(
             session.session_id,
             "policy_decision",
@@ -99,6 +104,9 @@ class RewriteOrchestrator:
             return None
         return session, self._ledger.events_for(session_id)
 
+    def list_policy_decisions(self, limit: int = 50, session_id: str | None = None):
+        return self._policy_repo.list_recent(limit=limit, session_id=session_id)
+
 
 def build_execution_ledger(settings: Settings) -> ExecutionLedgerRepository:
     backend = str(settings.ledger_backend or "auto").strip().lower()
@@ -119,7 +127,25 @@ def build_execution_ledger(settings: Settings) -> ExecutionLedgerRepository:
     return InMemoryExecutionLedgerRepository()
 
 
+def build_policy_repo(settings: Settings) -> PolicyDecisionRepository:
+    backend = str(settings.ledger_backend or "auto").strip().lower()
+    log = logging.getLogger("ea.policy_repo")
+    if backend == "memory":
+        return InMemoryPolicyDecisionRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_LEDGER_BACKEND=postgres requires DATABASE_URL")
+        return PostgresPolicyDecisionRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresPolicyDecisionRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres policy backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryPolicyDecisionRepository()
+
+
 def build_default_orchestrator() -> RewriteOrchestrator:
     settings = get_settings()
     ledger = build_execution_ledger(settings)
-    return RewriteOrchestrator(ledger=ledger, policy=PolicyDecisionService())
+    policy_repo = build_policy_repo(settings)
+    return RewriteOrchestrator(ledger=ledger, policy_repo=policy_repo, policy=PolicyDecisionService())

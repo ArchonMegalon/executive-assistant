@@ -21,6 +21,7 @@ Removed:
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/channels/telegram/ingest` maps raw Telegram updates into normalized observation events
+- `/v1/policy/decisions/recent` exposes persisted policy decision audit records
 - `app.runner` supports role-based startup (`EA_ROLE=api` or idle worker roles)
 - `app.domain.IntentSpecV3` and execution session/event models provide a typed kernel scaffold
 - rewrite execution is gated by a centralized policy decision service (`policy_decision` event)
@@ -37,6 +38,7 @@ Removed:
 - `EA_LEDGER_BACKEND=auto` (default) attempts Postgres first, then falls back to memory
 - baseline schema migration: `ea/schema/20260305_v0_2_execution_ledger_kernel.sql`
 - channel runtime migration: `ea/schema/20260305_v0_3_channel_runtime_kernel.sql`
+- policy audit migration: `ea/schema/20260305_v0_4_policy_decisions_kernel.sql`
 
 ## Quick Start
 
@@ -44,6 +46,7 @@ Removed:
 cp .env.example .env
 # edit .env values
 bash scripts/deploy.sh
+bash scripts/db_bootstrap.sh
 ```
 
 Then open `http://localhost:8090/health`.
