@@ -159,6 +159,11 @@ Branch: `main`
   - `ea/app/execution/session_store.py::compile_intent_spec(...)` now delegates to
     planner intent compiler as a compatibility shim.
   - `tests/smoke_v1_21_intent_spec_v2_shape.py` expanded with shim wiring checks.
+- [DONE] Step-executor seam for reasoning path:
+  - added `ea/app/planner/step_executor.py` with `run_reasoning_step(...)`.
+  - `ea/app/intent_runtime.py` now routes provider-backed reasoning execution through
+    planner step executor for free-text and approved-callback paths.
+  - added `tests/smoke_v1_21_step_executor_path.py` and wired it into host/docker/CI gates.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.

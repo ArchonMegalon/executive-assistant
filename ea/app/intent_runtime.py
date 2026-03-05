@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import time
@@ -23,6 +22,7 @@ from app.execution import (
 )
 from app.gog import gog_scout
 from app.memory import save_button_context
+from app.planner.step_executor import run_reasoning_step
 from app.poll_ui import build_dynamic_ui, clean_html_for_telegram
 
 
@@ -96,15 +96,14 @@ async def execute_approved_intent_action(
     try:
         if session_id:
             mark_execution_step_status(session_id, "execute_intent", "running")
-        report = await asyncio.wait_for(
-            gog_scout(
-                t_openclaw,
-                prompt,
-                get_val(tenant_cfg, "google_account", ""),
-                _ui_updater,
-                task_name="Intent: Approved Free Text",
-            ),
-            timeout=240.0,
+        report = await run_reasoning_step(
+            container=t_openclaw,
+            prompt=prompt,
+            google_account=get_val(tenant_cfg, "google_account", ""),
+            ui_updater=_ui_updater,
+            task_name="Intent: Approved Free Text",
+            timeout_sec=240.0,
+            runner=gog_scout,
         )
         if session_id:
             mark_execution_step_status(
@@ -414,15 +413,14 @@ async def handle_free_text_intent(
         current_step = "execute_intent"
         if session_id:
             mark_execution_step_status(session_id, "execute_intent", "running")
-        report = await asyncio.wait_for(
-            gog_scout(
-                t_openclaw,
-                prompt,
-                get_val(tenant_cfg, "google_account", ""),
-                _ui_updater,
-                task_name="Intent: Free Text",
-            ),
-            timeout=240.0,
+        report = await run_reasoning_step(
+            container=t_openclaw,
+            prompt=prompt,
+            google_account=get_val(tenant_cfg, "google_account", ""),
+            ui_updater=_ui_updater,
+            task_name="Intent: Free Text",
+            timeout_sec=240.0,
+            runner=gog_scout,
         )
         if session_id:
             mark_execution_step_status(

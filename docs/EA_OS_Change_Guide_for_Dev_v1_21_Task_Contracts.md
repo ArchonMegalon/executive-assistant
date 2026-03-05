@@ -138,6 +138,14 @@ existing capability routing behavior.
      compatibility shim delegating to planner intent compilation.
    - `tests/smoke_v1_21_intent_spec_v2_shape.py` now also validates module + shim wiring.
 
+14. Step-executor seam for reasoning pass:
+   - Added `ea/app/planner/step_executor.py` with `run_reasoning_step(...)`
+     to encapsulate provider-backed reasoning execution behind a planner path.
+   - `ea/app/intent_runtime.py` now calls `run_reasoning_step(...)` for both:
+     - free-text execute path
+     - approved-callback execute path
+   - `tests/smoke_v1_21_step_executor_path.py` added and wired into host/docker/CI gates.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the
