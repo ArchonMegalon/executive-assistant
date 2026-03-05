@@ -66,6 +66,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_21_plan_builder.py" \
   "$ROOT/tests/smoke_v1_21_gate_alias.py" \
   "$ROOT/tests/smoke_v1_21_doc_alignment.py" \
+  "$ROOT/tests/smoke_v1_22_world_model_seed.py" \
   "$ROOT/tests/smoke_work_tasks_contract.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
@@ -124,6 +125,7 @@ python3 "$ROOT/tests/smoke_v1_21_generic_skill_execution.py"
 python3 "$ROOT/tests/smoke_v1_21_plan_builder.py"
 python3 "$ROOT/tests/smoke_v1_21_gate_alias.py"
 python3 "$ROOT/tests/smoke_v1_21_doc_alignment.py"
+python3 "$ROOT/tests/smoke_v1_22_world_model_seed.py"
 python3 "$ROOT/tests/smoke_work_tasks_contract.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"

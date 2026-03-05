@@ -210,6 +210,16 @@ Branch: `main`
     - `intent:approval_execute` requires `session_id` + `approval_gate_id`
   - added `tests/smoke_v1_21_typed_action_reference_enforcement.py` and wired it into
     host/docker/CI gates.
+- [DONE] Commitment/artifact world-model seed:
+  - added bootstrap + migration schema for `commitments`, `artifacts`, `followups`,
+    and `decision_windows` (`ea/schema/20260305_v1_22_commitment_runtime_seed.sql`).
+  - added `ea/app/planner/world_model.py` with seed helpers:
+    - `upsert_commitment(...)`
+    - `create_artifact(...)`
+    - `create_followup(...)`
+    - `create_decision_window(...)`
+  - exported world-model helpers via `ea/app/planner/__init__.py`.
+  - added `tests/smoke_v1_22_world_model_seed.py` and wired it into host/docker/CI gates.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.

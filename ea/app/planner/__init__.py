@@ -7,6 +7,7 @@ from .provider_broker import rank_task_capabilities
 from .provider_outcomes import record_provider_outcome, recent_provider_adjustments
 from .step_executor import run_reasoning_step
 from .task_registry import TaskContract, list_task_contracts, task_or_none, task_or_raise
+from .world_model import create_artifact, create_decision_window, create_followup, upsert_commitment
 
 __all__ = [
     "ProactivePlanner",
@@ -20,6 +21,10 @@ __all__ = [
     "rank_task_capabilities",
     "record_provider_outcome",
     "recent_provider_adjustments",
+    "upsert_commitment",
+    "create_artifact",
+    "create_followup",
+    "create_decision_window",
     "task_or_none",
     "task_or_raise",
     "list_task_contracts",

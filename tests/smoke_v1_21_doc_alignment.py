@@ -32,6 +32,7 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_v1_21_generic_skill_execution.py" in guide
     assert "smoke_v1_21_plan_builder.py" in guide
     assert "smoke_v1_21_gate_alias.py" in guide
+    assert "smoke_v1_22_world_model_seed.py" in guide
     assert "smoke_v1_20_execution_sessions.py" in guide
     assert "smoke_v1_20_slash_command_sessions.py" in guide
     assert "smoke_v1_20_slash_command_behavior.py" in guide
@@ -57,6 +58,8 @@ def test_v121_doc_alignment() -> None:
     assert "20260305_v1_21_approval_gates.sql" in guide
     assert "provider_outcomes" in guide
     assert "20260305_v1_21_provider_outcomes.sql" in guide
+    assert "world_model.py" in guide
+    assert "20260305_v1_22_commitment_runtime_seed.sql" in guide
     assert "run_v121_smoke.sh" in readme
     _pass("v1.21 doc/code alignment")
 

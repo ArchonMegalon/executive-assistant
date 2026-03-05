@@ -41,13 +41,13 @@ Owner: Codex runtime worker
      - callback paths validate references before resume.
      - smoke coverage for missing/mismatched references.
 
-5. `IN_PROGRESS` - Add commitment/artifact world-model seed.
+5. `DONE` - Add commitment/artifact world-model seed.
    - Deliverables:
      - bootstrap tables: `commitments`, `artifacts`, `followups`, `decision_windows`.
      - helper module for linking execution sessions to commitments/artifacts.
      - smoke for table presence + minimal lifecycle.
 
-6. `PENDING` - Add memory-candidate promotion pipeline (local-first, Teable-curated).
+6. `IN_PROGRESS` - Add memory-candidate promotion pipeline (local-first, Teable-curated).
    - Deliverables:
      - `memory_candidates` local table + promotion status.
      - runtime emit on session finalize (bounded, policy-safe).

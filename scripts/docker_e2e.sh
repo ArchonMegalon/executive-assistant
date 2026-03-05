@@ -7,6 +7,7 @@ SCHEMA_FILES=(
   "${EA_ROOT}/ea/schema/20260304_v1_20_execution_sessions.sql"
   "${EA_ROOT}/ea/schema/20260305_v1_21_approval_gates.sql"
   "${EA_ROOT}/ea/schema/20260305_v1_21_provider_outcomes.sql"
+  "${EA_ROOT}/ea/schema/20260305_v1_22_commitment_runtime_seed.sql"
 )
 HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 HOST_PORT="${HOST_PORT:-8090}"
@@ -171,6 +172,7 @@ run_step "smoke_v1_21_generic_skill_execution" python3 tests/smoke_v1_21_generic
 run_step "smoke_v1_21_plan_builder" python3 tests/smoke_v1_21_plan_builder.py
 run_step "smoke_v1_21_gate_alias" python3 tests/smoke_v1_21_gate_alias.py
 run_step "smoke_v1_21_doc_alignment" python3 tests/smoke_v1_21_doc_alignment.py
+run_step "smoke_v1_22_world_model_seed" python3 tests/smoke_v1_22_world_model_seed.py
 run_step "smoke_work_tasks_contract" python3 tests/smoke_work_tasks_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py

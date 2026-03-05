@@ -224,6 +224,22 @@ existing capability routing behavior.
    - Added `tests/smoke_v1_21_typed_action_reference_enforcement.py` and wired it
      into host/docker/CI gates.
 
+22. Commitment/artifact world-model seed:
+   - Added bootstrap + migration schema for:
+     - `commitments`
+     - `artifacts`
+     - `followups`
+     - `decision_windows`
+     (`ea/schema/20260305_v1_22_commitment_runtime_seed.sql`).
+   - Added planner world-model helper module:
+     - `ea/app/planner/world_model.py`
+       - `upsert_commitment(...)`
+       - `create_artifact(...)`
+       - `create_followup(...)`
+       - `create_decision_window(...)`
+   - Exported world-model helpers via `ea/app/planner/__init__.py`.
+   - Added `tests/smoke_v1_22_world_model_seed.py` and wired it into host/docker/CI gates.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the
