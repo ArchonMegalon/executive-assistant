@@ -160,3 +160,11 @@ bash scripts/list_endpoints.sh
 # or
 make endpoints
 ```
+
+## 11) Print Version Fingerprint
+
+```bash
+bash scripts/version_info.sh
+# or
+make version-info
+```
