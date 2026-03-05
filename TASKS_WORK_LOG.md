@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-028 | P3 | Add queue-rotation helper to archive completed task rows | codex | queued | Keep work log compact over time |
+| Q-029 | P3 | Add dry-run mode to `scripts/archive_tasks.sh` | codex | queued | Preview rows before prune |
 
 ## In Progress
 
@@ -47,6 +47,7 @@ Use this file as the execution queue and progress ledger.
 | D-027 | P3 | Add version fingerprint script + make target | codex | done | Added `scripts/version_info.sh` and `make version-info` |
 | D-028 | P3 | Add operator summary script + make target | codex | done | Added `scripts/operator_summary.sh` and `make operator-summary` |
 | D-029 | P3 | Add support bundle script + make target | codex | done | Added `scripts/support_bundle.sh` and `make support-bundle` |
+| D-030 | P3 | Add task archive rotation helper + make targets | codex | done | Added `scripts/archive_tasks.sh` with prune option |
 
 ## Intake Template
 

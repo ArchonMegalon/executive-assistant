@@ -186,3 +186,15 @@ SUPPORT_LOG_TAIL_LINES=500 bash scripts/support_bundle.sh
 # or
 make support-bundle
 ```
+
+## 14) Archive Completed Task Rows
+
+```bash
+# append Done rows to TASKS_ARCHIVE.md
+bash scripts/archive_tasks.sh
+# append + prune Done rows in TASKS_WORK_LOG.md
+bash scripts/archive_tasks.sh --prune-done
+# or
+make tasks-archive
+make tasks-archive-prune
+```

@@ -75,3 +75,4 @@ Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpo
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
 Operator summary can be printed via `scripts/operator_summary.sh` or `make operator-summary`.
 Support bundle export is available via `scripts/support_bundle.sh` or `make support-bundle`.
+Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
