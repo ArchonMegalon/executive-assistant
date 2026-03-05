@@ -11,7 +11,7 @@ Usage:
 Runs end-to-end HTTP smoke checks for liveness/readiness/version,
 rewrite/session/policy/approvals, observations, delivery outbox, channel adapters,
 tool/connector registry endpoints, task-contract endpoints, plan compile endpoint,
-and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference endpoints.
+and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference/follow-up/deadline-window endpoints.
 
 Auth:
   If EA_API_TOKEN is set, the script sends Authorization: Bearer <token>.
@@ -209,6 +209,14 @@ curl -fsS "${BASE}/v1/memory/authority-bindings?principal_id=exec-1&limit=5" "${
 curl -fsS "${BASE}/v1/memory/authority-bindings/${BINDING_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/delivery-preferences?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/delivery-preferences/${PREF_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
+DEADLINE_JSON="$(curl -fsS -X POST "${BASE}/v1/memory/deadline-windows" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","title":"Board prep delivery window","start_at":"2026-03-07T08:30:00+00:00","end_at":"2026-03-07T10:00:00+00:00","status":"open","priority":"high","notes":"Draft must be ready before board sync","source_json":{"source":"smoke"}}')"
+WINDOW_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("window_id",""))' <<<"${DEADLINE_JSON}")"
+if [[ -z "${WINDOW_ID}" ]]; then
+  fail 13 "missing window_id from deadline-window response"
+fi
+curl -fsS "${BASE}/v1/memory/deadline-windows?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/memory/deadline-windows/${WINDOW_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
 echo "memory ok"
 
 echo "smoke complete"

@@ -125,6 +125,32 @@ class CommitmentOut(BaseModel):
     updated_at: str
 
 
+class DeadlineWindowIn(BaseModel):
+    principal_id: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=400)
+    start_at: str | None = Field(default=None, max_length=80)
+    end_at: str | None = Field(default=None, max_length=80)
+    status: str = Field(default="open", max_length=80)
+    priority: str = Field(default="medium", max_length=80)
+    notes: str = Field(default="", max_length=5000)
+    source_json: dict[str, object] = Field(default_factory=dict)
+    window_id: str | None = Field(default=None, max_length=200)
+
+
+class DeadlineWindowOut(BaseModel):
+    window_id: str
+    principal_id: str
+    title: str
+    start_at: str | None
+    end_at: str | None
+    status: str
+    priority: str
+    notes: str
+    source_json: dict[str, object]
+    created_at: str
+    updated_at: str
+
+
 class AuthorityBindingIn(BaseModel):
     principal_id: str = Field(min_length=1, max_length=200)
     subject_ref: str = Field(min_length=1, max_length=200)
@@ -293,6 +319,22 @@ def _commitment_out(row) -> CommitmentOut:
         status=row.status,
         priority=row.priority,
         due_at=row.due_at,
+        source_json=row.source_json,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _deadline_window_out(row) -> DeadlineWindowOut:
+    return DeadlineWindowOut(
+        window_id=row.window_id,
+        principal_id=row.principal_id,
+        title=row.title,
+        start_at=row.start_at,
+        end_at=row.end_at,
+        status=row.status,
+        priority=row.priority,
+        notes=row.notes,
         source_json=row.source_json,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -559,6 +601,52 @@ def get_memory_commitment(
     if not row:
         raise HTTPException(status_code=404, detail="commitment_not_found")
     return _commitment_out(row)
+
+
+@router.post("/deadline-windows")
+def upsert_memory_deadline_window(
+    body: DeadlineWindowIn,
+    container: AppContainer = Depends(get_container),
+) -> DeadlineWindowOut:
+    row = container.memory_runtime.upsert_deadline_window(
+        principal_id=body.principal_id,
+        title=body.title,
+        start_at=body.start_at,
+        end_at=body.end_at,
+        status=body.status,
+        priority=body.priority,
+        notes=body.notes,
+        source_json=body.source_json,
+        window_id=body.window_id,
+    )
+    return _deadline_window_out(row)
+
+
+@router.get("/deadline-windows")
+def list_memory_deadline_windows(
+    principal_id: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    status: str | None = Query(default=None),
+    container: AppContainer = Depends(get_container),
+) -> list[DeadlineWindowOut]:
+    rows = container.memory_runtime.list_deadline_windows(
+        principal_id=principal_id,
+        limit=limit,
+        status=status,
+    )
+    return [_deadline_window_out(row) for row in rows]
+
+
+@router.get("/deadline-windows/{window_id}")
+def get_memory_deadline_window(
+    window_id: str,
+    principal_id: str = Query(min_length=1, max_length=200),
+    container: AppContainer = Depends(get_container),
+) -> DeadlineWindowOut:
+    row = container.memory_runtime.get_deadline_window(window_id, principal_id=principal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="deadline_window_not_found")
+    return _deadline_window_out(row)
 
 
 @router.post("/authority-bindings")

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.repositories.authority_bindings import InMemoryAuthorityBindingRepository
 from app.repositories.commitments import InMemoryCommitmentRepository
 from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepository
+from app.repositories.deadline_windows import InMemoryDeadlineWindowRepository
 from app.repositories.entities import InMemoryEntityRepository
 from app.repositories.follow_ups import InMemoryFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
@@ -49,6 +50,7 @@ def test_inmemory_memory_runtime_promote_and_reject_paths() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -102,6 +104,7 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -150,6 +153,7 @@ def test_inmemory_commitments_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -186,6 +190,7 @@ def test_inmemory_authority_bindings_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -222,6 +227,7 @@ def test_inmemory_delivery_preferences_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -258,6 +264,7 @@ def test_inmemory_follow_ups_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -284,3 +291,41 @@ def test_inmemory_follow_ups_principal_scope() -> None:
     right_scope = runtime.get_follow_up(created.follow_up_id, principal_id="exec-1")
     assert right_scope is not None
     assert right_scope.topic == "Board follow-up"
+
+
+def test_inmemory_deadline_windows_principal_scope() -> None:
+    runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
+        authority_bindings=InMemoryAuthorityBindingRepository(),
+        delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
+    )
+
+    created = runtime.upsert_deadline_window(
+        principal_id="exec-1",
+        title="Board prep delivery window",
+        start_at="2026-03-07T08:30:00+00:00",
+        end_at="2026-03-07T10:00:00+00:00",
+        status="open",
+        priority="high",
+        notes="Draft must be ready before board sync",
+        source_json={"source": "manual"},
+    )
+    assert created.window_id
+    assert created.principal_id == "exec-1"
+
+    listed = runtime.list_deadline_windows(principal_id="exec-1", limit=10)
+    assert len(listed) == 1
+    assert listed[0].window_id == created.window_id
+
+    wrong_scope = runtime.get_deadline_window(created.window_id, principal_id="exec-2")
+    assert wrong_scope is None
+
+    right_scope = runtime.get_deadline_window(created.window_id, principal_id="exec-1")
+    assert right_scope is not None
+    assert right_scope.title == "Board prep delivery window"

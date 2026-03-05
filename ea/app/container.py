@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.commitments import InMemoryCommitmentRepository
+from app.repositories.deadline_windows import InMemoryDeadlineWindowRepository
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepository
 from app.repositories.entities import InMemoryEntityRepository
@@ -108,6 +109,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
             entities=InMemoryEntityRepository(),
             relationships=InMemoryRelationshipRepository(),
             commitments=InMemoryCommitmentRepository(),
+            deadline_windows=InMemoryDeadlineWindowRepository(),
             authority_bindings=InMemoryAuthorityBindingRepository(),
             delivery_preferences=InMemoryDeliveryPreferenceRepository(),
             follow_ups=InMemoryFollowUpRepository(),

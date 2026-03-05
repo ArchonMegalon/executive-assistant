@@ -62,6 +62,9 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Follow-up primitives:
   - `follow_ups` store for principal-scoped follow-up tracking rows
   - API endpoints for follow-up upsert/list/get with principal-scoped reads
+- Deadline-window primitives:
+  - `deadline_windows` store for principal-scoped deadline-window tracking rows
+  - API endpoints for deadline-window upsert/list/get with principal-scoped reads
 - Postgres + in-memory repository backends for kernel stores.
 - Kernel SQL migrations:
   - `v0_2` execution ledger
@@ -79,6 +82,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `v0_14` authority-bindings kernel seed
   - `v0_15` delivery-preferences kernel seed
   - `v0_16` follow-ups kernel seed
+  - `v0_17` deadline windows kernel seed
 - Operator tooling:
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
@@ -109,6 +113,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Memory runtime now supports principal-scoped authority-binding records for governance stubs.
 - Memory runtime now supports principal-scoped delivery-preference records for channel personalization stubs.
 - Memory runtime now supports principal-scoped follow-up records for proactive follow-through stubs.
+- Memory runtime now supports principal-scoped deadline-window records for proactive scheduling windows.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

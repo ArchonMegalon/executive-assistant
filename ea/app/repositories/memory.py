@@ -2,6 +2,8 @@ from app.repositories.authority_bindings import AuthorityBindingRepository, InMe
 from app.repositories.authority_bindings_postgres import PostgresAuthorityBindingRepository
 from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
 from app.repositories.commitments_postgres import PostgresCommitmentRepository
+from app.repositories.deadline_windows import DeadlineWindowRepository, InMemoryDeadlineWindowRepository
+from app.repositories.deadline_windows_postgres import PostgresDeadlineWindowRepository
 from app.repositories.delivery_preferences import DeliveryPreferenceRepository, InMemoryDeliveryPreferenceRepository
 from app.repositories.delivery_preferences_postgres import PostgresDeliveryPreferenceRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
@@ -25,6 +27,9 @@ __all__ = [
     "CommitmentRepository",
     "InMemoryCommitmentRepository",
     "PostgresCommitmentRepository",
+    "DeadlineWindowRepository",
+    "InMemoryDeadlineWindowRepository",
+    "PostgresDeadlineWindowRepository",
     "DeliveryPreferenceRepository",
     "InMemoryDeliveryPreferenceRepository",
     "PostgresDeliveryPreferenceRepository",

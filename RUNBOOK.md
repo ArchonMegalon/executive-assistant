@@ -62,6 +62,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/follow-ups` | `200` | validation `422` |
 | GET | `/v1/memory/follow-ups` | `200` | validation `422` |
 | GET | `/v1/memory/follow-ups/{follow_up_id}` | `200` | `404 follow_up_not_found` |
+| POST | `/v1/memory/deadline-windows` | `200` | validation `422` |
+| GET | `/v1/memory/deadline-windows` | `200` | validation `422` |
+| GET | `/v1/memory/deadline-windows/{window_id}` | `200` | `404 deadline_window_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -157,6 +160,7 @@ Applies:
 - `ea/schema/20260305_v0_14_authority_bindings_kernel.sql`
 - `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
 - `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
+- `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
 
 Check table presence/counts:
 
@@ -297,6 +301,16 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups \
   -d '{"principal_id":"exec-1","stakeholder_ref":"ceo@example.com","topic":"Board follow-up","status":"open","due_at":"2026-03-07T09:00:00+00:00","channel_hint":"email","notes":"Send summary after prep call","source_json":{"source":"manual"}}'
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups?principal_id=exec-1&limit=10"
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups/<follow_up_id>?principal_id=exec-1"
+```
+
+Principal-scoped deadline windows:
+
+```bash
+curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows \
+  -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","title":"Board prep delivery window","start_at":"2026-03-07T08:30:00+00:00","end_at":"2026-03-07T10:00:00+00:00","status":"open","priority":"high","notes":"Draft must be ready before board sync","source_json":{"source":"manual"}}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows?principal_id=exec-1&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows/<window_id>?principal_id=exec-1"
 ```
 ## 9) Script Help Smoke
 

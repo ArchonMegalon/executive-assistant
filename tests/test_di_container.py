@@ -128,6 +128,15 @@ class _FakeMemoryRuntime:
     def get_commitment(self, commitment_id: str, **_: object):
         return None
 
+    def upsert_deadline_window(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_deadline_windows(self, **_: object):
+        return []
+
+    def get_deadline_window(self, window_id: str, **_: object):
+        return None
+
     def upsert_authority_binding(self, **_: object):
         raise AssertionError("not expected in this test")
 

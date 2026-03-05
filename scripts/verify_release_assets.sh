@@ -55,6 +55,7 @@ required_files=(
   "ea/schema/20260305_v0_14_authority_bindings_kernel.sql"
   "ea/schema/20260305_v0_15_delivery_preferences_kernel.sql"
   "ea/schema/20260305_v0_16_follow_ups_kernel.sql"
+  "ea/schema/20260305_v0_17_deadline_windows_kernel.sql"
 )
 
 echo "== verify release assets =="

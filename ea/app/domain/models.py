@@ -218,6 +218,21 @@ class FollowUp:
 
 
 @dataclass(frozen=True)
+class DeadlineWindow:
+    window_id: str
+    principal_id: str
+    title: str
+    start_at: str | None
+    end_at: str | None
+    status: str
+    priority: str
+    notes: str
+    source_json: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

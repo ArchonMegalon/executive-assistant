@@ -5,6 +5,7 @@ import logging
 from app.domain.models import (
     AuthorityBinding,
     Commitment,
+    DeadlineWindow,
     DeliveryPreference,
     Entity,
     FollowUp,
@@ -17,6 +18,8 @@ from app.repositories.authority_bindings import AuthorityBindingRepository, InMe
 from app.repositories.authority_bindings_postgres import PostgresAuthorityBindingRepository
 from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
 from app.repositories.commitments_postgres import PostgresCommitmentRepository
+from app.repositories.deadline_windows import DeadlineWindowRepository, InMemoryDeadlineWindowRepository
+from app.repositories.deadline_windows_postgres import PostgresDeadlineWindowRepository
 from app.repositories.delivery_preferences import DeliveryPreferenceRepository, InMemoryDeliveryPreferenceRepository
 from app.repositories.delivery_preferences_postgres import PostgresDeliveryPreferenceRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
@@ -40,6 +43,7 @@ class MemoryRuntimeService:
         entities: EntityRepository,
         relationships: RelationshipRepository,
         commitments: CommitmentRepository,
+        deadline_windows: DeadlineWindowRepository,
         authority_bindings: AuthorityBindingRepository,
         delivery_preferences: DeliveryPreferenceRepository,
         follow_ups: FollowUpRepository,
@@ -49,6 +53,7 @@ class MemoryRuntimeService:
         self._entities = entities
         self._relationships = relationships
         self._commitments = commitments
+        self._deadline_windows = deadline_windows
         self._authority_bindings = authority_bindings
         self._delivery_preferences = delivery_preferences
         self._follow_ups = follow_ups
@@ -263,6 +268,52 @@ class MemoryRuntimeService:
 
     def get_commitment(self, commitment_id: str, *, principal_id: str) -> Commitment | None:
         found = self._commitments.get(commitment_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
+    def upsert_deadline_window(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        status: str = "open",
+        priority: str = "medium",
+        notes: str = "",
+        source_json: dict[str, object] | None = None,
+        window_id: str | None = None,
+    ) -> DeadlineWindow:
+        return self._deadline_windows.upsert_deadline_window(
+            principal_id=principal_id,
+            title=title,
+            start_at=start_at,
+            end_at=end_at,
+            status=status,
+            priority=priority,
+            notes=notes,
+            source_json=source_json,
+            window_id=window_id,
+        )
+
+    def list_deadline_windows(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[DeadlineWindow]:
+        return self._deadline_windows.list_deadline_windows(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_deadline_window(self, window_id: str, *, principal_id: str) -> DeadlineWindow | None:
+        found = self._deadline_windows.get(window_id)
         if not found:
             return None
         if found.principal_id != str(principal_id or "").strip():
@@ -493,6 +544,23 @@ def _build_commitment_repo(settings: Settings) -> CommitmentRepository:
     return InMemoryCommitmentRepository()
 
 
+def _build_deadline_window_repo(settings: Settings) -> DeadlineWindowRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.deadline_windows")
+    if backend == "memory":
+        return InMemoryDeadlineWindowRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresDeadlineWindowRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresDeadlineWindowRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres deadline-window backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryDeadlineWindowRepository()
+
+
 def _build_authority_binding_repo(settings: Settings) -> AuthorityBindingRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.authority_bindings")
@@ -552,6 +620,7 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         entities=_build_entity_repo(resolved),
         relationships=_build_relationship_repo(resolved),
         commitments=_build_commitment_repo(resolved),
+        deadline_windows=_build_deadline_window_repo(resolved),
         authority_bindings=_build_authority_binding_repo(resolved),
         delivery_preferences=_build_delivery_preference_repo(resolved),
         follow_ups=_build_follow_up_repo(resolved),

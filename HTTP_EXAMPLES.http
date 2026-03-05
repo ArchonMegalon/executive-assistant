@@ -435,3 +435,26 @@ GET {{host}}/v1/memory/follow-ups?principal_id=exec-1&limit=20
 
 ### Memory -> get follow-up (principal-scoped)
 GET {{host}}/v1/memory/follow-ups/{{follow_up_id}}?principal_id=exec-1
+
+### Memory -> upsert deadline window (principal-scoped)
+POST {{host}}/v1/memory/deadline-windows
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Board prep delivery window",
+  "start_at": "2026-03-07T08:30:00+00:00",
+  "end_at": "2026-03-07T10:00:00+00:00",
+  "status": "open",
+  "priority": "high",
+  "notes": "Draft must be ready before board sync",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list deadline windows (principal-scoped)
+GET {{host}}/v1/memory/deadline-windows?principal_id=exec-1&limit=20
+
+### Memory -> get deadline window (principal-scoped)
+GET {{host}}/v1/memory/deadline-windows/{{window_id}}?principal_id=exec-1

@@ -41,6 +41,9 @@
   - `POST /v1/memory/follow-ups`
   - `GET /v1/memory/follow-ups`
   - `GET /v1/memory/follow-ups/{follow_up_id}`
+  - `POST /v1/memory/deadline-windows`
+  - `GET /v1/memory/deadline-windows`
+  - `GET /v1/memory/deadline-windows/{window_id}`
   - (`ea/app/api/routes/memory.py`)
 - Observation runtime:
   - `POST /v1/observations/ingest`
@@ -65,6 +68,7 @@
 - Governance context: `AuthorityBinding`
 - Delivery context: `DeliveryPreference`
 - Follow-up context: `FollowUp`
+- Deadline context: `DeadlineWindow`
 - Channel runtime: `ObservationEvent`, `DeliveryOutboxItem`
 - File: `ea/app/domain/models.py`
 
@@ -114,6 +118,9 @@
 - Follow-ups:
   - in-memory: `ea/app/repositories/follow_ups.py`
   - postgres: `ea/app/repositories/follow_ups_postgres.py`
+- Deadline windows:
+  - in-memory: `ea/app/repositories/deadline_windows.py`
+  - postgres: `ea/app/repositories/deadline_windows_postgres.py`
 - Delivery outbox:
   - in-memory: `ea/app/repositories/delivery_outbox.py`
   - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
@@ -135,6 +142,7 @@
 - `ea/schema/20260305_v0_14_authority_bindings_kernel.sql`
 - `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
 - `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
+- `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
 
 ## Operator Tooling
 

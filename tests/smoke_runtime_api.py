@@ -576,6 +576,38 @@ def test_memory_follow_ups_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "follow_up_not_found"
 
 
+def test_memory_deadline_windows_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/deadline-windows",
+        json={
+            "principal_id": "exec-1",
+            "title": "Board prep delivery window",
+            "start_at": "2026-03-07T08:30:00+00:00",
+            "end_at": "2026-03-07T10:00:00+00:00",
+            "status": "open",
+            "priority": "high",
+            "notes": "Draft must be ready before board sync",
+            "source_json": {"source": "manual"},
+        },
+    )
+    assert created.status_code == 200
+    window_id = created.json()["window_id"]
+
+    listed = client.get("/v1/memory/deadline-windows", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["window_id"] == window_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/deadline-windows/{window_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["title"] == "Board prep delivery window"
+
+    wrong_scope = client.get(f"/v1/memory/deadline-windows/{window_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "deadline_window_not_found"
+
+
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
     client = _client(storage_backend="memory", auth_token=token)

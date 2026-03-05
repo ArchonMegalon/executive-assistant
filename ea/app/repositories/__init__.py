@@ -10,6 +10,8 @@ from app.repositories.connector_bindings import ConnectorBindingRepository, InMe
 from app.repositories.connector_bindings_postgres import PostgresConnectorBindingRepository
 from app.repositories.delivery_outbox import DeliveryOutboxRepository, InMemoryDeliveryOutboxRepository
 from app.repositories.delivery_outbox_postgres import PostgresDeliveryOutboxRepository
+from app.repositories.deadline_windows import DeadlineWindowRepository, InMemoryDeadlineWindowRepository
+from app.repositories.deadline_windows_postgres import PostgresDeadlineWindowRepository
 from app.repositories.delivery_preferences import DeliveryPreferenceRepository, InMemoryDeliveryPreferenceRepository
 from app.repositories.delivery_preferences_postgres import PostgresDeliveryPreferenceRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
@@ -43,12 +45,14 @@ __all__ = [
     "AuthorityBindingRepository",
     "DeliveryOutboxRepository",
     "DeliveryPreferenceRepository",
+    "DeadlineWindowRepository",
     "FollowUpRepository",
     "EntityRepository",
     "ExecutionLedgerRepository",
     "ArtifactRepository",
     "InMemoryDeliveryOutboxRepository",
     "InMemoryDeliveryPreferenceRepository",
+    "InMemoryDeadlineWindowRepository",
     "InMemoryFollowUpRepository",
     "InMemoryArtifactRepository",
     "InMemoryAuthorityBindingRepository",
@@ -71,6 +75,7 @@ __all__ = [
     "PostgresConnectorBindingRepository",
     "PostgresDeliveryOutboxRepository",
     "PostgresDeliveryPreferenceRepository",
+    "PostgresDeadlineWindowRepository",
     "PostgresFollowUpRepository",
     "PostgresObservationEventRepository",
     "PostgresPolicyDecisionRepository",
