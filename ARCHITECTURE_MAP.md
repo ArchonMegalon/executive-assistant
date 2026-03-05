@@ -38,6 +38,9 @@
   - `POST /v1/memory/delivery-preferences`
   - `GET /v1/memory/delivery-preferences`
   - `GET /v1/memory/delivery-preferences/{preference_id}`
+  - `POST /v1/memory/follow-ups`
+  - `GET /v1/memory/follow-ups`
+  - `GET /v1/memory/follow-ups/{follow_up_id}`
   - (`ea/app/api/routes/memory.py`)
 - Observation runtime:
   - `POST /v1/observations/ingest`
@@ -61,6 +64,7 @@
 - Commitment context: `Commitment`
 - Governance context: `AuthorityBinding`
 - Delivery context: `DeliveryPreference`
+- Follow-up context: `FollowUp`
 - Channel runtime: `ObservationEvent`, `DeliveryOutboxItem`
 - File: `ea/app/domain/models.py`
 
@@ -107,6 +111,9 @@
 - Delivery preferences:
   - in-memory: `ea/app/repositories/delivery_preferences.py`
   - postgres: `ea/app/repositories/delivery_preferences_postgres.py`
+- Follow-ups:
+  - in-memory: `ea/app/repositories/follow_ups.py`
+  - postgres: `ea/app/repositories/follow_ups_postgres.py`
 - Delivery outbox:
   - in-memory: `ea/app/repositories/delivery_outbox.py`
   - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
@@ -127,6 +134,7 @@
 - `ea/schema/20260305_v0_13_commitments_kernel.sql`
 - `ea/schema/20260305_v0_14_authority_bindings_kernel.sql`
 - `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
+- `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
 
 ## Operator Tooling
 

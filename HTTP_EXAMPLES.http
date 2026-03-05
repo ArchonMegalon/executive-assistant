@@ -10,6 +10,7 @@
 @commitment_id = replace_me
 @authority_binding_id = replace_me
 @delivery_preference_id = replace_me
+@follow_up_id = replace_me
 @oversized_text = replace_with_20001_chars
 
 ### Health
@@ -411,3 +412,26 @@ GET {{host}}/v1/memory/delivery-preferences?principal_id=exec-1&limit=20
 
 ### Memory -> get delivery preference (principal-scoped)
 GET {{host}}/v1/memory/delivery-preferences/{{delivery_preference_id}}?principal_id=exec-1
+
+### Memory -> upsert follow-up (principal-scoped)
+POST {{host}}/v1/memory/follow-ups
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "stakeholder_ref": "ceo@example.com",
+  "topic": "Board follow-up",
+  "status": "open",
+  "due_at": "2026-03-07T09:00:00+00:00",
+  "channel_hint": "email",
+  "notes": "Send summary after prep call",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list follow-ups (principal-scoped)
+GET {{host}}/v1/memory/follow-ups?principal_id=exec-1&limit=20
+
+### Memory -> get follow-up (principal-scoped)
+GET {{host}}/v1/memory/follow-ups/{{follow_up_id}}?principal_id=exec-1

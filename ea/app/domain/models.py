@@ -203,6 +203,21 @@ class DeliveryPreference:
 
 
 @dataclass(frozen=True)
+class FollowUp:
+    follow_up_id: str
+    principal_id: str
+    stakeholder_ref: str
+    topic: str
+    status: str
+    due_at: str | None
+    channel_hint: str
+    notes: str
+    source_json: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

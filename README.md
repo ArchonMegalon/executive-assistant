@@ -32,6 +32,7 @@ Removed:
 - `/v1/memory/commitments*` upserts/list/gets principal-scoped commitments
 - `/v1/memory/authority-bindings*` upserts/list/gets principal-scoped authority bindings
 - `/v1/memory/delivery-preferences*` upserts/list/gets principal-scoped delivery preferences
+- `/v1/memory/follow-ups*` upserts/list/gets principal-scoped follow-up records
 - rewrite execution now records `plan_compiled` and executes the primary typed plan step in the ledger
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
@@ -67,6 +68,7 @@ Removed:
 - commitments kernel migration: `ea/schema/20260305_v0_13_commitments_kernel.sql`
 - authority bindings kernel migration: `ea/schema/20260305_v0_14_authority_bindings_kernel.sql`
 - delivery preferences kernel migration: `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
+- follow-ups kernel migration: `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
 
 ## Auth
 

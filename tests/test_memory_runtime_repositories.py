@@ -4,6 +4,7 @@ from app.repositories.authority_bindings import InMemoryAuthorityBindingReposito
 from app.repositories.commitments import InMemoryCommitmentRepository
 from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepository
 from app.repositories.entities import InMemoryEntityRepository
+from app.repositories.follow_ups import InMemoryFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
@@ -48,6 +49,7 @@ def test_inmemory_memory_runtime_promote_and_reject_paths() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
     )
 
     candidate = runtime.stage_candidate(
@@ -100,6 +102,7 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
     )
 
     executive = runtime.upsert_entity(
@@ -147,6 +150,7 @@ def test_inmemory_commitments_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
     )
 
     created = runtime.upsert_commitment(
@@ -182,6 +186,7 @@ def test_inmemory_authority_bindings_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
     )
 
     created = runtime.upsert_authority_binding(
@@ -217,6 +222,7 @@ def test_inmemory_delivery_preferences_principal_scope() -> None:
         commitments=InMemoryCommitmentRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
     )
 
     created = runtime.upsert_delivery_preference(
@@ -241,3 +247,40 @@ def test_inmemory_delivery_preferences_principal_scope() -> None:
     right_scope = runtime.get_delivery_preference(created.preference_id, principal_id="exec-1")
     assert right_scope is not None
     assert right_scope.channel == "email"
+
+
+def test_inmemory_follow_ups_principal_scope() -> None:
+    runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+        authority_bindings=InMemoryAuthorityBindingRepository(),
+        delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
+    )
+
+    created = runtime.upsert_follow_up(
+        principal_id="exec-1",
+        stakeholder_ref="ceo@example.com",
+        topic="Board follow-up",
+        status="open",
+        due_at="2026-03-07T09:00:00+00:00",
+        channel_hint="email",
+        notes="Send summary after prep call",
+        source_json={"source": "manual"},
+    )
+    assert created.follow_up_id
+    assert created.principal_id == "exec-1"
+
+    listed = runtime.list_follow_ups(principal_id="exec-1", limit=10)
+    assert len(listed) == 1
+    assert listed[0].follow_up_id == created.follow_up_id
+
+    wrong_scope = runtime.get_follow_up(created.follow_up_id, principal_id="exec-2")
+    assert wrong_scope is None
+
+    right_scope = runtime.get_follow_up(created.follow_up_id, principal_id="exec-1")
+    assert right_scope is not None
+    assert right_scope.topic == "Board follow-up"

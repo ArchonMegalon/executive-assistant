@@ -6,6 +6,8 @@ from app.repositories.delivery_preferences import DeliveryPreferenceRepository, 
 from app.repositories.delivery_preferences_postgres import PostgresDeliveryPreferenceRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
+from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepository
+from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryItemRepository
@@ -26,6 +28,9 @@ __all__ = [
     "DeliveryPreferenceRepository",
     "InMemoryDeliveryPreferenceRepository",
     "PostgresDeliveryPreferenceRepository",
+    "FollowUpRepository",
+    "InMemoryFollowUpRepository",
+    "PostgresFollowUpRepository",
     "MemoryCandidateRepository",
     "InMemoryMemoryCandidateRepository",
     "PostgresMemoryCandidateRepository",

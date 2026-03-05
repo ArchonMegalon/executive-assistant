@@ -146,6 +146,15 @@ class _FakeMemoryRuntime:
     def get_delivery_preference(self, preference_id: str, **_: object):
         return None
 
+    def upsert_follow_up(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_follow_ups(self, **_: object):
+        return []
+
+    def get_follow_up(self, follow_up_id: str, **_: object):
+        return None
+
 
 class _FakeTaskContracts:
     def list_contracts(self, limit: int = 100):

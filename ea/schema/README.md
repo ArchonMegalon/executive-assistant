@@ -18,3 +18,4 @@ Current rewrite kernel migrations:
 - `20260305_v0_13_commitments_kernel.sql`
 - `20260305_v0_14_authority_bindings_kernel.sql`
 - `20260305_v0_15_delivery_preferences_kernel.sql`
+- `20260305_v0_16_follow_ups_kernel.sql`

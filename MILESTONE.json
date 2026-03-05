@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -41,6 +41,8 @@
     "principal_scoped_authority_bindings_api",
     "delivery_preferences_seed",
     "principal_scoped_delivery_preferences_api",
+    "follow_ups_seed",
+    "principal_scoped_follow_ups_api",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",
@@ -60,7 +62,8 @@
     "ea/schema/20260305_v0_12_entities_relationships_kernel.sql",
     "ea/schema/20260305_v0_13_commitments_kernel.sql",
     "ea/schema/20260305_v0_14_authority_bindings_kernel.sql",
-    "ea/schema/20260305_v0_15_delivery_preferences_kernel.sql"
+    "ea/schema/20260305_v0_15_delivery_preferences_kernel.sql",
+    "ea/schema/20260305_v0_16_follow_ups_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

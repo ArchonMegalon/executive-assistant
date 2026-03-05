@@ -544,6 +544,38 @@ def test_memory_delivery_preferences_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "delivery_preference_not_found"
 
 
+def test_memory_follow_ups_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/follow-ups",
+        json={
+            "principal_id": "exec-1",
+            "stakeholder_ref": "ceo@example.com",
+            "topic": "Board follow-up",
+            "status": "open",
+            "due_at": "2026-03-07T09:00:00+00:00",
+            "channel_hint": "email",
+            "notes": "Send summary after prep call",
+            "source_json": {"source": "manual"},
+        },
+    )
+    assert created.status_code == 200
+    follow_up_id = created.json()["follow_up_id"]
+
+    listed = client.get("/v1/memory/follow-ups", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["follow_up_id"] == follow_up_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/follow-ups/{follow_up_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["topic"] == "Board follow-up"
+
+    wrong_scope = client.get(f"/v1/memory/follow-ups/{follow_up_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "follow_up_not_found"
+
+
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
     client = _client(storage_backend="memory", auth_token=token)

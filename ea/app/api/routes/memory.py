@@ -173,6 +173,32 @@ class DeliveryPreferenceOut(BaseModel):
     updated_at: str
 
 
+class FollowUpIn(BaseModel):
+    principal_id: str = Field(min_length=1, max_length=200)
+    stakeholder_ref: str = Field(min_length=1, max_length=200)
+    topic: str = Field(min_length=1, max_length=500)
+    status: str = Field(default="open", max_length=80)
+    due_at: str | None = Field(default=None, max_length=80)
+    channel_hint: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=5000)
+    source_json: dict[str, object] = Field(default_factory=dict)
+    follow_up_id: str | None = Field(default=None, max_length=200)
+
+
+class FollowUpOut(BaseModel):
+    follow_up_id: str
+    principal_id: str
+    stakeholder_ref: str
+    topic: str
+    status: str
+    due_at: str | None
+    channel_hint: str
+    notes: str
+    source_json: dict[str, object]
+    created_at: str
+    updated_at: str
+
+
 class PromoteCandidateIn(BaseModel):
     reviewer: str = Field(min_length=1, max_length=200)
     sharing_policy: str = Field(default="private", max_length=100)
@@ -298,6 +324,22 @@ def _delivery_preference_out(row) -> DeliveryPreferenceOut:
         quiet_hours_json=row.quiet_hours_json,
         format_json=row.format_json,
         status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _follow_up_out(row) -> FollowUpOut:
+    return FollowUpOut(
+        follow_up_id=row.follow_up_id,
+        principal_id=row.principal_id,
+        stakeholder_ref=row.stakeholder_ref,
+        topic=row.topic,
+        status=row.status,
+        due_at=row.due_at,
+        channel_hint=row.channel_hint,
+        notes=row.notes,
+        source_json=row.source_json,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -607,3 +649,49 @@ def get_memory_delivery_preference(
     if not row:
         raise HTTPException(status_code=404, detail="delivery_preference_not_found")
     return _delivery_preference_out(row)
+
+
+@router.post("/follow-ups")
+def upsert_memory_follow_up(
+    body: FollowUpIn,
+    container: AppContainer = Depends(get_container),
+) -> FollowUpOut:
+    row = container.memory_runtime.upsert_follow_up(
+        principal_id=body.principal_id,
+        stakeholder_ref=body.stakeholder_ref,
+        topic=body.topic,
+        status=body.status,
+        due_at=body.due_at,
+        channel_hint=body.channel_hint,
+        notes=body.notes,
+        source_json=body.source_json,
+        follow_up_id=body.follow_up_id,
+    )
+    return _follow_up_out(row)
+
+
+@router.get("/follow-ups")
+def list_memory_follow_ups(
+    principal_id: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    status: str | None = Query(default=None),
+    container: AppContainer = Depends(get_container),
+) -> list[FollowUpOut]:
+    rows = container.memory_runtime.list_follow_ups(
+        principal_id=principal_id,
+        limit=limit,
+        status=status,
+    )
+    return [_follow_up_out(row) for row in rows]
+
+
+@router.get("/follow-ups/{follow_up_id}")
+def get_memory_follow_up(
+    follow_up_id: str,
+    principal_id: str = Query(min_length=1, max_length=200),
+    container: AppContainer = Depends(get_container),
+) -> FollowUpOut:
+    row = container.memory_runtime.get_follow_up(follow_up_id, principal_id=principal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="follow_up_not_found")
+    return _follow_up_out(row)

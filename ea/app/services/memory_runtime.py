@@ -7,6 +7,7 @@ from app.domain.models import (
     Commitment,
     DeliveryPreference,
     Entity,
+    FollowUp,
     MemoryCandidate,
     MemoryItem,
     RelationshipEdge,
@@ -20,6 +21,8 @@ from app.repositories.delivery_preferences import DeliveryPreferenceRepository, 
 from app.repositories.delivery_preferences_postgres import PostgresDeliveryPreferenceRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
+from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepository
+from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryItemRepository
@@ -39,6 +42,7 @@ class MemoryRuntimeService:
         commitments: CommitmentRepository,
         authority_bindings: AuthorityBindingRepository,
         delivery_preferences: DeliveryPreferenceRepository,
+        follow_ups: FollowUpRepository,
     ) -> None:
         self._candidates = candidates
         self._items = items
@@ -47,6 +51,7 @@ class MemoryRuntimeService:
         self._commitments = commitments
         self._authority_bindings = authority_bindings
         self._delivery_preferences = delivery_preferences
+        self._follow_ups = follow_ups
 
     def stage_candidate(
         self,
@@ -352,6 +357,52 @@ class MemoryRuntimeService:
             return None
         return found
 
+    def upsert_follow_up(
+        self,
+        *,
+        principal_id: str,
+        stakeholder_ref: str,
+        topic: str,
+        status: str = "open",
+        due_at: str | None = None,
+        channel_hint: str = "",
+        notes: str = "",
+        source_json: dict[str, object] | None = None,
+        follow_up_id: str | None = None,
+    ) -> FollowUp:
+        return self._follow_ups.upsert_follow_up(
+            principal_id=principal_id,
+            stakeholder_ref=stakeholder_ref,
+            topic=topic,
+            status=status,
+            due_at=due_at,
+            channel_hint=channel_hint,
+            notes=notes,
+            source_json=source_json,
+            follow_up_id=follow_up_id,
+        )
+
+    def list_follow_ups(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[FollowUp]:
+        return self._follow_ups.list_follow_ups(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_follow_up(self, follow_up_id: str, *, principal_id: str) -> FollowUp | None:
+        found = self._follow_ups.get(follow_up_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
 
 def _backend_mode(settings: Settings) -> str:
     return str(settings.storage.backend or "auto").strip().lower()
@@ -476,6 +527,23 @@ def _build_delivery_preference_repo(settings: Settings) -> DeliveryPreferenceRep
     return InMemoryDeliveryPreferenceRepository()
 
 
+def _build_follow_up_repo(settings: Settings) -> FollowUpRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.follow_ups")
+    if backend == "memory":
+        return InMemoryFollowUpRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresFollowUpRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresFollowUpRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres follow-up backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryFollowUpRepository()
+
+
 def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeService:
     resolved = settings or get_settings()
     return MemoryRuntimeService(
@@ -486,4 +554,5 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         commitments=_build_commitment_repo(resolved),
         authority_bindings=_build_authority_binding_repo(resolved),
         delivery_preferences=_build_delivery_preference_repo(resolved),
+        follow_ups=_build_follow_up_repo(resolved),
     )
