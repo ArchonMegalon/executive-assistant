@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 import types
@@ -44,6 +45,7 @@ def test_provider_broker_module_presence() -> None:
     src = (ROOT / "ea/app/planner/provider_broker.py").read_text(encoding="utf-8")
     assert "def rank_task_capabilities(" in src
     assert "task_or_none" in src
+    assert "EA_PROVIDER_HISTORY_SCORE_JSON" in src
     assert "score" in src
     _pass("v1.21 provider-broker module presence")
 
@@ -74,6 +76,22 @@ def test_provider_broker_ranking_behavior() -> None:
     assert plan.get("primary") == "avomap"
     ranking = list(plan.get("ranking") or [])
     assert ranking and str(ranking[0].get("capability")) == "avomap"
+
+    old_hist = os.getenv("EA_PROVIDER_HISTORY_SCORE_JSON")
+    try:
+        os.environ["EA_PROVIDER_HISTORY_SCORE_JSON"] = '{"browseract": 85, "oneair": -25}'
+        hist_ranked = rank_task_capabilities(
+            task_type="travel_rescue",
+            candidates=["browseract", "avomap", "oneair"],
+            preferred=None,
+        )
+        assert hist_ranked and str(hist_ranked[0].get("capability") or "") == "browseract"
+        assert "history_adjustment:+85" in list(hist_ranked[0].get("reasons") or [])
+    finally:
+        if old_hist is None:
+            os.environ.pop("EA_PROVIDER_HISTORY_SCORE_JSON", None)
+        else:
+            os.environ["EA_PROVIDER_HISTORY_SCORE_JSON"] = old_hist
     _pass("v1.21 provider-broker ranking behavior")
 
 

@@ -184,6 +184,11 @@ Branch: `main`
     - `polish_human_tone`
     - `generate_multimodal_support_asset`
   - `tests/smoke_v1_21_plan_builder.py` expanded to validate new template paths.
+- [DONE] Provider broker history-adjustment lane:
+  - `ea/app/planner/provider_broker.py` now supports deterministic
+    `EA_PROVIDER_HISTORY_SCORE_JSON` score adjustments per provider key.
+  - ranking reasons now emit explicit `history_adjustment:+N/-N` markers.
+  - `tests/smoke_v1_21_provider_broker.py` expanded with env-driven ranking override checks.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.

@@ -35,6 +35,7 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_python_compile_tree.py" in guide
     assert "approval_class" in guide
     assert "provider_broker.py" in guide
+    assert "EA_PROVIDER_HISTORY_SCORE_JSON" in guide
     assert "provider_registry.py" in guide
     assert "runtime_execution_ops" in guide
     assert "capability_router.py" in guide

@@ -184,6 +184,13 @@ existing capability routing behavior.
      - `generate_multimodal_support_asset`
    - plan-builder smoke now asserts these task-template paths and metadata.
 
+18. Provider-broker history-adjustment lane:
+   - `ea/app/planner/provider_broker.py` now supports deterministic env-based
+     score adjustments via `EA_PROVIDER_HISTORY_SCORE_JSON`.
+   - ranking reasons now include explicit `history_adjustment:+N/-N` markers
+     for auditability.
+   - `tests/smoke_v1_21_provider_broker.py` expanded with env override behavior checks.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the
