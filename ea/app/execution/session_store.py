@@ -596,6 +596,10 @@ def mark_execution_step_status(
     result: dict[str, Any] | None = None,
     evidence: dict[str, Any] | None = None,
     error_text: str | None = None,
+    input_refs: list[str] | None = None,
+    output_refs: list[str] | None = None,
+    provider_key: str | None = None,
+    step_kind: str | None = None,
 ) -> None:
     if not session_id or not step_key:
         return
@@ -604,12 +608,24 @@ def mark_execution_step_status(
         db = get_db()
         result_json = _safe_json(result or {})
         evidence_json = _safe_json(evidence or {})
+        input_refs_json = _safe_json([str(x) for x in list(input_refs or []) if str(x or "").strip()])
+        output_refs_json = _safe_json([str(x) for x in list(output_refs or []) if str(x or "").strip()])
+        has_input_refs = bool(input_refs)
+        has_output_refs = bool(output_refs)
+        provider_val = str(provider_key or "").strip().lower()
+        has_provider = bool(provider_val)
+        step_kind_val = str(step_kind or "").strip().lower()
+        has_step_kind = bool(step_kind_val)
         db.execute(
             """
             UPDATE execution_steps
             SET status = %s,
                 result_json = CASE WHEN %s::jsonb = '{}'::jsonb THEN result_json ELSE %s::jsonb END,
                 evidence_json = CASE WHEN %s::jsonb = '{}'::jsonb THEN evidence_json ELSE %s::jsonb END,
+                input_refs_json = CASE WHEN %s THEN %s::jsonb ELSE input_refs_json END,
+                output_refs_json = CASE WHEN %s THEN %s::jsonb ELSE output_refs_json END,
+                provider_key = CASE WHEN %s THEN %s ELSE provider_key END,
+                step_kind = CASE WHEN %s THEN %s ELSE step_kind END,
                 error_text = %s,
                 started_at = CASE WHEN %s = 'running' AND started_at IS NULL THEN NOW() ELSE started_at END,
                 finished_at = CASE WHEN %s IN ('completed','failed','skipped') THEN NOW() ELSE finished_at END,
@@ -622,6 +638,14 @@ def mark_execution_step_status(
                 result_json,
                 evidence_json,
                 evidence_json,
+                has_input_refs,
+                input_refs_json,
+                has_output_refs,
+                output_refs_json,
+                has_provider,
+                provider_val,
+                has_step_kind,
+                step_kind_val,
                 str(error_text or "") if error_text else None,
                 st,
                 st,

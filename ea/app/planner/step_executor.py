@@ -24,6 +24,26 @@ _PLANNER_PRE_EXEC_STEPS = {
 }
 
 
+def _is_deterministic_pre_step(*, step_key: str, step_kind: str = "") -> bool:
+    key = str(step_key or "").strip().lower()
+    kind = str(step_kind or "").strip().lower()
+    if not key:
+        return False
+    if key in {"execute_intent", "render_reply", "safety_gate"}:
+        return False
+    if key in _PLANNER_PRE_EXEC_STEPS:
+        return True
+    return kind in {"compile", "context", "approval"}
+
+
+def _deterministic_output_refs(*, step_key: str, step_order: int = 0) -> list[str]:
+    key = str(step_key or "").strip().lower() or "unknown_step"
+    order = int(step_order or 0)
+    if order > 0:
+        return [f"planner_context:{order}:{key}"]
+    return [f"planner_context:{key}"]
+
+
 async def run_reasoning_step(
     *,
     container: str,
@@ -60,15 +80,17 @@ def run_pre_execution_steps(
     domain = str((intent_spec or {}).get("domain") or "")
     task_type = str((intent_spec or {}).get("task_type") or "")
     objective = str((intent_spec or {}).get("objective") or "")[:200]
-    for row in list(plan_steps or []):
+    for idx, row in enumerate(list(plan_steps or []), start=1):
         step_key = str((row or {}).get("step_key") or "").strip()
-        if step_key not in _PLANNER_PRE_EXEC_STEPS:
+        if not _is_deterministic_pre_step(step_key=step_key):
             continue
+        output_refs = _deterministic_output_refs(step_key=step_key, step_order=idx)
         mark_step(
             session_id,
             step_key,
             "running",
             evidence={"domain": domain, "task_type": task_type},
+            step_kind="context",
         )
         mark_step(
             session_id,
@@ -80,13 +102,22 @@ def run_pre_execution_steps(
                 "domain": domain,
                 "task_type": task_type,
                 "objective_preview": objective,
+                "output_refs": output_refs,
             },
+            output_refs=output_refs,
+            step_kind="context",
+            provider_key="deterministic_planner",
         )
         append_event(
             session_id,
             event_type="planner_context_step_completed",
             message=f"Planner pre-execution step completed: {step_key}",
-            payload={"step_key": step_key, "domain": domain, "task_type": task_type},
+            payload={
+                "step_key": step_key,
+                "domain": domain,
+                "task_type": task_type,
+                "output_refs": output_refs,
+            },
         )
 
 
@@ -109,7 +140,7 @@ def list_queued_pre_execution_steps(
             rows = list(
                 db.fetchall(
                     """
-                    SELECT step_order, step_key, preconditions_json, evidence_json
+                    SELECT step_order, step_key, step_kind, preconditions_json, evidence_json
                     FROM execution_steps
                     WHERE session_id = %s
                       AND status = 'queued'
@@ -125,12 +156,14 @@ def list_queued_pre_execution_steps(
     out: list[dict[str, Any]] = []
     for row in rows:
         step_key = str((row or {}).get("step_key") or "").strip()
-        if step_key not in _PLANNER_PRE_EXEC_STEPS:
+        step_kind = str((row or {}).get("step_kind") or "").strip().lower()
+        if not _is_deterministic_pre_step(step_key=step_key, step_kind=step_kind):
             continue
         out.append(
             {
                 "step_order": int((row or {}).get("step_order") or 0),
                 "step_key": step_key,
+                "step_kind": step_kind or "generic",
                 "preconditions_json": dict((row or {}).get("preconditions_json") or {}),
                 "evidence_json": dict((row or {}).get("evidence_json") or {}),
             }
@@ -155,11 +188,14 @@ def run_pre_execution_steps_from_ledger(
     objective = str((intent_spec or {}).get("objective") or "")[:200]
     for row in queued_rows:
         step_key = str((row or {}).get("step_key") or "").strip()
+        step_order = int((row or {}).get("step_order") or 0)
+        output_refs = _deterministic_output_refs(step_key=step_key, step_order=step_order)
         mark_step(
             session_id,
             step_key,
             "running",
             evidence={"domain": domain, "task_type": task_type},
+            step_kind=str((row or {}).get("step_kind") or "context"),
         )
         mark_step(
             session_id,
@@ -171,13 +207,22 @@ def run_pre_execution_steps_from_ledger(
                 "domain": domain,
                 "task_type": task_type,
                 "objective_preview": objective,
+                "output_refs": output_refs,
             },
+            output_refs=output_refs,
+            step_kind=str((row or {}).get("step_kind") or "context"),
+            provider_key="deterministic_planner",
         )
         append_event(
             session_id,
             event_type="planner_context_step_completed",
             message=f"Planner pre-execution step completed from ledger: {step_key}",
-            payload={"step_key": step_key, "domain": domain, "task_type": task_type},
+            payload={
+                "step_key": step_key,
+                "domain": domain,
+                "task_type": task_type,
+                "output_refs": output_refs,
+            },
         )
     return len(queued_rows)
 

@@ -327,12 +327,29 @@ Owner: Codex runtime worker
       - added/wired dedicated provenance smoke:
         `tests/smoke_v1_22_execute_step_metadata_provenance.py`.
 
-33. `IN_PROGRESS` - Planner persisted step-graph execution broadening.
+33. `DONE` - Planner persisted step-graph execution broadening.
    - Deliverables:
       - execute queued non-reasoning planner steps from persisted ledger rows in
         deterministic order before execute-intent phase.
       - persist per-step deterministic output refs into `execution_steps.output_refs_json`.
       - add smoke coverage for ordered queued-step execution and output-ref persistence.
+   - Progress:
+      - `step_executor` now selects deterministic queued pre-steps from ledger by
+        step order with non-reasoning filter logic.
+      - deterministic context completion now emits stable per-step output refs.
+      - `mark_execution_step_status(...)` now supports persisting
+        `input_refs_json`/`output_refs_json` plus step/provider metadata updates.
+      - added/wired `smoke_v1_22_step_output_refs_persistence.py`.
+      - expanded ledger-step smoke to assert ordered execution and deterministic
+        output-ref propagation.
+
+34. `IN_PROGRESS` - Provider broker scoring deepening from runtime outcomes.
+   - Deliverables:
+      - enrich broker ranking with bounded historical success/latency penalties
+        from `provider_outcomes`.
+      - add deterministic smoke for score-delta ordering when outcomes disagree
+        with static task priority.
+      - ensure synthetic-preview outcomes remain neutral in broker weighting.
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`
