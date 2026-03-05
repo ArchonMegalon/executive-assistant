@@ -8,6 +8,7 @@ python3 -m py_compile \
   "$ROOT/ea/app/execution/session_store.py" \
   "$ROOT/ea/app/planner/task_registry.py" \
   "$ROOT/ea/app/intent_runtime.py" \
+  "$ROOT/tests/smoke_python_compile_tree.py" \
   "$ROOT/tests/smoke_v1_20_execution_sessions.py" \
   "$ROOT/tests/smoke_v1_20_doc_alignment.py" \
   "$ROOT/tests/smoke_v1_20_typed_action_sessions.py" \
@@ -32,6 +33,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 
 echo "[SMOKE][v1.20] Host smoke"
+python3 "$ROOT/tests/smoke_python_compile_tree.py"
 python3 "$ROOT/tests/smoke_v1_20_execution_sessions.py"
 python3 "$ROOT/tests/smoke_v1_20_doc_alignment.py"
 python3 "$ROOT/tests/smoke_v1_20_typed_action_sessions.py"

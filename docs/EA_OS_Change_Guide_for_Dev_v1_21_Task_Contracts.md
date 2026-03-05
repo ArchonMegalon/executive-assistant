@@ -96,6 +96,13 @@ existing capability routing behavior.
      - health: `review_health_context`
      - gated autonomy: `safety_gate`
 
+9. Runtime syntax safety hardening:
+   - Added repository-wide compile smoke: `tests/smoke_python_compile_tree.py`
+     and wired it into host/docker/CI gate paths to catch syntax regressions early.
+   - Hardened invoice extraction interpolation in `ea/app/poll_listener.py` by
+     precomputing nested values (`creditor`, `iban`, `reference`, `amount_value`)
+     before caption formatting, reducing quote-fragility in f-string-heavy paths.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

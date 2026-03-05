@@ -130,6 +130,11 @@ Branch: `main`
   - broker/router now consume planner provider abstractions instead of direct
     capability-registry imports.
   - added `tests/smoke_v1_21_provider_registry.py` and wired it into host/docker/CI gates.
+- [DONE] Runtime syntax safety hardening:
+  - added `tests/smoke_python_compile_tree.py` and wired it into host/docker/CI gates
+    for whole-tree Python parse checks.
+  - hardened invoice extraction interpolation in `ea/app/poll_listener.py` by
+    precomputing nested values before caption interpolation.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.

@@ -18,6 +18,7 @@ jobs:
 
       - name: Run milestone host smokes
         run: |
+          python3 tests/smoke_python_compile_tree.py
           python3 tests/smoke_v1_12_6.py
           python3 tests/smoke_v1_12_7_contract_freeze.py
           python3 tests/smoke_v1_13.py

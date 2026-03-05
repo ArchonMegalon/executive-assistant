@@ -101,6 +101,7 @@ end_ms="$(date +%s%3N)"
 record_step "health_check" "pass" "$((end_ms - start_ms))"
 
 echo "== Docker E2E: runtime alignment smoke =="
+run_step "smoke_python_compile_tree" python3 tests/smoke_python_compile_tree.py
 run_step "smoke_runtime_alignment" python3 tests/smoke_v1_18_1_runtime_alignment.py
 run_step "smoke_v1_12_6_avomap" python3 tests/smoke_v1_12_6.py
 run_step "smoke_v1_12_7_contract_freeze" python3 tests/smoke_v1_12_7_contract_freeze.py

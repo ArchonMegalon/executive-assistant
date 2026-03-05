@@ -421,15 +421,26 @@ async def handle_intent(chat_id: int, msg: dict):
                 if m:
                     sepa_data = json.loads(m.group(0))
                     if sepa_data.get('iban') and sepa_data.get('amount'):
-                        amt = f'{float(sepa_data['amount']):.2f}'
-                        pid = OpenLoops.add_payment(tenant_name, sepa_data.get('creditor', 'Unknown'), amt, sepa_data.get('iban'))
-                        qr_bytes, _ = generate_epc_qr(sepa_data.get('creditor', ''), sepa_data.get('iban', ''), float(sepa_data.get('amount', 0)), sepa_data.get('reference', ''))
-                        xml_bytes = generate_pain001_xml(sepa_data.get('creditor', ''), sepa_data.get('iban', ''), float(sepa_data.get('amount', 0)), sepa_data.get('reference', ''))
+                        creditor = str(sepa_data.get("creditor") or "")
+                        iban = str(sepa_data.get("iban") or "")
+                        reference = str(sepa_data.get("reference") or "")
+                        amount_value = float(sepa_data.get("amount") or 0)
+                        amt = f"{amount_value:.2f}"
+                        pid = OpenLoops.add_payment(tenant_name, creditor or "Unknown", amt, iban)
+                        qr_bytes, _ = generate_epc_qr(creditor, iban, amount_value, reference)
+                        xml_bytes = generate_pain001_xml(creditor, iban, amount_value, reference)
                         if qr_bytes and xml_bytes:
                             kb = [[{'text': '✅ Als bezahlt markieren', 'callback_data': f'mark_paid:{pid}'}]]
+                            caption = (
+                                "📋 <b>Copy-Block</b>\n"
+                                f"Empfänger: <code>{creditor}</code>\n"
+                                f"IBAN: <code>{iban}</code>\n"
+                                f"Betrag: <code>{amt}</code>\n"
+                                f"Zweck: <code>{reference}</code>"
+                            )
                             await tg.edit_message_text(chat_id, res['message_id'], '✅ <b>Daten extrahiert!</b>', parse_mode='HTML')
                             await tg.send_document(chat_id, xml_bytes.encode('utf-8'), 'SEPA_Transfer.xml')
-                            await tg.send_photo(chat_id, qr_bytes, caption=f'📋 <b>Copy-Block</b>\nEmpfänger: <code>{sepa_data.get('creditor')}</code>\nIBAN: <code>{sepa_data['iban']}</code>\nBetrag: <code>{amt}</code>\nZweck: <code>{sepa_data.get('reference')}</code>', parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+                            await tg.send_photo(chat_id, qr_bytes, caption=caption, parse_mode='HTML', reply_markup={'inline_keyboard': kb})
                             return
             except Exception as e:
                 pass
