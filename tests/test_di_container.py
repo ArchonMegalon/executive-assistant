@@ -164,6 +164,15 @@ class _FakeMemoryRuntime:
     def get_communication_policy(self, policy_id: str, **_: object):
         return None
 
+    def upsert_follow_up_rule(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_follow_up_rules(self, **_: object):
+        return []
+
+    def get_follow_up_rule(self, rule_id: str, **_: object):
+        return None
+
     def upsert_authority_binding(self, **_: object):
         raise AssertionError("not expected in this test")
 

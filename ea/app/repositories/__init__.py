@@ -21,6 +21,8 @@ from app.repositories.delivery_preferences_postgres import PostgresDeliveryPrefe
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
 from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepository
+from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
+from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
@@ -55,6 +57,7 @@ __all__ = [
     "DecisionWindowRepository",
     "DeadlineWindowRepository",
     "FollowUpRepository",
+    "FollowUpRuleRepository",
     "EntityRepository",
     "ExecutionLedgerRepository",
     "ArtifactRepository",
@@ -63,6 +66,7 @@ __all__ = [
     "InMemoryDecisionWindowRepository",
     "InMemoryDeadlineWindowRepository",
     "InMemoryFollowUpRepository",
+    "InMemoryFollowUpRuleRepository",
     "InMemoryArtifactRepository",
     "InMemoryAuthorityBindingRepository",
     "InMemoryCommunicationPolicyRepository",
@@ -91,6 +95,7 @@ __all__ = [
     "PostgresDecisionWindowRepository",
     "PostgresDeadlineWindowRepository",
     "PostgresFollowUpRepository",
+    "PostgresFollowUpRuleRepository",
     "PostgresObservationEventRepository",
     "PostgresPolicyDecisionRepository",
     "PostgresEntityRepository",

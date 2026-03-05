@@ -576,6 +576,41 @@ def test_memory_follow_ups_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "follow_up_not_found"
 
 
+def test_memory_follow_up_rules_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/follow-up-rules",
+        json={
+            "principal_id": "exec-1",
+            "name": "Board reminder escalation",
+            "trigger_kind": "deadline_risk",
+            "channel_scope": ["email", "slack"],
+            "delay_minutes": 120,
+            "max_attempts": 3,
+            "escalation_policy": "notify_exec",
+            "conditions_json": {"priority": "high"},
+            "action_json": {"action": "draft_follow_up"},
+            "status": "active",
+            "notes": "Escalate if follow-up is late",
+        },
+    )
+    assert created.status_code == 200
+    rule_id = created.json()["rule_id"]
+
+    listed = client.get("/v1/memory/follow-up-rules", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["rule_id"] == rule_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/follow-up-rules/{rule_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["name"] == "Board reminder escalation"
+
+    wrong_scope = client.get(f"/v1/memory/follow-up-rules/{rule_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "follow_up_rule_not_found"
+
+
 def test_memory_deadline_windows_principal_scope_flow() -> None:
     client = _client(storage_backend="memory")
 

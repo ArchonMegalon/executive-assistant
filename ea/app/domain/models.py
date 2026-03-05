@@ -287,6 +287,24 @@ class CommunicationPolicy:
 
 
 @dataclass(frozen=True)
+class FollowUpRule:
+    rule_id: str
+    principal_id: str
+    name: str
+    trigger_kind: str
+    channel_scope: tuple[str, ...]
+    delay_minutes: int
+    max_attempts: int
+    escalation_policy: str
+    conditions_json: dict[str, Any]
+    action_json: dict[str, Any]
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

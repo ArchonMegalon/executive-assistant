@@ -74,6 +74,9 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Communication-policy primitives:
   - `communication_policies` store for principal-scoped communication-policy rows
   - API endpoints for communication-policy upsert/list/get with principal-scoped reads
+- Follow-up-rule primitives:
+  - `follow_up_rules` store for principal-scoped follow-up automation rules
+  - API endpoints for follow-up-rule upsert/list/get with principal-scoped reads
 - Postgres + in-memory repository backends for kernel stores.
 - Kernel SQL migrations:
   - `v0_2` execution ledger
@@ -95,6 +98,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `v0_18` stakeholders kernel seed
   - `v0_19` decision windows kernel seed
   - `v0_20` communication policies kernel seed
+  - `v0_21` follow-up rules kernel seed
 - Operator tooling:
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
@@ -129,6 +133,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Memory runtime now supports principal-scoped stakeholder records for social-context modeling stubs.
 - Memory runtime now supports principal-scoped decision-window records for decision-timing stubs.
 - Memory runtime now supports principal-scoped communication-policy records for channel/tone governance stubs.
+- Memory runtime now supports principal-scoped follow-up-rule records for proactive follow-through automation stubs.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

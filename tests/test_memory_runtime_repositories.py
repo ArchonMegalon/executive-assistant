@@ -8,6 +8,7 @@ from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepo
 from app.repositories.deadline_windows import InMemoryDeadlineWindowRepository
 from app.repositories.entities import InMemoryEntityRepository
 from app.repositories.follow_ups import InMemoryFollowUpRepository
+from app.repositories.follow_up_rules import InMemoryFollowUpRuleRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
@@ -58,6 +59,7 @@ def test_inmemory_memory_runtime_promote_and_reject_paths() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     candidate = runtime.stage_candidate(
@@ -115,6 +117,7 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     executive = runtime.upsert_entity(
@@ -167,6 +170,7 @@ def test_inmemory_commitments_principal_scope() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_commitment(
@@ -207,6 +211,7 @@ def test_inmemory_authority_bindings_principal_scope() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_authority_binding(
@@ -247,6 +252,7 @@ def test_inmemory_delivery_preferences_principal_scope() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_delivery_preference(
@@ -287,6 +293,7 @@ def test_inmemory_follow_ups_principal_scope() -> None:
         deadline_windows=InMemoryDeadlineWindowRepository(),
         stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_follow_up(
@@ -314,6 +321,51 @@ def test_inmemory_follow_ups_principal_scope() -> None:
     assert right_scope.topic == "Board follow-up"
 
 
+def test_inmemory_follow_up_rules_principal_scope() -> None:
+    runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+        communication_policies=InMemoryCommunicationPolicyRepository(),
+        decision_windows=InMemoryDecisionWindowRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
+        authority_bindings=InMemoryAuthorityBindingRepository(),
+        delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
+    )
+
+    created = runtime.upsert_follow_up_rule(
+        principal_id="exec-1",
+        name="Board reminder escalation",
+        trigger_kind="deadline_risk",
+        channel_scope=("email", "slack"),
+        delay_minutes=120,
+        max_attempts=3,
+        escalation_policy="notify_exec",
+        conditions_json={"priority": "high"},
+        action_json={"action": "draft_follow_up"},
+        status="active",
+        notes="Escalate if follow-up is late",
+    )
+    assert created.rule_id
+    assert created.principal_id == "exec-1"
+
+    listed = runtime.list_follow_up_rules(principal_id="exec-1", limit=10)
+    assert len(listed) == 1
+    assert listed[0].rule_id == created.rule_id
+
+    wrong_scope = runtime.get_follow_up_rule(created.rule_id, principal_id="exec-2")
+    assert wrong_scope is None
+
+    right_scope = runtime.get_follow_up_rule(created.rule_id, principal_id="exec-1")
+    assert right_scope is not None
+    assert right_scope.name == "Board reminder escalation"
+
+
 def test_inmemory_decision_windows_principal_scope() -> None:
     runtime = MemoryRuntimeService(
         candidates=InMemoryMemoryCandidateRepository(),
@@ -328,6 +380,7 @@ def test_inmemory_decision_windows_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_decision_window(
@@ -371,6 +424,7 @@ def test_inmemory_communication_policies_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_communication_policy(
@@ -413,6 +467,7 @@ def test_inmemory_deadline_windows_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_deadline_window(
@@ -454,6 +509,7 @@ def test_inmemory_stakeholders_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
     )
 
     created = runtime.upsert_stakeholder(

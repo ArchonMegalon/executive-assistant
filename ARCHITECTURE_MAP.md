@@ -53,6 +53,9 @@
   - `POST /v1/memory/communication-policies`
   - `GET /v1/memory/communication-policies`
   - `GET /v1/memory/communication-policies/{policy_id}`
+  - `POST /v1/memory/follow-up-rules`
+  - `GET /v1/memory/follow-up-rules`
+  - `GET /v1/memory/follow-up-rules/{rule_id}`
   - (`ea/app/api/routes/memory.py`)
 - Observation runtime:
   - `POST /v1/observations/ingest`
@@ -81,6 +84,7 @@
 - Stakeholder context: `Stakeholder`
 - Decision context: `DecisionWindow`
 - Communication context: `CommunicationPolicy`
+- Follow-up rule context: `FollowUpRule`
 - Channel runtime: `ObservationEvent`, `DeliveryOutboxItem`
 - File: `ea/app/domain/models.py`
 
@@ -142,6 +146,9 @@
 - Communication policies:
   - in-memory: `ea/app/repositories/communication_policies.py`
   - postgres: `ea/app/repositories/communication_policies_postgres.py`
+- Follow-up rules:
+  - in-memory: `ea/app/repositories/follow_up_rules.py`
+  - postgres: `ea/app/repositories/follow_up_rules_postgres.py`
 - Delivery outbox:
   - in-memory: `ea/app/repositories/delivery_outbox.py`
   - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
@@ -167,6 +174,7 @@
 - `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
 - `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 - `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
+- `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
 
 ## Operator Tooling
 

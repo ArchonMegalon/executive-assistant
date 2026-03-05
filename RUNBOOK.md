@@ -74,6 +74,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/communication-policies` | `200` | validation `422` |
 | GET | `/v1/memory/communication-policies` | `200` | validation `422` |
 | GET | `/v1/memory/communication-policies/{policy_id}` | `200` | `404 communication_policy_not_found` |
+| POST | `/v1/memory/follow-up-rules` | `200` | validation `422` |
+| GET | `/v1/memory/follow-up-rules` | `200` | validation `422` |
+| GET | `/v1/memory/follow-up-rules/{rule_id}` | `200` | `404 follow_up_rule_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -173,6 +176,7 @@ Applies:
 - `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
 - `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 - `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
+- `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
 
 Check table presence/counts:
 
@@ -353,6 +357,16 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication
   -d '{"principal_id":"exec-1","scope":"board_threads","preferred_channel":"email","tone":"concise_diplomatic","max_length":1200,"quiet_hours_json":{"start":"22:00","end":"07:00"},"escalation_json":{"on_high_urgency":"notify_exec"},"status":"active","notes":"Board-facing communication defaults"}'
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies?principal_id=exec-1&limit=10"
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies/<policy_id>?principal_id=exec-1"
+```
+
+Principal-scoped follow-up rules:
+
+```bash
+curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules \
+  -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","name":"Board reminder escalation","trigger_kind":"deadline_risk","channel_scope":["email","slack"],"delay_minutes":120,"max_attempts":3,"escalation_policy":"notify_exec","conditions_json":{"priority":"high"},"action_json":{"action":"draft_follow_up"},"status":"active","notes":"Escalate if follow-up is late"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules?principal_id=exec-1&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules/<rule_id>?principal_id=exec-1"
 ```
 ## 9) Script Help Smoke
 

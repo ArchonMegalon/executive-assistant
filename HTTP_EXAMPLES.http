@@ -541,3 +541,34 @@ GET {{host}}/v1/memory/communication-policies?principal_id=exec-1&limit=20
 
 ### Memory -> get communication policy (principal-scoped)
 GET {{host}}/v1/memory/communication-policies/{{policy_id}}?principal_id=exec-1
+
+### Memory -> upsert follow-up rule (principal-scoped)
+POST {{host}}/v1/memory/follow-up-rules
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "name": "Board reminder escalation",
+  "trigger_kind": "deadline_risk",
+  "channel_scope": [
+    "email",
+    "slack"
+  ],
+  "delay_minutes": 120,
+  "max_attempts": 3,
+  "escalation_policy": "notify_exec",
+  "conditions_json": {
+    "priority": "high"
+  },
+  "action_json": {
+    "action": "draft_follow_up"
+  },
+  "status": "active",
+  "notes": "Escalate if follow-up is late"
+}
+
+### Memory -> list follow-up rules (principal-scoped)
+GET {{host}}/v1/memory/follow-up-rules?principal_id=exec-1&limit=20
+
+### Memory -> get follow-up rule (principal-scoped)
+GET {{host}}/v1/memory/follow-up-rules/{{rule_id}}?principal_id=exec-1

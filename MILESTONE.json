@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -51,6 +51,8 @@
     "principal_scoped_decision_windows_api",
     "communication_policies_seed",
     "principal_scoped_communication_policies_api",
+    "follow_up_rules_seed",
+    "principal_scoped_follow_up_rules_api",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",
@@ -75,7 +77,8 @@
     "ea/schema/20260305_v0_17_deadline_windows_kernel.sql",
     "ea/schema/20260305_v0_18_stakeholders_kernel.sql",
     "ea/schema/20260305_v0_19_decision_windows_kernel.sql",
-    "ea/schema/20260305_v0_20_communication_policies_kernel.sql"
+    "ea/schema/20260305_v0_20_communication_policies_kernel.sql",
+    "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

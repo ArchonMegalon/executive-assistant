@@ -10,6 +10,7 @@ from app.domain.models import (
     DeadlineWindow,
     DeliveryPreference,
     Entity,
+    FollowUpRule,
     FollowUp,
     MemoryCandidate,
     MemoryItem,
@@ -35,6 +36,8 @@ from app.repositories.delivery_preferences_postgres import PostgresDeliveryPrefe
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
 from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepository
+from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
+from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
@@ -62,6 +65,7 @@ class MemoryRuntimeService:
         authority_bindings: AuthorityBindingRepository,
         delivery_preferences: DeliveryPreferenceRepository,
         follow_ups: FollowUpRepository,
+        follow_up_rules: FollowUpRuleRepository,
     ) -> None:
         self._candidates = candidates
         self._items = items
@@ -75,6 +79,7 @@ class MemoryRuntimeService:
         self._authority_bindings = authority_bindings
         self._delivery_preferences = delivery_preferences
         self._follow_ups = follow_ups
+        self._follow_up_rules = follow_up_rules
 
     def stage_candidate(
         self,
@@ -628,6 +633,58 @@ class MemoryRuntimeService:
             return None
         return found
 
+    def upsert_follow_up_rule(
+        self,
+        *,
+        principal_id: str,
+        name: str,
+        trigger_kind: str,
+        channel_scope: tuple[str, ...] = (),
+        delay_minutes: int = 60,
+        max_attempts: int = 3,
+        escalation_policy: str = "notify_exec",
+        conditions_json: dict[str, object] | None = None,
+        action_json: dict[str, object] | None = None,
+        status: str = "active",
+        notes: str = "",
+        rule_id: str | None = None,
+    ) -> FollowUpRule:
+        return self._follow_up_rules.upsert_rule(
+            principal_id=principal_id,
+            name=name,
+            trigger_kind=trigger_kind,
+            channel_scope=channel_scope,
+            delay_minutes=delay_minutes,
+            max_attempts=max_attempts,
+            escalation_policy=escalation_policy,
+            conditions_json=conditions_json,
+            action_json=action_json,
+            status=status,
+            notes=notes,
+            rule_id=rule_id,
+        )
+
+    def list_follow_up_rules(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[FollowUpRule]:
+        return self._follow_up_rules.list_rules(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_follow_up_rule(self, rule_id: str, *, principal_id: str) -> FollowUpRule | None:
+        found = self._follow_up_rules.get(rule_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
 
 def _backend_mode(settings: Settings) -> str:
     return str(settings.storage.backend or "auto").strip().lower()
@@ -840,6 +897,23 @@ def _build_follow_up_repo(settings: Settings) -> FollowUpRepository:
     return InMemoryFollowUpRepository()
 
 
+def _build_follow_up_rule_repo(settings: Settings) -> FollowUpRuleRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.follow_up_rules")
+    if backend == "memory":
+        return InMemoryFollowUpRuleRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresFollowUpRuleRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresFollowUpRuleRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres follow-up-rule backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryFollowUpRuleRepository()
+
+
 def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeService:
     resolved = settings or get_settings()
     return MemoryRuntimeService(
@@ -855,4 +929,5 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         authority_bindings=_build_authority_binding_repo(resolved),
         delivery_preferences=_build_delivery_preference_repo(resolved),
         follow_ups=_build_follow_up_repo(resolved),
+        follow_up_rules=_build_follow_up_rule_repo(resolved),
     )

@@ -13,6 +13,8 @@ from app.repositories.delivery_preferences_postgres import PostgresDeliveryPrefe
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
 from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepository
+from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
+from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
@@ -48,6 +50,9 @@ __all__ = [
     "FollowUpRepository",
     "InMemoryFollowUpRepository",
     "PostgresFollowUpRepository",
+    "FollowUpRuleRepository",
+    "InMemoryFollowUpRuleRepository",
+    "PostgresFollowUpRuleRepository",
     "MemoryCandidateRepository",
     "InMemoryMemoryCandidateRepository",
     "PostgresMemoryCandidateRepository",
