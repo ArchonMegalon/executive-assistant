@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
+from app.repositories.commitments import InMemoryCommitmentRepository
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.entities import InMemoryEntityRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
@@ -103,6 +104,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
             items=InMemoryMemoryItemRepository(),
             entities=InMemoryEntityRepository(),
             relationships=InMemoryRelationshipRepository(),
+            commitments=InMemoryCommitmentRepository(),
         )
     try:
         task_contracts = build_task_contract_service(settings=resolved)

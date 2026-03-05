@@ -7,6 +7,7 @@
 @memory_item_id = replace_me
 @entity_id = replace_me
 @relationship_id = replace_me
+@commitment_id = replace_me
 @oversized_text = replace_with_20001_chars
 
 ### Health
@@ -336,3 +337,25 @@ GET {{host}}/v1/memory/relationships?limit=20&principal_id=exec-1
 
 ### Memory -> get relationship
 GET {{host}}/v1/memory/relationships/{{relationship_id}}
+
+### Memory -> upsert commitment
+POST {{host}}/v1/memory/commitments
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Send board follow-up",
+  "details": "Draft and send by Friday",
+  "status": "open",
+  "priority": "high",
+  "due_at": "2026-03-06T10:00:00+00:00",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list commitments (principal-scoped)
+GET {{host}}/v1/memory/commitments?principal_id=exec-1&limit=20
+
+### Memory -> get commitment (principal-scoped)
+GET {{host}}/v1/memory/commitments/{{commitment_id}}?principal_id=exec-1

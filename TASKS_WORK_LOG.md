@@ -14,7 +14,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | Q-044 | P2 | Keep queue log current as slices are added/closed | codex | queued | Use this file as the default intake point for new tasks |
-| Q-126 | P0 | Continue Milestone 5 memory layer (`commitments` seed table + API stubs + principal scoping) | codex | queued | Chain after entities/relationships slice commit |
+| Q-127 | P0 | Continue Milestone 5 memory layer (`authority_bindings` seed table + API stubs + principal scoping) | codex | queued | Chain after commitments slice commit |
 
 ## In Progress
 
@@ -157,6 +157,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-123 | P0 | Complete Milestone 4 plan-step execution integration slice | codex | done | Orchestrator now executes with compiled plan metadata, emits `plan_compiled`, and persists plan-step context in steps/receipts |
 | D-124 | P0 | Start Milestone 5 memory kernel (`memory_candidates` + `memory_items` + promotion endpoint seed) | codex | done | Added `v0_11`, memory runtime repositories/services/routes, smoke + unit coverage, and operator/docs updates |
 | D-125 | P0 | Continue Milestone 5 memory layer (`entities` + `relationships` seed tables and API stubs) | codex | done | Added `v0_12`, semantic entity/relationship repositories + API stubs, and smoke/unit coverage updates |
+| D-126 | P0 | Continue Milestone 5 memory layer (`commitments` seed table + API stubs + principal scoping) | codex | done | Added `v0_13`, commitment repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 
 ## Intake Template
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from app.domain.models import Entity, MemoryCandidate, MemoryItem, RelationshipEdge, now_utc_iso
+from app.domain.models import Commitment, Entity, MemoryCandidate, MemoryItem, RelationshipEdge, now_utc_iso
+from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
+from app.repositories.commitments_postgres import PostgresCommitmentRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
@@ -21,11 +23,13 @@ class MemoryRuntimeService:
         items: MemoryItemRepository,
         entities: EntityRepository,
         relationships: RelationshipRepository,
+        commitments: CommitmentRepository,
     ) -> None:
         self._candidates = candidates
         self._items = items
         self._entities = entities
         self._relationships = relationships
+        self._commitments = commitments
 
     def stage_candidate(
         self,
@@ -199,6 +203,50 @@ class MemoryRuntimeService:
     def get_relationship(self, relationship_id: str) -> RelationshipEdge | None:
         return self._relationships.get(relationship_id)
 
+    def upsert_commitment(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        details: str = "",
+        status: str = "open",
+        priority: str = "medium",
+        due_at: str | None = None,
+        source_json: dict[str, object] | None = None,
+        commitment_id: str | None = None,
+    ) -> Commitment:
+        return self._commitments.upsert_commitment(
+            principal_id=principal_id,
+            title=title,
+            details=details,
+            status=status,
+            priority=priority,
+            due_at=due_at,
+            source_json=source_json,
+            commitment_id=commitment_id,
+        )
+
+    def list_commitments(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[Commitment]:
+        return self._commitments.list_commitments(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_commitment(self, commitment_id: str, *, principal_id: str) -> Commitment | None:
+        found = self._commitments.get(commitment_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
 
 def _backend_mode(settings: Settings) -> str:
     return str(settings.storage.backend or "auto").strip().lower()
@@ -272,6 +320,23 @@ def _build_relationship_repo(settings: Settings) -> RelationshipRepository:
     return InMemoryRelationshipRepository()
 
 
+def _build_commitment_repo(settings: Settings) -> CommitmentRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.commitments")
+    if backend == "memory":
+        return InMemoryCommitmentRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresCommitmentRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresCommitmentRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres commitment backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryCommitmentRepository()
+
+
 def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeService:
     resolved = settings or get_settings()
     return MemoryRuntimeService(
@@ -279,4 +344,5 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         items=_build_item_repo(resolved),
         entities=_build_entity_repo(resolved),
         relationships=_build_relationship_repo(resolved),
+        commitments=_build_commitment_repo(resolved),
     )

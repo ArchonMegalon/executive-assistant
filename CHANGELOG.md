@@ -50,6 +50,9 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `entities` store for canonical semantic nodes per principal
   - `relationships` store for relationship edges between entity nodes
   - API endpoints for entity/relationship upsert/list/get stubs
+- Commitment primitives:
+  - `commitments` store for principal-scoped commitment tracking
+  - API endpoints for commitment upsert/list/get with principal-scoped reads
 - Postgres + in-memory repository backends for kernel stores.
 - Kernel SQL migrations:
   - `v0_2` execution ledger
@@ -63,6 +66,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `v0_10` task-contracts kernel
   - `v0_11` memory kernel seed
   - `v0_12` entities/relationships kernel seed
+  - `v0_13` commitments kernel seed
 - Operator tooling:
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
@@ -89,6 +93,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Rewrite execution now references typed plan-step metadata in step input/output and receipts.
 - Added reviewed memory promotion flow (`candidate -> promoted item`) with durable in-memory/Postgres backends.
 - Memory runtime now supports semantic entity and relationship stubs for graph-style context seeding.
+- Memory runtime now supports principal-scoped commitment records for durable follow-up tracking.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

@@ -119,6 +119,15 @@ class _FakeMemoryRuntime:
     def get_relationship(self, relationship_id: str):
         return None
 
+    def upsert_commitment(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_commitments(self, **_: object):
+        return []
+
+    def get_commitment(self, commitment_id: str, **_: object):
+        return None
+
 
 class _FakeTaskContracts:
     def list_contracts(self, limit: int = 100):

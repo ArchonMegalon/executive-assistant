@@ -451,6 +451,37 @@ def test_memory_entities_relationships_flow() -> None:
     assert fetched_relationship.json()["relationship_type"] == "reports_to"
 
 
+def test_memory_commitments_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/commitments",
+        json={
+            "principal_id": "exec-1",
+            "title": "Send board follow-up",
+            "details": "Draft and send by Friday",
+            "status": "open",
+            "priority": "high",
+            "due_at": "2026-03-06T10:00:00+00:00",
+            "source_json": {"source": "manual"},
+        },
+    )
+    assert created.status_code == 200
+    commitment_id = created.json()["commitment_id"]
+
+    listed = client.get("/v1/memory/commitments", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["commitment_id"] == commitment_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/commitments/{commitment_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["title"] == "Send board follow-up"
+
+    wrong_scope = client.get(f"/v1/memory/commitments/{commitment_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "commitment_not_found"
+
+
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
     client = _client(storage_backend="memory", auth_token=token)

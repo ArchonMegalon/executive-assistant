@@ -2,6 +2,8 @@ from app.repositories.approvals import ApprovalRepository, InMemoryApprovalRepos
 from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.artifacts import ArtifactRepository, InMemoryArtifactRepository
 from app.repositories.artifacts_postgres import PostgresArtifactRepository
+from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
+from app.repositories.commitments_postgres import PostgresCommitmentRepository
 from app.repositories.connector_bindings import ConnectorBindingRepository, InMemoryConnectorBindingRepository
 from app.repositories.connector_bindings_postgres import PostgresConnectorBindingRepository
 from app.repositories.delivery_outbox import DeliveryOutboxRepository, InMemoryDeliveryOutboxRepository
@@ -31,12 +33,14 @@ __all__ = [
     "InMemoryConnectorBindingRepository",
     "InMemoryApprovalRepository",
     "PostgresApprovalRepository",
+    "CommitmentRepository",
     "DeliveryOutboxRepository",
     "EntityRepository",
     "ExecutionLedgerRepository",
     "ArtifactRepository",
     "InMemoryDeliveryOutboxRepository",
     "InMemoryArtifactRepository",
+    "InMemoryCommitmentRepository",
     "InMemoryExecutionLedgerRepository",
     "InMemoryObservationEventRepository",
     "InMemoryPolicyDecisionRepository",
@@ -50,6 +54,7 @@ __all__ = [
     "MemoryCandidateRepository",
     "MemoryItemRepository",
     "PostgresArtifactRepository",
+    "PostgresCommitmentRepository",
     "PostgresConnectorBindingRepository",
     "PostgresDeliveryOutboxRepository",
     "PostgresObservationEventRepository",

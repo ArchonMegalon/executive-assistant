@@ -15,3 +15,4 @@ Current rewrite kernel migrations:
 - `20260305_v0_10_task_contracts_kernel.sql`
 - `20260305_v0_11_memory_kernel.sql`
 - `20260305_v0_12_entities_relationships_kernel.sql`
+- `20260305_v0_13_commitments_kernel.sql`

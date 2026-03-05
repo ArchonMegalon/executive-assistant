@@ -1,3 +1,5 @@
+from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
+from app.repositories.commitments_postgres import PostgresCommitmentRepository
 from app.repositories.entities import EntityRepository, InMemoryEntityRepository
 from app.repositories.entities_postgres import PostgresEntityRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
@@ -11,6 +13,9 @@ __all__ = [
     "EntityRepository",
     "InMemoryEntityRepository",
     "PostgresEntityRepository",
+    "CommitmentRepository",
+    "InMemoryCommitmentRepository",
+    "PostgresCommitmentRepository",
     "MemoryCandidateRepository",
     "InMemoryMemoryCandidateRepository",
     "PostgresMemoryCandidateRepository",

@@ -29,6 +29,9 @@
   - `POST /v1/memory/relationships`
   - `GET /v1/memory/relationships`
   - `GET /v1/memory/relationships/{relationship_id}`
+  - `POST /v1/memory/commitments`
+  - `GET /v1/memory/commitments`
+  - `GET /v1/memory/commitments/{commitment_id}`
   - (`ea/app/api/routes/memory.py`)
 - Observation runtime:
   - `POST /v1/observations/ingest`
@@ -49,6 +52,7 @@
 - Policy: `PolicyDecision`, `PolicyDecisionRecord`
 - Memory: `MemoryCandidate`, `MemoryItem`
 - Semantic context: `Entity`, `RelationshipEdge`
+- Commitment context: `Commitment`
 - Channel runtime: `ObservationEvent`, `DeliveryOutboxItem`
 - File: `ea/app/domain/models.py`
 
@@ -86,6 +90,9 @@
 - Relationships:
   - in-memory: `ea/app/repositories/relationships.py`
   - postgres: `ea/app/repositories/relationships_postgres.py`
+- Commitments:
+  - in-memory: `ea/app/repositories/commitments.py`
+  - postgres: `ea/app/repositories/commitments_postgres.py`
 - Delivery outbox:
   - in-memory: `ea/app/repositories/delivery_outbox.py`
   - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
@@ -103,6 +110,7 @@
 - `ea/schema/20260305_v0_10_task_contracts_kernel.sql`
 - `ea/schema/20260305_v0_11_memory_kernel.sql`
 - `ea/schema/20260305_v0_12_entities_relationships_kernel.sql`
+- `ea/schema/20260305_v0_13_commitments_kernel.sql`
 
 ## Operator Tooling
 

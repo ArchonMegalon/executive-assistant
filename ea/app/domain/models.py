@@ -161,6 +161,20 @@ class RelationshipEdge:
 
 
 @dataclass(frozen=True)
+class Commitment:
+    commitment_id: str
+    principal_id: str
+    title: str
+    details: str
+    status: str
+    priority: str
+    due_at: str | None
+    source_json: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

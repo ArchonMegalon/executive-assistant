@@ -50,6 +50,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/relationships` | `200` | validation `422` |
 | GET | `/v1/memory/relationships` | `200` | validation `422` |
 | GET | `/v1/memory/relationships/{relationship_id}` | `200` | `404 relationship_not_found` |
+| POST | `/v1/memory/commitments` | `200` | validation `422` |
+| GET | `/v1/memory/commitments` | `200` | validation `422` |
+| GET | `/v1/memory/commitments/{commitment_id}` | `200` | `404 commitment_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -141,6 +144,7 @@ Applies:
 - `ea/schema/20260305_v0_10_task_contracts_kernel.sql`
 - `ea/schema/20260305_v0_11_memory_kernel.sql`
 - `ea/schema/20260305_v0_12_entities_relationships_kernel.sql`
+- `ea/schema/20260305_v0_13_commitments_kernel.sql`
 
 Check table presence/counts:
 
@@ -241,6 +245,16 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/relationships
   -d '{"principal_id":"exec-1","from_entity_id":"<entity_a>","to_entity_id":"<entity_b>","relationship_type":"reports_to"}'
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/entities?limit=10&principal_id=exec-1"
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/relationships?limit=10&principal_id=exec-1"
+```
+
+Principal-scoped commitments:
+
+```bash
+curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments \
+  -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","title":"Send board follow-up","details":"Draft by Friday","status":"open","priority":"high"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments?principal_id=exec-1&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments/<commitment_id>?principal_id=exec-1"
 ```
 ## 9) Script Help Smoke
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.repositories.commitments import InMemoryCommitmentRepository
 from app.repositories.entities import InMemoryEntityRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
@@ -42,6 +43,7 @@ def test_inmemory_memory_runtime_promote_and_reject_paths() -> None:
         items=InMemoryMemoryItemRepository(),
         entities=InMemoryEntityRepository(),
         relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
     )
 
     candidate = runtime.stage_candidate(
@@ -91,6 +93,7 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
         items=InMemoryMemoryItemRepository(),
         entities=InMemoryEntityRepository(),
         relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
     )
 
     executive = runtime.upsert_entity(
@@ -127,3 +130,36 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
     listed_relationships = runtime.list_relationships(limit=10, principal_id="exec-1")
     assert len(listed_relationships) == 1
     assert listed_relationships[0].relationship_id == rel.relationship_id
+
+
+def test_inmemory_commitments_principal_scope() -> None:
+    runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+    )
+
+    created = runtime.upsert_commitment(
+        principal_id="exec-1",
+        title="Send board follow-up",
+        details="Draft and send by Friday",
+        status="open",
+        priority="high",
+        due_at="2026-03-06T10:00:00+00:00",
+        source_json={"source": "manual"},
+    )
+    assert created.commitment_id
+    assert created.principal_id == "exec-1"
+
+    listed = runtime.list_commitments(principal_id="exec-1", limit=10)
+    assert len(listed) == 1
+    assert listed[0].commitment_id == created.commitment_id
+
+    wrong_scope = runtime.get_commitment(created.commitment_id, principal_id="exec-2")
+    assert wrong_scope is None
+
+    right_scope = runtime.get_commitment(created.commitment_id, principal_id="exec-1")
+    assert right_scope is not None
+    assert right_scope.title == "Send board follow-up"
