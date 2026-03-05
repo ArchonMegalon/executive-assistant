@@ -1,5 +1,10 @@
 # Runtime Runbook
 
+All runtime scripts that call HTTP endpoints resolve host port in this order:
+1. `EA_HOST_PORT` from current shell env
+2. `EA_HOST_PORT` from `.env`
+3. fallback `8090`
+
 ## API Contract Summary
 
 | Method | Route | Success | Error contracts |

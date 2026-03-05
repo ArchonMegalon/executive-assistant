@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-041 | P3 | Add support bundle host-port override note in runbook | codex | queued | Clarify `EA_HOST_PORT` behavior for scripts |
+| Q-042 | P3 | Add script-level help/usage output for key ops scripts | codex | queued | Improve discoverability for operators |
 
 ## In Progress
 
@@ -60,6 +60,7 @@ Use this file as the execution queue and progress ledger.
 | D-040 | P3 | Add optional queue-snapshot exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_QUEUE=0` support |
 | D-041 | P3 | Add support bundle filename prefix override | codex | done | Added `SUPPORT_BUNDLE_PREFIX` support |
 | D-042 | P3 | Add support bundle timestamp-format override | codex | done | Added `SUPPORT_BUNDLE_TIMESTAMP_FMT` support |
+| D-043 | P3 | Document host-port resolution for runtime scripts | codex | done | Added ordering note to top of `RUNBOOK.md` |
 
 ## Intake Template
 
