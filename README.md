@@ -62,3 +62,4 @@ Release notes are tracked in `CHANGELOG.md`.
 Environment/profile recommendations are in `ENVIRONMENT_MATRIX.md`.
 Current machine-readable milestone checkpoint is `MILESTONE.json`.
 Release operations checklist is `RELEASE_CHECKLIST.md`.
+OpenAPI snapshot export is available via `scripts/export_openapi.sh` or `make openapi-export`.

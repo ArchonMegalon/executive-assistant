@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-017 | P2 | Add OpenAPI snapshot export script (`scripts/export_openapi.sh`) | codex | queued | Keep API surface diffable between releases |
+| Q-018 | P2 | Add sample diff workflow for comparing OpenAPI snapshots | codex | queued | Keep API drift visible in PRs |
 
 ## In Progress
 
@@ -36,6 +36,7 @@ Use this file as the execution queue and progress ledger.
 | D-016 | P2 | Add environment/profile backend matrix | codex | done | Added `ENVIRONMENT_MATRIX.md` |
 | D-017 | P2 | Add machine-readable milestone checkpoint file | codex | done | Added `MILESTONE.json` |
 | D-018 | P2 | Add release checklist for baseline shipping | codex | done | Added `RELEASE_CHECKLIST.md` |
+| D-019 | P2 | Add OpenAPI export script + make target | codex | done | Added `scripts/export_openapi.sh` and `make openapi-export` |
 
 ## Intake Template
 

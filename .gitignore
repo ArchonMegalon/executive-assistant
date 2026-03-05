@@ -16,6 +16,7 @@ daemon-gogcli-config/
 data-*/
 *.log
 config/*.local.yml
+artifacts/
 
 # Editor/OS noise
 .DS_Store

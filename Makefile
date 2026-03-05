@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-bootstrap bootstrap db-status smoke-api test-api
+.PHONY: deploy deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export
 
 deploy:
 	bash scripts/deploy.sh
@@ -17,3 +17,6 @@ smoke-api:
 
 test-api:
 	PYTHONPATH=ea EA_LEDGER_BACKEND=memory pytest -q tests/smoke_runtime_api.py
+
+openapi-export:
+	bash scripts/export_openapi.sh

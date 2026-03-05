@@ -94,3 +94,11 @@ make smoke-api
 ```
 
 The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input).
+
+## 8) Export OpenAPI Snapshot
+
+```bash
+bash scripts/export_openapi.sh
+# or
+make openapi-export
+```
