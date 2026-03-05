@@ -204,6 +204,16 @@ existing capability routing behavior.
      in `ea/app/skills/generic.py`.
    - Added `tests/smoke_v1_21_provider_outcomes.py` and wired it into host/docker/CI gates.
 
+20. Planner pre-execution step ownership in intent runtime:
+   - `ea/app/intent_runtime.py` now runs deterministic planner pre-execution steps
+     before `execute_intent` via `_run_planner_pre_execution_steps(...)`.
+   - Supported steps include travel/finance/project/health context prep plus
+     non-travel task templates (`prepare_draft_context`, `compile_prompt_pack`, etc.).
+   - Planner pre-steps now emit explicit `planner_context_step_completed` events into
+     the execution ledger.
+   - Added `tests/smoke_v1_21_intent_runtime_planner_steps.py` and wired it into
+     host/docker/CI gates.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

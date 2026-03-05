@@ -60,6 +60,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_21_provider_registry.py" \
   "$ROOT/tests/smoke_v1_21_approval_gate_store.py" \
   "$ROOT/tests/smoke_v1_21_step_executor_path.py" \
+  "$ROOT/tests/smoke_v1_21_intent_runtime_planner_steps.py" \
   "$ROOT/tests/smoke_v1_21_generic_skill_execution.py" \
   "$ROOT/tests/smoke_v1_21_plan_builder.py" \
   "$ROOT/tests/smoke_v1_21_gate_alias.py" \
@@ -116,6 +117,7 @@ python3 "$ROOT/tests/smoke_v1_21_provider_outcomes.py"
 python3 "$ROOT/tests/smoke_v1_21_provider_registry.py"
 python3 "$ROOT/tests/smoke_v1_21_approval_gate_store.py"
 python3 "$ROOT/tests/smoke_v1_21_step_executor_path.py"
+python3 "$ROOT/tests/smoke_v1_21_intent_runtime_planner_steps.py"
 python3 "$ROOT/tests/smoke_v1_21_generic_skill_execution.py"
 python3 "$ROOT/tests/smoke_v1_21_plan_builder.py"
 python3 "$ROOT/tests/smoke_v1_21_gate_alias.py"

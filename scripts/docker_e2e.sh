@@ -165,6 +165,7 @@ run_step "smoke_v1_21_provider_outcomes" python3 tests/smoke_v1_21_provider_outc
 run_step "smoke_v1_21_provider_registry" python3 tests/smoke_v1_21_provider_registry.py
 run_step "smoke_v1_21_approval_gate_store" python3 tests/smoke_v1_21_approval_gate_store.py
 run_step "smoke_v1_21_step_executor_path" python3 tests/smoke_v1_21_step_executor_path.py
+run_step "smoke_v1_21_intent_runtime_planner_steps" python3 tests/smoke_v1_21_intent_runtime_planner_steps.py
 run_step "smoke_v1_21_generic_skill_execution" python3 tests/smoke_v1_21_generic_skill_execution.py
 run_step "smoke_v1_21_plan_builder" python3 tests/smoke_v1_21_plan_builder.py
 run_step "smoke_v1_21_gate_alias" python3 tests/smoke_v1_21_gate_alias.py

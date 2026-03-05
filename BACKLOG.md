@@ -197,6 +197,12 @@ Branch: `main`
     `recent_outcome:+N/-N` scoring reasons.
   - `ea/app/skills/generic.py` now records provider outcomes on runtime success/failure.
   - added `tests/smoke_v1_21_provider_outcomes.py` and wired it into host/docker/CI gates.
+- [DONE] Planner pre-execution ownership in free-text runtime:
+  - `ea/app/intent_runtime.py` now executes deterministic planner pre-steps
+    through `_run_planner_pre_execution_steps(...)` before `execute_intent`.
+  - planner pre-step completion now emits `planner_context_step_completed` events.
+  - added `tests/smoke_v1_21_intent_runtime_planner_steps.py` and wired it into
+    host/docker/CI gates.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.

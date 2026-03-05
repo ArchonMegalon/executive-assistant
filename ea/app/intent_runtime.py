@@ -26,6 +26,60 @@ from app.planner.step_executor import run_reasoning_step
 from app.poll_ui import build_dynamic_ui, clean_html_for_telegram
 
 
+_PLANNER_PRE_EXEC_STEPS = {
+    "collect_intake_context",
+    "compile_prompt_pack",
+    "prepare_draft_context",
+    "prepare_multimodal_context",
+    "analyze_trip_commitment",
+    "compare_travel_options",
+    "verify_payment_context",
+    "gather_project_context",
+    "review_health_context",
+}
+
+
+def _run_planner_pre_execution_steps(
+    *,
+    session_id: str,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+) -> None:
+    if not session_id:
+        return
+    domain = str((intent_spec or {}).get("domain") or "")
+    task_type = str((intent_spec or {}).get("task_type") or "")
+    objective = str((intent_spec or {}).get("objective") or "")[:200]
+    for row in list(plan_steps or []):
+        step_key = str((row or {}).get("step_key") or "").strip()
+        if step_key not in _PLANNER_PRE_EXEC_STEPS:
+            continue
+        mark_execution_step_status(
+            session_id,
+            step_key,
+            "running",
+            evidence={"domain": domain, "task_type": task_type},
+        )
+        mark_execution_step_status(
+            session_id,
+            step_key,
+            "completed",
+            result={
+                "planner_step": step_key,
+                "status": "deterministic_context_ready",
+                "domain": domain,
+                "task_type": task_type,
+                "objective_preview": objective,
+            },
+        )
+        append_execution_event(
+            session_id,
+            event_type="planner_context_step_completed",
+            message=f"Planner pre-execution step completed: {step_key}",
+            payload={"step_key": step_key, "domain": domain, "task_type": task_type},
+        )
+
+
 async def execute_approved_intent_action(
     *,
     tg,
@@ -302,6 +356,12 @@ async def handle_free_text_intent(
             pass
 
     requires_approval = bool((intent_spec or {}).get("autonomy_level") == "approval_required")
+    if session_id:
+        _run_planner_pre_execution_steps(
+            session_id=session_id,
+            plan_steps=list(plan_steps or []),
+            intent_spec=dict(intent_spec or {}),
+        )
     if requires_approval:
         action_id = ""
         approval_gate_id = ""
