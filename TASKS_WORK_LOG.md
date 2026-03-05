@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-011 | P2 | Add blocked-policy smoke case to runbook and smoke script | codex | queued | Validate 403/409 behavior explicitly |
+| Q-012 | P2 | Add release notes changelog for rewrite-kernel commits | codex | queued | Summarize milestones and operational impacts |
 
 ## In Progress
 
@@ -30,6 +30,7 @@ Use this file as the execution queue and progress ledger.
 | D-010 | P2 | Add DB schema status script and make target | codex | done | Added `scripts/db_status.sh` + `make db-status` |
 | D-011 | P2 | Add compact architecture map for kernel surfaces | codex | done | Added `ARCHITECTURE_MAP.md` |
 | D-012 | P2 | Add runnable HTTP examples for all runtime endpoints | codex | done | Added `HTTP_EXAMPLES.http` |
+| D-013 | P2 | Add blocked-policy smoke coverage in tests + script + runbook | codex | done | Validates `403 policy_denied:input_too_large` |
 
 ## Intake Template
 

@@ -28,6 +28,21 @@ curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" >/dev/null
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" >/dev/null
 echo "session/policy ok"
 
+echo "== smoke: blocked policy path =="
+BLOCKED_PAYLOAD="$(mktemp)"
+printf '{"text":"%s"}' "$(python3 - <<'PY'
+print("x" * 20001)
+PY
+)" > "${BLOCKED_PAYLOAD}"
+BLOCKED_CODE="$(curl -sS -o /tmp/ea_blocked_policy_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
+rm -f "${BLOCKED_PAYLOAD}"
+if [[ "${BLOCKED_CODE}" != "403" ]]; then
+  echo "expected 403 for blocked policy path; got ${BLOCKED_CODE}" >&2
+  cat /tmp/ea_blocked_policy_resp.json >&2 || true
+  exit 1
+fi
+echo "blocked policy path ok"
+
 echo "== smoke: observations =="
 curl -fsS -X POST "${BASE}/v1/observations/ingest" -H 'content-type: application/json' \
   -d '{"principal_id":"exec-1","channel":"email","event_type":"thread.opened","payload":{"subject":"Board prep"}}' >/dev/null

@@ -92,3 +92,5 @@ bash scripts/smoke_api.sh
 # or
 make smoke-api
 ```
+
+The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input).

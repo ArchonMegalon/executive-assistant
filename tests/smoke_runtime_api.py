@@ -34,6 +34,13 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert decisions[0]["reason"] == "allowed"
 
 
+def test_rewrite_blocked_policy_flow() -> None:
+    client = _client()
+    blocked = client.post("/v1/rewrite/artifact", json={"text": "x" * 20001})
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "policy_denied:input_too_large"
+
+
 def test_observation_and_delivery_flow() -> None:
     client = _client()
 
