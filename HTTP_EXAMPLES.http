@@ -489,3 +489,28 @@ GET {{host}}/v1/memory/stakeholders?principal_id=exec-1&limit=20
 
 ### Memory -> get stakeholder (principal-scoped)
 GET {{host}}/v1/memory/stakeholders/{{stakeholder_id}}?principal_id=exec-1
+
+### Memory -> upsert decision window (principal-scoped)
+POST {{host}}/v1/memory/decision-windows
+Content-Type: application/json
+
+{
+  "principal_id": "exec-1",
+  "title": "Board response decision",
+  "context": "Choose timing and channel for reply",
+  "opens_at": "2026-03-06T08:00:00+00:00",
+  "closes_at": "2026-03-06T12:00:00+00:00",
+  "urgency": "high",
+  "authority_required": "exec",
+  "status": "open",
+  "notes": "Needs decision before board prep",
+  "source_json": {
+    "source": "manual"
+  }
+}
+
+### Memory -> list decision windows (principal-scoped)
+GET {{host}}/v1/memory/decision-windows?principal_id=exec-1&limit=20
+
+### Memory -> get decision window (principal-scoped)
+GET {{host}}/v1/memory/decision-windows/{{decision_window_id}}?principal_id=exec-1

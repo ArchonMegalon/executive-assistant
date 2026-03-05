@@ -254,6 +254,23 @@ class Stakeholder:
 
 
 @dataclass(frozen=True)
+class DecisionWindow:
+    decision_window_id: str
+    principal_id: str
+    title: str
+    context: str
+    opens_at: str | None
+    closes_at: str | None
+    urgency: str
+    authority_required: str
+    status: str
+    notes: str
+    source_json: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

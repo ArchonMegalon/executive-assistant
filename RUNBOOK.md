@@ -68,6 +68,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/stakeholders` | `200` | validation `422` |
 | GET | `/v1/memory/stakeholders` | `200` | validation `422` |
 | GET | `/v1/memory/stakeholders/{stakeholder_id}` | `200` | `404 stakeholder_not_found` |
+| POST | `/v1/memory/decision-windows` | `200` | validation `422` |
+| GET | `/v1/memory/decision-windows` | `200` | validation `422` |
+| GET | `/v1/memory/decision-windows/{decision_window_id}` | `200` | `404 decision_window_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -165,6 +168,7 @@ Applies:
 - `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
 - `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
 - `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
+- `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 
 Check table presence/counts:
 
@@ -325,6 +329,16 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders 
   -d '{"principal_id":"exec-1","display_name":"Sam Stakeholder","channel_ref":"email:sam@example.com","authority_level":"approver","importance":"high","response_cadence":"fast","tone_pref":"diplomatic","sensitivity":"confidential","escalation_policy":"notify_exec","open_loops_json":{"board_follow_up":"open"},"friction_points_json":{"scheduling":"tight"},"last_interaction_at":"2026-03-06T15:30:00+00:00","status":"active","notes":"Needs concise summaries"}'
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders?principal_id=exec-1&limit=10"
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders/<stakeholder_id>?principal_id=exec-1"
+```
+
+Principal-scoped decision windows:
+
+```bash
+curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows \
+  -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","title":"Board response decision","context":"Choose timing and channel for reply","opens_at":"2026-03-06T08:00:00+00:00","closes_at":"2026-03-06T12:00:00+00:00","urgency":"high","authority_required":"exec","status":"open","notes":"Needs decision before board prep","source_json":{"source":"manual"}}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows?principal_id=exec-1&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows/<decision_window_id>?principal_id=exec-1"
 ```
 ## 9) Script Help Smoke
 

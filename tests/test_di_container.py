@@ -146,6 +146,15 @@ class _FakeMemoryRuntime:
     def get_stakeholder(self, stakeholder_id: str, **_: object):
         return None
 
+    def upsert_decision_window(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_decision_windows(self, **_: object):
+        return []
+
+    def get_decision_window(self, decision_window_id: str, **_: object):
+        return None
+
     def upsert_authority_binding(self, **_: object):
         raise AssertionError("not expected in this test")
 

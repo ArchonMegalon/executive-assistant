@@ -11,7 +11,7 @@ Usage:
 Runs end-to-end HTTP smoke checks for liveness/readiness/version,
 rewrite/session/policy/approvals, observations, delivery outbox, channel adapters,
 tool/connector registry endpoints, task-contract endpoints, plan compile endpoint,
-and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference/follow-up/deadline-window/stakeholder endpoints.
+and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference/follow-up/deadline-window/stakeholder/decision-window endpoints.
 
 Auth:
   If EA_API_TOKEN is set, the script sends Authorization: Bearer <token>.
@@ -225,6 +225,14 @@ if [[ -z "${STAKEHOLDER_ID}" ]]; then
 fi
 curl -fsS "${BASE}/v1/memory/stakeholders?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/stakeholders/${STAKEHOLDER_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
+DECISION_JSON="$(curl -fsS -X POST "${BASE}/v1/memory/decision-windows" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","title":"Board response decision","context":"Choose timing and channel for reply","opens_at":"2026-03-06T08:00:00+00:00","closes_at":"2026-03-06T12:00:00+00:00","urgency":"high","authority_required":"exec","status":"open","notes":"Needs decision before board prep","source_json":{"source":"smoke"}}')"
+DECISION_WINDOW_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("decision_window_id",""))' <<<"${DECISION_JSON}")"
+if [[ -z "${DECISION_WINDOW_ID}" ]]; then
+  fail 13 "missing decision_window_id from decision-window response"
+fi
+curl -fsS "${BASE}/v1/memory/decision-windows?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/memory/decision-windows/${DECISION_WINDOW_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
 echo "memory ok"
 
 echo "smoke complete"

@@ -646,6 +646,46 @@ def test_memory_stakeholders_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "stakeholder_not_found"
 
 
+def test_memory_decision_windows_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/decision-windows",
+        json={
+            "principal_id": "exec-1",
+            "title": "Board response decision",
+            "context": "Choose timing and channel for reply",
+            "opens_at": "2026-03-06T08:00:00+00:00",
+            "closes_at": "2026-03-06T12:00:00+00:00",
+            "urgency": "high",
+            "authority_required": "exec",
+            "status": "open",
+            "notes": "Needs decision before board prep",
+            "source_json": {"source": "manual"},
+        },
+    )
+    assert created.status_code == 200
+    decision_window_id = created.json()["decision_window_id"]
+
+    listed = client.get("/v1/memory/decision-windows", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["decision_window_id"] == decision_window_id for row in listed.json())
+
+    fetched = client.get(
+        f"/v1/memory/decision-windows/{decision_window_id}",
+        params={"principal_id": "exec-1"},
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["title"] == "Board response decision"
+
+    wrong_scope = client.get(
+        f"/v1/memory/decision-windows/{decision_window_id}",
+        params={"principal_id": "exec-2"},
+    )
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "decision_window_not_found"
+
+
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
     client = _client(storage_backend="memory", auth_token=token)

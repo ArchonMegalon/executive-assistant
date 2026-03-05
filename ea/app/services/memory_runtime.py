@@ -5,6 +5,7 @@ import logging
 from app.domain.models import (
     AuthorityBinding,
     Commitment,
+    DecisionWindow,
     DeadlineWindow,
     DeliveryPreference,
     Entity,
@@ -19,6 +20,8 @@ from app.repositories.authority_bindings import AuthorityBindingRepository, InMe
 from app.repositories.authority_bindings_postgres import PostgresAuthorityBindingRepository
 from app.repositories.commitments import CommitmentRepository, InMemoryCommitmentRepository
 from app.repositories.commitments_postgres import PostgresCommitmentRepository
+from app.repositories.decision_windows import DecisionWindowRepository, InMemoryDecisionWindowRepository
+from app.repositories.decision_windows_postgres import PostgresDecisionWindowRepository
 from app.repositories.deadline_windows import DeadlineWindowRepository, InMemoryDeadlineWindowRepository
 from app.repositories.deadline_windows_postgres import PostgresDeadlineWindowRepository
 from app.repositories.delivery_preferences import DeliveryPreferenceRepository, InMemoryDeliveryPreferenceRepository
@@ -46,6 +49,7 @@ class MemoryRuntimeService:
         entities: EntityRepository,
         relationships: RelationshipRepository,
         commitments: CommitmentRepository,
+        decision_windows: DecisionWindowRepository,
         deadline_windows: DeadlineWindowRepository,
         stakeholders: StakeholderRepository,
         authority_bindings: AuthorityBindingRepository,
@@ -57,6 +61,7 @@ class MemoryRuntimeService:
         self._entities = entities
         self._relationships = relationships
         self._commitments = commitments
+        self._decision_windows = decision_windows
         self._deadline_windows = deadline_windows
         self._stakeholders = stakeholders
         self._authority_bindings = authority_bindings
@@ -273,6 +278,56 @@ class MemoryRuntimeService:
 
     def get_commitment(self, commitment_id: str, *, principal_id: str) -> Commitment | None:
         found = self._commitments.get(commitment_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
+    def upsert_decision_window(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        context: str = "",
+        opens_at: str | None = None,
+        closes_at: str | None = None,
+        urgency: str = "medium",
+        authority_required: str = "manager",
+        status: str = "open",
+        notes: str = "",
+        source_json: dict[str, object] | None = None,
+        decision_window_id: str | None = None,
+    ) -> DecisionWindow:
+        return self._decision_windows.upsert_decision_window(
+            principal_id=principal_id,
+            title=title,
+            context=context,
+            opens_at=opens_at,
+            closes_at=closes_at,
+            urgency=urgency,
+            authority_required=authority_required,
+            status=status,
+            notes=notes,
+            source_json=source_json,
+            decision_window_id=decision_window_id,
+        )
+
+    def list_decision_windows(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[DecisionWindow]:
+        return self._decision_windows.list_decision_windows(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_decision_window(self, decision_window_id: str, *, principal_id: str) -> DecisionWindow | None:
+        found = self._decision_windows.get(decision_window_id)
         if not found:
             return None
         if found.principal_id != str(principal_id or "").strip():
@@ -607,6 +662,23 @@ def _build_commitment_repo(settings: Settings) -> CommitmentRepository:
     return InMemoryCommitmentRepository()
 
 
+def _build_decision_window_repo(settings: Settings) -> DecisionWindowRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.decision_windows")
+    if backend == "memory":
+        return InMemoryDecisionWindowRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresDecisionWindowRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresDecisionWindowRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres decision-window backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryDecisionWindowRepository()
+
+
 def _build_deadline_window_repo(settings: Settings) -> DeadlineWindowRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.deadline_windows")
@@ -700,6 +772,7 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         entities=_build_entity_repo(resolved),
         relationships=_build_relationship_repo(resolved),
         commitments=_build_commitment_repo(resolved),
+        decision_windows=_build_decision_window_repo(resolved),
         deadline_windows=_build_deadline_window_repo(resolved),
         stakeholders=_build_stakeholder_repo(resolved),
         authority_bindings=_build_authority_binding_repo(resolved),

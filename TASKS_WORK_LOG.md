@@ -14,7 +14,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | Q-044 | P2 | Keep queue log current as slices are added/closed | codex | queued | Use this file as the default intake point for new tasks |
-| Q-132 | P0 | Continue Milestone 5 memory layer (`decision_windows` seed table + API stubs + principal scoping) | codex | queued | Chain after stakeholders slice commit |
+| Q-133 | P0 | Continue Milestone 5 memory layer (`communication_policies` seed table + API stubs + principal scoping) | codex | queued | Chain after decision-windows slice commit |
 
 ## In Progress
 
@@ -163,6 +163,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-129 | P0 | Continue Milestone 5 memory layer (`follow_ups` seed table + API stubs + principal scoping) | codex | done | Added `v0_16`, follow-up repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 | D-130 | P0 | Continue Milestone 5 memory layer (`deadline_windows` seed table + API stubs + principal scoping) | codex | done | Added `v0_17`, deadline-window repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 | D-131 | P0 | Continue Milestone 5 memory layer (`stakeholders` seed table + API stubs + principal scoping) | codex | done | Added `v0_18`, stakeholder repositories + API stubs, and principal-scoped list/get behavior with test coverage |
+| D-132 | P0 | Continue Milestone 5 memory layer (`decision_windows` seed table + API stubs + principal scoping) | codex | done | Added `v0_19`, decision-window repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 
 ## Intake Template
 

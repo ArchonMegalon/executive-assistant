@@ -68,6 +68,9 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Stakeholder primitives:
   - `stakeholders` store for principal-scoped stakeholder profile rows
   - API endpoints for stakeholder upsert/list/get with principal-scoped reads
+- Decision-window primitives:
+  - `decision_windows` store for principal-scoped decision-window tracking rows
+  - API endpoints for decision-window upsert/list/get with principal-scoped reads
 - Postgres + in-memory repository backends for kernel stores.
 - Kernel SQL migrations:
   - `v0_2` execution ledger
@@ -87,6 +90,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `v0_16` follow-ups kernel seed
   - `v0_17` deadline windows kernel seed
   - `v0_18` stakeholders kernel seed
+  - `v0_19` decision windows kernel seed
 - Operator tooling:
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
@@ -119,6 +123,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Memory runtime now supports principal-scoped follow-up records for proactive follow-through stubs.
 - Memory runtime now supports principal-scoped deadline-window records for proactive scheduling windows.
 - Memory runtime now supports principal-scoped stakeholder records for social-context modeling stubs.
+- Memory runtime now supports principal-scoped decision-window records for decision-timing stubs.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.
