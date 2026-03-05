@@ -49,7 +49,47 @@ def build_task_plan_steps(*, intent_spec: dict[str, Any]) -> list[dict[str, Any]
             )
         )
 
-    if task_type in {"travel_rescue", "trip_context_pack"} or domain == "travel":
+    if task_type == "collect_structured_intake":
+        steps.append(
+            _step(
+                "collect_intake_context",
+                "Collect Intake Context",
+                preconditions={"requires_structured_input": True},
+                evidence={"sources": ["intake_form", "chat_context"]},
+                task_type="collect_structured_intake",
+            )
+        )
+    elif task_type == "compile_prompt_pack":
+        steps.append(
+            _step(
+                "compile_prompt_pack",
+                "Compile Prompt Pack",
+                preconditions={"requires_prompt_goal": True},
+                evidence={"sources": ["request_notes", "context_summary"]},
+                task_type="compile_prompt_pack",
+            )
+        )
+    elif task_type == "polish_human_tone":
+        steps.append(
+            _step(
+                "prepare_draft_context",
+                "Prepare Draft Context",
+                preconditions={"requires_draft_text": True},
+                evidence={"sources": ["draft_text", "style_profile"]},
+                task_type="polish_human_tone",
+            )
+        )
+    elif task_type == "generate_multimodal_support_asset":
+        steps.append(
+            _step(
+                "prepare_multimodal_context",
+                "Prepare Multimodal Context",
+                preconditions={"requires_asset_goal": True},
+                evidence={"sources": ["prompt_pack", "asset_constraints"]},
+                task_type="generate_multimodal_support_asset",
+            )
+        )
+    elif task_type in {"travel_rescue", "trip_context_pack"} or domain == "travel":
         steps.append(
             _step(
                 "analyze_trip_commitment",

@@ -58,6 +58,9 @@ def test_plan_builder_module_and_session_store_wiring() -> None:
     assert "analyze_trip_commitment" in planner_src
     assert "verify_payment_context" in planner_src
     assert "gather_project_context" in planner_src
+    assert "collect_intake_context" in planner_src
+    assert "compile_prompt_pack" in planner_src
+    assert "prepare_draft_context" in planner_src
     assert "provider_candidates" in planner_src
     assert "output_artifact_type" in planner_src
     assert "return build_task_plan_steps(intent_spec=dict(intent_spec or {}))" in store_src
@@ -108,6 +111,30 @@ def test_task_aware_plan_steps() -> None:
     assert "verify_payment_context" in finance_keys
     finance_exec = _step_by_key(finance_plan, "execute_intent")
     assert str(finance_exec.get("task_type") or "") == "typed_safe_action"
+
+    polish_spec = compile_intent_spec(
+        text="Please polish this draft so it sounds natural and concise.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    polish_plan = build_plan_steps(intent_spec=polish_spec)
+    polish_keys = _step_keys(polish_plan)
+    assert "prepare_draft_context" in polish_keys
+    polish_exec = _step_by_key(polish_plan, "execute_intent")
+    assert str(polish_exec.get("task_type") or "") == "polish_human_tone"
+
+    intake_spec = compile_intent_spec(
+        text="Create an intake form questionnaire for new client onboarding.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    intake_plan = build_plan_steps(intent_spec=intake_spec)
+    intake_keys = _step_keys(intake_plan)
+    assert "collect_intake_context" in intake_keys
+    intake_exec = _step_by_key(intake_plan, "execute_intent")
+    assert str(intake_exec.get("task_type") or "") == "collect_structured_intake"
     _pass("v1.21 task-aware plan builder behavior")
 
 
