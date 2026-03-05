@@ -15,6 +15,11 @@ fi
 cd "${EA_ROOT}"
 docker compose up -d --build
 
+if [[ "${EA_BOOTSTRAP_DB:-0}" == "1" ]]; then
+  echo "EA_BOOTSTRAP_DB=1 -> applying kernel migrations"
+  bash "${EA_ROOT}/scripts/db_bootstrap.sh"
+fi
+
 HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 HOST_PORT="${HOST_PORT:-8090}"
 
