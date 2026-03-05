@@ -146,6 +146,44 @@ existing capability routing behavior.
      - approved-callback execute path
    - `tests/smoke_v1_21_step_executor_path.py` added and wired into host/docker/CI gates.
 
+15. Task-type metadata propagation into step graph + ledger:
+   - `ea/app/planner/intent_compiler.py` now emits deterministic `task_type` values for:
+     - travel rescue / trip context
+     - finance typed-safe-action
+     - guided intake
+     - prompt-pack compile
+     - tone polish
+   - `ea/app/planner/plan_builder.py` now annotates step rows with:
+     - `task_type`
+     - `provider_candidates`
+     - `output_artifact_type`
+     - `budget_policy`
+     - `approval_default`
+   - `ea/app/execution/session_store.py::create_execution_session(...)` now persists
+     those planner metadata fields into execution-step JSON payloads
+     (preconditions/evidence), keeping plan intent visible in the execution ledger.
+   - Expanded smokes:
+     - `tests/smoke_v1_21_intent_spec_v2_shape.py`
+     - `tests/smoke_v1_21_plan_builder.py`
+     - `tests/smoke_v1_20_execution_sessions.py`
+
+16. Slash `/skill` planner-session uplift:
+   - `ea/app/skill_commands.py` now seeds slash command sessions with
+     `build_plan_steps(intent_spec=...)` when a skill contract/task type is known.
+   - staged skill typed-actions now include `session_id`, linking action callbacks back
+     to the execution ledger.
+   - Updated smokes:
+     - `tests/smoke_v1_20_slash_command_sessions.py`
+     - `tests/smoke_v1_20_slash_command_behavior.py`
+
+17. Non-travel task-template expansion:
+   - Added deterministic pre-exec step templates in `plan_builder.py` for:
+     - `collect_structured_intake`
+     - `compile_prompt_pack`
+     - `polish_human_tone`
+     - `generate_multimodal_support_asset`
+   - plan-builder smoke now asserts these task-template paths and metadata.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

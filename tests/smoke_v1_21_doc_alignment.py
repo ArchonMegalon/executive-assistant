@@ -29,6 +29,9 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_v1_21_generic_skill_execution.py" in guide
     assert "smoke_v1_21_plan_builder.py" in guide
     assert "smoke_v1_21_gate_alias.py" in guide
+    assert "smoke_v1_20_execution_sessions.py" in guide
+    assert "smoke_v1_20_slash_command_sessions.py" in guide
+    assert "smoke_v1_20_slash_command_behavior.py" in guide
     assert "smoke_python_compile_tree.py" in guide
     assert "approval_class" in guide
     assert "provider_broker.py" in guide
@@ -37,6 +40,7 @@ def test_v121_doc_alignment() -> None:
     assert "capability_router.py" in guide
     assert "intent_compiler.py" in guide
     assert "step_executor.py" in guide
+    assert "skill_commands.py" in guide
     assert "plan_builder.py" in guide
     assert "poll_listener.py" in guide
     assert "send_budgets" in guide

@@ -164,6 +164,26 @@ Branch: `main`
   - `ea/app/intent_runtime.py` now routes provider-backed reasoning execution through
     planner step executor for free-text and approved-callback paths.
   - added `tests/smoke_v1_21_step_executor_path.py` and wired it into host/docker/CI gates.
+- [DONE] Task-type metadata propagation into execution ledger:
+  - `ea/app/planner/intent_compiler.py` now emits deterministic `task_type` values
+    for travel, finance, intake, prompt-pack, and tone-polish intents.
+  - `ea/app/planner/plan_builder.py` now annotates plan steps with
+    `task_type`, `provider_candidates`, `output_artifact_type`, and budget/approval metadata.
+  - `ea/app/execution/session_store.py::create_execution_session(...)` now persists
+    planner step metadata into execution-step preconditions/evidence payloads.
+  - expanded plan/intent/execution smokes to assert metadata shape + persistence.
+- [DONE] Slash `/skill` planner-session uplift:
+  - `ea/app/skill_commands.py` now seeds slash sessions with task-aware plan steps
+    via `build_plan_steps(...)` when a skill contract is known.
+  - staged skill typed-actions now persist `session_id` for execution-ledger linkage.
+  - slash-session and slash-runtime smokes updated for planner/session linkage.
+- [DONE] Non-travel task template expansion:
+  - plan builder now emits deterministic pre-exec steps for:
+    - `collect_structured_intake`
+    - `compile_prompt_pack`
+    - `polish_human_tone`
+    - `generate_multimodal_support_asset`
+  - `tests/smoke_v1_21_plan_builder.py` expanded to validate new template paths.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.
