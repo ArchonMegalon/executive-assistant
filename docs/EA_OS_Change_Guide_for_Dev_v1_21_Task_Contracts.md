@@ -447,6 +447,36 @@ existing capability routing behavior.
    - Added `tests/smoke_v1_22_step_executor_ledger_seed.py` and wired it into
      host/docker/CI release gates.
 
+37. Planner plan-store seed:
+   - Added planner plan-store module:
+     - `ea/app/planner/plan_store.py`
+       - `fetch_session_plan_steps(...)`
+       - `resolve_execute_step_metadata(...)`
+   - `step_executor` metadata resolution now falls back to plan-store execute-step
+     metadata when in-memory plan rows are absent or incomplete.
+   - Added `tests/smoke_v1_22_plan_store_seed.py` and wired it into
+     host/docker/CI release gates.
+
+38. Pre-step parity guard:
+   - Added `tests/smoke_v1_22_pre_step_parity.py` to enforce parity between:
+     - deterministic pre-steps emitted by planner task templates;
+     - deterministic pre-steps handled by `step_executor`.
+   - This prevents new plan-template steps from silently bypassing planner
+     pre-step execution logic.
+
+39. Planner export-surface consolidation:
+   - Expanded `app.planner` package exports to include:
+     - task matcher helpers
+     - plan-store helpers
+     - ledger pre-step helpers
+   - Added `tests/smoke_v1_22_planner_exports.py` to guard import-surface
+     stability for planner integration call sites.
+
+40. Planner/runtime contract drift guard:
+   - Added `tests/smoke_v1_22_planner_runtime_contracts.py` to assert:
+     - runtime uses ledger-first pre-step execution path;
+     - step executor uses plan-store metadata fallback for execute-step metadata.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

@@ -232,11 +232,82 @@ Owner: Codex runtime worker
         in-memory plan fallback.
       - added/wired `tests/smoke_v1_22_step_executor_ledger_seed.py`.
 
-23. `IN_PROGRESS` - Planner plan-store seed for persisted step graph access.
+23. `DONE` - Planner plan-store seed for persisted step graph access.
    - Deliverables:
       - add planner module to fetch plan steps for session ids from execution ledger.
       - expose helper for execute-step metadata resolution from persisted rows.
       - add smoke coverage for plan-store retrieval and metadata extraction behavior.
+   - Progress:
+      - added `ea/app/planner/plan_store.py`.
+      - `step_executor` now falls back to persisted execute-step metadata.
+      - added/wired `tests/smoke_v1_22_plan_store_seed.py`.
+
+24. `DONE` - Expand step-executor pre-step coverage for remaining task templates.
+   - Deliverables:
+      - ensure all deterministic pre-step keys in plan templates are covered by
+        step-executor pre-step set.
+      - add smoke coverage for step-template/pre-step-set parity.
+   - Progress:
+      - expanded `_PLANNER_PRE_EXEC_STEPS` coverage for new task-template keys.
+      - added/wired `tests/smoke_v1_22_pre_step_parity.py`.
+
+25. `DONE` - Broker/runtime claim guard for provider-outcome integration.
+   - Deliverables:
+      - add smoke that verifies broker imports outcome-adjustment path and emits
+        `recent_outcome` reason tags when adjustments are present.
+      - add smoke that verifies deterministic preview execution does not emit
+        positive provider score deltas.
+   - Progress:
+      - provider broker smoke already verifies `recent_outcome:+N` reason tags.
+      - synthetic preview outcome smoke now enforces non-positive synthetic scoring.
+
+26. `DONE` - Planner integration export surface consolidation.
+   - Deliverables:
+      - export matcher, plan-store, and ledger pre-step helpers from `app.planner`.
+      - add smoke guard for planner package integration surface.
+   - Progress:
+      - expanded `ea/app/planner/__init__.py` exports for matcher/plan-store/ledger helpers.
+      - added/wired `tests/smoke_v1_22_planner_exports.py`.
+
+27. `DONE` - Planner/runtime contract drift guard expansion.
+   - Deliverables:
+      - add smoke asserting runtime uses ledger-first pre-step execution and
+        plan-store fallback metadata path.
+      - keep host gates aligned with new planner modules/functions.
+   - Progress:
+      - added/wired `tests/smoke_v1_22_planner_runtime_contracts.py`.
+      - host/docker/CI gates now enforce planner-runtime contract wiring.
+
+28. `DONE` - Planner metadata retrieval consolidation follow-up.
+   - Deliverables:
+      - standardize execute-step metadata lookup through plan-store helper paths.
+      - add smoke asserting metadata fallback remains deterministic when provider
+        list is absent and only provider_key is present.
+   - Progress:
+      - extended `smoke_v1_22_plan_store_seed.py` with provider-key-only fallback case.
+      - verified deterministic metadata fallback behavior in host gates.
+
+29. `DONE` - Execute full docker E2E gate on current queue state.
+   - Deliverables:
+      - run `bash scripts/docker_e2e.sh`.
+      - resolve failures if runtime-safe and rerun to pass.
+   - Progress:
+      - fixed legacy world-model migration compatibility for preexisting
+        `artifacts` table shapes (`tenant` -> `tenant_key` and required columns).
+      - reran `bash scripts/docker_e2e.sh` to PASS including design/e2e/real-milestone suites.
+
+30. `DONE` - Broad host gate verification after docker E2E pass.
+   - Deliverables:
+      - run `EA_SKIP_FULL_GATES=1 bash scripts/run_v119_smoke.sh`.
+      - keep queue/gate/docs alignment passing after latest planner/runtime additions.
+   - Progress:
+      - `EA_SKIP_FULL_GATES=1 bash scripts/run_v119_smoke.sh` passed.
+      - queue/gate/docs alignment remained green after planner/runtime additions.
+
+31. `IN_PROGRESS` - Local commit + queue continuation checkpoint.
+   - Deliverables:
+      - commit current queue slice locally.
+      - keep next queued architectural hardening item open for continued chaining.
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`

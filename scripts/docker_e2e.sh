@@ -201,6 +201,10 @@ run_step "smoke_v1_22_schema_manifest_gate" python3 tests/smoke_v1_22_schema_man
 run_step "smoke_v1_22_synthetic_preview_outcomes" python3 tests/smoke_v1_22_synthetic_preview_outcomes.py
 run_step "smoke_v1_22_task_matcher" python3 tests/smoke_v1_22_task_matcher.py
 run_step "smoke_v1_22_step_executor_ledger_seed" python3 tests/smoke_v1_22_step_executor_ledger_seed.py
+run_step "smoke_v1_22_plan_store_seed" python3 tests/smoke_v1_22_plan_store_seed.py
+run_step "smoke_v1_22_pre_step_parity" python3 tests/smoke_v1_22_pre_step_parity.py
+run_step "smoke_v1_22_planner_exports" python3 tests/smoke_v1_22_planner_exports.py
+run_step "smoke_v1_22_planner_runtime_contracts" python3 tests/smoke_v1_22_planner_runtime_contracts.py
 run_step "smoke_work_tasks_contract" python3 tests/smoke_work_tasks_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py

@@ -64,6 +64,7 @@ def test_world_model_seed_contract_presence() -> None:
     db_src = (ROOT / "ea/app/db.py").read_text(encoding="utf-8")
     module_src = (ROOT / "ea/app/planner/world_model.py").read_text(encoding="utf-8")
     migration = ROOT / "ea/schema/20260305_v1_22_commitment_runtime_seed.sql"
+    migration_src = migration.read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS commitments" in db_src
     assert "CREATE TABLE IF NOT EXISTS artifacts" in db_src
     assert "CREATE TABLE IF NOT EXISTS followups" in db_src
@@ -73,6 +74,8 @@ def test_world_model_seed_contract_presence() -> None:
     assert "def create_followup(" in module_src
     assert "def create_decision_window(" in module_src
     assert migration.exists(), "missing commitment-runtime seed migration"
+    assert "ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS tenant_key TEXT;" in migration_src
+    assert "ALTER TABLE commitments ADD COLUMN IF NOT EXISTS tenant_key TEXT;" in migration_src
     _pass("v1.22 world-model seed contract presence")
 
 

@@ -80,6 +80,10 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_synthetic_preview_outcomes.py" \
   "$ROOT/tests/smoke_v1_22_task_matcher.py" \
   "$ROOT/tests/smoke_v1_22_step_executor_ledger_seed.py" \
+  "$ROOT/tests/smoke_v1_22_plan_store_seed.py" \
+  "$ROOT/tests/smoke_v1_22_pre_step_parity.py" \
+  "$ROOT/tests/smoke_v1_22_planner_exports.py" \
+  "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py" \
   "$ROOT/tests/smoke_work_tasks_contract.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
@@ -151,6 +155,10 @@ python3 "$ROOT/tests/smoke_v1_22_schema_manifest_gate.py"
 python3 "$ROOT/tests/smoke_v1_22_synthetic_preview_outcomes.py"
 python3 "$ROOT/tests/smoke_v1_22_task_matcher.py"
 python3 "$ROOT/tests/smoke_v1_22_step_executor_ledger_seed.py"
+python3 "$ROOT/tests/smoke_v1_22_plan_store_seed.py"
+python3 "$ROOT/tests/smoke_v1_22_pre_step_parity.py"
+python3 "$ROOT/tests/smoke_v1_22_planner_exports.py"
+python3 "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py"
 python3 "$ROOT/tests/smoke_work_tasks_contract.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"

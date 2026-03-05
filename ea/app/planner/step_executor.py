@@ -184,6 +184,7 @@ def run_pre_execution_steps_from_ledger(
 
 def _execute_step_metadata(
     *,
+    session_id: str,
     plan_steps: list[dict[str, Any]],
     intent_spec: dict[str, Any],
 ) -> dict[str, Any]:
@@ -194,11 +195,28 @@ def _execute_step_metadata(
     task_type = str((execute_row or {}).get("task_type") or (intent_spec or {}).get("task_type") or "free_text_response")
     artifact_type = str((execute_row or {}).get("output_artifact_type") or "chat_response")
     providers = [str(x) for x in list((execute_row or {}).get("provider_candidates") or []) if str(x or "").strip()]
-    return {
+    metadata = {
         "task_type": task_type,
         "output_artifact_type": artifact_type,
         "provider_candidates": providers,
     }
+    if not providers or task_type in {"", "free_text_response"}:
+        try:
+            from app.planner.plan_store import resolve_execute_step_metadata
+
+            resolved = resolve_execute_step_metadata(session_id, fallback=metadata)
+            if isinstance(resolved, dict):
+                metadata = {
+                    "task_type": str(resolved.get("task_type") or metadata["task_type"]),
+                    "output_artifact_type": str(resolved.get("output_artifact_type") or metadata["output_artifact_type"]),
+                    "provider_candidates": [
+                        str(x) for x in list(resolved.get("provider_candidates") or metadata["provider_candidates"])
+                        if str(x or "").strip()
+                    ],
+                }
+        except Exception:
+            pass
+    return metadata
 
 
 async def execute_planned_reasoning_step(
@@ -217,7 +235,7 @@ async def execute_planned_reasoning_step(
     reasoning_runner: Callable[..., Awaitable[str]] | None = None,
     timeout_sec: float = 240.0,
 ) -> dict[str, Any]:
-    metadata = _execute_step_metadata(plan_steps=plan_steps, intent_spec=intent_spec)
+    metadata = _execute_step_metadata(session_id=session_id, plan_steps=plan_steps, intent_spec=intent_spec)
     mark_step(
         session_id,
         "execute_intent",

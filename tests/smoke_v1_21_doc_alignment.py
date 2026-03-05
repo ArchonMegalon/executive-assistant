@@ -45,6 +45,10 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_v1_22_synthetic_preview_outcomes.py" in guide
     assert "smoke_v1_22_task_matcher.py" in guide
     assert "smoke_v1_22_step_executor_ledger_seed.py" in guide
+    assert "smoke_v1_22_plan_store_seed.py" in guide
+    assert "smoke_v1_22_pre_step_parity.py" in guide
+    assert "smoke_v1_22_planner_exports.py" in guide
+    assert "smoke_v1_22_planner_runtime_contracts.py" in guide
     assert "smoke_v1_20_execution_sessions.py" in guide
     assert "smoke_v1_20_slash_command_sessions.py" in guide
     assert "smoke_v1_20_slash_command_behavior.py" in guide
@@ -91,6 +95,11 @@ def test_v121_doc_alignment() -> None:
     assert "synthetic_preview" in guide
     assert "task_matcher.py" in guide
     assert "run_pre_execution_steps_from_ledger" in guide
+    assert "plan_store.py" in guide
+    assert "resolve_execute_step_metadata" in guide
+    assert "pre-step execution logic" in guide
+    assert "Planner export-surface" in guide
+    assert "ledger-first pre-step execution path" in guide
     assert "provider_outcomes" in guide
     assert "20260305_v1_21_provider_outcomes.sql" in guide
     assert "world_model.py" in guide

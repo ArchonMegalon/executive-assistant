@@ -11,7 +11,9 @@ from .memory_candidates import (
     list_memory_candidates_for_sync,
     mark_memory_candidate_review,
 )
-from .step_executor import run_reasoning_step
+from .plan_store import fetch_session_plan_steps, resolve_execute_step_metadata
+from .step_executor import list_queued_pre_execution_steps, run_pre_execution_steps_from_ledger, run_reasoning_step
+from .task_matcher import detect_high_risk_action, infer_domain, match_task_type
 from .task_registry import TaskContract, list_task_contracts, task_or_none, task_or_raise
 from .world_model import create_artifact, create_decision_window, create_followup, upsert_commitment
 
@@ -21,6 +23,10 @@ __all__ = [
     "compile_intent_spec_v2",
     "build_task_plan_steps",
     "run_reasoning_step",
+    "run_pre_execution_steps_from_ledger",
+    "list_queued_pre_execution_steps",
+    "fetch_session_plan_steps",
+    "resolve_execute_step_metadata",
     "list_provider_contracts",
     "provider_or_raise",
     "providers_for_task",
@@ -38,6 +44,9 @@ __all__ = [
     "task_or_none",
     "task_or_raise",
     "list_task_contracts",
+    "infer_domain",
+    "detect_high_risk_action",
+    "match_task_type",
 ]
 
 
