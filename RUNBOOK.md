@@ -23,6 +23,14 @@ bash scripts/deploy.sh
 make deploy
 ```
 
+Memory-only local mode (API without DB dependency):
+
+```bash
+EA_MEMORY_ONLY=1 bash scripts/deploy.sh
+# or
+make deploy-memory
+```
+
 With schema bootstrap in one step:
 
 ```bash

@@ -53,7 +53,9 @@ EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
 
 # quick local memory profile
 cp .env.local.example .env
-bash scripts/deploy.sh
+EA_MEMORY_ONLY=1 bash scripts/deploy.sh
+# or
+make deploy-memory
 ```
 
 Then open `http://localhost:8090/health`.

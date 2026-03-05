@@ -1,0 +1,5 @@
+services:
+  ea-api:
+    environment:
+      - EA_LEDGER_BACKEND=memory
+    depends_on: []

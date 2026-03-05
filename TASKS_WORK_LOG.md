@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-022 | P3 | Add compose override for API-only memory profile | codex | queued | Avoid starting DB for pure local memory runs |
+| Q-023 | P3 | Add pre-commit hook template for local smoke/test checks | codex | queued | Keep baseline quality guard local |
 
 ## In Progress
 
@@ -41,6 +41,7 @@ Use this file as the execution queue and progress ledger.
 | D-021 | P3 | Add OpenAPI snapshot prune script + make target | codex | done | Added `scripts/prune_openapi.sh` and `make openapi-prune` |
 | D-022 | P3 | Add API contract summary table to runbook | codex | done | Method/route/success/error snapshot in `RUNBOOK.md` |
 | D-023 | P3 | Add local memory-profile env template | codex | done | Added `.env.local.example` and README quick-start note |
+| D-024 | P3 | Add compose memory override + deploy-memory path | codex | done | Added `docker-compose.memory.yml` and `EA_MEMORY_ONLY=1` flow |
 
 ## Intake Template
 

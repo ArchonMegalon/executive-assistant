@@ -1,7 +1,10 @@
-.PHONY: deploy deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune
 
 deploy:
 	bash scripts/deploy.sh
+
+deploy-memory:
+	EA_MEMORY_ONLY=1 bash scripts/deploy.sh
 
 deploy-bootstrap:
 	EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
