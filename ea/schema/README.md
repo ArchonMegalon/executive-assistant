@@ -24,3 +24,4 @@ Current rewrite kernel migrations:
 - `20260305_v0_19_decision_windows_kernel.sql`
 - `20260305_v0_20_communication_policies_kernel.sql`
 - `20260305_v0_21_follow_up_rules_kernel.sql`
+- `20260305_v0_22_interruption_budgets_kernel.sql`

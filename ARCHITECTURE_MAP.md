@@ -56,6 +56,9 @@
   - `POST /v1/memory/follow-up-rules`
   - `GET /v1/memory/follow-up-rules`
   - `GET /v1/memory/follow-up-rules/{rule_id}`
+  - `POST /v1/memory/interruption-budgets`
+  - `GET /v1/memory/interruption-budgets`
+  - `GET /v1/memory/interruption-budgets/{budget_id}`
   - (`ea/app/api/routes/memory.py`)
 - Observation runtime:
   - `POST /v1/observations/ingest`
@@ -85,6 +88,7 @@
 - Decision context: `DecisionWindow`
 - Communication context: `CommunicationPolicy`
 - Follow-up rule context: `FollowUpRule`
+- Interruption budget context: `InterruptionBudget`
 - Channel runtime: `ObservationEvent`, `DeliveryOutboxItem`
 - File: `ea/app/domain/models.py`
 
@@ -149,6 +153,9 @@
 - Follow-up rules:
   - in-memory: `ea/app/repositories/follow_up_rules.py`
   - postgres: `ea/app/repositories/follow_up_rules_postgres.py`
+- Interruption budgets:
+  - in-memory: `ea/app/repositories/interruption_budgets.py`
+  - postgres: `ea/app/repositories/interruption_budgets_postgres.py`
 - Delivery outbox:
   - in-memory: `ea/app/repositories/delivery_outbox.py`
   - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
@@ -175,6 +182,7 @@
 - `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 - `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
 - `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
+- `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
 
 ## Operator Tooling
 

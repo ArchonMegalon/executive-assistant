@@ -77,6 +77,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/follow-up-rules` | `200` | validation `422` |
 | GET | `/v1/memory/follow-up-rules` | `200` | validation `422` |
 | GET | `/v1/memory/follow-up-rules/{rule_id}` | `200` | `404 follow_up_rule_not_found` |
+| POST | `/v1/memory/interruption-budgets` | `200` | validation `422` |
+| GET | `/v1/memory/interruption-budgets` | `200` | validation `422` |
+| GET | `/v1/memory/interruption-budgets/{budget_id}` | `200` | `404 interruption_budget_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -177,6 +180,7 @@ Applies:
 - `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 - `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
 - `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
+- `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
 
 Check table presence/counts:
 

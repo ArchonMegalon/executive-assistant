@@ -173,6 +173,15 @@ class _FakeMemoryRuntime:
     def get_follow_up_rule(self, rule_id: str, **_: object):
         return None
 
+    def upsert_interruption_budget(self, **_: object):
+        raise AssertionError("not expected in this test")
+
+    def list_interruption_budgets(self, **_: object):
+        return []
+
+    def get_interruption_budget(self, budget_id: str, **_: object):
+        return None
+
     def upsert_authority_binding(self, **_: object):
         raise AssertionError("not expected in this test")
 

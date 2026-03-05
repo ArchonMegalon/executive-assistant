@@ -29,6 +29,7 @@ Applies kernel migrations in order:
   - v0_19 decision windows kernel
   - v0_20 communication policies kernel
   - v0_21 follow-up rules kernel
+  - v0_22 interruption budgets kernel
 EOF
   exit 0
 fi
@@ -64,6 +65,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_19_decision_windows_kernel.sql"
   "ea/schema/20260305_v0_20_communication_policies_kernel.sql"
   "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql"
+  "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql"
 )
 
 echo "== EA DB bootstrap =="

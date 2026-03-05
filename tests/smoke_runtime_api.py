@@ -611,6 +611,39 @@ def test_memory_follow_up_rules_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "follow_up_rule_not_found"
 
 
+def test_memory_interruption_budgets_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/interruption-budgets",
+        json={
+            "principal_id": "exec-1",
+            "scope": "workday",
+            "window_kind": "daily",
+            "budget_minutes": 120,
+            "used_minutes": 30,
+            "reset_at": "2026-03-07T00:00:00+00:00",
+            "quiet_hours_json": {"start": "22:00", "end": "07:00"},
+            "status": "active",
+            "notes": "Keep non-critical interruptions bounded",
+        },
+    )
+    assert created.status_code == 200
+    budget_id = created.json()["budget_id"]
+
+    listed = client.get("/v1/memory/interruption-budgets", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["budget_id"] == budget_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/interruption-budgets/{budget_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["scope"] == "workday"
+
+    wrong_scope = client.get(f"/v1/memory/interruption-budgets/{budget_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "interruption_budget_not_found"
+
+
 def test_memory_deadline_windows_principal_scope_flow() -> None:
     client = _client(storage_backend="memory")
 

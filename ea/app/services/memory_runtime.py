@@ -12,6 +12,7 @@ from app.domain.models import (
     Entity,
     FollowUpRule,
     FollowUp,
+    InterruptionBudget,
     MemoryCandidate,
     MemoryItem,
     RelationshipEdge,
@@ -39,6 +40,8 @@ from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepo
 from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
 from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
+from app.repositories.interruption_budgets import InterruptionBudgetRepository, InMemoryInterruptionBudgetRepository
+from app.repositories.interruption_budgets_postgres import PostgresInterruptionBudgetRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryItemRepository
@@ -66,6 +69,7 @@ class MemoryRuntimeService:
         delivery_preferences: DeliveryPreferenceRepository,
         follow_ups: FollowUpRepository,
         follow_up_rules: FollowUpRuleRepository,
+        interruption_budgets: InterruptionBudgetRepository,
     ) -> None:
         self._candidates = candidates
         self._items = items
@@ -80,6 +84,7 @@ class MemoryRuntimeService:
         self._delivery_preferences = delivery_preferences
         self._follow_ups = follow_ups
         self._follow_up_rules = follow_up_rules
+        self._interruption_budgets = interruption_budgets
 
     def stage_candidate(
         self,
@@ -685,6 +690,54 @@ class MemoryRuntimeService:
             return None
         return found
 
+    def upsert_interruption_budget(
+        self,
+        *,
+        principal_id: str,
+        scope: str,
+        window_kind: str = "daily",
+        budget_minutes: int = 120,
+        used_minutes: int = 0,
+        reset_at: str | None = None,
+        quiet_hours_json: dict[str, object] | None = None,
+        status: str = "active",
+        notes: str = "",
+        budget_id: str | None = None,
+    ) -> InterruptionBudget:
+        return self._interruption_budgets.upsert_budget(
+            principal_id=principal_id,
+            scope=scope,
+            window_kind=window_kind,
+            budget_minutes=budget_minutes,
+            used_minutes=used_minutes,
+            reset_at=reset_at,
+            quiet_hours_json=quiet_hours_json,
+            status=status,
+            notes=notes,
+            budget_id=budget_id,
+        )
+
+    def list_interruption_budgets(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[InterruptionBudget]:
+        return self._interruption_budgets.list_budgets(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_interruption_budget(self, budget_id: str, *, principal_id: str) -> InterruptionBudget | None:
+        found = self._interruption_budgets.get(budget_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
 
 def _backend_mode(settings: Settings) -> str:
     return str(settings.storage.backend or "auto").strip().lower()
@@ -914,6 +967,23 @@ def _build_follow_up_rule_repo(settings: Settings) -> FollowUpRuleRepository:
     return InMemoryFollowUpRuleRepository()
 
 
+def _build_interruption_budget_repo(settings: Settings) -> InterruptionBudgetRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.interruption_budgets")
+    if backend == "memory":
+        return InMemoryInterruptionBudgetRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresInterruptionBudgetRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresInterruptionBudgetRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres interruption-budget backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryInterruptionBudgetRepository()
+
+
 def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeService:
     resolved = settings or get_settings()
     return MemoryRuntimeService(
@@ -930,4 +1000,5 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         delivery_preferences=_build_delivery_preference_repo(resolved),
         follow_ups=_build_follow_up_repo(resolved),
         follow_up_rules=_build_follow_up_rule_repo(resolved),
+        interruption_budgets=_build_interruption_budget_repo(resolved),
     )

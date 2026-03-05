@@ -38,6 +38,7 @@ Removed:
 - `/v1/memory/decision-windows*` upserts/list/gets principal-scoped decision windows
 - `/v1/memory/communication-policies*` upserts/list/gets principal-scoped communication policies
 - `/v1/memory/follow-up-rules*` upserts/list/gets principal-scoped follow-up automation rules
+- `/v1/memory/interruption-budgets*` upserts/list/gets principal-scoped interruption budgets
 - rewrite execution now records `plan_compiled` and executes the primary typed plan step in the ledger
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
@@ -79,6 +80,7 @@ Removed:
 - decision windows kernel migration: `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
 - communication policies kernel migration: `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
 - follow-up rules kernel migration: `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
+- interruption budgets kernel migration: `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
 
 ## Auth
 

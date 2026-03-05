@@ -305,6 +305,22 @@ class FollowUpRule:
 
 
 @dataclass(frozen=True)
+class InterruptionBudget:
+    budget_id: str
+    principal_id: str
+    scope: str
+    window_kind: str
+    budget_minutes: int
+    used_minutes: int
+    reset_at: str | None
+    quiet_hours_json: dict[str, Any]
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

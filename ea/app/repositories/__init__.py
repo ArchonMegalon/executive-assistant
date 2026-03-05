@@ -24,6 +24,8 @@ from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepo
 from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
 from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
+from app.repositories.interruption_budgets import InterruptionBudgetRepository, InMemoryInterruptionBudgetRepository
+from app.repositories.interruption_budgets_postgres import PostgresInterruptionBudgetRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
@@ -58,6 +60,7 @@ __all__ = [
     "DeadlineWindowRepository",
     "FollowUpRepository",
     "FollowUpRuleRepository",
+    "InterruptionBudgetRepository",
     "EntityRepository",
     "ExecutionLedgerRepository",
     "ArtifactRepository",
@@ -67,6 +70,7 @@ __all__ = [
     "InMemoryDeadlineWindowRepository",
     "InMemoryFollowUpRepository",
     "InMemoryFollowUpRuleRepository",
+    "InMemoryInterruptionBudgetRepository",
     "InMemoryArtifactRepository",
     "InMemoryAuthorityBindingRepository",
     "InMemoryCommunicationPolicyRepository",
@@ -96,6 +100,7 @@ __all__ = [
     "PostgresDeadlineWindowRepository",
     "PostgresFollowUpRepository",
     "PostgresFollowUpRuleRepository",
+    "PostgresInterruptionBudgetRepository",
     "PostgresObservationEventRepository",
     "PostgresPolicyDecisionRepository",
     "PostgresEntityRepository",

@@ -16,6 +16,8 @@ from app.repositories.follow_ups import FollowUpRepository, InMemoryFollowUpRepo
 from app.repositories.follow_up_rules import FollowUpRuleRepository, InMemoryFollowUpRuleRepository
 from app.repositories.follow_up_rules_postgres import PostgresFollowUpRuleRepository
 from app.repositories.follow_ups_postgres import PostgresFollowUpRepository
+from app.repositories.interruption_budgets import InterruptionBudgetRepository, InMemoryInterruptionBudgetRepository
+from app.repositories.interruption_budgets_postgres import PostgresInterruptionBudgetRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository, MemoryCandidateRepository
 from app.repositories.memory_candidates_postgres import PostgresMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryItemRepository
@@ -53,6 +55,9 @@ __all__ = [
     "FollowUpRuleRepository",
     "InMemoryFollowUpRuleRepository",
     "PostgresFollowUpRuleRepository",
+    "InterruptionBudgetRepository",
+    "InMemoryInterruptionBudgetRepository",
+    "PostgresInterruptionBudgetRepository",
     "MemoryCandidateRepository",
     "InMemoryMemoryCandidateRepository",
     "PostgresMemoryCandidateRepository",

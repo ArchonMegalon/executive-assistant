@@ -353,6 +353,34 @@ class FollowUpRuleOut(BaseModel):
     updated_at: str
 
 
+class InterruptionBudgetIn(BaseModel):
+    principal_id: str = Field(min_length=1, max_length=200)
+    scope: str = Field(min_length=1, max_length=200)
+    window_kind: str = Field(default="daily", max_length=80)
+    budget_minutes: int = Field(default=120, ge=0, le=10080)
+    used_minutes: int = Field(default=0, ge=0, le=10080)
+    reset_at: str | None = Field(default=None, max_length=80)
+    quiet_hours_json: dict[str, object] = Field(default_factory=dict)
+    status: str = Field(default="active", max_length=80)
+    notes: str = Field(default="", max_length=5000)
+    budget_id: str | None = Field(default=None, max_length=200)
+
+
+class InterruptionBudgetOut(BaseModel):
+    budget_id: str
+    principal_id: str
+    scope: str
+    window_kind: str
+    budget_minutes: int
+    used_minutes: int
+    reset_at: str | None
+    quiet_hours_json: dict[str, object]
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
 class PromoteCandidateIn(BaseModel):
     reviewer: str = Field(min_length=1, max_length=200)
     sharing_policy: str = Field(default="private", max_length=100)
@@ -584,6 +612,23 @@ def _follow_up_rule_out(row) -> FollowUpRuleOut:
         escalation_policy=row.escalation_policy,
         conditions_json=row.conditions_json,
         action_json=row.action_json,
+        status=row.status,
+        notes=row.notes,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _interruption_budget_out(row) -> InterruptionBudgetOut:
+    return InterruptionBudgetOut(
+        budget_id=row.budget_id,
+        principal_id=row.principal_id,
+        scope=row.scope,
+        window_kind=row.window_kind,
+        budget_minutes=row.budget_minutes,
+        used_minutes=row.used_minutes,
+        reset_at=row.reset_at,
+        quiet_hours_json=row.quiet_hours_json,
         status=row.status,
         notes=row.notes,
         created_at=row.created_at,
@@ -1183,3 +1228,50 @@ def get_memory_follow_up_rule(
     if not row:
         raise HTTPException(status_code=404, detail="follow_up_rule_not_found")
     return _follow_up_rule_out(row)
+
+
+@router.post("/interruption-budgets")
+def upsert_memory_interruption_budget(
+    body: InterruptionBudgetIn,
+    container: AppContainer = Depends(get_container),
+) -> InterruptionBudgetOut:
+    row = container.memory_runtime.upsert_interruption_budget(
+        principal_id=body.principal_id,
+        scope=body.scope,
+        window_kind=body.window_kind,
+        budget_minutes=body.budget_minutes,
+        used_minutes=body.used_minutes,
+        reset_at=body.reset_at,
+        quiet_hours_json=body.quiet_hours_json,
+        status=body.status,
+        notes=body.notes,
+        budget_id=body.budget_id,
+    )
+    return _interruption_budget_out(row)
+
+
+@router.get("/interruption-budgets")
+def list_memory_interruption_budgets(
+    principal_id: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    status: str | None = Query(default=None),
+    container: AppContainer = Depends(get_container),
+) -> list[InterruptionBudgetOut]:
+    rows = container.memory_runtime.list_interruption_budgets(
+        principal_id=principal_id,
+        limit=limit,
+        status=status,
+    )
+    return [_interruption_budget_out(row) for row in rows]
+
+
+@router.get("/interruption-budgets/{budget_id}")
+def get_memory_interruption_budget(
+    budget_id: str,
+    principal_id: str = Query(min_length=1, max_length=200),
+    container: AppContainer = Depends(get_container),
+) -> InterruptionBudgetOut:
+    row = container.memory_runtime.get_interruption_budget(budget_id, principal_id=principal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="interruption_budget_not_found")
+    return _interruption_budget_out(row)
