@@ -58,3 +58,4 @@ Operator commands are documented in `RUNBOOK.md`.
 Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make smoke-api`).
 A compact runtime surface map is documented in `ARCHITECTURE_MAP.md`.
 Runnable endpoint samples are in `HTTP_EXAMPLES.http`.
+Release notes are tracked in `CHANGELOG.md`.

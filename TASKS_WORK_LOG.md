@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-012 | P2 | Add release notes changelog for rewrite-kernel commits | codex | queued | Summarize milestones and operational impacts |
+| Q-013 | P2 | Add endpoint-level error contract notes to `HTTP_EXAMPLES.http` | codex | queued | Include expected 403/404 samples |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the execution queue and progress ledger.
 | D-011 | P2 | Add compact architecture map for kernel surfaces | codex | done | Added `ARCHITECTURE_MAP.md` |
 | D-012 | P2 | Add runnable HTTP examples for all runtime endpoints | codex | done | Added `HTTP_EXAMPLES.http` |
 | D-013 | P2 | Add blocked-policy smoke coverage in tests + script + runbook | codex | done | Validates `403 policy_denied:input_too_large` |
+| D-014 | P2 | Add rewrite-kernel changelog | codex | done | Added `CHANGELOG.md` with milestones |
 
 ## Intake Template
 
