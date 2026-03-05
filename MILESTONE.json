@@ -1,0 +1,25 @@
+{
+  "milestone": "rewrite-kernel-baseline",
+  "version": "0.2.0",
+  "date": "2026-03-05",
+  "features": [
+    "execution_ledger",
+    "policy_decision_audit",
+    "channel_observations",
+    "delivery_outbox",
+    "telegram_adapter_ingest",
+    "api_smoke_tests",
+    "ci_smoke_workflow",
+    "operator_runbook"
+  ],
+  "migrations": [
+    "ea/schema/20260305_v0_2_execution_ledger_kernel.sql",
+    "ea/schema/20260305_v0_3_channel_runtime_kernel.sql",
+    "ea/schema/20260305_v0_4_policy_decisions_kernel.sql"
+  ],
+  "env_contract": {
+    "EA_LEDGER_BACKEND": "memory|postgres|auto",
+    "DATABASE_URL": "required_for_postgres",
+    "EA_BOOTSTRAP_DB": "0|1"
+  }
+}

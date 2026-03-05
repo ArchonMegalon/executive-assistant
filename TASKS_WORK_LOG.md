@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-015 | P2 | Add explicit versioned milestone tag file for current rewrite baseline | codex | queued | Keep release checkpoint machine-readable |
+| Q-016 | P2 | Add release checklist markdown for shipping this baseline | codex | queued | Include preflight, migrate, smoke, rollback notes |
 
 ## In Progress
 
@@ -34,6 +34,7 @@ Use this file as the execution queue and progress ledger.
 | D-014 | P2 | Add rewrite-kernel changelog | codex | done | Added `CHANGELOG.md` with milestones |
 | D-015 | P2 | Add error-contract HTTP examples (`403`/`404`) | codex | done | Updated `HTTP_EXAMPLES.http` |
 | D-016 | P2 | Add environment/profile backend matrix | codex | done | Added `ENVIRONMENT_MATRIX.md` |
+| D-017 | P2 | Add machine-readable milestone checkpoint file | codex | done | Added `MILESTONE.json` |
 
 ## Intake Template
 
