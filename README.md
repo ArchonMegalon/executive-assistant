@@ -59,3 +59,4 @@ Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `
 A compact runtime surface map is documented in `ARCHITECTURE_MAP.md`.
 Runnable endpoint samples are in `HTTP_EXAMPLES.http`.
 Release notes are tracked in `CHANGELOG.md`.
+Environment/profile recommendations are in `ENVIRONMENT_MATRIX.md`.

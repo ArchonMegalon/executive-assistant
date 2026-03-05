@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-014 | P2 | Add env/profile matrix doc for runtime backends (`memory` vs `postgres`) | codex | queued | Include recommended defaults per environment |
+| Q-015 | P2 | Add explicit versioned milestone tag file for current rewrite baseline | codex | queued | Keep release checkpoint machine-readable |
 
 ## In Progress
 
@@ -33,6 +33,7 @@ Use this file as the execution queue and progress ledger.
 | D-013 | P2 | Add blocked-policy smoke coverage in tests + script + runbook | codex | done | Validates `403 policy_denied:input_too_large` |
 | D-014 | P2 | Add rewrite-kernel changelog | codex | done | Added `CHANGELOG.md` with milestones |
 | D-015 | P2 | Add error-contract HTTP examples (`403`/`404`) | codex | done | Updated `HTTP_EXAMPLES.http` |
+| D-016 | P2 | Add environment/profile backend matrix | codex | done | Added `ENVIRONMENT_MATRIX.md` |
 
 ## Intake Template
 
