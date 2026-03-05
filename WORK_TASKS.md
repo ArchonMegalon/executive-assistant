@@ -153,11 +153,34 @@ Owner: Codex runtime worker
       - stale approval callbacks are blocked without consuming typed action rows.
       - guard smoke enforces no button-context fallback and zero consume calls for invalid gates.
 
-16. `IN_PROGRESS` - Proactive runtime integration hardening.
+16. `DONE` - Proactive runtime integration hardening.
    - Deliverables:
       - add deterministic smoke for proactive role loop tenant selection.
       - add docs/readme note for enabling `proactive` compose profile.
       - verify schema migration coverage includes proactive + approval deadline files.
+   - Progress:
+      - added `smoke_v1_22_proactive_runtime_integration.py`.
+      - wired proactive integration smoke into host/docker/CI gates.
+      - README + change guide now document proactive profile enablement.
+      - docker e2e schema list includes approval deadline migration coverage.
+
+17. `DONE` - Expand task-contract surface to full capability vocabulary.
+   - Deliverables:
+      - add task contracts for uncovered capability task types.
+      - extend planner task templates for new task classes.
+      - add smoke that enforces capability-task to task-contract coverage.
+      - wire new smoke into host/docker/CI gates.
+   - Progress:
+      - expanded `task_registry.py` with missing task contracts.
+      - extended `plan_builder.py` templates and intent task mapping.
+      - added `smoke_v1_22_task_contract_surface.py`.
+      - updated gate scripts/workflow + task/intent/plan smokes.
+
+18. `IN_PROGRESS` - Schema manifest drift guard for Docker E2E.
+   - Deliverables:
+      - introduce explicit runtime schema manifest file.
+      - make `docker_e2e.sh` apply schema via manifest order.
+      - add smoke to enforce e2e script references manifest (not hardcoded partial list).
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`

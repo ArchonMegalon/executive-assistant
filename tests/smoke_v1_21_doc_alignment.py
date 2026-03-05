@@ -39,6 +39,8 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_v1_22_sim_user_harness.py" in guide
     assert "smoke_v1_22_route_signal_router.py" in guide
     assert "smoke_v1_22_proactive_role_wiring.py" in guide
+    assert "smoke_v1_22_proactive_runtime_integration.py" in guide
+    assert "smoke_v1_22_task_contract_surface.py" in guide
     assert "smoke_v1_20_execution_sessions.py" in guide
     assert "smoke_v1_20_slash_command_sessions.py" in guide
     assert "smoke_v1_20_slash_command_behavior.py" in guide
@@ -72,6 +74,10 @@ def test_v121_doc_alignment() -> None:
     assert "output_artifact_type" in guide
     assert "EA_ROLE=proactive" in guide
     assert "roles/proactive.py" in guide
+    assert "typed_safe_action" in guide
+    assert "approval_router" in guide
+    assert "bridge_external_event" in guide
+    assert "run_secondary_research_pass" in guide
     assert "provider_outcomes" in guide
     assert "20260305_v1_21_provider_outcomes.sql" in guide
     assert "world_model.py" in guide

@@ -51,3 +51,4 @@ This repository also carries EA OS design/runtime artifacts used by release gate
 - `scripts/run_v120_smoke.sh`
 - `scripts/run_v121_smoke.sh`
 - `scripts/run_v122_smoke.sh`
+- optional proactive lane: `docker compose --profile proactive up -d ea-proactive`

@@ -7,10 +7,23 @@ from typing import Any
 
 
 def _domain_from_text(text_lower: str) -> str:
-    if any(k in text_lower for k in ("pay", "invoice", "iban", "transfer", "refund", "budget", "cost")):
-        return "finance"
-    if any(k in text_lower for k in ("trip", "flight", "hotel", "airport", "layover", "travel", "route")):
+    travel_keywords = ("trip", "flight", "hotel", "airport", "layover", "travel", "route", "itinerary")
+    finance_keywords = ("pay", "invoice", "iban", "refund", "budget", "cost", "wire transfer", "bank transfer")
+    travel_hit = any(k in text_lower for k in travel_keywords)
+    finance_hit = any(k in text_lower for k in finance_keywords)
+    if "transfer" in text_lower and any(k in text_lower for k in ("iban", "invoice", "payment", "wire", "bank")):
+        finance_hit = True
+    if travel_hit and not finance_hit:
         return "travel"
+    if finance_hit and not travel_hit:
+        return "finance"
+    if travel_hit and finance_hit:
+        # Prefer travel when finance wording is incidental to trip context.
+        if any(k in text_lower for k in ("airport transfer", "hotel transfer", "route", "layover", "itinerary")):
+            return "travel"
+        return "finance"
+    if "transfer" in text_lower:
+        return "finance"
     if any(k in text_lower for k in ("meeting", "project", "deadline", "proposal", "roadmap", "deliverable")):
         return "project"
     if any(k in text_lower for k in ("health", "doctor", "therapy", "med", "appointment", "symptom")):
@@ -19,6 +32,16 @@ def _domain_from_text(text_lower: str) -> str:
 
 
 def _task_type_from_text(text_lower: str, *, domain: str, high_risk: bool, url_present: bool) -> str:
+    if any(k in text_lower for k in ("research pass", "secondary research", "deep research")):
+        return "run_secondary_research_pass"
+    if any(k in text_lower for k in ("strategy pack", "strategy memo", "strategic options")):
+        return "strategy_pack"
+    if any(k in text_lower for k in ("feedback intake", "collect feedback", "feedback form")):
+        return "feedback_intake"
+    if any(k in text_lower for k in ("bridge event", "webhook ingest", "external event")):
+        return "bridge_external_event"
+    if any(k in text_lower for k in ("bridge action", "dispatch action", "external action")):
+        return "bridge_external_action"
     if any(k in text_lower for k in ("polish", "humanize", "rewrite", "tone")):
         return "polish_human_tone"
     if any(k in text_lower for k in ("prompt pack", "compile prompt", "prompt template")):
@@ -26,12 +49,18 @@ def _task_type_from_text(text_lower: str, *, domain: str, high_risk: bool, url_p
     if any(k in text_lower for k in ("intake", "questionnaire", "form", "survey")):
         return "collect_structured_intake"
     if domain == "travel":
+        if any(k in text_lower for k in ("route video", "arrival video", "render route")):
+            return "route_video_render"
+        if any(k in text_lower for k in ("reprice", "price drop", "optimize cost", "cheaper option")):
+            return "optimize_trip_cost"
         if any(k in text_lower for k in ("book", "rebook", "reroute", "cancel", "layover", "risk", "rescue")):
             return "travel_rescue"
         return "trip_context_pack"
     if url_present and any(k in text_lower for k in ("summarize", "extract", "analyze", "review")):
-        return "compile_prompt_pack"
+        return "run_secondary_research_pass"
     if domain == "finance":
+        if high_risk:
+            return "approval_router"
         return "typed_safe_action"
     return ""
 
@@ -46,19 +75,11 @@ def compile_intent_spec_v2(
     raw = str(text or "").strip()
     text_lower = raw.lower()
     url_present = bool(has_url) or bool(re.search(r"https?://", raw))
-    high_risk = any(
-        k in text_lower
-        for k in (
-            "pay",
-            "transfer",
-            "book",
-            "cancel",
-            "delete",
-            "terminate",
-            "sign",
-            "approve",
-        )
-    )
+    high_risk_keywords = ("pay", "book", "cancel", "delete", "terminate", "sign", "approve")
+    transfer_high_risk = False
+    if "transfer" in text_lower and "airport transfer" not in text_lower and "hotel transfer" not in text_lower:
+        transfer_high_risk = any(k in text_lower for k in ("iban", "bank", "wire", "invoice", "payment", "money"))
+    high_risk = any(k in text_lower for k in high_risk_keywords) or transfer_high_risk
     question_like = raw.endswith("?") or any(
         w in text_lower for w in ("what", "why", "how", "when", "where", "summarize", "explain")
     )

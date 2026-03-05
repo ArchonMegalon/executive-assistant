@@ -47,6 +47,10 @@ def test_task_registry_module_and_contracts_present() -> None:
     assert "travel_rescue" in src
     assert "trip_context_pack" in src
     assert "collect_structured_intake" in src
+    assert "typed_safe_action" in src
+    assert "run_secondary_research_pass" in src
+    assert "bridge_external_event" in src
+    assert "approval_router" in src
     _pass("v1.21 task-contract registry module presence")
 
 
@@ -70,6 +74,15 @@ def test_capability_router_uses_task_contract_priority() -> None:
     assert bool(tone_plan.get("ok")) is True
     assert str(tone_plan.get("task_contract_key")) == "polish_human_tone"
     assert str(tone_plan.get("task_contract_approval_default")) == "none"
+
+    approval_plan = build_capability_plan("approval_router")
+    assert bool(approval_plan.get("ok")) is True
+    assert str(approval_plan.get("primary")) == "approvethis"
+    assert str(approval_plan.get("task_contract_approval_default")) == "explicit_callback_required"
+
+    bridge_plan = build_capability_plan("bridge_external_event")
+    assert bool(bridge_plan.get("ok")) is True
+    assert str(bridge_plan.get("primary")) in {"apix_drive", "browseract"}
     _pass("v1.21 task-contract capability planning behavior")
 
 

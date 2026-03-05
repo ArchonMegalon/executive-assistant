@@ -59,6 +59,16 @@ def build_task_plan_steps(*, intent_spec: dict[str, Any]) -> list[dict[str, Any]
                 task_type="collect_structured_intake",
             )
         )
+    elif task_type == "feedback_intake":
+        steps.append(
+            _step(
+                "collect_feedback_context",
+                "Collect Feedback Context",
+                preconditions={"requires_feedback_payload": True},
+                evidence={"sources": ["feedback_form", "chat_context"]},
+                task_type="feedback_intake",
+            )
+        )
     elif task_type == "compile_prompt_pack":
         steps.append(
             _step(
@@ -87,6 +97,84 @@ def build_task_plan_steps(*, intent_spec: dict[str, Any]) -> list[dict[str, Any]
                 preconditions={"requires_asset_goal": True},
                 evidence={"sources": ["prompt_pack", "asset_constraints"]},
                 task_type="generate_multimodal_support_asset",
+            )
+        )
+    elif task_type in {"run_secondary_research_pass", "strategy_pack"}:
+        steps.append(
+            _step(
+                "gather_research_context",
+                "Gather Research Context",
+                preconditions={"requires_research_goal": True},
+                evidence={"sources": ["request_notes", "known_facts", "prior_artifacts"]},
+                task_type=task_type,
+            )
+        )
+    elif task_type in {"bridge_external_event", "browser_sidecar_ingress", "event_enrichment"}:
+        steps.append(
+            _step(
+                "ingest_external_event",
+                "Ingest External Event",
+                preconditions={"requires_external_payload": True},
+                evidence={"sources": ["webhook_payload", "source_metadata"]},
+                task_type=task_type,
+            )
+        )
+    elif task_type == "bridge_external_action":
+        steps.append(
+            _step(
+                "prepare_external_action",
+                "Prepare External Action",
+                preconditions={"requires_action_payload": True},
+                evidence={"sources": ["staged_action", "approval_state"]},
+                task_type="bridge_external_action",
+            )
+        )
+    elif task_type == "typed_safe_action":
+        steps.append(
+            _step(
+                "verify_payment_context",
+                "Verify Payment Context",
+                preconditions={"requires_domain": "finance"},
+                evidence={"sources": ["billing", "approvals", "ledger"]},
+                task_type="typed_safe_action",
+            )
+        )
+    elif task_type == "approval_router":
+        steps.append(
+            _step(
+                "build_approval_context",
+                "Build Approval Context",
+                preconditions={"requires_approval_payload": True},
+                evidence={"sources": ["policy_profile", "action_payload", "risk_flags"]},
+                task_type=task_type,
+            )
+        )
+    elif task_type == "route_video_render":
+        steps.append(
+            _step(
+                "prepare_route_render_context",
+                "Prepare Route Render Context",
+                preconditions={"requires_travel_context": True},
+                evidence={"sources": ["travel_dossier", "location_context"]},
+                task_type="route_video_render",
+            )
+        )
+    elif task_type == "optimize_trip_cost":
+        steps.append(
+            _step(
+                "analyze_trip_commitment",
+                "Analyze Trip Commitment",
+                preconditions={"requires_domain": "travel"},
+                evidence={"sources": ["calendar", "mail", "travel_dossier"]},
+                task_type="optimize_trip_cost",
+            )
+        )
+        steps.append(
+            _step(
+                "compare_travel_options",
+                "Compare Travel Options",
+                preconditions={"trip_context_ready": True},
+                task_type="optimize_trip_cost",
             )
         )
     elif task_type in {"travel_rescue", "trip_context_pack"} or domain == "travel":

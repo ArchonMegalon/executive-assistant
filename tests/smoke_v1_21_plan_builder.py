@@ -59,7 +59,12 @@ def test_plan_builder_module_and_session_store_wiring() -> None:
     assert "verify_payment_context" in planner_src
     assert "gather_project_context" in planner_src
     assert "collect_intake_context" in planner_src
+    assert "collect_feedback_context" in planner_src
     assert "compile_prompt_pack" in planner_src
+    assert "gather_research_context" in planner_src
+    assert "ingest_external_event" in planner_src
+    assert "build_approval_context" in planner_src
+    assert "prepare_route_render_context" in planner_src
     assert "prepare_draft_context" in planner_src
     assert "provider_candidates" in planner_src
     assert "output_artifact_type" in planner_src
@@ -135,6 +140,54 @@ def test_task_aware_plan_steps() -> None:
     assert "collect_intake_context" in intake_keys
     intake_exec = _step_by_key(intake_plan, "execute_intent")
     assert str(intake_exec.get("task_type") or "") == "collect_structured_intake"
+
+    feedback_spec = compile_intent_spec(
+        text="Collect feedback form responses and prepare a summary.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    feedback_plan = build_plan_steps(intent_spec=feedback_spec)
+    feedback_keys = _step_keys(feedback_plan)
+    assert "collect_feedback_context" in feedback_keys
+    feedback_exec = _step_by_key(feedback_plan, "execute_intent")
+    assert str(feedback_exec.get("task_type") or "") == "feedback_intake"
+
+    approval_spec = compile_intent_spec(
+        text="Please approve and pay this invoice now.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    approval_plan = build_plan_steps(intent_spec=approval_spec)
+    approval_keys = _step_keys(approval_plan)
+    assert "build_approval_context" in approval_keys
+    approval_exec = _step_by_key(approval_plan, "execute_intent")
+    assert str(approval_exec.get("task_type") or "") == "approval_router"
+
+    research_spec = compile_intent_spec(
+        text="Run a secondary research pass for this market entry strategy.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    research_plan = build_plan_steps(intent_spec=research_spec)
+    research_keys = _step_keys(research_plan)
+    assert "gather_research_context" in research_keys
+    research_exec = _step_by_key(research_plan, "execute_intent")
+    assert str(research_exec.get("task_type") or "") == "run_secondary_research_pass"
+
+    route_spec = compile_intent_spec(
+        text="Render route video for tomorrow airport transfer.",
+        tenant="chat_100284",
+        chat_id=123,
+        has_url=False,
+    )
+    route_plan = build_plan_steps(intent_spec=route_spec)
+    route_keys = _step_keys(route_plan)
+    assert "prepare_route_render_context" in route_keys
+    route_exec = _step_by_key(route_plan, "execute_intent")
+    assert str(route_exec.get("task_type") or "") == "route_video_render"
     _pass("v1.21 task-aware plan builder behavior")
 
 

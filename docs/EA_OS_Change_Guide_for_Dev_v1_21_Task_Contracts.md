@@ -345,6 +345,39 @@ existing capability routing behavior.
      - `ea-proactive` (profile: `proactive`)
    - Added `tests/smoke_v1_22_proactive_role_wiring.py`.
 
+30. Proactive runtime integration hardening:
+   - Added deterministic tenant-selection/runtime smoke:
+     - `tests/smoke_v1_22_proactive_runtime_integration.py`
+   - README now documents enabling proactive profile:
+     - `docker compose --profile proactive up -d ea-proactive`
+   - Docker E2E schema coverage now explicitly includes
+     `20260305_v1_22_approval_gate_deadlines.sql` alongside proactive/runtime
+     schema files.
+
+31. Task-contract surface expansion and drift guard:
+   - Expanded `TASK_REGISTRY` coverage to match the capability task vocabulary:
+     - `typed_safe_action`
+     - `approval_router`
+     - `bridge_external_event`
+     - `bridge_external_action`
+     - `browser_sidecar_ingress`
+     - `event_enrichment`
+     - `feedback_intake`
+     - `optimize_trip_cost`
+     - `route_video_render`
+     - `run_secondary_research_pass`
+     - `strategy_pack`
+   - Expanded planner task templates (`plan_builder.py`) for the new task classes.
+   - Expanded intent compiler deterministic task mapping for:
+     - research/strategy
+     - feedback intake
+     - bridge event/action
+     - route video and trip-cost optimization.
+   - Added `tests/smoke_v1_22_task_contract_surface.py` to assert:
+     - every capability `task_type` has a task contract;
+     - every capability task can produce a capability plan.
+   - Wired new smoke into host/docker/CI release gates.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

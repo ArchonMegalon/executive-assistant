@@ -181,6 +181,8 @@ run_step "smoke_v1_22_approval_callback_guard" python3 tests/smoke_v1_22_approva
 run_step "smoke_v1_22_sim_user_harness" python3 tests/smoke_v1_22_sim_user_harness.py
 run_step "smoke_v1_22_route_signal_router" python3 tests/smoke_v1_22_route_signal_router.py
 run_step "smoke_v1_22_proactive_role_wiring" python3 tests/smoke_v1_22_proactive_role_wiring.py
+run_step "smoke_v1_22_proactive_runtime_integration" python3 tests/smoke_v1_22_proactive_runtime_integration.py
+run_step "smoke_v1_22_task_contract_surface" python3 tests/smoke_v1_22_task_contract_surface.py
 run_step "smoke_work_tasks_contract" python3 tests/smoke_work_tasks_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py

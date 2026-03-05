@@ -86,6 +86,8 @@ jobs:
           python3 tests/smoke_v1_22_sim_user_harness.py
           python3 tests/smoke_v1_22_route_signal_router.py
           python3 tests/smoke_v1_22_proactive_role_wiring.py
+          python3 tests/smoke_v1_22_proactive_runtime_integration.py
+          python3 tests/smoke_v1_22_task_contract_surface.py
           python3 tests/smoke_work_tasks_contract.py
           python3 tests/smoke_v1_19_3_control_plane_decomposition.py
           python3 tests/smoke_v1_19_3_source_acquisition_split.py

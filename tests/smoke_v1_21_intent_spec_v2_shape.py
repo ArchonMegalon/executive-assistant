@@ -65,7 +65,7 @@ def test_intent_spec_v2_shape_for_high_risk_finance() -> None:
     assert spec.get("approval_class") == "explicit_callback_required"
     assert spec.get("risk_class") == "high_impact_action"
     assert spec.get("budget_class") == "high_guardrail"
-    assert spec.get("task_type") == "typed_safe_action"
+    assert spec.get("task_type") == "approval_router"
     assert "payment_context" in list(spec.get("evidence_requirements") or [])
     assert isinstance(spec.get("output_contract"), dict)
     assert str(spec.get("commitment_key")).startswith("finance:chat_100284:")
@@ -85,7 +85,7 @@ def test_intent_spec_v2_shape_for_url_analysis() -> None:
     assert spec.get("intent_type") == "url_analysis"
     assert spec.get("deliverable_type") == "answer_now"
     assert spec.get("approval_class") == "none"
-    assert spec.get("task_type") == "compile_prompt_pack"
+    assert spec.get("task_type") == "run_secondary_research_pass"
     assert "url_evidence" in list(spec.get("evidence_requirements") or [])
     refs = list(spec.get("source_refs") or [])
     assert refs and "https://example.com/post" in refs[0]
