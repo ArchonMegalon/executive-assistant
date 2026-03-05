@@ -20,3 +20,4 @@ Current rewrite kernel migrations:
 - `20260305_v0_15_delivery_preferences_kernel.sql`
 - `20260305_v0_16_follow_ups_kernel.sql`
 - `20260305_v0_17_deadline_windows_kernel.sql`
+- `20260305_v0_18_stakeholders_kernel.sql`

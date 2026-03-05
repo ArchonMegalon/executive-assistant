@@ -30,6 +30,8 @@ from app.repositories.policy_decisions import PolicyDecisionRepository, InMemory
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.relationships import InMemoryRelationshipRepository, RelationshipRepository
 from app.repositories.relationships_postgres import PostgresRelationshipRepository
+from app.repositories.stakeholders import InMemoryStakeholderRepository, StakeholderRepository
+from app.repositories.stakeholders_postgres import PostgresStakeholderRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository, TaskContractRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository, ToolRegistryRepository
@@ -64,11 +66,13 @@ __all__ = [
     "InMemoryMemoryCandidateRepository",
     "InMemoryMemoryItemRepository",
     "InMemoryRelationshipRepository",
+    "InMemoryStakeholderRepository",
     "ObservationEventRepository",
     "PolicyDecisionRepository",
     "RelationshipRepository",
     "MemoryCandidateRepository",
     "MemoryItemRepository",
+    "StakeholderRepository",
     "PostgresArtifactRepository",
     "PostgresAuthorityBindingRepository",
     "PostgresCommitmentRepository",
@@ -83,6 +87,7 @@ __all__ = [
     "PostgresMemoryCandidateRepository",
     "PostgresMemoryItemRepository",
     "PostgresRelationshipRepository",
+    "PostgresStakeholderRepository",
     "PostgresExecutionLedgerRepository",
     "InMemoryTaskContractRepository",
     "TaskContractRepository",

@@ -25,6 +25,7 @@ Applies kernel migrations in order:
   - v0_15 delivery preferences kernel
   - v0_16 follow-ups kernel
   - v0_17 deadline windows kernel
+  - v0_18 stakeholders kernel
 EOF
   exit 0
 fi
@@ -56,6 +57,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_15_delivery_preferences_kernel.sql"
   "ea/schema/20260305_v0_16_follow_ups_kernel.sql"
   "ea/schema/20260305_v0_17_deadline_windows_kernel.sql"
+  "ea/schema/20260305_v0_18_stakeholders_kernel.sql"
 )
 
 echo "== EA DB bootstrap =="

@@ -65,6 +65,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/memory/deadline-windows` | `200` | validation `422` |
 | GET | `/v1/memory/deadline-windows` | `200` | validation `422` |
 | GET | `/v1/memory/deadline-windows/{window_id}` | `200` | `404 deadline_window_not_found` |
+| POST | `/v1/memory/stakeholders` | `200` | validation `422` |
+| GET | `/v1/memory/stakeholders` | `200` | validation `422` |
+| GET | `/v1/memory/stakeholders/{stakeholder_id}` | `200` | `404 stakeholder_not_found` |
 
 Error envelope for failures:
 - `{ "error": { "code": "...", "message": "...", "details": ..., "correlation_id": "..." } }`
@@ -161,6 +164,7 @@ Applies:
 - `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
 - `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
 - `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
+- `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
 
 Check table presence/counts:
 
@@ -311,6 +315,16 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-wind
   -d '{"principal_id":"exec-1","title":"Board prep delivery window","start_at":"2026-03-07T08:30:00+00:00","end_at":"2026-03-07T10:00:00+00:00","status":"open","priority":"high","notes":"Draft must be ready before board sync","source_json":{"source":"manual"}}'
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows?principal_id=exec-1&limit=10"
 curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows/<window_id>?principal_id=exec-1"
+```
+
+Principal-scoped stakeholders:
+
+```bash
+curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders \
+  -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","display_name":"Sam Stakeholder","channel_ref":"email:sam@example.com","authority_level":"approver","importance":"high","response_cadence":"fast","tone_pref":"diplomatic","sensitivity":"confidential","escalation_policy":"notify_exec","open_loops_json":{"board_follow_up":"open"},"friction_points_json":{"scheduling":"tight"},"last_interaction_at":"2026-03-06T15:30:00+00:00","status":"active","notes":"Needs concise summaries"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders?principal_id=exec-1&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders/<stakeholder_id>?principal_id=exec-1"
 ```
 ## 9) Script Help Smoke
 

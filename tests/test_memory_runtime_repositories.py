@@ -9,6 +9,7 @@ from app.repositories.follow_ups import InMemoryFollowUpRepository
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
+from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.services.memory_runtime import MemoryRuntimeService
 
 
@@ -51,6 +52,7 @@ def test_inmemory_memory_runtime_promote_and_reject_paths() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -105,6 +107,7 @@ def test_inmemory_entities_and_relationships_upsert_flow() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -154,6 +157,7 @@ def test_inmemory_commitments_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -191,6 +195,7 @@ def test_inmemory_authority_bindings_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -228,6 +233,7 @@ def test_inmemory_delivery_preferences_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -265,6 +271,7 @@ def test_inmemory_follow_ups_principal_scope() -> None:
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         follow_ups=InMemoryFollowUpRepository(),
     )
 
@@ -301,6 +308,7 @@ def test_inmemory_deadline_windows_principal_scope() -> None:
         relationships=InMemoryRelationshipRepository(),
         commitments=InMemoryCommitmentRepository(),
         deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
         authority_bindings=InMemoryAuthorityBindingRepository(),
         delivery_preferences=InMemoryDeliveryPreferenceRepository(),
         follow_ups=InMemoryFollowUpRepository(),
@@ -329,3 +337,48 @@ def test_inmemory_deadline_windows_principal_scope() -> None:
     right_scope = runtime.get_deadline_window(created.window_id, principal_id="exec-1")
     assert right_scope is not None
     assert right_scope.title == "Board prep delivery window"
+
+
+def test_inmemory_stakeholders_principal_scope() -> None:
+    runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
+        authority_bindings=InMemoryAuthorityBindingRepository(),
+        delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
+    )
+
+    created = runtime.upsert_stakeholder(
+        principal_id="exec-1",
+        display_name="Sam Stakeholder",
+        channel_ref="email:sam@example.com",
+        authority_level="approver",
+        importance="high",
+        response_cadence="fast",
+        tone_pref="diplomatic",
+        sensitivity="confidential",
+        escalation_policy="notify_exec",
+        open_loops_json={"board_follow_up": "open"},
+        friction_points_json={"scheduling": "tight"},
+        last_interaction_at="2026-03-06T15:30:00+00:00",
+        status="active",
+        notes="Needs concise summaries",
+    )
+    assert created.stakeholder_id
+    assert created.principal_id == "exec-1"
+
+    listed = runtime.list_stakeholders(principal_id="exec-1", limit=10)
+    assert len(listed) == 1
+    assert listed[0].stakeholder_id == created.stakeholder_id
+
+    wrong_scope = runtime.get_stakeholder(created.stakeholder_id, principal_id="exec-2")
+    assert wrong_scope is None
+
+    right_scope = runtime.get_stakeholder(created.stakeholder_id, principal_id="exec-1")
+    assert right_scope is not None
+    assert right_scope.display_name == "Sam Stakeholder"

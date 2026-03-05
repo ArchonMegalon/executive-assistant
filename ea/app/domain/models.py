@@ -233,6 +233,27 @@ class DeadlineWindow:
 
 
 @dataclass(frozen=True)
+class Stakeholder:
+    stakeholder_id: str
+    principal_id: str
+    display_name: str
+    channel_ref: str
+    authority_level: str
+    importance: str
+    response_cadence: str
+    tone_pref: str
+    sensitivity: str
+    escalation_policy: str
+    open_loops_json: dict[str, Any]
+    friction_points_json: dict[str, Any]
+    last_interaction_at: str | None
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
     version: str

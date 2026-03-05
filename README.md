@@ -34,6 +34,7 @@ Removed:
 - `/v1/memory/delivery-preferences*` upserts/list/gets principal-scoped delivery preferences
 - `/v1/memory/follow-ups*` upserts/list/gets principal-scoped follow-up records
 - `/v1/memory/deadline-windows*` upserts/list/gets principal-scoped deadline windows
+- `/v1/memory/stakeholders*` upserts/list/gets principal-scoped stakeholder profiles
 - rewrite execution now records `plan_compiled` and executes the primary typed plan step in the ledger
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
@@ -71,6 +72,7 @@ Removed:
 - delivery preferences kernel migration: `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
 - follow-ups kernel migration: `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
 - deadline windows kernel migration: `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
+- stakeholders kernel migration: `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
 
 ## Auth
 

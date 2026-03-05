@@ -608,6 +608,44 @@ def test_memory_deadline_windows_principal_scope_flow() -> None:
     assert wrong_scope.json()["error"]["code"] == "deadline_window_not_found"
 
 
+def test_memory_stakeholders_principal_scope_flow() -> None:
+    client = _client(storage_backend="memory")
+
+    created = client.post(
+        "/v1/memory/stakeholders",
+        json={
+            "principal_id": "exec-1",
+            "display_name": "Sam Stakeholder",
+            "channel_ref": "email:sam@example.com",
+            "authority_level": "approver",
+            "importance": "high",
+            "response_cadence": "fast",
+            "tone_pref": "diplomatic",
+            "sensitivity": "confidential",
+            "escalation_policy": "notify_exec",
+            "open_loops_json": {"board_follow_up": "open"},
+            "friction_points_json": {"scheduling": "tight"},
+            "last_interaction_at": "2026-03-06T15:30:00+00:00",
+            "status": "active",
+            "notes": "Needs concise summaries",
+        },
+    )
+    assert created.status_code == 200
+    stakeholder_id = created.json()["stakeholder_id"]
+
+    listed = client.get("/v1/memory/stakeholders", params={"principal_id": "exec-1", "limit": 10})
+    assert listed.status_code == 200
+    assert any(row["stakeholder_id"] == stakeholder_id for row in listed.json())
+
+    fetched = client.get(f"/v1/memory/stakeholders/{stakeholder_id}", params={"principal_id": "exec-1"})
+    assert fetched.status_code == 200
+    assert fetched.json()["display_name"] == "Sam Stakeholder"
+
+    wrong_scope = client.get(f"/v1/memory/stakeholders/{stakeholder_id}", params={"principal_id": "exec-2"})
+    assert wrong_scope.status_code == 404
+    assert wrong_scope.json()["error"]["code"] == "stakeholder_not_found"
+
+
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
     client = _client(storage_backend="memory", auth_token=token)

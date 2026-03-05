@@ -11,7 +11,7 @@ Usage:
 Runs end-to-end HTTP smoke checks for liveness/readiness/version,
 rewrite/session/policy/approvals, observations, delivery outbox, channel adapters,
 tool/connector registry endpoints, task-contract endpoints, plan compile endpoint,
-and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference/follow-up/deadline-window endpoints.
+and memory candidate/item/entity/relationship/commitment/authority-binding/delivery-preference/follow-up/deadline-window/stakeholder endpoints.
 
 Auth:
   If EA_API_TOKEN is set, the script sends Authorization: Bearer <token>.
@@ -217,6 +217,14 @@ if [[ -z "${WINDOW_ID}" ]]; then
 fi
 curl -fsS "${BASE}/v1/memory/deadline-windows?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/deadline-windows/${WINDOW_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
+STAKEHOLDER_JSON="$(curl -fsS -X POST "${BASE}/v1/memory/stakeholders" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"principal_id":"exec-1","display_name":"Sam Stakeholder","channel_ref":"email:sam@example.com","authority_level":"approver","importance":"high","response_cadence":"fast","tone_pref":"diplomatic","sensitivity":"confidential","escalation_policy":"notify_exec","open_loops_json":{"board_follow_up":"open"},"friction_points_json":{"scheduling":"tight"},"last_interaction_at":"2026-03-06T15:30:00+00:00","status":"active","notes":"Needs concise summaries"}')"
+STAKEHOLDER_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("stakeholder_id",""))' <<<"${STAKEHOLDER_JSON}")"
+if [[ -z "${STAKEHOLDER_ID}" ]]; then
+  fail 13 "missing stakeholder_id from stakeholder response"
+fi
+curl -fsS "${BASE}/v1/memory/stakeholders?principal_id=exec-1&limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/memory/stakeholders/${STAKEHOLDER_ID}?principal_id=exec-1" "${AUTH_ARGS[@]}" >/dev/null
 echo "memory ok"
 
 echo "smoke complete"

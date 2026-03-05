@@ -15,6 +15,7 @@ from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
+from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
@@ -110,6 +111,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
             relationships=InMemoryRelationshipRepository(),
             commitments=InMemoryCommitmentRepository(),
             deadline_windows=InMemoryDeadlineWindowRepository(),
+            stakeholders=InMemoryStakeholderRepository(),
             authority_bindings=InMemoryAuthorityBindingRepository(),
             delivery_preferences=InMemoryDeliveryPreferenceRepository(),
             follow_ups=InMemoryFollowUpRepository(),

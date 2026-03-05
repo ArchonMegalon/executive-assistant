@@ -16,6 +16,8 @@ from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryIt
 from app.repositories.memory_items_postgres import PostgresMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository, RelationshipRepository
 from app.repositories.relationships_postgres import PostgresRelationshipRepository
+from app.repositories.stakeholders import InMemoryStakeholderRepository, StakeholderRepository
+from app.repositories.stakeholders_postgres import PostgresStakeholderRepository
 
 __all__ = [
     "EntityRepository",
@@ -45,4 +47,7 @@ __all__ = [
     "RelationshipRepository",
     "InMemoryRelationshipRepository",
     "PostgresRelationshipRepository",
+    "StakeholderRepository",
+    "InMemoryStakeholderRepository",
+    "PostgresStakeholderRepository",
 ]

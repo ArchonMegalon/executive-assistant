@@ -151,6 +151,44 @@ class DeadlineWindowOut(BaseModel):
     updated_at: str
 
 
+class StakeholderIn(BaseModel):
+    principal_id: str = Field(min_length=1, max_length=200)
+    display_name: str = Field(min_length=1, max_length=300)
+    channel_ref: str = Field(default="", max_length=200)
+    authority_level: str = Field(default="manager", max_length=100)
+    importance: str = Field(default="medium", max_length=100)
+    response_cadence: str = Field(default="normal", max_length=100)
+    tone_pref: str = Field(default="neutral", max_length=100)
+    sensitivity: str = Field(default="internal", max_length=100)
+    escalation_policy: str = Field(default="none", max_length=200)
+    open_loops_json: dict[str, object] = Field(default_factory=dict)
+    friction_points_json: dict[str, object] = Field(default_factory=dict)
+    last_interaction_at: str | None = Field(default=None, max_length=80)
+    status: str = Field(default="active", max_length=80)
+    notes: str = Field(default="", max_length=5000)
+    stakeholder_id: str | None = Field(default=None, max_length=200)
+
+
+class StakeholderOut(BaseModel):
+    stakeholder_id: str
+    principal_id: str
+    display_name: str
+    channel_ref: str
+    authority_level: str
+    importance: str
+    response_cadence: str
+    tone_pref: str
+    sensitivity: str
+    escalation_policy: str
+    open_loops_json: dict[str, object]
+    friction_points_json: dict[str, object]
+    last_interaction_at: str | None
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
 class AuthorityBindingIn(BaseModel):
     principal_id: str = Field(min_length=1, max_length=200)
     subject_ref: str = Field(min_length=1, max_length=200)
@@ -336,6 +374,28 @@ def _deadline_window_out(row) -> DeadlineWindowOut:
         priority=row.priority,
         notes=row.notes,
         source_json=row.source_json,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _stakeholder_out(row) -> StakeholderOut:
+    return StakeholderOut(
+        stakeholder_id=row.stakeholder_id,
+        principal_id=row.principal_id,
+        display_name=row.display_name,
+        channel_ref=row.channel_ref,
+        authority_level=row.authority_level,
+        importance=row.importance,
+        response_cadence=row.response_cadence,
+        tone_pref=row.tone_pref,
+        sensitivity=row.sensitivity,
+        escalation_policy=row.escalation_policy,
+        open_loops_json=row.open_loops_json,
+        friction_points_json=row.friction_points_json,
+        last_interaction_at=row.last_interaction_at,
+        status=row.status,
+        notes=row.notes,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -647,6 +707,58 @@ def get_memory_deadline_window(
     if not row:
         raise HTTPException(status_code=404, detail="deadline_window_not_found")
     return _deadline_window_out(row)
+
+
+@router.post("/stakeholders")
+def upsert_memory_stakeholder(
+    body: StakeholderIn,
+    container: AppContainer = Depends(get_container),
+) -> StakeholderOut:
+    row = container.memory_runtime.upsert_stakeholder(
+        principal_id=body.principal_id,
+        display_name=body.display_name,
+        channel_ref=body.channel_ref,
+        authority_level=body.authority_level,
+        importance=body.importance,
+        response_cadence=body.response_cadence,
+        tone_pref=body.tone_pref,
+        sensitivity=body.sensitivity,
+        escalation_policy=body.escalation_policy,
+        open_loops_json=body.open_loops_json,
+        friction_points_json=body.friction_points_json,
+        last_interaction_at=body.last_interaction_at,
+        status=body.status,
+        notes=body.notes,
+        stakeholder_id=body.stakeholder_id,
+    )
+    return _stakeholder_out(row)
+
+
+@router.get("/stakeholders")
+def list_memory_stakeholders(
+    principal_id: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    status: str | None = Query(default=None),
+    container: AppContainer = Depends(get_container),
+) -> list[StakeholderOut]:
+    rows = container.memory_runtime.list_stakeholders(
+        principal_id=principal_id,
+        limit=limit,
+        status=status,
+    )
+    return [_stakeholder_out(row) for row in rows]
+
+
+@router.get("/stakeholders/{stakeholder_id}")
+def get_memory_stakeholder(
+    stakeholder_id: str,
+    principal_id: str = Query(min_length=1, max_length=200),
+    container: AppContainer = Depends(get_container),
+) -> StakeholderOut:
+    row = container.memory_runtime.get_stakeholder(stakeholder_id, principal_id=principal_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="stakeholder_not_found")
+    return _stakeholder_out(row)
 
 
 @router.post("/authority-bindings")

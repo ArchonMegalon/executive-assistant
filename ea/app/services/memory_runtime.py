@@ -12,6 +12,7 @@ from app.domain.models import (
     MemoryCandidate,
     MemoryItem,
     RelationshipEdge,
+    Stakeholder,
     now_utc_iso,
 )
 from app.repositories.authority_bindings import AuthorityBindingRepository, InMemoryAuthorityBindingRepository
@@ -32,6 +33,8 @@ from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryIt
 from app.repositories.memory_items_postgres import PostgresMemoryItemRepository
 from app.repositories.relationships import InMemoryRelationshipRepository, RelationshipRepository
 from app.repositories.relationships_postgres import PostgresRelationshipRepository
+from app.repositories.stakeholders import InMemoryStakeholderRepository, StakeholderRepository
+from app.repositories.stakeholders_postgres import PostgresStakeholderRepository
 from app.settings import Settings, get_settings
 
 
@@ -44,6 +47,7 @@ class MemoryRuntimeService:
         relationships: RelationshipRepository,
         commitments: CommitmentRepository,
         deadline_windows: DeadlineWindowRepository,
+        stakeholders: StakeholderRepository,
         authority_bindings: AuthorityBindingRepository,
         delivery_preferences: DeliveryPreferenceRepository,
         follow_ups: FollowUpRepository,
@@ -54,6 +58,7 @@ class MemoryRuntimeService:
         self._relationships = relationships
         self._commitments = commitments
         self._deadline_windows = deadline_windows
+        self._stakeholders = stakeholders
         self._authority_bindings = authority_bindings
         self._delivery_preferences = delivery_preferences
         self._follow_ups = follow_ups
@@ -320,6 +325,64 @@ class MemoryRuntimeService:
             return None
         return found
 
+    def upsert_stakeholder(
+        self,
+        *,
+        principal_id: str,
+        display_name: str,
+        channel_ref: str = "",
+        authority_level: str = "manager",
+        importance: str = "medium",
+        response_cadence: str = "normal",
+        tone_pref: str = "neutral",
+        sensitivity: str = "internal",
+        escalation_policy: str = "none",
+        open_loops_json: dict[str, object] | None = None,
+        friction_points_json: dict[str, object] | None = None,
+        last_interaction_at: str | None = None,
+        status: str = "active",
+        notes: str = "",
+        stakeholder_id: str | None = None,
+    ) -> Stakeholder:
+        return self._stakeholders.upsert_stakeholder(
+            principal_id=principal_id,
+            display_name=display_name,
+            channel_ref=channel_ref,
+            authority_level=authority_level,
+            importance=importance,
+            response_cadence=response_cadence,
+            tone_pref=tone_pref,
+            sensitivity=sensitivity,
+            escalation_policy=escalation_policy,
+            open_loops_json=open_loops_json,
+            friction_points_json=friction_points_json,
+            last_interaction_at=last_interaction_at,
+            status=status,
+            notes=notes,
+            stakeholder_id=stakeholder_id,
+        )
+
+    def list_stakeholders(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[Stakeholder]:
+        return self._stakeholders.list_stakeholders(
+            principal_id=principal_id,
+            limit=limit,
+            status=status,
+        )
+
+    def get_stakeholder(self, stakeholder_id: str, *, principal_id: str) -> Stakeholder | None:
+        found = self._stakeholders.get(stakeholder_id)
+        if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
+            return None
+        return found
+
     def upsert_authority_binding(
         self,
         *,
@@ -561,6 +624,23 @@ def _build_deadline_window_repo(settings: Settings) -> DeadlineWindowRepository:
     return InMemoryDeadlineWindowRepository()
 
 
+def _build_stakeholder_repo(settings: Settings) -> StakeholderRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.stakeholders")
+    if backend == "memory":
+        return InMemoryStakeholderRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresStakeholderRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresStakeholderRepository(settings.database_url)
+        except Exception as exc:
+            log.warning("postgres stakeholder backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryStakeholderRepository()
+
+
 def _build_authority_binding_repo(settings: Settings) -> AuthorityBindingRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.authority_bindings")
@@ -621,6 +701,7 @@ def build_memory_runtime(settings: Settings | None = None) -> MemoryRuntimeServi
         relationships=_build_relationship_repo(resolved),
         commitments=_build_commitment_repo(resolved),
         deadline_windows=_build_deadline_window_repo(resolved),
+        stakeholders=_build_stakeholder_repo(resolved),
         authority_bindings=_build_authority_binding_repo(resolved),
         delivery_preferences=_build_delivery_preference_repo(resolved),
         follow_ups=_build_follow_up_repo(resolved),
