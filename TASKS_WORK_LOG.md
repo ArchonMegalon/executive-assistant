@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-005 | P1 | Add a lightweight runbook documenting common operator commands | codex | queued | Include health, bootstrap, and smoke paths |
+| Q-006 | P1 | Add CI smoke job for `tests/smoke_runtime_api.py` in containerized test env | codex | queued | Ensure FastAPI deps present in CI |
 
 ## In Progress
 
@@ -24,6 +24,7 @@ Use this file as the execution queue and progress ledger.
 | D-004 | P1 | Add API-level smoke tests for rewrite + observations + delivery routes | codex | done | Added `tests/smoke_runtime_api.py` |
 | D-005 | P1 | Add DB bootstrap script for ordered kernel migrations | codex | done | Added `scripts/db_bootstrap.sh` |
 | D-006 | P1 | Add optional bootstrap chaining to deploy flow | codex | done | `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh` |
+| D-007 | P1 | Add lightweight runtime operator runbook | codex | done | Added `RUNBOOK.md` and linked from README |
 
 ## Intake Template
 
