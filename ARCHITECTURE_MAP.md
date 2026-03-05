@@ -189,6 +189,7 @@
 - Deploy: `scripts/deploy.sh` (`EA_BOOTSTRAP_DB=1` optionally chains bootstrap)
 - Bootstrap migrations: `scripts/db_bootstrap.sh`
 - DB status: `scripts/db_status.sh`
+- DB size: `scripts/db_size.sh`
 - Full API smoke: `scripts/smoke_api.sh`
 - CI smoke workflow: `.github/workflows/smoke-runtime.yml`
 - Shortcut targets: `Makefile`

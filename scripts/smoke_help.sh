@@ -5,6 +5,7 @@ SCRIPTS=(
   scripts/deploy.sh
   scripts/db_bootstrap.sh
   scripts/db_status.sh
+  scripts/db_size.sh
   scripts/smoke_api.sh
   scripts/support_bundle.sh
   scripts/archive_tasks.sh

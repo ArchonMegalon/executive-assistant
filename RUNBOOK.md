@@ -97,6 +97,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/deploy.sh` | `bash scripts/deploy.sh --help` | Deploy runtime (standard or memory-only) |
 | `scripts/db_bootstrap.sh` | `bash scripts/db_bootstrap.sh --help` | Apply kernel DB migrations |
 | `scripts/db_status.sh` | `bash scripts/db_status.sh --help` | Check kernel table presence/counts |
+| `scripts/db_size.sh` | `bash scripts/db_size.sh --help` | Inspect table/index/total DB size footprint |
 | `scripts/smoke_api.sh` | `bash scripts/smoke_api.sh --help` | Run API smoke contracts |
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune task log Done rows |
@@ -188,6 +189,14 @@ Check table presence/counts:
 bash scripts/db_status.sh
 # or
 make db-status
+```
+
+Check table/index size footprint:
+
+```bash
+bash scripts/db_size.sh
+# or
+make db-size
 ```
 
 ## 3) Health Check

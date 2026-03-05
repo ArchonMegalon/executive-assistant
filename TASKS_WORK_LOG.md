@@ -14,7 +14,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | Q-044 | P2 | Keep queue log current as slices are added/closed | codex | queued | Use this file as the default intake point for new tasks |
-| Q-136 | P0 | Continue kernel operations hardening (`db_size.sh` table/index size visibility + docs/runbook linkage) | codex | queued | Chain after interruption-budgets slice commit |
+| Q-137 | P0 | Continue kernel operations hardening (`db_retention.sh` archival/prune baseline for runtime tables) | codex | queued | Chain after db-size visibility slice commit |
 
 ## In Progress
 
@@ -167,6 +167,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-133 | P0 | Continue Milestone 5 memory layer (`communication_policies` seed table + API stubs + principal scoping) | codex | done | Added `v0_20`, communication-policy repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 | D-134 | P0 | Continue Milestone 5 memory layer (`follow_up_rules` seed table + API stubs + principal scoping) | codex | done | Added `v0_21`, follow-up-rule repositories + API stubs, and principal-scoped list/get behavior with test coverage |
 | D-135 | P0 | Continue Milestone 5 memory layer (`interruption_budgets` seed table + API stubs + principal scoping) | codex | done | Added `v0_22`, interruption-budget repositories + API stubs, and principal-scoped list/get behavior with test coverage |
+| D-136 | P0 | Continue kernel operations hardening (`db_size.sh` table/index size visibility + docs/runbook linkage) | codex | done | Added `scripts/db_size.sh`, `make db-size`, script-help/asset coverage, and runbook/readme/operator linkage |
 
 ## Intake Template
 

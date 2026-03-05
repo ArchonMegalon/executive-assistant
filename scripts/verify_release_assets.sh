@@ -30,6 +30,7 @@ required_files=(
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
+  "scripts/db_size.sh"
   "scripts/smoke_api.sh"
   "scripts/smoke_help.sh"
   "scripts/export_openapi.sh"
