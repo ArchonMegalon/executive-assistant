@@ -375,6 +375,33 @@ async def handle_callback_command(
             enhanced_prompt = (
                 f"EXECUTE: {rich_prompt}\nCRITICAL INSTRUCTIONS:\n1. Use google account '{get_val(tenant_cfg, 'google_account', '')}'."
             )
+        legacy_current_step = "compile_intent"
+        legacy_intent = compile_intent_spec(
+            text=f"Execute button context action: {clean_btn}",
+            tenant=str(tenant_name or ""),
+            chat_id=int(chat_id),
+            has_url=bool(re.search(r"https?://", str(rich_prompt or ""), flags=re.IGNORECASE)),
+        )
+        legacy_intent["action_type"] = "legacy_button_context"
+        legacy_intent["action_id"] = str(action_id or "")
+        legacy_plan_steps = build_plan_steps(intent_spec=legacy_intent)
+        legacy_session_id = create_execution_session(
+            tenant=str(tenant_name or ""),
+            chat_id=int(chat_id),
+            intent_spec=legacy_intent,
+            plan_steps=legacy_plan_steps,
+            source="button_context_action",
+            correlation_id=f"{tenant_name}:{chat_id}:button_action:{str(action_id or int(time.time() * 1000))}",
+        )
+        if legacy_session_id:
+            mark_execution_session_running(legacy_session_id)
+            mark_execution_step_status(legacy_session_id, "compile_intent", "completed", result=legacy_intent)
+            append_execution_event(
+                legacy_session_id,
+                event_type="button_action_received",
+                message="Legacy button-context action execution started.",
+                payload={"action_id": str(action_id or ""), "button": clean_btn},
+            )
         res = await tg.send_message(
             chat_id,
             f"🚀 <b>Executing:</b> {clean_btn}...\n\n▶️ <b>Analyzing task requirements...</b>",
@@ -394,6 +421,27 @@ async def handle_callback_command(
                 pass
 
         try:
+            if legacy_session_id and any(str((row or {}).get("step_key") or "") == "safety_gate" for row in legacy_plan_steps):
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "safety_gate",
+                    "running",
+                    result={"gate_mode": "legacy_button", "reason": "approval-required intent class"},
+                )
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "safety_gate",
+                    "completed",
+                    result={"gate_mode": "legacy_button", "decision": "continue"},
+                )
+            legacy_current_step = "execute_intent"
+            if legacy_session_id:
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "execute_intent",
+                    "running",
+                    evidence={"button": clean_btn, "action_id": str(action_id or "")},
+                )
             report = await asyncio.wait_for(
                 gog_scout(
                     get_val(tenant_cfg, "openclaw_container", ""),
@@ -404,12 +452,27 @@ async def handle_callback_command(
                 ),
                 timeout=240.0,
             )
+            if legacy_session_id:
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "execute_intent",
+                    "completed",
+                    result={"report_chars": len(str(report or "")), "report_empty": not bool(str(report or "").strip())},
+                )
             kb_dict = build_dynamic_ui(report, enhanced_prompt, save_ctx=save_button_context)
             clean_rep = clean_html_for_telegram(
                 re.sub(r"\[OPTIONS:.*?\]", "", humanize_agent_report(report)).replace("[YES/NO]", "")
             )
             if not clean_rep.strip() or clean_rep.strip() == "[]":
                 clean_rep = "✅ Task executed successfully!"
+            legacy_current_step = "render_reply"
+            if legacy_session_id:
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "render_reply",
+                    "running",
+                    result={"payload_chars": len(clean_rep)},
+                )
             try:
                 await tg.edit_message_text(
                     chat_id,
@@ -425,5 +488,38 @@ async def handle_callback_command(
                     f"🎯 <b>Result:</b>\n\n{_safe_err(clean_rep).strip()[:3500]}",
                     reply_markup=kb_dict,
                 )
+            if legacy_session_id:
+                mark_execution_step_status(
+                    legacy_session_id,
+                    "render_reply",
+                    "completed",
+                    result={"payload_chars": len(clean_rep)},
+                )
+                finalize_execution_session(
+                    legacy_session_id,
+                    status="completed",
+                    outcome={
+                        "result": "delivered",
+                        "action_type": "legacy_button_context",
+                        "button": clean_btn,
+                    },
+                )
         except Exception as task_err:
+            if legacy_session_id:
+                mark_execution_step_status(
+                    legacy_session_id,
+                    legacy_current_step,
+                    "failed",
+                    error_text=_safe_err(task_err),
+                )
+                finalize_execution_session(
+                    legacy_session_id,
+                    status="failed",
+                    outcome={
+                        "result": "failed",
+                        "action_type": "legacy_button_context",
+                        "failed_step": legacy_current_step,
+                    },
+                    last_error=_safe_err(task_err),
+                )
             await tg.send_message(chat_id, f"❌ Task Failed: {_safe_err(task_err)}")

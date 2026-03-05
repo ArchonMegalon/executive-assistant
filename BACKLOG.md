@@ -90,6 +90,10 @@ Branch: `main`
   - removed fixed `--session-id ea-exec` usage from `gog_scout`.
   - added per-run unique/sanitized session-id generation to reduce concurrent execution collisions.
   - `smoke_v1_20_gog_session_id_uniqueness.py` wired into host/docker/CI gates.
+- [DONE] Legacy callback action sessionization:
+  - `act:*` legacy button-context execution path now writes execution session lifecycle
+    (compile/execute/render/finalize), aligned with typed-action callbacks.
+  - `smoke_v1_20_legacy_button_action_sessions.py` added and wired into host/docker/CI gates.
 - [DONE] Auditor LTD inventory hardening:
   - `LTD_INVENTORY.md` now explicitly separates capability-backed LTD tier declarations
     from non-tiered runtime dependencies.

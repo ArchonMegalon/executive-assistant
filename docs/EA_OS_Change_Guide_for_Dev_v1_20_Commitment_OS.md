@@ -86,6 +86,7 @@ be tracked as deterministic steps.
    - `tests/smoke_v1_20_slash_command_behavior.py`
    - `tests/smoke_v1_20_typed_action_behavior.py`
    - `tests/smoke_v1_20_gog_session_id_uniqueness.py`
+   - `tests/smoke_v1_20_legacy_button_action_sessions.py`
    - wired into:
      - `scripts/run_v119_smoke.sh`
      - `scripts/run_v120_smoke.sh`
@@ -113,3 +114,5 @@ foundation for broader v1.20 planner/session unification across slash commands, 
 
 - `ea/app/gog.py` now generates a unique execution session id per run (no fixed `ea-exec` id),
   reducing collision risk under concurrent free-text/agent runs.
+- `ea/app/callback_commands.py` now sessionizes legacy `act:*` button-context execution
+  (the `gog_scout` runtime path), not just typed actions.
