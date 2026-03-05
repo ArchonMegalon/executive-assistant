@@ -147,6 +147,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - DB size operator flow now supports table-prefix scoping (`EA_DB_SIZE_TABLE_PREFIX`).
 - DB size operator flow now supports minimum-size filtering (`EA_DB_SIZE_MIN_MB`).
 - DB size operator flow now supports schema scoping (`EA_DB_SIZE_SCHEMA`).
+- DB size operator flow now supports sort-key selection (`EA_DB_SIZE_SORT_KEY=total|table|index`).
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

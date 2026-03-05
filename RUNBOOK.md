@@ -205,6 +205,9 @@ EA_DB_SIZE_TABLE_PREFIX=execution_ bash scripts/db_size.sh
 # optional schema filter
 EA_DB_SIZE_SCHEMA=public bash scripts/db_size.sh
 
+# optional sort key (total|table|index)
+EA_DB_SIZE_SORT_KEY=index bash scripts/db_size.sh
+
 # optional minimum table size filter (MB)
 EA_DB_SIZE_MIN_MB=25 bash scripts/db_size.sh
 ```

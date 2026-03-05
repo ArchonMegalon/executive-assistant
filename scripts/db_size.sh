@@ -17,6 +17,7 @@ Environment:
   POSTGRES_DB              Postgres database name (default: ea)
   EA_DB_SIZE_LIMIT         Number of largest tables to print (default: 20)
   EA_DB_SIZE_SCHEMA        Optional schema filter (for example: public)
+  EA_DB_SIZE_SORT_KEY      total|table|index (default: total)
   EA_DB_SIZE_TABLE_PREFIX  Optional table-name prefix filter
   EA_DB_SIZE_MIN_MB        Optional minimum total table size in MB
 EOF
@@ -34,6 +35,7 @@ DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-ea}"
 SIZE_LIMIT="${EA_DB_SIZE_LIMIT:-20}"
 TABLE_SCHEMA="${EA_DB_SIZE_SCHEMA:-}"
+SORT_KEY="$(echo "${EA_DB_SIZE_SORT_KEY:-total}" | tr '[:upper:]' '[:lower:]')"
 TABLE_PREFIX="${EA_DB_SIZE_TABLE_PREFIX:-}"
 MIN_MB="${EA_DB_SIZE_MIN_MB:-0}"
 
@@ -56,6 +58,22 @@ if ! [[ "${MIN_MB}" =~ ^[0-9]+$ ]]; then
   echo "EA_DB_SIZE_MIN_MB must be an integer" >&2
   exit 2
 fi
+
+case "${SORT_KEY}" in
+  total)
+    SORT_EXPR="pg_total_relation_size(relid)"
+    ;;
+  table)
+    SORT_EXPR="pg_relation_size(relid)"
+    ;;
+  index)
+    SORT_EXPR="pg_indexes_size(relid)"
+    ;;
+  *)
+    echo "EA_DB_SIZE_SORT_KEY must be total|table|index" >&2
+    exit 2
+    ;;
+esac
 
 FILTER_CLAUSE="TRUE"
 if [[ -n "${TABLE_SCHEMA}" ]]; then
@@ -95,6 +113,7 @@ echo "-- largest user tables (top ${SIZE_LIMIT}) --"
 if [[ -n "${TABLE_SCHEMA}" ]]; then
   echo "table_schema_filter=${TABLE_SCHEMA}"
 fi
+echo "table_sort_key=${SORT_KEY}"
 if [[ -n "${TABLE_PREFIX}" ]]; then
   echo "table_prefix_filter=${TABLE_PREFIX}"
 fi
@@ -110,5 +129,5 @@ docker exec -i "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c \
      pg_size_pretty(pg_total_relation_size(relid)) AS total_size \
    FROM pg_catalog.pg_statio_user_tables \
    WHERE ${FILTER_CLAUSE} \
-   ORDER BY pg_total_relation_size(relid) DESC \
+   ORDER BY ${SORT_EXPR} DESC, relname ASC \
    LIMIT ${SIZE_LIMIT};"

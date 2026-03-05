@@ -140,7 +140,7 @@ Set `SUPPORT_BUNDLE_TIMESTAMP_FMT=<date format>` to customize bundle timestamp f
 HTTP script host-port resolution details are documented at the top of `RUNBOOK.md`.
 Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
 Retention pruning dry-runs are available via `scripts/db_retention.sh` or `make db-retention` (`EA_RETENTION_PROFILE=aggressive|standard|conservative`, optional `EA_RETENTION_TABLES`/`EA_RETENTION_SKIP_TABLES` filters).
-DB size inspection supports optional schema/prefix/size scoping via `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
+DB size inspection supports optional schema/sort/prefix/size scoping via `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
 Script help contract smoke is available via `scripts/smoke_help.sh` or `make smoke-help`.
 Release smoke aggregate is available via `make release-smoke`.
 Local CI-parity compile checks can be run via `make ci-local`.
