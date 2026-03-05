@@ -1,0 +1,30 @@
+name: Smoke Runtime
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  smoke-runtime-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ea/requirements.txt pytest httpx
+
+      - name: Run Runtime API Smoke Tests
+        env:
+          PYTHONPATH: ea
+          EA_LEDGER_BACKEND: memory
+        run: |
+          pytest -q tests/smoke_runtime_api.py
