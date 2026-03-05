@@ -249,6 +249,11 @@ Branch: `main`
   - added helper launcher `scripts/run_sim_user_eval.sh`.
   - added `tests/smoke_v1_22_sim_user_harness.py` and wired it into
     host/docker/CI gates.
+- [DONE] Poll/auth runtime decomposition continuation:
+  - extracted OAuth step-1 flow into `ea/app/auth_runtime.py`.
+  - `poll_listener.py` now delegates auth orchestration to `auth_runtime`.
+  - updated decomposition boundary assertions in
+    `tests/smoke_v1_19_3_control_plane_decomposition.py`.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.
@@ -268,4 +273,5 @@ Branch: `main`
 - None.
 
 ## Next Queue (on new feedback)
-- [IN_PROGRESS] Continue poll/scheduler decomposition
+- [IN_PROGRESS] Planner-owned free-text execution handoff
+- [PENDING] Approval runtime hardening

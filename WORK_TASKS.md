@@ -69,10 +69,26 @@ Owner: Codex runtime worker
       - seeded scenarios: cooperative + adversarial.
       - added `tests/smoke_v1_22_sim_user_harness.py` and wired host/docker/CI gates.
 
-8. `IN_PROGRESS` - Continue poll/scheduler decomposition.
+8. `DONE` - Continue poll/scheduler decomposition.
    - Deliverables:
-     - isolate command guard + auth/session + router seams further.
-     - keep behavior parity with existing v1.19.3 decomposition smokes.
+      - isolate command guard + auth/session + router seams further.
+      - keep behavior parity with existing v1.19.3 decomposition smokes.
+   - Progress:
+      - extracted OAuth step-1 auth orchestration into `ea/app/auth_runtime.py`.
+      - `poll_listener.py` now delegates auth flow through `_trigger_auth_flow(...)`.
+      - decomposition smoke updated and passing (`smoke_v1_19_3_control_plane_decomposition.py`).
+
+9. `IN_PROGRESS` - Planner-owned free-text execution handoff.
+   - Deliverables:
+      - move free-text runtime to execute persisted plan steps through planner runtime.
+      - keep `gog_scout` as provider-backed step, not top-level control flow.
+      - persist per-step outputs with stable artifact metadata.
+
+10. `PENDING` - Approval runtime hardening.
+   - Deliverables:
+      - add explicit approval gate expiry/deadline semantics.
+      - persist approval decisions with richer provenance.
+      - add smoke coverage for expired/replayed approval callbacks.
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`

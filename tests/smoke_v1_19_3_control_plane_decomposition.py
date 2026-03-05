@@ -27,6 +27,7 @@ def test_poll_listener_decomposition_boundaries() -> None:
     assert "from app.callback_commands import handle_callback_command as _handle_callback_command" in poll_src
     assert "from app.brief_runtime import run_brief_command as _run_brief_command" in poll_src
     assert "from app.intent_runtime import handle_free_text_intent as _handle_free_text_intent" in poll_src
+    assert "from app.auth_runtime import trigger_auth_flow as _trigger_auth_flow" in poll_src
     assert "async def handle_callback(cb):" in poll_src
     assert "async def handle_intent(chat_id: int, msg: dict):" in poll_src
     assert "async def handle_command(chat_id: int, text: str, msg: dict):" in poll_src
@@ -34,6 +35,8 @@ def test_poll_listener_decomposition_boundaries() -> None:
     # Heavy callback and free-text runtime logic now lives in dedicated modules.
     assert "if cb['data'].startswith('act:')" not in poll_src
     assert "task_name='Intent: Free Text'" not in poll_src
+    assert "def _openclaw_candidates(" not in poll_src
+    assert "await _trigger_auth_flow(" in poll_src
     assert "if cb[\"data\"].startswith(\"act:\"):" in callback_src
     assert "task_name=\"Intent: Free Text\"" in intent_runtime_src
     assert "renderer_text_only" in brief_runtime_src
