@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.planner.provider_broker import rank_task_capabilities
 from app.planner.task_registry import task_or_none
 from app.skills.capability_registry import capability_or_raise, capabilities_for_task
 
@@ -22,12 +23,10 @@ def build_capability_plan(task_type: str, preferred: str | None = None) -> dict[
         }
 
     pref = str(preferred or "").strip().lower()
-    ranked = list(tuple((task_contract.provider_priority if task_contract else tuple(candidates))))
-    for cap in candidates:
-        if cap not in ranked:
-            ranked.append(cap)
-    if pref and pref in candidates:
-        ranked = [pref] + [x for x in ranked if x != pref]
+    ranked_rows = rank_task_capabilities(task_type=task, candidates=candidates, preferred=pref)
+    ranked = [str(row.get("capability") or "") for row in ranked_rows if str(row.get("capability") or "")]
+    if not ranked:
+        ranked = list(candidates)
 
     primary = ranked[0]
     fallbacks = [x for x in ranked[1:] if x in candidates]
@@ -44,6 +43,7 @@ def build_capability_plan(task_type: str, preferred: str | None = None) -> dict[
         "task_contract_approval_default": task_contract.approval_default if task_contract else None,
         "task_contract_output_artifact_type": task_contract.output_artifact_type if task_contract else None,
         "task_contract_budget_policy": task_contract.budget_policy if task_contract else None,
+        "ranking": ranked_rows,
     }
 
 

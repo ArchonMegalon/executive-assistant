@@ -43,6 +43,7 @@ existing capability routing behavior.
 4. New smoke coverage:
    - `tests/smoke_v1_21_task_contract_registry.py`
    - `tests/smoke_v1_21_intent_spec_v2_shape.py`
+   - `tests/smoke_v1_21_provider_broker.py`
    - Validates module presence and task-contract-aware capability planning behavior.
    - Wired into:
       - `scripts/run_v120_smoke.sh`
@@ -61,6 +62,14 @@ existing capability routing behavior.
      - `stakeholders`
      - `output_contract`
      - `commitment_key`
+
+6. Provider broker scoring seed:
+   - Added `ea/app/planner/provider_broker.py` with deterministic capability ranking:
+     - task-priority weighting
+     - preferred capability override
+     - lightweight policy adjustment from capability metadata
+   - `ea/app/skills/capability_router.py` now delegates ranking to broker output and
+     emits `ranking` details with reasons.
 
 ## Why this matters
 

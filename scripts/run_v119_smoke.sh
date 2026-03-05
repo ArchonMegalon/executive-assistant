@@ -53,6 +53,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_20_brief_command_sessions.py" \
   "$ROOT/tests/smoke_v1_21_task_contract_registry.py" \
   "$ROOT/tests/smoke_v1_21_intent_spec_v2_shape.py" \
+  "$ROOT/tests/smoke_v1_21_provider_broker.py" \
   "$ROOT/tests/smoke_v1_21_doc_alignment.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
@@ -99,6 +100,7 @@ python3 "$ROOT/tests/smoke_v1_20_legacy_button_action_sessions.py"
 python3 "$ROOT/tests/smoke_v1_20_brief_command_sessions.py"
 python3 "$ROOT/tests/smoke_v1_21_task_contract_registry.py"
 python3 "$ROOT/tests/smoke_v1_21_intent_spec_v2_shape.py"
+python3 "$ROOT/tests/smoke_v1_21_provider_broker.py"
 python3 "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"

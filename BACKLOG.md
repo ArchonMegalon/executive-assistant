@@ -106,13 +106,15 @@ Branch: `main`
     `smoke_v1_20_typed_action_approval_resume.py` added and wired into host/docker/CI gates.
 - [DONE] Task-first planner contract seed (v1.21):
   - added `TaskContract` registry at `ea/app/planner/task_registry.py`.
+  - added task-aware provider broker seed (`ea/app/planner/provider_broker.py`) and
+    routed capability planning through broker ranking output.
   - capability planning now reads task contract provider priority and emits task metadata
-    (`task_contract_key`, approval default, artifact type, budget policy).
+    (`task_contract_key`, approval default, artifact type, budget policy), plus broker `ranking`.
   - `compile_intent_spec(...)` now emits an `IntentSpecV2`-style shape with task/approval/risk/output fields
     (`deliverable_type`, `approval_class`, `risk_class`, `budget_class`, `evidence_requirements`,
     `source_refs`, `output_contract`, `commitment_key`).
   - `smoke_v1_21_task_contract_registry.py`, `smoke_v1_21_intent_spec_v2_shape.py`,
-    and `smoke_v1_21_doc_alignment.py`
+    `smoke_v1_21_provider_broker.py`, and `smoke_v1_21_doc_alignment.py`
     added and wired into host/docker/CI gates.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`

@@ -25,6 +25,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_20_brief_command_sessions.py" \
   "$ROOT/tests/smoke_v1_21_task_contract_registry.py" \
   "$ROOT/tests/smoke_v1_21_intent_spec_v2_shape.py" \
+  "$ROOT/tests/smoke_v1_21_provider_broker.py" \
   "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 
 echo "[SMOKE][v1.20] Host smoke"
@@ -45,6 +46,7 @@ python3 "$ROOT/tests/smoke_v1_20_legacy_button_action_sessions.py"
 python3 "$ROOT/tests/smoke_v1_20_brief_command_sessions.py"
 python3 "$ROOT/tests/smoke_v1_21_task_contract_registry.py"
 python3 "$ROOT/tests/smoke_v1_21_intent_spec_v2_shape.py"
+python3 "$ROOT/tests/smoke_v1_21_provider_broker.py"
 python3 "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 
 if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then
