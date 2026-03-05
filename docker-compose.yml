@@ -108,6 +108,29 @@ services:
     depends_on:
       ea-db:
         condition: service_healthy
+  ea-sim-user:
+    image: ea-os:latest
+    container_name: ea-sim-user
+    restart: "no"
+    profiles:
+    - qa
+    env_file:
+    - .env
+    environment:
+    - TZ=Europe/Vienna
+    - EA_SIM_SCENARIO_DIR=/app/qa/scenarios
+    command:
+    - python
+    - -m
+    - app.sim_user.runner
+    volumes:
+    - ./config:/config:ro
+    - ./attachments:/attachments:rw
+    - ./logs:/logs:rw
+    - ./qa:/app/qa:ro
+    depends_on:
+      ea-db:
+        condition: service_healthy
   ea-db:
     image: postgres:16-alpine
     container_name: ea-db

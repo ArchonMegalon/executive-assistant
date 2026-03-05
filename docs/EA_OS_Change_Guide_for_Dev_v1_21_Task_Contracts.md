@@ -264,6 +264,22 @@ existing capability routing behavior.
      - `tests/smoke_v1_22_memory_promotion_pipeline.py`
      and wired both into host/docker/CI gates.
 
+24. Synthetic-user eval harness seed (qa profile):
+   - Added `ea-sim-user` service to `docker-compose.yml` with profile `qa`
+     so it is non-prod by default.
+   - Added scenario runner:
+     - `ea/app/sim_user/runner.py`
+       - loads JSON scenario contracts from `EA_SIM_SCENARIO_DIR`
+       - validates cooperative/adversarial scenario shape
+       - emits deterministic contract-check summary.
+   - Added scenario fixtures:
+     - `qa/scenarios/cooperative_user.json`
+     - `qa/scenarios/adversarial_confused_user.json`
+   - Added helper script:
+     - `scripts/run_sim_user_eval.sh`
+   - Added `tests/smoke_v1_22_sim_user_harness.py` and wired it into
+     host/docker/CI gates.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

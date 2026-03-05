@@ -239,6 +239,16 @@ Branch: `main`
   - added `list_memory_candidates_for_sync(...)` in `planner/memory_candidates.py`.
   - added `tests/smoke_v1_22_memory_promotion_pipeline.py` and wired it into
     host/docker/CI gates.
+- [DONE] Synthetic-user eval harness seed (qa profile):
+  - added `ea-sim-user` service to `docker-compose.yml` under `profiles: [qa]`
+    so it stays non-prod by default.
+  - added scenario runner `ea/app/sim_user/runner.py` plus package exports.
+  - added seeded scenario contracts:
+    - `qa/scenarios/cooperative_user.json`
+    - `qa/scenarios/adversarial_confused_user.json`
+  - added helper launcher `scripts/run_sim_user_eval.sh`.
+  - added `tests/smoke_v1_22_sim_user_harness.py` and wired it into
+    host/docker/CI gates.
 - [DONE] Event-worker role-path convergence:
   - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
     from `runner.py` (canonical role shim path), not direct worker import.
@@ -258,5 +268,4 @@ Branch: `main`
 - None.
 
 ## Next Queue (on new feedback)
-- [IN_PROGRESS] Synthetic-user eval harness container (qa profile only)
-- [PENDING] Continue poll/scheduler decomposition
+- [IN_PROGRESS] Continue poll/scheduler decomposition

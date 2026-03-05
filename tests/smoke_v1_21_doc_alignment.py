@@ -35,6 +35,7 @@ def test_v121_doc_alignment() -> None:
     assert "smoke_v1_22_world_model_seed.py" in guide
     assert "smoke_v1_22_memory_candidates.py" in guide
     assert "smoke_v1_22_memory_promotion_pipeline.py" in guide
+    assert "smoke_v1_22_sim_user_harness.py" in guide
     assert "smoke_v1_20_execution_sessions.py" in guide
     assert "smoke_v1_20_slash_command_sessions.py" in guide
     assert "smoke_v1_20_slash_command_behavior.py" in guide
@@ -67,6 +68,8 @@ def test_v121_doc_alignment() -> None:
     assert "20260305_v1_22_memory_candidates.sql" in guide
     assert "session_store.py" in guide
     assert "sync_worker.py" in guide
+    assert "ea-sim-user" in guide
+    assert "run_sim_user_eval.sh" in guide
     assert "run_v121_smoke.sh" in readme
     _pass("v1.21 doc/code alignment")
 

@@ -8,6 +8,7 @@ python3 -m py_compile \
   "$ROOT/ea/app/execution/session_store.py" \
   "$ROOT/ea/app/planner/task_registry.py" \
   "$ROOT/ea/app/planner/provider_outcomes.py" \
+  "$ROOT/ea/app/sim_user/runner.py" \
   "$ROOT/ea/app/intent_runtime.py" \
   "$ROOT/tests/smoke_python_compile_tree.py" \
   "$ROOT/tests/smoke_v1_20_execution_sessions.py" \
@@ -41,6 +42,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_world_model_seed.py" \
   "$ROOT/tests/smoke_v1_22_memory_candidates.py" \
   "$ROOT/tests/smoke_v1_22_memory_promotion_pipeline.py" \
+  "$ROOT/tests/smoke_v1_22_sim_user_harness.py" \
   "$ROOT/tests/smoke_work_tasks_contract.py"
 
 echo "[SMOKE][v1.20] Host smoke"
@@ -76,6 +78,7 @@ python3 "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 python3 "$ROOT/tests/smoke_v1_22_world_model_seed.py"
 python3 "$ROOT/tests/smoke_v1_22_memory_candidates.py"
 python3 "$ROOT/tests/smoke_v1_22_memory_promotion_pipeline.py"
+python3 "$ROOT/tests/smoke_v1_22_sim_user_harness.py"
 python3 "$ROOT/tests/smoke_work_tasks_contract.py"
 
 if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then

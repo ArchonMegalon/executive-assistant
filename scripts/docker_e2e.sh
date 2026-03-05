@@ -176,6 +176,7 @@ run_step "smoke_v1_21_doc_alignment" python3 tests/smoke_v1_21_doc_alignment.py
 run_step "smoke_v1_22_world_model_seed" python3 tests/smoke_v1_22_world_model_seed.py
 run_step "smoke_v1_22_memory_candidates" python3 tests/smoke_v1_22_memory_candidates.py
 run_step "smoke_v1_22_memory_promotion_pipeline" python3 tests/smoke_v1_22_memory_promotion_pipeline.py
+run_step "smoke_v1_22_sim_user_harness" python3 tests/smoke_v1_22_sim_user_harness.py
 run_step "smoke_work_tasks_contract" python3 tests/smoke_work_tasks_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py

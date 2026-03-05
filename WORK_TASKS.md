@@ -58,15 +58,18 @@ Owner: Codex runtime worker
      - finalize-session emission + approved-candidate Teable ingestion implemented.
      - added `smoke_v1_22_memory_promotion_pipeline.py` to host/docker/CI gates.
 
-7. `IN_PROGRESS` - Synthetic-user eval harness container (qa profile only).
+7. `DONE` - Synthetic-user eval harness container (qa profile only).
    - Deliverables:
      - `ea-sim-user` compose profile entry (non-prod by default).
      - scenario runner for cooperative/adversarial scripts.
      - smoke for container wiring and scenario contract.
    - Progress:
-      - next execution target after task 6 completion.
+      - `ea-sim-user` service added with compose `qa` profile.
+      - scenario runner added (`ea/app/sim_user/runner.py`) with contract validation.
+      - seeded scenarios: cooperative + adversarial.
+      - added `tests/smoke_v1_22_sim_user_harness.py` and wired host/docker/CI gates.
 
-8. `PENDING` - Continue poll/scheduler decomposition.
+8. `IN_PROGRESS` - Continue poll/scheduler decomposition.
    - Deliverables:
      - isolate command guard + auth/session + router seams further.
      - keep behavior parity with existing v1.19.3 decomposition smokes.

@@ -13,6 +13,7 @@ python3 -m py_compile \
   "$ROOT/ea/app/intelligence/modes.py" \
   "$ROOT/ea/app/intelligence/preparation_planner.py" \
   "$ROOT/ea/app/planner/provider_outcomes.py" \
+  "$ROOT/ea/app/sim_user/runner.py" \
   "$ROOT/tests/smoke_python_compile_tree.py" \
   "$ROOT/tests/run_incoming_v119_pack.py" \
   "$ROOT/tests/smoke_v1_19_future_intelligence_pack.py" \
@@ -69,6 +70,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_world_model_seed.py" \
   "$ROOT/tests/smoke_v1_22_memory_candidates.py" \
   "$ROOT/tests/smoke_v1_22_memory_promotion_pipeline.py" \
+  "$ROOT/tests/smoke_v1_22_sim_user_harness.py" \
   "$ROOT/tests/smoke_work_tasks_contract.py" \
   "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py" \
   "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py" \
@@ -130,6 +132,7 @@ python3 "$ROOT/tests/smoke_v1_21_doc_alignment.py"
 python3 "$ROOT/tests/smoke_v1_22_world_model_seed.py"
 python3 "$ROOT/tests/smoke_v1_22_memory_candidates.py"
 python3 "$ROOT/tests/smoke_v1_22_memory_promotion_pipeline.py"
+python3 "$ROOT/tests/smoke_v1_22_sim_user_harness.py"
 python3 "$ROOT/tests/smoke_work_tasks_contract.py"
 python3 "$ROOT/tests/smoke_v1_19_3_control_plane_decomposition.py"
 python3 "$ROOT/tests/smoke_v1_19_3_source_acquisition_split.py"
