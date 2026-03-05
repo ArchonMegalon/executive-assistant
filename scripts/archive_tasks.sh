@@ -4,14 +4,31 @@ set -euo pipefail
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_FILE="${EA_ROOT}/TASKS_WORK_LOG.md"
 ARCHIVE_FILE="${EA_ROOT}/TASKS_ARCHIVE.md"
-PRUNE_DONE="${1:-}"
+PRUNE_DONE=0
+DRY_RUN=0
+
+for arg in "$@"; do
+  case "${arg}" in
+    --prune-done)
+      PRUNE_DONE=1
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      ;;
+    *)
+      echo "unknown argument: ${arg}" >&2
+      echo "usage: scripts/archive_tasks.sh [--dry-run] [--prune-done]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 if [[ ! -f "${LOG_FILE}" ]]; then
   echo "missing ${LOG_FILE}" >&2
   exit 1
 fi
 
-python3 - "${LOG_FILE}" "${ARCHIVE_FILE}" "${PRUNE_DONE}" <<'PY'
+python3 - "${LOG_FILE}" "${ARCHIVE_FILE}" "${PRUNE_DONE}" "${DRY_RUN}" <<'PY'
 import datetime as dt
 import pathlib
 import sys
@@ -19,6 +36,7 @@ import sys
 log_path = pathlib.Path(sys.argv[1])
 archive_path = pathlib.Path(sys.argv[2])
 prune_done = sys.argv[3] == "--prune-done"
+dry_run = sys.argv[4] == "1"
 
 text = log_path.read_text()
 lines = text.splitlines()
@@ -60,6 +78,15 @@ if not rows:
 stamp = dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 header = f"\n## Archived {stamp}\n\n| ID | Priority | Task | Owner | Status | Notes |\n|---|---|---|---|---|---|\n"
 body = "\n".join(rows) + "\n"
+
+if dry_run:
+    print("dry-run rows:")
+    for r in rows:
+        print(r)
+    print(f"would archive {len(rows)} rows to {archive_path}")
+    if prune_done:
+        print("would prune Done section rows from work log")
+    sys.exit(0)
 
 if not archive_path.exists():
     archive_path.write_text("# Tasks Archive\n")

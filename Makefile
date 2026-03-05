@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run
 
 deploy:
 	bash scripts/deploy.sh
@@ -47,3 +47,6 @@ tasks-archive:
 
 tasks-archive-prune:
 	bash scripts/archive_tasks.sh --prune-done
+
+tasks-archive-dry-run:
+	bash scripts/archive_tasks.sh --dry-run

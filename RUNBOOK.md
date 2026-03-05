@@ -192,9 +192,12 @@ make support-bundle
 ```bash
 # append Done rows to TASKS_ARCHIVE.md
 bash scripts/archive_tasks.sh
+# preview archive rows only
+bash scripts/archive_tasks.sh --dry-run
 # append + prune Done rows in TASKS_WORK_LOG.md
 bash scripts/archive_tasks.sh --prune-done
 # or
 make tasks-archive
+make tasks-archive-dry-run
 make tasks-archive-prune
 ```

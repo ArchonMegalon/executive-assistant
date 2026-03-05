@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-029 | P3 | Add dry-run mode to `scripts/archive_tasks.sh` | codex | queued | Preview rows before prune |
+| Q-030 | P3 | Add `make ci-local` target that chains compile + py_compile checks | codex | queued | Quick local parity with CI smoke prerequisites |
 
 ## In Progress
 
@@ -48,6 +48,7 @@ Use this file as the execution queue and progress ledger.
 | D-028 | P3 | Add operator summary script + make target | codex | done | Added `scripts/operator_summary.sh` and `make operator-summary` |
 | D-029 | P3 | Add support bundle script + make target | codex | done | Added `scripts/support_bundle.sh` and `make support-bundle` |
 | D-030 | P3 | Add task archive rotation helper + make targets | codex | done | Added `scripts/archive_tasks.sh` with prune option |
+| D-031 | P3 | Add dry-run preview mode for task archive rotation | codex | done | Added `--dry-run` and `make tasks-archive-dry-run` |
 
 ## Intake Template
 
