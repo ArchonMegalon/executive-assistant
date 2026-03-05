@@ -50,6 +50,10 @@ bash scripts/db_bootstrap.sh
 
 # or do both in one step
 EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
+
+# quick local memory profile
+cp .env.local.example .env
+bash scripts/deploy.sh
 ```
 
 Then open `http://localhost:8090/health`.
