@@ -112,7 +112,7 @@ make deploy-memory
 Then open `http://localhost:8090/health`.
 
 Operator commands are documented in `RUNBOOK.md`.
-Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make smoke-api`).
+Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make smoke-api`, `make smoke-postgres`).
 A compact runtime surface map is documented in `ARCHITECTURE_MAP.md`.
 Runnable endpoint samples are in `HTTP_EXAMPLES.http`.
 Release notes are tracked in `CHANGELOG.md`.
@@ -143,6 +143,7 @@ Retention pruning dry-runs are available via `scripts/db_retention.sh` or `make 
 DB size inspection supports optional schema/sort/prefix/size scoping via `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
 Script help contract smoke is available via `scripts/smoke_help.sh` or `make smoke-help`.
 Release smoke aggregate is available via `make release-smoke`.
+Postgres-backed smoke run is available via `scripts/smoke_postgres.sh` or `make smoke-postgres`.
 Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.

@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -64,6 +64,7 @@
     "db_retention_profile_presets",
     "db_retention_table_filters",
     "support_bundle_db_size_snapshot",
+    "postgres_smoke_path",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",

@@ -8,6 +8,7 @@ SCRIPTS=(
   scripts/db_size.sh
   scripts/db_retention.sh
   scripts/smoke_api.sh
+  scripts/smoke_postgres.sh
   scripts/support_bundle.sh
   scripts/archive_tasks.sh
   scripts/verify_release_assets.sh

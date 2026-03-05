@@ -100,6 +100,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/db_size.sh` | `bash scripts/db_size.sh --help` | Inspect table/index/total DB size footprint |
 | `scripts/db_retention.sh` | `bash scripts/db_retention.sh --help` | Dry-run/apply runtime retention pruning |
 | `scripts/smoke_api.sh` | `bash scripts/smoke_api.sh --help` | Run API smoke contracts |
+| `scripts/smoke_postgres.sh` | `bash scripts/smoke_postgres.sh --help` | Run end-to-end Postgres-backed smoke contract |
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune task log Done rows |
 | `scripts/verify_release_assets.sh` | `bash scripts/verify_release_assets.sh --help` | Verify release artifact completeness |
@@ -294,6 +295,10 @@ bash scripts/smoke_api.sh
 make smoke-api
 # or (includes help-smoke + API smoke)
 make release-smoke
+# postgres-backed smoke path
+bash scripts/smoke_postgres.sh
+# or
+make smoke-postgres
 ```
 
 The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input).

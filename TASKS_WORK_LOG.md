@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| - | - | - | - | - | - |
+| Q-146 | P1 | Add CI job for Postgres-backed smoke script (`make smoke-postgres`) | codex | queued | Chain after local postgres-smoke script slice commit |
 
 ## In Progress
 
@@ -175,6 +175,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-142 | P1 | Continue kernel ops hardening (`db_size.sh` min-size threshold filter + docs contract) | codex | done | Added optional `EA_DB_SIZE_MIN_MB` filter and documented threshold-based DB size views in README/RUNBOOK/changelog |
 | D-143 | P1 | Continue kernel ops hardening (`db_size.sh` schema filter + docs contract) | codex | done | Added optional `EA_DB_SIZE_SCHEMA` filter for scoped DB-size diagnostics and updated docs/milestone/task-log tracking |
 | D-144 | P1 | Continue kernel ops hardening (`db_size.sh` sort-key selector + docs contract) | codex | done | Added optional `EA_DB_SIZE_SORT_KEY` selector (`total|table|index`) with validation and docs/milestone tracking updates |
+| D-145 | P1 | Add local Postgres-backed smoke contract script + docs wiring | codex | done | Added `scripts/smoke_postgres.sh`, make target/operator linkage, and docs/milestone references for Postgres e2e smoke path |
 
 ## Intake Template
 

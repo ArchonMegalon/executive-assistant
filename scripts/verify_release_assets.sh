@@ -33,6 +33,7 @@ required_files=(
   "scripts/db_size.sh"
   "scripts/db_retention.sh"
   "scripts/smoke_api.sh"
+  "scripts/smoke_postgres.sh"
   "scripts/smoke_help.sh"
   "scripts/export_openapi.sh"
   "scripts/diff_openapi.sh"

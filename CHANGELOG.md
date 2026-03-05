@@ -109,6 +109,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `scripts/db_size.sh`
   - `scripts/db_retention.sh`
   - `scripts/smoke_api.sh`
+  - `scripts/smoke_postgres.sh`
   - `scripts/smoke_help.sh`
   - `Makefile` shortcuts
   - `RUNBOOK.md`, `ARCHITECTURE_MAP.md`, `HTTP_EXAMPLES.http`
