@@ -209,3 +209,9 @@ bash scripts/verify_release_assets.sh
 # or
 make verify-release-assets
 ```
+
+Combined local readiness check:
+
+```bash
+make all-local
+```

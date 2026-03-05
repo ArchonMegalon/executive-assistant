@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local verify-release-assets
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local verify-release-assets all-local
 
 deploy:
 	bash scripts/deploy.sh
@@ -57,3 +57,5 @@ ci-local:
 
 verify-release-assets:
 	bash scripts/verify_release_assets.sh
+
+all-local: ci-local verify-release-assets
