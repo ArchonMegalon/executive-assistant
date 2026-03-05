@@ -304,10 +304,35 @@ Owner: Codex runtime worker
       - `EA_SKIP_FULL_GATES=1 bash scripts/run_v119_smoke.sh` passed.
       - queue/gate/docs alignment remained green after planner/runtime additions.
 
-31. `IN_PROGRESS` - Local commit + queue continuation checkpoint.
+31. `DONE` - Local commit + queue continuation checkpoint.
    - Deliverables:
       - commit current queue slice locally.
       - keep next queued architectural hardening item open for continued chaining.
+   - Progress:
+      - committed queue slice locally after host + docker gate passes.
+
+32. `DONE` - Planner execute-step graph deepening.
+   - Deliverables:
+      - add deterministic helper to derive execute-step metadata directly from
+        persisted step rows before reasoning run.
+      - expand smoke coverage for empty-plan step execution paths and metadata
+        provenance tags.
+   - Progress:
+      - execute-step metadata resolution is now ledger-first via
+        `plan_store.resolve_execute_step_metadata(...)` with deterministic fallback.
+      - added explicit provenance fields (`metadata_source`,
+        `metadata_provenance`) to execute-step evidence/result/event payloads.
+      - expanded empty-plan-path assertions in
+        `smoke_v1_22_plan_store_seed.py`.
+      - added/wired dedicated provenance smoke:
+        `tests/smoke_v1_22_execute_step_metadata_provenance.py`.
+
+33. `IN_PROGRESS` - Planner persisted step-graph execution broadening.
+   - Deliverables:
+      - execute queued non-reasoning planner steps from persisted ledger rows in
+        deterministic order before execute-intent phase.
+      - persist per-step deterministic output refs into `execution_steps.output_refs_json`.
+      - add smoke coverage for ordered queued-step execution and output-ref persistence.
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`

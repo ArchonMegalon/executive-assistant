@@ -182,9 +182,33 @@ def run_pre_execution_steps_from_ledger(
     return len(queued_rows)
 
 
-def _execute_step_metadata(
+def _normalize_execute_step_metadata(metadata: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    task_type = str((metadata or {}).get("task_type") or fallback.get("task_type") or "free_text_response").strip().lower()
+    artifact_type = (
+        str((metadata or {}).get("output_artifact_type") or fallback.get("output_artifact_type") or "chat_response")
+        .strip()
+        .lower()
+    )
+    providers = [str(x) for x in list((metadata or {}).get("provider_candidates") or []) if str(x or "").strip()]
+    if not providers:
+        providers = [str(x) for x in list(fallback.get("provider_candidates") or []) if str(x or "").strip()]
+    metadata_source = str((metadata or {}).get("metadata_source") or fallback.get("metadata_source") or "fallback_default")
+    provenance = [str(x) for x in list((metadata or {}).get("metadata_provenance") or []) if str(x or "").strip()]
+    if not provenance:
+        provenance = [str(x) for x in list(fallback.get("metadata_provenance") or []) if str(x or "").strip()]
+    if not provenance:
+        provenance = [str(metadata_source)]
+    return {
+        "task_type": task_type or "free_text_response",
+        "output_artifact_type": artifact_type or "chat_response",
+        "provider_candidates": providers,
+        "metadata_source": metadata_source or "fallback_default",
+        "metadata_provenance": provenance,
+    }
+
+
+def _build_execute_step_fallback(
     *,
-    session_id: str,
     plan_steps: list[dict[str, Any]],
     intent_spec: dict[str, Any],
 ) -> dict[str, Any]:
@@ -192,30 +216,35 @@ def _execute_step_metadata(
         (row for row in list(plan_steps or []) if str((row or {}).get("step_key") or "").strip() == "execute_intent"),
         {},
     )
+    has_execute_row = bool(execute_row)
     task_type = str((execute_row or {}).get("task_type") or (intent_spec or {}).get("task_type") or "free_text_response")
     artifact_type = str((execute_row or {}).get("output_artifact_type") or "chat_response")
     providers = [str(x) for x in list((execute_row or {}).get("provider_candidates") or []) if str(x or "").strip()]
-    metadata = {
+    source = "plan_steps_execute_step" if has_execute_row else "intent_spec_default"
+    return {
         "task_type": task_type,
         "output_artifact_type": artifact_type,
         "provider_candidates": providers,
+        "metadata_source": source,
+        "metadata_provenance": [source],
     }
-    if not providers or task_type in {"", "free_text_response"}:
-        try:
-            from app.planner.plan_store import resolve_execute_step_metadata
 
-            resolved = resolve_execute_step_metadata(session_id, fallback=metadata)
-            if isinstance(resolved, dict):
-                metadata = {
-                    "task_type": str(resolved.get("task_type") or metadata["task_type"]),
-                    "output_artifact_type": str(resolved.get("output_artifact_type") or metadata["output_artifact_type"]),
-                    "provider_candidates": [
-                        str(x) for x in list(resolved.get("provider_candidates") or metadata["provider_candidates"])
-                        if str(x or "").strip()
-                    ],
-                }
-        except Exception:
-            pass
+
+def _execute_step_metadata(
+    *,
+    session_id: str,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = _build_execute_step_fallback(plan_steps=plan_steps, intent_spec=intent_spec)
+    try:
+        from app.planner.plan_store import resolve_execute_step_metadata
+
+        resolved = resolve_execute_step_metadata(session_id, fallback=metadata)
+        if isinstance(resolved, dict):
+            metadata = _normalize_execute_step_metadata(resolved, fallback=metadata)
+    except Exception:
+        metadata = _normalize_execute_step_metadata({}, fallback=metadata)
     return metadata
 
 
@@ -244,6 +273,8 @@ async def execute_planned_reasoning_step(
             "task_type": metadata["task_type"],
             "output_artifact_type": metadata["output_artifact_type"],
             "provider_candidates": metadata["provider_candidates"],
+            "metadata_source": metadata["metadata_source"],
+            "metadata_provenance": metadata["metadata_provenance"],
         },
     )
     report = await run_reasoning_step_func(
@@ -265,6 +296,8 @@ async def execute_planned_reasoning_step(
             "task_type": metadata["task_type"],
             "output_artifact_type": metadata["output_artifact_type"],
             "provider_candidates": metadata["provider_candidates"],
+            "metadata_source": metadata["metadata_source"],
+            "metadata_provenance": metadata["metadata_provenance"],
         },
     )
     append_event(
@@ -275,6 +308,8 @@ async def execute_planned_reasoning_step(
             "task_type": metadata["task_type"],
             "output_artifact_type": metadata["output_artifact_type"],
             "provider_candidates": metadata["provider_candidates"],
+            "metadata_source": metadata["metadata_source"],
+            "metadata_provenance": metadata["metadata_provenance"],
             "report_chars": report_chars,
         },
     )

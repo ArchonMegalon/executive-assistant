@@ -65,6 +65,8 @@ def resolve_execute_step_metadata(
         "task_type": str(fallback.get("task_type") or "free_text_response"),
         "output_artifact_type": str(fallback.get("output_artifact_type") or "chat_response"),
         "provider_candidates": list(fallback.get("provider_candidates") or []),
+        "metadata_source": str(fallback.get("metadata_source") or "fallback_default"),
+        "metadata_provenance": [str(x) for x in list(fallback.get("metadata_provenance") or []) if str(x or "").strip()],
     }
     sid = str(session_id or "").strip()
     if not sid:
@@ -93,14 +95,22 @@ def resolve_execute_step_metadata(
     )
     providers = [str(x) for x in list(evidence.get("provider_candidates") or []) if str(x or "").strip()]
     provider_key = str((row or {}).get("provider_key") or "").strip().lower()
+    provenance: list[str] = []
+    if evidence:
+        provenance.append("ledger_evidence")
     if not providers and provider_key:
         providers = [provider_key]
+        provenance.append("ledger_provider_key")
     if not providers:
         providers = [str(x) for x in list(defaults["provider_candidates"] or []) if str(x or "").strip()]
+    if not provenance:
+        provenance = list(defaults["metadata_provenance"] or ["fallback_default"])
     return {
         "task_type": task_type,
         "output_artifact_type": artifact_type,
         "provider_candidates": providers,
+        "metadata_source": "ledger_execute_step",
+        "metadata_provenance": provenance,
     }
 
 

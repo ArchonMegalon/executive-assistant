@@ -56,6 +56,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_pre_step_parity.py" \
   "$ROOT/tests/smoke_v1_22_planner_exports.py" \
   "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py" \
+  "$ROOT/tests/smoke_v1_22_execute_step_metadata_provenance.py" \
   "$ROOT/tests/smoke_work_tasks_contract.py"
 
 echo "[SMOKE][v1.20] Host smoke"
@@ -105,6 +106,7 @@ python3 "$ROOT/tests/smoke_v1_22_plan_store_seed.py"
 python3 "$ROOT/tests/smoke_v1_22_pre_step_parity.py"
 python3 "$ROOT/tests/smoke_v1_22_planner_exports.py"
 python3 "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py"
+python3 "$ROOT/tests/smoke_v1_22_execute_step_metadata_provenance.py"
 python3 "$ROOT/tests/smoke_work_tasks_contract.py"
 
 if [[ "${EA_SKIP_FULL_GATES:-0}" != "1" ]]; then

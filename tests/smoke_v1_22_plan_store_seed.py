@@ -116,6 +116,8 @@ def test_plan_store_behavior_and_step_executor_fallback() -> None:
         assert str(meta.get("task_type") or "") == "run_secondary_research_pass"
         assert str(meta.get("output_artifact_type") or "") == "research_pack"
         assert list(meta.get("provider_candidates") or [])[:1] == ["paperguide"]
+        assert str(meta.get("metadata_source") or "") == "ledger_execute_step"
+        assert "ledger_evidence" in list(meta.get("metadata_provenance") or [])
     finally:
         store._get_db = orig_get_db_store
 
@@ -144,6 +146,8 @@ def test_plan_store_behavior_and_step_executor_fallback() -> None:
     assert str(provider_only_meta.get("task_type") or "") == "route_video_render"
     assert str(provider_only_meta.get("output_artifact_type") or "") == "route_video_asset"
     assert list(provider_only_meta.get("provider_candidates") or []) == ["avomap"]
+    assert str(provider_only_meta.get("metadata_source") or "") == "ledger_execute_step"
+    assert "ledger_provider_key" in list(provider_only_meta.get("metadata_provenance") or [])
 
     # Step executor should use plan-store fallback metadata when plan_steps is empty.
     orig_resolve = store.resolve_execute_step_metadata
@@ -151,6 +155,8 @@ def test_plan_store_behavior_and_step_executor_fallback() -> None:
         "task_type": "run_secondary_research_pass",
         "output_artifact_type": "research_pack",
         "provider_candidates": ["paperguide"],
+        "metadata_source": "ledger_execute_step",
+        "metadata_provenance": ["ledger_evidence"],
     }
     marks: list[tuple[str, str, dict[str, object]]] = []
     events: list[str] = []
@@ -192,6 +198,8 @@ def test_plan_store_behavior_and_step_executor_fallback() -> None:
     assert str(evidence.get("task_type") or "") == "run_secondary_research_pass"
     assert str(evidence.get("output_artifact_type") or "") == "research_pack"
     assert list(evidence.get("provider_candidates") or [])[:1] == ["paperguide"]
+    assert str(evidence.get("metadata_source") or "") == "ledger_execute_step"
+    assert "ledger_evidence" in list(evidence.get("metadata_provenance") or [])
     _pass("v1.22 plan-store behavior and step-executor fallback")
 
 
