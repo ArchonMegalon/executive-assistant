@@ -13,10 +13,15 @@ def _client(
     storage_backend: str = "memory",
     auth_token: str = "",
     database_url: str = "",
+    approval_threshold_chars: int | None = None,
 ) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = storage_backend
     os.environ["EA_LEDGER_BACKEND"] = storage_backend  # backward-compat path
     os.environ["EA_API_TOKEN"] = auth_token
+    if approval_threshold_chars is None:
+        os.environ.pop("EA_APPROVAL_THRESHOLD_CHARS", None)
+    else:
+        os.environ["EA_APPROVAL_THRESHOLD_CHARS"] = str(approval_threshold_chars)
     if database_url:
         os.environ["DATABASE_URL"] = database_url
     else:
@@ -67,6 +72,71 @@ def test_rewrite_and_policy_audit_flow() -> None:
     decisions = policy.json()
     assert len(decisions) >= 1
     assert decisions[0]["reason"] == "allowed"
+
+
+def test_rewrite_requires_approval_then_approve_flow() -> None:
+    client = _client(storage_backend="memory", approval_threshold_chars=5)
+    create = client.post("/v1/rewrite/artifact", json={"text": "approval smoke payload"})
+    assert create.status_code == 409
+    assert create.json()["error"]["code"] == "policy_denied:approval_required"
+
+    pending = client.get("/v1/policy/approvals/pending", params={"limit": 10})
+    assert pending.status_code == 200
+    rows = pending.json()
+    assert len(rows) >= 1
+    approval_id = rows[0]["approval_id"]
+    session_id = rows[0]["session_id"]
+    assert rows[0]["status"] == "pending"
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    body = session.json()
+    assert body["status"] == "awaiting_approval"
+    assert len(body["artifacts"]) == 0
+    assert len(body["receipts"]) == 0
+    assert any(step["state"] == "waiting_approval" for step in body["steps"])
+
+    approve = client.post(
+        f"/v1/policy/approvals/{approval_id}/approve",
+        json={"decided_by": "smoke-user", "reason": "approved in test"},
+    )
+    assert approve.status_code == 200
+    assert approve.json()["decision"] == "approved"
+
+    history = client.get("/v1/policy/approvals/history", params={"session_id": session_id, "limit": 10})
+    assert history.status_code == 200
+    assert any(row["approval_id"] == approval_id and row["decision"] == "approved" for row in history.json())
+
+    session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session_after.status_code == 200
+    body_after = session_after.json()
+    assert body_after["status"] == "approved_pending_execution"
+    assert any(step["state"] == "queued" for step in body_after["steps"])
+
+
+def test_rewrite_requires_approval_then_expire_flow() -> None:
+    client = _client(storage_backend="memory", approval_threshold_chars=5)
+    create = client.post("/v1/rewrite/artifact", json={"text": "expire smoke payload"})
+    assert create.status_code == 409
+    pending = client.get("/v1/policy/approvals/pending", params={"limit": 10})
+    assert pending.status_code == 200
+    approval_id = pending.json()[0]["approval_id"]
+    session_id = pending.json()[0]["session_id"]
+
+    expired = client.post(
+        f"/v1/policy/approvals/{approval_id}/expire",
+        json={"decided_by": "smoke-user", "reason": "expired in test"},
+    )
+    assert expired.status_code == 200
+    assert expired.json()["decision"] == "expired"
+
+    pending_after = client.get("/v1/policy/approvals/pending", params={"limit": 10})
+    assert pending_after.status_code == 200
+    assert all(row["approval_id"] != approval_id for row in pending_after.json())
+
+    session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session_after.status_code == 200
+    assert session_after.json()["status"] == "blocked"
 
 
 def test_rewrite_blocked_policy_flow_has_error_envelope() -> None:

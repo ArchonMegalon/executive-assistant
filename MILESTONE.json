@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -20,6 +20,9 @@
     "tool_receipts",
     "run_costs",
     "session_projection_v2",
+    "approval_requests",
+    "approval_decisions",
+    "approval_decision_api",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",
@@ -30,13 +33,16 @@
     "ea/schema/20260305_v0_3_channel_runtime_kernel.sql",
     "ea/schema/20260305_v0_4_policy_decisions_kernel.sql",
     "ea/schema/20260305_v0_5_artifacts_kernel.sql",
-    "ea/schema/20260305_v0_6_execution_ledger_v2.sql"
+    "ea/schema/20260305_v0_6_execution_ledger_v2.sql",
+    "ea/schema/20260305_v0_7_approvals_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",
     "EA_LEDGER_BACKEND": "legacy_alias_for_EA_STORAGE_BACKEND",
     "DATABASE_URL": "required_for_postgres",
     "EA_BOOTSTRAP_DB": "0|1",
-    "EA_API_TOKEN": "optional_bearer_token_for_non_health_routes"
+    "EA_API_TOKEN": "optional_bearer_token_for_non_health_routes",
+    "EA_APPROVAL_THRESHOLD_CHARS": "rewrite inputs at or above this size require approval",
+    "EA_APPROVAL_TTL_MINUTES": "default approval request expiration window"
   }
 }

@@ -58,7 +58,12 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         orchestrator = build_default_orchestrator(settings=resolved)
     except Exception as exc:
         log.warning("orchestrator bootstrap failed, using in-memory fallback: %s", exc)
-        orchestrator = RewriteOrchestrator(policy=PolicyDecisionService(resolved.policy.max_rewrite_chars))
+        orchestrator = RewriteOrchestrator(
+            policy=PolicyDecisionService(
+                max_rewrite_chars=resolved.policy.max_rewrite_chars,
+                approval_required_chars=resolved.policy.approval_required_chars,
+            )
+        )
     try:
         channel_runtime = build_channel_runtime(settings=resolved)
     except Exception as exc:

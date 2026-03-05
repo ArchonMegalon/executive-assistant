@@ -41,6 +41,8 @@ class AuthSettings:
 @dataclass(frozen=True)
 class PolicySettings:
     max_rewrite_chars: int
+    approval_required_chars: int
+    approval_ttl_minutes: int
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,8 @@ def get_settings() -> Settings:
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
     max_rewrite_chars = max(1, _to_int(os.environ.get("EA_MAX_REWRITE_CHARS") or "20000", 20000))
+    approval_required_chars = max(1, _to_int(os.environ.get("EA_APPROVAL_THRESHOLD_CHARS") or "5000", 5000))
+    approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
     default_list_limit = max(1, min(500, _to_int(os.environ.get("EA_CHANNEL_DEFAULT_LIMIT") or "50", 50)))
 
     return Settings(
@@ -133,6 +137,10 @@ def get_settings() -> Settings:
             artifacts_dir=artifacts_dir,
         ),
         auth=AuthSettings(api_token=api_token),
-        policy=PolicySettings(max_rewrite_chars=max_rewrite_chars),
+        policy=PolicySettings(
+            max_rewrite_chars=max_rewrite_chars,
+            approval_required_chars=approval_required_chars,
+            approval_ttl_minutes=approval_ttl_minutes,
+        ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
     )

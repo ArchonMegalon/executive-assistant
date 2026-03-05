@@ -9,7 +9,7 @@ Usage:
   bash scripts/smoke_api.sh
 
 Runs end-to-end HTTP smoke checks for liveness/readiness/version,
-rewrite/session/policy, observations, delivery outbox, and telegram adapter.
+rewrite/session/policy/approvals, observations, delivery outbox, and telegram adapter.
 
 Auth:
   If EA_API_TOKEN is set, the script sends Authorization: Bearer <token>.
@@ -58,6 +58,8 @@ fi
 echo "== smoke: session + policy =="
 curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" >/dev/null
 echo "session/policy ok"
 
 echo "== smoke: blocked policy path =="

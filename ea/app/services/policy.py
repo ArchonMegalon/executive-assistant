@@ -8,8 +8,9 @@ class PolicyDeniedError(RuntimeError):
 
 
 class PolicyDecisionService:
-    def __init__(self, max_rewrite_chars: int = 20000) -> None:
+    def __init__(self, max_rewrite_chars: int = 20000, approval_required_chars: int = 5000) -> None:
         self._max_rewrite_chars = max(1, int(max_rewrite_chars))
+        self._approval_required_chars = max(1, int(approval_required_chars))
 
     def evaluate_rewrite(self, intent: IntentSpecV3, text: str) -> PolicyDecision:
         normalized = str(text or "")
@@ -30,6 +31,8 @@ class PolicyDecisionService:
                 memory_write_allowed=False,
             )
         requires_approval = intent.approval_class not in ("none", "")
+        if len(normalized) >= self._approval_required_chars:
+            requires_approval = True
         return PolicyDecision(
             allow=True,
             requires_approval=requires_approval,

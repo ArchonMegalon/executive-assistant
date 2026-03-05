@@ -5,6 +5,8 @@ import uuid
 from dataclasses import dataclass
 
 from app.domain.models import (
+    ApprovalDecision,
+    ApprovalRequest,
     Artifact,
     ExecutionEvent,
     ExecutionSession,
@@ -14,6 +16,8 @@ from app.domain.models import (
     RunCost,
     ToolReceipt,
 )
+from app.repositories.approvals import ApprovalRepository, InMemoryApprovalRepository
+from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.artifacts import ArtifactRepository, InMemoryArtifactRepository
 from app.repositories.artifacts_postgres import PostgresArtifactRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
@@ -40,11 +44,13 @@ class RewriteOrchestrator:
         artifacts: ArtifactRepository | None = None,
         ledger: ExecutionLedgerRepository | None = None,
         policy_repo: PolicyDecisionRepository | None = None,
+        approvals: ApprovalRepository | None = None,
         policy: PolicyDecisionService | None = None,
     ) -> None:
         self._artifacts = artifacts or InMemoryArtifactRepository()
         self._ledger = ledger or InMemoryExecutionLedgerRepository()
         self._policy_repo = policy_repo or InMemoryPolicyDecisionRepository()
+        self._approvals = approvals or InMemoryApprovalRepository()
         self._policy = policy or PolicyDecisionService()
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
@@ -103,16 +109,26 @@ class RewriteOrchestrator:
             )
             raise PolicyDeniedError(policy_decision.reason)
         if policy_decision.requires_approval:
+            approval_request = self._approvals.create_request(
+                session.session_id,
+                rewrite_step.step_id,
+                reason="approval_required",
+                requested_action_json={
+                    "action": "artifact.save",
+                    "artifact_kind": "rewrite_note",
+                    "text_length": len(normalized_text),
+                },
+            )
             self._ledger.update_step(
                 rewrite_step.step_id,
                 state="waiting_approval",
-                error_json={"reason": "approval_required"},
+                error_json={"reason": "approval_required", "approval_id": approval_request.approval_id},
             )
             self._ledger.complete_session(session.session_id, status="awaiting_approval")
             self._ledger.append_event(
                 session.session_id,
                 "session_paused_for_approval",
-                {"reason": "approval_required"},
+                {"reason": "approval_required", "approval_id": approval_request.approval_id},
             )
             raise PolicyDeniedError("approval_required")
         self._ledger.append_event(
@@ -176,6 +192,76 @@ class RewriteOrchestrator:
     def list_policy_decisions(self, limit: int = 50, session_id: str | None = None):
         return self._policy_repo.list_recent(limit=limit, session_id=session_id)
 
+    def list_pending_approvals(self, limit: int = 50) -> list[ApprovalRequest]:
+        return self._approvals.list_pending(limit=limit)
+
+    def list_approval_history(self, limit: int = 50, session_id: str | None = None) -> list[ApprovalDecision]:
+        return self._approvals.list_history(limit=limit, session_id=session_id)
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        *,
+        decision: str,
+        decided_by: str,
+        reason: str,
+    ) -> tuple[ApprovalRequest, ApprovalDecision] | None:
+        found = self._approvals.decide(
+            approval_id,
+            decision=decision,
+            decided_by=decided_by,
+            reason=reason,
+        )
+        if not found:
+            return None
+        request, decision_row = found
+        self._ledger.append_event(
+            request.session_id,
+            "approval_decided",
+            {
+                "approval_id": request.approval_id,
+                "step_id": request.step_id,
+                "decision": decision_row.decision,
+                "decided_by": decision_row.decided_by,
+                "reason": decision_row.reason,
+            },
+        )
+        if decision_row.decision == "approved":
+            self._ledger.update_step(
+                request.step_id,
+                state="queued",
+                output_json={"approval_id": request.approval_id, "decision": "approved"},
+                error_json={},
+            )
+            self._ledger.complete_session(request.session_id, status="approved_pending_execution")
+        else:
+            self._ledger.update_step(
+                request.step_id,
+                state="blocked",
+                error_json={"approval_id": request.approval_id, "decision": decision_row.decision},
+            )
+            self._ledger.complete_session(request.session_id, status="blocked")
+            self._ledger.append_event(
+                request.session_id,
+                "session_blocked",
+                {"reason": f"approval_{decision_row.decision}", "approval_id": request.approval_id},
+            )
+        return request, decision_row
+
+    def expire_approval(
+        self,
+        approval_id: str,
+        *,
+        decided_by: str,
+        reason: str,
+    ) -> tuple[ApprovalRequest, ApprovalDecision] | None:
+        return self.decide_approval(
+            approval_id,
+            decision="expired",
+            decided_by=decided_by,
+            reason=reason,
+        )
+
 
 def _backend_mode(settings: Settings) -> str:
     return str(settings.storage.backend or "auto").strip().lower()
@@ -216,6 +302,29 @@ def build_policy_repo(settings: Settings) -> PolicyDecisionRepository:
     return InMemoryPolicyDecisionRepository()
 
 
+def build_approval_repo(settings: Settings) -> ApprovalRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.approvals")
+    if backend == "memory":
+        return InMemoryApprovalRepository(default_ttl_minutes=settings.policy.approval_ttl_minutes)
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresApprovalRepository(
+            settings.database_url,
+            default_ttl_minutes=settings.policy.approval_ttl_minutes,
+        )
+    if settings.database_url:
+        try:
+            return PostgresApprovalRepository(
+                settings.database_url,
+                default_ttl_minutes=settings.policy.approval_ttl_minutes,
+            )
+        except Exception as exc:
+            log.warning("postgres approval backend unavailable in auto mode; falling back to memory: %s", exc)
+    return InMemoryApprovalRepository(default_ttl_minutes=settings.policy.approval_ttl_minutes)
+
+
 def build_artifact_repo(settings: Settings) -> ArtifactRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.artifacts")
@@ -245,6 +354,16 @@ def build_default_orchestrator(settings: Settings | None = None) -> RewriteOrche
     resolved = settings or get_settings()
     ledger = build_execution_ledger(resolved)
     policy_repo = build_policy_repo(resolved)
+    approvals = build_approval_repo(resolved)
     artifacts = build_artifact_repo(resolved)
-    policy = PolicyDecisionService(max_rewrite_chars=resolved.policy.max_rewrite_chars)
-    return RewriteOrchestrator(artifacts=artifacts, ledger=ledger, policy_repo=policy_repo, policy=policy)
+    policy = PolicyDecisionService(
+        max_rewrite_chars=resolved.policy.max_rewrite_chars,
+        approval_required_chars=resolved.policy.approval_required_chars,
+    )
+    return RewriteOrchestrator(
+        artifacts=artifacts,
+        ledger=ledger,
+        policy_repo=policy_repo,
+        approvals=approvals,
+        policy=policy,
+    )

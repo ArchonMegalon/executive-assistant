@@ -20,6 +20,8 @@ def _clear_env() -> None:
         "EA_ARTIFACTS_DIR",
         "EA_API_TOKEN",
         "EA_MAX_REWRITE_CHARS",
+        "EA_APPROVAL_THRESHOLD_CHARS",
+        "EA_APPROVAL_TTL_MINUTES",
         "EA_CHANNEL_DEFAULT_LIMIT",
     ):
         os.environ.pop(key, None)
@@ -34,6 +36,8 @@ def test_settings_defaults() -> None:
     assert s.storage.database_url == ""
     assert s.auth.enabled is False
     assert s.policy.max_rewrite_chars == 20000
+    assert s.policy.approval_required_chars == 5000
+    assert s.policy.approval_ttl_minutes == 120
     assert s.channels.default_list_limit == 50
 
 
@@ -53,3 +57,12 @@ def test_settings_explicit_storage_backend_wins() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "postgres"
     s = get_settings()
     assert s.storage.backend == "postgres"
+
+
+def test_policy_threshold_overrides() -> None:
+    _clear_env()
+    os.environ["EA_APPROVAL_THRESHOLD_CHARS"] = "42"
+    os.environ["EA_APPROVAL_TTL_MINUTES"] = "15"
+    s = get_settings()
+    assert s.policy.approval_required_chars == 42
+    assert s.policy.approval_ttl_minutes == 15

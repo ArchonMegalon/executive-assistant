@@ -11,7 +11,8 @@ Usage:
 Checks kernel table presence and row counts for:
   execution_sessions, execution_events, observation_events,
   delivery_outbox, policy_decisions, artifacts,
-  execution_steps, tool_receipts, run_costs
+  execution_steps, tool_receipts, run_costs,
+  approval_requests, approval_decisions
 EOF
   exit 0
 fi
@@ -36,6 +37,8 @@ TABLES=(
   execution_steps
   tool_receipts
   run_costs
+  approval_requests
+  approval_decisions
 )
 
 echo "== EA DB status =="

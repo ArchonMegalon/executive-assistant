@@ -2,6 +2,7 @@
 @token = replace_with_token_or_leave_blank
 @session_id = replace_me
 @delivery_id = replace_me
+@approval_id = replace_me
 @oversized_text = replace_with_20001_chars
 
 ### Health
@@ -41,6 +42,39 @@ GET {{host}}/v1/policy/decisions/recent?limit=20
 
 ### Policy audit -> by session
 GET {{host}}/v1/policy/decisions/recent?session_id={{session_id}}&limit=20
+
+### Approvals -> pending
+GET {{host}}/v1/policy/approvals/pending?limit=20
+
+### Approvals -> history
+GET {{host}}/v1/policy/approvals/history?limit=20
+
+### Approvals -> approve
+POST {{host}}/v1/policy/approvals/{{approval_id}}/approve
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "approved for execution"
+}
+
+### Approvals -> deny
+POST {{host}}/v1/policy/approvals/{{approval_id}}/deny
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "deny in smoke"
+}
+
+### Approvals -> expire
+POST {{host}}/v1/policy/approvals/{{approval_id}}/expire
+Content-Type: application/json
+
+{
+  "decided_by": "operator",
+  "reason": "manual expiry"
+}
 
 ### Observations -> ingest
 POST {{host}}/v1/observations/ingest

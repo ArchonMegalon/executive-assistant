@@ -14,7 +14,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | Q-044 | P2 | Keep queue log current as slices are added/closed | codex | queued | Use this file as the default intake point for new tasks |
-| Q-118 | P0 | Start Milestone 2 policy engine (`approval_requests`, `approval_decisions`, per-action policy inputs) with durable audit | codex | queued | Continue unattended roadmap from ledger v2 into decision service |
+| Q-119 | P0 | Start Milestone 3 tool runtime kernel (idempotent delivery retries + connector registry contract) | codex | queued | Chain immediately after Milestone 2 commit |
 
 ## In Progress
 
@@ -149,6 +149,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-115 | P3 | Add release-asset guard for runbook checklist milestone parity note | codex | done | Verifies runbook/checklist milestone parity linkage remains documented |
 | D-116 | P0 | Complete Milestone 0 kernel hardening pass | codex | done | Added DI container, error envelope, auth gate, liveness/readiness/version, durable artifact repo + `v0_5`, and expanded test scaffolding |
 | D-117 | P0 | Complete Milestone 1 ledger v2 foundation | codex | done | Added steps/receipts/costs repositories + `v0_6` migration + session projection updates |
+| D-118 | P0 | Complete Milestone 2 approval workflow and decision API | codex | done | Added `approval_requests`/`approval_decisions` repositories + `v0_7`, approval endpoints, session transition wiring, and approval smoke coverage |
 
 ## Intake Template
 

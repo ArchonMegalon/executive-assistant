@@ -97,6 +97,31 @@ class RunCost:
 
 
 @dataclass(frozen=True)
+class ApprovalRequest:
+    approval_id: str
+    session_id: str
+    step_id: str
+    reason: str
+    requested_action_json: dict[str, Any]
+    status: str
+    expires_at: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class ApprovalDecision:
+    decision_id: str
+    approval_id: str
+    session_id: str
+    step_id: str
+    decision: str
+    decided_by: str
+    reason: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class PolicyDecision:
     allow: bool
     requires_approval: bool

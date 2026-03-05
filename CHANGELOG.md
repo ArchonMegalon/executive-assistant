@@ -22,6 +22,10 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `tool_receipts` side-effect receipts
   - `run_costs` per-session cost telemetry
   - session detail projection now includes steps/receipts/artifacts/costs
+- Approval workflow primitives:
+  - `approval_requests` durable pending approvals
+  - `approval_decisions` durable approval/deny/expire audit rows
+  - policy API endpoints for pending/history + approve/deny/expire actions
 - Postgres + in-memory repository backends for kernel stores.
 - Kernel SQL migrations:
   - `v0_2` execution ledger
@@ -29,6 +33,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `v0_4` policy decisions
   - `v0_5` artifacts durability
   - `v0_6` execution ledger v2
+  - `v0_7` approvals workflow
 - Operator tooling:
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
@@ -47,6 +52,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Milestone metadata now includes CI/docs/release gate-bundle feature tags.
 - Release checklist now includes explicit milestone gate-tag parity verification.
 - Artifact persistence now supports durable Postgres metadata + file-backed content storage.
+- Approval-required rewrite sessions now pause with `waiting_approval` steps and transition on approve/deny/expire decisions.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

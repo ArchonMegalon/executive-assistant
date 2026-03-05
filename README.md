@@ -22,6 +22,7 @@ Removed:
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/channels/telegram/ingest` maps raw Telegram updates into normalized observation events
 - `/v1/policy/decisions/recent` exposes persisted policy decision audit records
+- `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints
 - `app.runner` supports role-based startup (`EA_ROLE=api` or idle worker roles)
 - `app.domain.IntentSpecV3` and execution session/event models provide a typed kernel scaffold
 - rewrite execution is gated by a centralized policy decision service (`policy_decision` event)
@@ -42,10 +43,16 @@ Removed:
 - policy audit migration: `ea/schema/20260305_v0_4_policy_decisions_kernel.sql`
 - artifact durability migration: `ea/schema/20260305_v0_5_artifacts_kernel.sql`
 - execution-ledger v2 migration: `ea/schema/20260305_v0_6_execution_ledger_v2.sql`
+- approvals workflow migration: `ea/schema/20260305_v0_7_approvals_kernel.sql`
 
 ## Auth
 
 - Set `EA_API_TOKEN=<token>` to require bearer auth on all non-health routes.
+
+## Policy Tuning
+
+- `EA_APPROVAL_THRESHOLD_CHARS` sets rewrite input length requiring approval (default `5000`).
+- `EA_APPROVAL_TTL_MINUTES` sets default approval request expiration window (default `120`).
 
 ## Quick Start
 
