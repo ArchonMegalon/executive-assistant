@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-035 | P3 | Add support bundle redaction note for sensitive env values | codex | queued | Keep incident artifacts safe by default |
+| Q-036 | P3 | Add optional `SUPPORT_INCLUDE_DB=0` mode to support bundle | codex | queued | Skip DB logs when unnecessary |
 
 ## In Progress
 
@@ -54,6 +54,7 @@ Use this file as the execution queue and progress ledger.
 | D-034 | P3 | Add `make all-local` aggregate readiness target | codex | done | Chains `ci-local` and `verify-release-assets` |
 | D-035 | P3 | Add shellcheck baseline config | codex | done | Added `.shellcheckrc` |
 | D-036 | P3 | Add smoke-script explicit exit codes and runbook matrix | codex | done | Added failure codes `11/12/13` docs |
+| D-037 | P3 | Add baseline support-bundle redaction patterns | codex | done | Redacts common secret/password/token forms in captured logs |
 
 ## Intake Template
 

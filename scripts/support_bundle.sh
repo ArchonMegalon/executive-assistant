@@ -16,6 +16,16 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_FILE="${OUT_DIR}/support_bundle_${STAMP}.txt"
 TAIL_LINES="${SUPPORT_LOG_TAIL_LINES:-300}"
 
+redact() {
+  sed -E \
+    -e 's#(postgresql://[^:]+:)[^@]+@#\1REDACTED@#g' \
+    -e 's#([Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
+    -e 's#([Pp][Aa][Ss][Ss][Ww][Dd][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
+    -e 's#([Tt][Oo][Kk][Ee][Nn][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
+    -e 's#([Ss][Ee][Cc][Rr][Ee][Tt][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g' \
+    -e 's#([Aa][Pp][Ii][_-]?[Kk][Ee][Yy][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g'
+}
+
 {
   echo "== Support Bundle =="
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -30,11 +40,11 @@ TAIL_LINES="${SUPPORT_LOG_TAIL_LINES:-300}"
   echo
 
   echo "-- ea-api logs (tail ${TAIL_LINES}) --"
-  "${DC[@]}" logs --tail "${TAIL_LINES}" ea-api || true
+  "${DC[@]}" logs --tail "${TAIL_LINES}" ea-api 2>&1 | redact || true
   echo
 
   echo "-- ea-db logs (tail ${TAIL_LINES}) --"
-  "${DC[@]}" logs --tail "${TAIL_LINES}" ea-db || true
+  "${DC[@]}" logs --tail "${TAIL_LINES}" ea-db 2>&1 | redact || true
   echo
 
   echo "-- queued task snapshot --"

@@ -187,6 +187,8 @@ SUPPORT_LOG_TAIL_LINES=500 bash scripts/support_bundle.sh
 make support-bundle
 ```
 
+`support_bundle.sh` applies baseline redaction patterns for common secret/token/password forms.
+
 ## 14) Archive Completed Task Rows
 
 ```bash
