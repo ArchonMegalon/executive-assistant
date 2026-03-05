@@ -110,3 +110,13 @@ bash scripts/diff_openapi.sh
 # or
 make openapi-diff
 ```
+
+Prune old snapshots (default keep=20):
+
+```bash
+bash scripts/prune_openapi.sh
+# keep 50
+bash scripts/prune_openapi.sh 50
+# or
+make openapi-prune
+```

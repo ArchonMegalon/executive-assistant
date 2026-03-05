@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff
+.PHONY: deploy deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune
 
 deploy:
 	bash scripts/deploy.sh
@@ -23,3 +23,6 @@ openapi-export:
 
 openapi-diff:
 	bash scripts/diff_openapi.sh
+
+openapi-prune:
+	bash scripts/prune_openapi.sh
