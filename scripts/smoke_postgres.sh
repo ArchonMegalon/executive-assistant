@@ -2,11 +2,17 @@
 set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+legacy_fixture=0
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  cat <<'USAGE'
+for arg in "$@"; do
+  case "${arg}" in
+    --legacy-fixture)
+      legacy_fixture=1
+      ;;
+    --help|-h)
+      cat <<'USAGE'
 Usage:
-  bash scripts/smoke_postgres.sh
+  bash scripts/smoke_postgres.sh [--legacy-fixture]
 
 Runs a Postgres-backed smoke path against an isolated smoke database:
   1) starts ea-db with docker compose
@@ -17,6 +23,11 @@ Runs a Postgres-backed smoke path against an isolated smoke database:
   6) runs scripts/smoke_api.sh
   7) verifies DB row growth for core runtime tables
 
+Options:
+  --legacy-fixture          Seed a legacy UUID/approval schema fixture before
+                            bootstrap and validate migration-upgrade behavior.
+                            In this mode, API smoke is skipped.
+
 Environment:
   EA_HOST_PORT              Optional host port override (falls back to .env or 8090)
   EA_DB_CONTAINER           Postgres container name (default: ea-db)
@@ -24,8 +35,14 @@ Environment:
   POSTGRES_PASSWORD         Postgres password (falls back to .env)
   EA_SMOKE_DB               Isolated smoke database name (default: ea_smoke_runtime)
 USAGE
-  exit 0
-fi
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: ${arg}" >&2
+      exit 2
+      ;;
+  esac
+done
 
 if docker compose version >/dev/null 2>&1; then
   DC=(docker compose)
@@ -90,6 +107,89 @@ cleanup() {
 }
 trap cleanup EXIT
 
+apply_legacy_fixture() {
+  echo "== smoke-postgres: apply legacy fixture =="
+  docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d "${SMOKE_DB}" <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS execution_sessions (
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    intent_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'queued',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS execution_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+    level TEXT NOT NULL DEFAULT 'info',
+    event_type TEXT NOT NULL,
+    message TEXT NOT NULL DEFAULT '',
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS execution_steps (
+    step_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+    step_order INT NOT NULL DEFAULT 0,
+    step_key TEXT NOT NULL DEFAULT '',
+    step_title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',
+    preconditions_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_text TEXT,
+    started_at TIMESTAMPTZ NULL,
+    finished_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+    approval_request_id SERIAL PRIMARY KEY,
+    draft_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    tenant_key TEXT NOT NULL DEFAULT 'default',
+    principal_id TEXT NOT NULL DEFAULT 'local-user',
+    request_status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS approval_decisions (
+    approval_decision_id SERIAL PRIMARY KEY,
+    approval_request_id BIGINT NOT NULL REFERENCES approval_requests(approval_request_id),
+    decided_by TEXT NOT NULL DEFAULT 'system',
+    decision TEXT NOT NULL DEFAULT 'pending',
+    decision_payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+SQL
+}
+
+validate_legacy_upgrade() {
+  echo "== smoke-postgres: validate legacy migration upgrade =="
+
+  type_match="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT (SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='execution_sessions' AND column_name='session_id') = (SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='execution_steps' AND column_name='session_id');" | tr -d '[:space:]')"
+  if [[ "${type_match}" != "t" ]]; then
+    echo "legacy upgrade check failed: execution_steps.session_id type mismatch" >&2
+    exit 41
+  fi
+
+  req_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='approval_requests' AND column_name IN ('approval_id','session_id','step_id','reason','requested_action_json','status','created_at','updated_at');" | tr -d '[:space:]')"
+  if [[ "${req_cols}" -lt 8 ]]; then
+    echo "legacy upgrade check failed: approval_requests missing runtime columns" >&2
+    exit 42
+  fi
+
+  dec_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='approval_decisions' AND column_name IN ('decision_id','approval_id','session_id','step_id','decision','decided_by','reason','created_at');" | tr -d '[:space:]')"
+  if [[ "${dec_cols}" -lt 8 ]]; then
+    echo "legacy upgrade check failed: approval_decisions missing runtime columns" >&2
+    exit 43
+  fi
+}
+
 cd "${EA_ROOT}"
 
 echo "== smoke-postgres: compose up (db only) =="
@@ -114,6 +214,10 @@ docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d post
 docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \
   -c "CREATE DATABASE \"${SMOKE_DB}\";" >/dev/null
 
+if [[ "${legacy_fixture}" == "1" ]]; then
+  apply_legacy_fixture
+fi
+
 if grep -q '^DATABASE_URL=' "${EA_ROOT}/.env"; then
   sed -i "s|^DATABASE_URL=.*$|DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@ea-db:5432/${SMOKE_DB}|" "${EA_ROOT}/.env"
 else
@@ -136,6 +240,12 @@ echo "== smoke-postgres: compose up (api) =="
 
 echo "== smoke-postgres: bootstrap migrations =="
 POSTGRES_DB="${SMOKE_DB}" bash scripts/db_bootstrap.sh
+
+if [[ "${legacy_fixture}" == "1" ]]; then
+  validate_legacy_upgrade
+  echo "smoke-postgres legacy fixture complete (${SMOKE_DB})"
+  exit 0
+fi
 
 echo "== smoke-postgres: readiness check =="
 ready_json=""

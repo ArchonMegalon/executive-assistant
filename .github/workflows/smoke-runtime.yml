@@ -35,3 +35,13 @@ jobs:
       - name: Run Postgres Smoke Script
         run: |
           bash scripts/smoke_postgres.sh
+
+  smoke-runtime-postgres-legacy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Legacy Migration Regression Smoke
+        run: |
+          bash scripts/smoke_postgres.sh --legacy-fixture

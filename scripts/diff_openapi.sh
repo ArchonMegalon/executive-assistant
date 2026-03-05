@@ -4,6 +4,17 @@ set -euo pipefail
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ART_DIR="${EA_ROOT}/artifacts"
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'EOF'
+Usage:
+  bash scripts/diff_openapi.sh [left_snapshot right_snapshot]
+
+Pretty-print and diff two OpenAPI snapshots. If paths are omitted, the script
+diffs the two most recent artifacts/openapi_*.json snapshots.
+EOF
+  exit 0
+fi
+
 LEFT="${1:-}"
 RIGHT="${2:-}"
 

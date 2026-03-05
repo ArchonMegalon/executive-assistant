@@ -112,7 +112,7 @@ make deploy-memory
 Then open `http://localhost:8090/health`.
 
 Operator commands are documented in `RUNBOOK.md`.
-Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make smoke-api`, `make smoke-postgres`).
+Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`).
 A compact runtime surface map is documented in `ARCHITECTURE_MAP.md`.
 Runnable endpoint samples are in `HTTP_EXAMPLES.http`.
 Release notes are tracked in `CHANGELOG.md`.
@@ -127,7 +127,10 @@ Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-pr
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
 Operator summary can be printed via `scripts/operator_summary.sh` or `make operator-summary`.
+The operator summary includes smoke, readiness, CI parity, and release/support shortcuts.
+`bash scripts/operator_summary.sh --help` prints the usage contract and is included in `make operator-help`.
 Operator script usage index can be printed via `make operator-help`.
+Endpoint/version/OpenAPI helper scripts also expose `--help` and are included in `make operator-help`.
 Support bundle export is available via `scripts/support_bundle.sh` or `make support-bundle`.
 Support bundles apply baseline redaction for common secret/token/password patterns.
 Set `SUPPORT_INCLUDE_DB=0` to skip DB logs in support bundle generation.
@@ -142,12 +145,15 @@ Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks
 Retention pruning dry-runs are available via `scripts/db_retention.sh` or `make db-retention` (`EA_RETENTION_PROFILE=aggressive|standard|conservative`, optional `EA_RETENTION_TABLES`/`EA_RETENTION_SKIP_TABLES` filters).
 DB size inspection supports optional schema/sort/prefix/size scoping via `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
 Script help contract smoke is available via `scripts/smoke_help.sh` or `make smoke-help`.
+`bash scripts/smoke_help.sh --help` is included in `make operator-help`.
 Release smoke aggregate is available via `make release-smoke`.
 Postgres-backed smoke run is available via `scripts/smoke_postgres.sh` or `make smoke-postgres`.
+Legacy migration-regression smoke is available via `bash scripts/smoke_postgres.sh --legacy-fixture` or `make smoke-postgres-legacy`.
 The script targets an isolated smoke database (`EA_SMOKE_DB`, default `ea_smoke_runtime`) and restores local `.env` state after the run.
 Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
+Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
@@ -155,5 +161,5 @@ Release preflight aggregate is available via `make release-preflight`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; use `make release-preflight` for release-stage smoke + operator checks.
-CI gate sequence is documented in `RUNBOOK.md` and includes both the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification) and a Postgres-backed smoke job (`scripts/smoke_postgres.sh`).
+CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification), a Postgres-backed smoke job (`scripts/smoke_postgres.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
 Shell script lint config is tracked in `.shellcheckrc`.

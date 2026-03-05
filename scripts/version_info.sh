@@ -4,6 +4,17 @@ set -euo pipefail
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${EA_ROOT}"
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'EOF'
+Usage:
+  bash scripts/version_info.sh
+
+Print the current git branch/revision/dirty count plus milestone/version values
+from MILESTONE.json when available.
+EOF
+  exit 0
+fi
+
 git_rev="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 git_dirty="$(git status --porcelain 2>/dev/null | wc -l | tr -d '[:space:]')"

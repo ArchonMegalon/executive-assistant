@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'EOF'
+Usage:
+  bash scripts/smoke_help.sh
+
+Run the script-help smoke contract by checking that key operator scripts return
+a Usage header for their --help output.
+EOF
+  exit 0
+fi
+
 SCRIPTS=(
   scripts/deploy.sh
   scripts/db_bootstrap.sh
@@ -9,6 +20,12 @@ SCRIPTS=(
   scripts/db_retention.sh
   scripts/smoke_api.sh
   scripts/smoke_postgres.sh
+  scripts/list_endpoints.sh
+  scripts/version_info.sh
+  scripts/export_openapi.sh
+  scripts/diff_openapi.sh
+  scripts/prune_openapi.sh
+  scripts/operator_summary.sh
   scripts/support_bundle.sh
   scripts/archive_tasks.sh
   scripts/verify_release_assets.sh

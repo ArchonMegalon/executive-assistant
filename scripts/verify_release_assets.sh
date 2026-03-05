@@ -84,10 +84,31 @@ else
   missing=1
 fi
 
+if grep -Fq "scripts/smoke_help.sh --help" "README.md"; then
+  echo "ok: README smoke-help help note"
+else
+  echo "missing: README smoke-help help note" >&2
+  missing=1
+fi
+
 if grep -Fq "make release-smoke" "README.md"; then
   echo "ok: README release-smoke reference"
 else
   echo "missing: README release-smoke reference" >&2
+  missing=1
+fi
+
+if grep -Fq "make smoke-postgres-legacy" "README.md"; then
+  echo "ok: README legacy postgres smoke reference"
+else
+  echo "missing: README legacy postgres smoke reference" >&2
+  missing=1
+fi
+
+if grep -Fq "make ci-gates-postgres-legacy" "README.md"; then
+  echo "ok: README legacy postgres parity reference"
+else
+  echo "missing: README legacy postgres parity reference" >&2
   missing=1
 fi
 
@@ -140,10 +161,49 @@ else
   missing=1
 fi
 
+if grep -Fq "smoke, readiness, CI parity, and release/support shortcuts" "README.md"; then
+  echo "ok: README operator summary shortcut note"
+else
+  echo "missing: README operator summary shortcut note" >&2
+  missing=1
+fi
+
+if grep -Fq "operator_summary.sh --help" "README.md"; then
+  echo "ok: README operator-summary help note"
+else
+  echo "missing: README operator-summary help note" >&2
+  missing=1
+fi
+
+if grep -Fq 'Endpoint/version/OpenAPI helper scripts also expose `--help`' "README.md"; then
+  echo "ok: README endpoint/version/openapi help note"
+else
+  echo "missing: README endpoint/version/openapi help note" >&2
+  missing=1
+fi
+
 if grep -Fq "Operator Script Help Index" "RUNBOOK.md"; then
   echo "ok: RUNBOOK script help index"
 else
   echo "missing: RUNBOOK script help index" >&2
+  missing=1
+fi
+
+if grep -Fq "scripts/operator_summary.sh" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK operator-summary help reference"
+else
+  echo "missing: RUNBOOK operator-summary help reference" >&2
+  missing=1
+fi
+
+if grep -Fq "scripts/list_endpoints.sh" "RUNBOOK.md" && \
+   grep -Fq "scripts/version_info.sh" "RUNBOOK.md" && \
+   grep -Fq "scripts/export_openapi.sh" "RUNBOOK.md" && \
+   grep -Fq "scripts/diff_openapi.sh" "RUNBOOK.md" && \
+   grep -Fq "scripts/prune_openapi.sh" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK endpoint/version/openapi help references"
+else
+  echo "missing: RUNBOOK endpoint/version/openapi help references" >&2
   missing=1
 fi
 
@@ -186,6 +246,27 @@ if grep -Fq "make release-docs" "RUNBOOK.md"; then
   echo "ok: RUNBOOK release-docs reference"
 else
   echo "missing: RUNBOOK release-docs reference" >&2
+  missing=1
+fi
+
+if grep -Fq "make smoke-postgres-legacy" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK legacy postgres smoke reference"
+else
+  echo "missing: RUNBOOK legacy postgres smoke reference" >&2
+  missing=1
+fi
+
+if grep -Fq "make ci-gates-postgres-legacy" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK legacy postgres parity reference"
+else
+  echo "missing: RUNBOOK legacy postgres parity reference" >&2
+  missing=1
+fi
+
+if grep -Fq 'operator summary includes release smoke/readiness commands plus legacy smoke/parity shortcuts and release/support commands' "RUNBOOK.md"; then
+  echo "ok: RUNBOOK operator summary shortcut note"
+else
+  echo "missing: RUNBOOK operator summary shortcut note" >&2
   missing=1
 fi
 
@@ -238,6 +319,13 @@ else
   missing=1
 fi
 
+if grep -Fq "make ci-gates-postgres-legacy" "RELEASE_CHECKLIST.md"; then
+  echo "ok: RELEASE_CHECKLIST ci-gates-postgres-legacy line"
+else
+  echo "missing: RELEASE_CHECKLIST ci-gates-postgres-legacy line" >&2
+  missing=1
+fi
+
 if grep -Fq "make docs-verify" "RELEASE_CHECKLIST.md"; then
   echo "ok: RELEASE_CHECKLIST docs-verify line"
 else
@@ -287,6 +375,55 @@ else
   missing=1
 fi
 
+if grep -Fq "make ci-gates-postgres-legacy" "CHANGELOG.md"; then
+  echo "ok: CHANGELOG legacy postgres parity note"
+else
+  echo "missing: CHANGELOG legacy postgres parity note" >&2
+  missing=1
+fi
+
+if grep -Fq "Operator summary output now includes legacy Postgres smoke and CI parity shortcuts." "CHANGELOG.md"; then
+  echo "ok: CHANGELOG operator summary parity note"
+else
+  echo "missing: CHANGELOG operator summary parity note" >&2
+  missing=1
+fi
+
+if grep -Fq "Operator summary output now also surfaces release/support commands" "CHANGELOG.md"; then
+  echo "ok: CHANGELOG operator summary release/support note"
+else
+  echo "missing: CHANGELOG operator summary release/support note" >&2
+  missing=1
+fi
+
+if grep -Fq 'Operator summary output now also includes `make release-smoke` and `make all-local`' "CHANGELOG.md"; then
+  echo "ok: CHANGELOG operator summary readiness note"
+else
+  echo "missing: CHANGELOG operator summary readiness note" >&2
+  missing=1
+fi
+
+if grep -Fq 'Operator summary now exposes a `--help` contract' "CHANGELOG.md"; then
+  echo "ok: CHANGELOG operator-summary help-contract note"
+else
+  echo "missing: CHANGELOG operator-summary help-contract note" >&2
+  missing=1
+fi
+
+if grep -Fq 'Endpoint, version, and OpenAPI helper scripts now expose `--help` contracts' "CHANGELOG.md"; then
+  echo "ok: CHANGELOG endpoint/version/openapi help-contract note"
+else
+  echo "missing: CHANGELOG endpoint/version/openapi help-contract note" >&2
+  missing=1
+fi
+
+if grep -Fq 'scripts/smoke_help.sh` now exposes its own `--help` contract' "CHANGELOG.md"; then
+  echo "ok: CHANGELOG smoke-help help-contract note"
+else
+  echo "missing: CHANGELOG smoke-help help-contract note" >&2
+  missing=1
+fi
+
 if grep -Fq "Milestone metadata now includes CI/docs/release gate-bundle feature tags." "CHANGELOG.md"; then
   echo "ok: CHANGELOG milestone gate-tag note"
 else
@@ -315,12 +452,67 @@ else
   missing=1
 fi
 
+if grep -Fq -- "--legacy-fixture" ".github/workflows/smoke-runtime.yml"; then
+  echo "ok: smoke-runtime workflow includes legacy migration smoke job"
+else
+  echo "missing: smoke-runtime workflow legacy migration smoke job" >&2
+  missing=1
+fi
+
+if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
+   grep -Fq "Usage:" "scripts/operator_summary.sh" && \
+   grep -Fq "make release-smoke" "scripts/operator_summary.sh" && \
+   grep -Fq "make all-local" "scripts/operator_summary.sh" && \
+   grep -Fq "make ci-gates-postgres-legacy" "scripts/operator_summary.sh" && \
+   grep -Fq "make release-preflight" "scripts/operator_summary.sh" && \
+   grep -Fq "make support-bundle" "scripts/operator_summary.sh"; then
+  echo "ok: operator-summary includes help, readiness, legacy postgres, and release/support shortcuts"
+else
+  echo "missing: operator-summary help, readiness, legacy postgres, and release/support shortcuts" >&2
+  missing=1
+fi
+
+if grep -Fq "scripts/operator_summary.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/operator_summary.sh" "Makefile"; then
+  echo "ok: operator-summary included in help-smoke and operator-help surfaces"
+else
+  echo "missing: operator-summary help-smoke/operator-help wiring" >&2
+  missing=1
+fi
+
+if grep -Fq "Usage:" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/smoke_help.sh" "Makefile"; then
+  echo "ok: smoke-help includes help contract and operator-help wiring"
+else
+  echo "missing: smoke-help help contract/operator-help wiring" >&2
+  missing=1
+fi
+
+if grep -Fq "scripts/list_endpoints.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/version_info.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/export_openapi.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/diff_openapi.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/prune_openapi.sh" "scripts/smoke_help.sh" && \
+   grep -Fq "scripts/list_endpoints.sh" "Makefile" && \
+   grep -Fq "scripts/version_info.sh" "Makefile" && \
+   grep -Fq "scripts/export_openapi.sh" "Makefile" && \
+   grep -Fq "scripts/diff_openapi.sh" "Makefile" && \
+   grep -Fq "scripts/prune_openapi.sh" "Makefile"; then
+  echo "ok: endpoint/version/openapi scripts included in help-smoke and operator-help surfaces"
+else
+  echo "missing: endpoint/version/openapi help-smoke/operator-help wiring" >&2
+  missing=1
+fi
+
 if grep -Fq '"ci_gate_bundle"' "MILESTONE.json" && \
    grep -Fq '"release_preflight_bundle"' "MILESTONE.json" && \
-   grep -Fq '"docs_verify_alias"' "MILESTONE.json"; then
-  echo "ok: MILESTONE gate-bundle feature tags"
+   grep -Fq '"docs_verify_alias"' "MILESTONE.json" && \
+   grep -Fq '"postgres_legacy_fixture_smoke"' "MILESTONE.json" && \
+   grep -Fq '"ci_postgres_legacy_smoke_job"' "MILESTONE.json" && \
+   grep -Fq '"ci_gates_postgres_legacy_local_target"' "MILESTONE.json"; then
+  echo "ok: MILESTONE gate-bundle and legacy-smoke feature tags"
 else
-  echo "missing: MILESTONE gate-bundle feature tags" >&2
+  echo "missing: MILESTONE gate-bundle and legacy-smoke feature tags" >&2
   missing=1
 fi
 

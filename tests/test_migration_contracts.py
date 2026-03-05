@@ -24,3 +24,75 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
     assert "20260305_v0_8_channel_runtime_reliability.sql" in text
     assert "20260305_v0_9_tool_connector_kernel.sql" in text
     assert "20260305_v0_10_task_contracts_kernel.sql" in text
+
+
+def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
+    smoke = (ROOT / "scripts/smoke_postgres.sh").read_text()
+    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text()
+
+    assert "--legacy-fixture" in smoke
+    assert "apply_legacy_fixture()" in smoke
+    assert "validate_legacy_upgrade()" in smoke
+    assert 'POSTGRES_DB="${SMOKE_DB}" bash scripts/db_bootstrap.sh' in smoke
+    assert "smoke-postgres legacy fixture complete" in smoke
+    assert "approval_requests missing runtime columns" in smoke
+    assert "approval_decisions missing runtime columns" in smoke
+    assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
+
+
+def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> None:
+    ledger = (ROOT / "ea/schema/20260305_v0_6_execution_ledger_v2.sql").read_text()
+    approvals = (ROOT / "ea/schema/20260305_v0_7_approvals_kernel.sql").read_text()
+
+    assert "Some older installations use UUID-typed session identifiers" in ledger
+    assert "format_type(a.atttypid, a.atttypmod)" in ledger
+    assert "session_id %s NOT NULL REFERENCES execution_sessions(session_id)" in ledger
+
+    assert "Older installations may have legacy approval tables" in approvals
+    assert "approval_request_id" in approvals
+    assert "approval_decision_id" in approvals
+    assert "SET approval_id = 'legacy-' || approval_request_id::text" in approvals
+    assert "SET decision_id = 'legacy-' || approval_decision_id::text" in approvals
+
+
+def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
+    text = (ROOT / "scripts/operator_summary.sh").read_text()
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
+    makefile = (ROOT / "Makefile").read_text()
+
+    assert "Usage:" in text
+    assert "make smoke-postgres-legacy" in text
+    assert "make release-smoke" in text
+    assert "make all-local" in text
+    assert "make ci-gates-postgres-legacy" in text
+    assert "make ci-gates-postgres" in text
+    assert "make verify-release-assets" in text
+    assert "make release-preflight" in text
+    assert "make support-bundle" in text
+    assert "scripts/operator_summary.sh" in smoke_help
+    assert "scripts/operator_summary.sh" in makefile
+
+
+def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
+    makefile = (ROOT / "Makefile").read_text()
+
+    for rel in (
+        "scripts/list_endpoints.sh",
+        "scripts/version_info.sh",
+        "scripts/export_openapi.sh",
+        "scripts/diff_openapi.sh",
+        "scripts/prune_openapi.sh",
+    ):
+        text = (ROOT / rel).read_text()
+        assert "Usage:" in text
+        assert rel in smoke_help
+        assert rel in makefile
+
+
+def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
+    makefile = (ROOT / "Makefile").read_text()
+
+    assert "Usage:" in smoke_help
+    assert "scripts/smoke_help.sh" in makefile

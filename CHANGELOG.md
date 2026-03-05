@@ -156,6 +156,13 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - DB size operator flow now supports sort-key selection (`EA_DB_SIZE_SORT_KEY=total|table|index`).
 - CI smoke workflow now includes a Postgres-backed smoke job via `scripts/smoke_postgres.sh`.
 - Local gate bundle now has a combined API+Postgres parity target (`make ci-gates-postgres`).
+- Postgres smoke tooling now supports `--legacy-fixture`, with local parity entrypoints (`make smoke-postgres-legacy`, `make ci-gates-postgres-legacy`) and a dedicated CI legacy migration-regression job.
+- Operator summary output now includes legacy Postgres smoke and CI parity shortcuts.
+- Operator summary output now also surfaces release/support commands (`make verify-release-assets`, `make release-docs`, `make release-preflight`, `make operator-help`, `make support-bundle`).
+- Operator summary output now also includes `make release-smoke` and `make all-local` for quick readiness/release lookup.
+- Operator summary now exposes a `--help` contract and is included in `make operator-help` / `scripts/smoke_help.sh`.
+- Endpoint, version, and OpenAPI helper scripts now expose `--help` contracts and are included in `make operator-help` / `scripts/smoke_help.sh`.
+- `scripts/smoke_help.sh` now exposes its own `--help` contract and is included in `make operator-help`.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

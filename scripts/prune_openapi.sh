@@ -5,6 +5,17 @@ EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ART_DIR="${EA_ROOT}/artifacts"
 KEEP="${1:-20}"
 
+if [[ "${KEEP}" == "--help" || "${KEEP}" == "-h" ]]; then
+  cat <<'EOF'
+Usage:
+  bash scripts/prune_openapi.sh [keep_count]
+
+Prune old artifacts/openapi_*.json snapshots, keeping the newest keep_count
+files. Default keep_count is 20.
+EOF
+  exit 0
+fi
+
 if ! [[ "${KEEP}" =~ ^[0-9]+$ ]]; then
   echo "keep must be a non-negative integer" >&2
   exit 1

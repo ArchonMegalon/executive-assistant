@@ -100,7 +100,14 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/db_size.sh` | `bash scripts/db_size.sh --help` | Inspect table/index/total DB size footprint |
 | `scripts/db_retention.sh` | `bash scripts/db_retention.sh --help` | Dry-run/apply runtime retention pruning |
 | `scripts/smoke_api.sh` | `bash scripts/smoke_api.sh --help` | Run API smoke contracts |
+| `scripts/smoke_help.sh` | `bash scripts/smoke_help.sh --help` | Verify `--help` usage contracts for operator scripts |
 | `scripts/smoke_postgres.sh` | `bash scripts/smoke_postgres.sh --help` | Run end-to-end Postgres-backed smoke contract |
+| `scripts/list_endpoints.sh` | `bash scripts/list_endpoints.sh --help` | Print live endpoint inventory from OpenAPI |
+| `scripts/version_info.sh` | `bash scripts/version_info.sh --help` | Print git and milestone/version fingerprint |
+| `scripts/export_openapi.sh` | `bash scripts/export_openapi.sh --help` | Export timestamped OpenAPI snapshot |
+| `scripts/diff_openapi.sh` | `bash scripts/diff_openapi.sh --help` | Diff OpenAPI snapshots |
+| `scripts/prune_openapi.sh` | `bash scripts/prune_openapi.sh --help` | Prune old OpenAPI snapshots |
+| `scripts/operator_summary.sh` | `bash scripts/operator_summary.sh --help` | Print compact operator command inventory |
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune task log Done rows |
 | `scripts/verify_release_assets.sh` | `bash scripts/verify_release_assets.sh --help` | Verify release artifact completeness |
@@ -120,8 +127,9 @@ make operator-help
   - `make ci-local`
   - `make test-api`
   - `make verify-release-assets`
-- Postgres smoke job:
+- Postgres smoke jobs:
   - `bash scripts/smoke_postgres.sh`
+  - `bash scripts/smoke_postgres.sh --legacy-fixture`
 
 Milestone tracking linkage: `MILESTONE.json` feature tags include `ci_gate_bundle`, `release_preflight_bundle`, and `docs_verify_alias`.
 
@@ -137,7 +145,13 @@ Local mirror including Postgres smoke:
 make ci-gates-postgres
 ```
 
-Release ops linkage: `RELEASE_CHECKLIST.md` includes `make ci-gates` as an optional local parity command.
+Local mirror including legacy migration-regression smoke:
+
+```bash
+make ci-gates-postgres-legacy
+```
+
+Release ops linkage: `RELEASE_CHECKLIST.md` includes `make ci-gates` and `make ci-gates-postgres-legacy` as optional local parity commands.
 
 ## 1) Start Services
 
@@ -310,6 +324,10 @@ bash scripts/smoke_postgres.sh
 make smoke-postgres
 # optional isolated DB name override
 EA_SMOKE_DB=ea_smoke_runtime bash scripts/smoke_postgres.sh
+# legacy migration-regression mode (skips API smoke)
+bash scripts/smoke_postgres.sh --legacy-fixture
+# or
+make smoke-postgres-legacy
 ```
 
 The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input) and runs against an isolated smoke DB so legacy runtime data is not mutated.
@@ -499,6 +517,8 @@ bash scripts/operator_summary.sh
 # or
 make operator-summary
 ```
+
+The operator summary includes release smoke/readiness commands plus legacy smoke/parity shortcuts and release/support commands such as `make release-preflight` and `make support-bundle`.
 
 ## 15) Generate Support Bundle
 

@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-149 | P1 | Add migration-regression test for legacy UUID/approval schemas | codex | queued | Build synthetic legacy-schema fixture and assert `scripts/db_bootstrap.sh` upgrades it without errors in CI |
+| - | - | - | - | - | - |
 
 ## In Progress
 
@@ -179,6 +179,14 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-146 | P1 | Add CI job for Postgres-backed smoke script (`make smoke-postgres`) | codex | done | Workflow now runs `scripts/smoke_postgres.sh` in dedicated `smoke-runtime-postgres` job and docs track the expanded CI gate path |
 | D-147 | P1 | Add local parity aggregate target for API+Postgres smoke (`make ci-gates-postgres`) | codex | done | Added combined local gate target, checklist/docs references, and release-asset guard for `ci-gates-postgres` parity line |
 | D-148 | P0 | Harden Postgres smoke compatibility against legacy host volumes | codex | done | `v0_6` supports UUID/TEXT FK compatibility; `v0_7` upgrades legacy approval table variants in place; `scripts/smoke_postgres.sh` uses isolated smoke DB + env-template fallback + readiness retries |
+| D-149 | P1 | Add legacy migration-regression Postgres smoke mode and CI/local parity wiring | codex | done | Added `--legacy-fixture` validation mode, `smoke-runtime-postgres-legacy` workflow job, `make smoke-postgres-legacy`/`make ci-gates-postgres-legacy`, and release-asset/doc tracking |
+| D-150 | P1 | Add migration-regression contract coverage for legacy UUID/approval schema upgrades | codex | done | Added contract tests for legacy fixture smoke wiring, CI job presence, and `v0_6`/`v0_7` compatibility logic; verified legacy smoke upgrades cleanly |
+| D-151 | P3 | Add operator-summary visibility for legacy Postgres smoke/parity commands | codex | done | Updated operator summary output, README/RUNBOOK references, release-asset guards, and script contract coverage for legacy smoke shortcuts |
+| D-152 | P3 | Add release/support command visibility to operator summary | codex | done | Operator summary now includes release verification, preflight, operator-help, and support-bundle shortcuts with docs/guard/test coverage |
+| D-153 | P3 | Add release-smoke and all-local visibility to operator summary | codex | done | Operator summary now includes readiness/release aggregate shortcuts with docs, release-asset guards, and contract coverage |
+| D-154 | P3 | Add operator-summary help contract and include it in help-smoke/operator-help | codex | done | Added `--help` to `scripts/operator_summary.sh`, wired it into `make operator-help` and `scripts/smoke_help.sh`, and extended docs/guards/contracts |
+| D-155 | P3 | Add help contracts for endpoint/version/OpenAPI helper scripts | codex | done | Added `--help` to endpoint/version/OpenAPI scripts, wired them into `make operator-help` + `scripts/smoke_help.sh`, and extended docs/guards/contracts |
+| D-156 | P3 | Add smoke-help help contract and include it in operator-help | codex | done | Added `--help` to `scripts/smoke_help.sh`, included it in `make operator-help`, and extended docs/guards/contracts |
 
 ## Intake Template
 
