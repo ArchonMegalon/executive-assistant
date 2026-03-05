@@ -123,6 +123,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Container hardening: removed `docker.io` install from app images.
 - `scripts/smoke_postgres.sh` now provisions an isolated smoke DB (`EA_SMOKE_DB`) and restores local `.env` state after smoke completion.
 - `v0_6` execution-ledger migration now infers FK identifier types from the live schema to support both UUID and TEXT session ledgers.
+- `v0_7` approvals migration now upgrades legacy approval table variants in place by adding runtime-required columns/indexes and backfilling IDs/status fields.
 - Deploy flow can optionally chain DB bootstrap (`EA_BOOTSTRAP_DB=1`).
 - Rewrite path now emits execution ledger events and policy audit records.
 - Milestone metadata now includes CI/docs/release gate-bundle feature tags.

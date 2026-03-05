@@ -69,6 +69,7 @@
     "ci_gates_postgres_local_target",
     "postgres_smoke_isolated_db",
     "execution_ledger_v2_uuid_text_compat",
+    "approvals_legacy_schema_compat",
     "env_example_template_tracked",
     "script_help_contracts",
     "ci_gate_bundle",
