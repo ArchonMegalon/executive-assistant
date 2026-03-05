@@ -94,6 +94,13 @@ Branch: `main`
   - `act:*` legacy button-context execution path now writes execution session lifecycle
     (compile/execute/render/finalize), aligned with typed-action callbacks.
   - `smoke_v1_20_legacy_button_action_sessions.py` added and wired into host/docker/CI gates.
+- [DONE] Event-worker role-path convergence:
+  - `EA_ROLE=event_worker` now dispatches through `app.roles.event_worker.run_event_worker`
+    from `runner.py` (canonical role shim path), not direct worker import.
+- [DONE] Auditor inventory guard strengthening:
+  - `smoke_v1_19_4_ltd_inventory_doc.py` now enforces both sections:
+    - capability-backed LTD tiers
+    - runtime dependencies not tiered as LTD
 - [DONE] Auditor LTD inventory hardening:
   - `LTD_INVENTORY.md` now explicitly separates capability-backed LTD tier declarations
     from non-tiered runtime dependencies.
