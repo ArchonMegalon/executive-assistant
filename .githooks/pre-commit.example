@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] compile check"
+python3 -m compileall -q ea/app
+
+echo "[pre-commit] test module syntax"
+python3 -m py_compile tests/smoke_runtime_api.py
+
+if command -v pytest >/dev/null 2>&1; then
+  echo "[pre-commit] runtime API smoke tests"
+  PYTHONPATH=ea EA_LEDGER_BACKEND=memory pytest -q tests/smoke_runtime_api.py
+else
+  echo "[pre-commit] pytest not found; skipping smoke tests"
+fi

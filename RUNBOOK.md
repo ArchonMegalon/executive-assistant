@@ -143,3 +143,12 @@ bash scripts/prune_openapi.sh 50
 # or
 make openapi-prune
 ```
+
+## 9) Optional Local Pre-Commit Hook
+
+```bash
+mkdir -p .githooks
+cp .githooks/pre-commit.example .githooks/pre-commit
+chmod +x .githooks/pre-commit
+git config core.hooksPath .githooks
+```

@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-023 | P3 | Add pre-commit hook template for local smoke/test checks | codex | queued | Keep baseline quality guard local |
+| Q-024 | P3 | Add script to print runtime endpoint inventory from OpenAPI | codex | queued | Fast operator visibility |
 
 ## In Progress
 
@@ -42,6 +42,7 @@ Use this file as the execution queue and progress ledger.
 | D-022 | P3 | Add API contract summary table to runbook | codex | done | Method/route/success/error snapshot in `RUNBOOK.md` |
 | D-023 | P3 | Add local memory-profile env template | codex | done | Added `.env.local.example` and README quick-start note |
 | D-024 | P3 | Add compose memory override + deploy-memory path | codex | done | Added `docker-compose.memory.yml` and `EA_MEMORY_ONLY=1` flow |
+| D-025 | P3 | Add pre-commit hook template for local checks | codex | done | Added `.githooks/pre-commit.example` and runbook setup |
 
 ## Intake Template
 
