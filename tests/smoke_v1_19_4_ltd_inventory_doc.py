@@ -18,6 +18,8 @@ def test_ltd_inventory_file_present_and_populated() -> None:
     inventory = ROOT / "LTD_INVENTORY.md"
     assert inventory.exists(), "missing LTD_INVENTORY.md"
     text = inventory.read_text(encoding="utf-8")
+    assert "Capability-Backed LTD Inventory" in text
+    assert "Runtime Dependencies (Not LTD Tiered)" in text
     for marker in (
         "BrowserAct",
         "MetaSurvey",
@@ -27,6 +29,8 @@ def test_ltd_inventory_file_present_and_populated() -> None:
         "Prompting.Systems",
         "Undetectable",
         "1minAI",
+        "OpenClaw container runtime",
+        "LiteLLM route/provider gateway",
     ):
         assert marker in text, f"missing marker in LTD inventory: {marker}"
     _pass("v1.19.4 ltd inventory file presence")
