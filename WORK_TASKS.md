@@ -505,16 +505,31 @@ Owner: Codex runtime worker
       - gate report generated:
         `logs/gates/docker_e2e_20260305T110054Z.json`.
 
-46. `IN_PROGRESS` - Queue checkpoint commit after Docker E2E pass.
+46. `DONE` - Queue checkpoint commit after Docker E2E pass.
    - Deliverables:
       - local commit current queue slice.
       - keep next pending architectural hardening item queued.
+   - Progress:
+      - committed queue checkpoint after Docker E2E pass.
 
-47. `PENDING` - Planner runtime contract guard for shared execute helper callsites.
+47. `DONE` - Planner runtime contract guard for shared execute helper callsites.
    - Deliverables:
       - add smoke asserting both free-text and approved callback paths call
         shared planner fallback helper before render stage.
       - wire smoke into host/CI gates.
+   - Progress:
+      - added/wired `tests/smoke_v1_22_execute_helper_callsites.py`.
+      - host gates passing with shared-helper callsite assertions.
+
+48. `DONE` - Planner execute-step provider outcome recording.
+   - Deliverables:
+      - record provider outcomes from planner-owned execute step completion.
+      - add smoke coverage for execute-step provider outcome persistence source.
+   - Progress:
+      - `step_executor.execute_planned_reasoning_step(...)` now records
+        `planner_execution` success outcomes for selected execute providers.
+      - added/wired `tests/smoke_v1_22_planner_execute_outcomes.py`.
+      - host gates passing after execute-path outcome recording.
 
 ## Validation Command
 - Host gate: `EA_SKIP_FULL_GATES=1 bash scripts/run_v120_smoke.sh`

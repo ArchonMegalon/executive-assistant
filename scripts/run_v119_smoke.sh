@@ -84,6 +84,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_schema_manifest_gate.py" \
   "$ROOT/tests/smoke_v1_22_synthetic_preview_outcomes.py" \
   "$ROOT/tests/smoke_v1_22_generic_runtime_outcomes.py" \
+  "$ROOT/tests/smoke_v1_22_planner_execute_outcomes.py" \
   "$ROOT/tests/smoke_v1_22_provider_broker_outcome_ordering.py" \
   "$ROOT/tests/smoke_v1_22_task_matcher.py" \
   "$ROOT/tests/smoke_v1_22_step_executor_ledger_seed.py" \
@@ -94,6 +95,7 @@ python3 -m py_compile \
   "$ROOT/tests/smoke_v1_22_planner_exports.py" \
   "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py" \
   "$ROOT/tests/smoke_v1_22_planner_fallback_helper.py" \
+  "$ROOT/tests/smoke_v1_22_execute_helper_callsites.py" \
   "$ROOT/tests/smoke_v1_22_fallback_metadata_shape.py" \
   "$ROOT/tests/smoke_v1_22_execute_step_metadata_provenance.py" \
   "$ROOT/tests/smoke_v1_22_step_output_refs_persistence.py" \
@@ -172,6 +174,7 @@ python3 "$ROOT/tests/smoke_v1_22_task_contract_surface.py"
 python3 "$ROOT/tests/smoke_v1_22_schema_manifest_gate.py"
 python3 "$ROOT/tests/smoke_v1_22_synthetic_preview_outcomes.py"
 python3 "$ROOT/tests/smoke_v1_22_generic_runtime_outcomes.py"
+python3 "$ROOT/tests/smoke_v1_22_planner_execute_outcomes.py"
 python3 "$ROOT/tests/smoke_v1_22_provider_broker_outcome_ordering.py"
 python3 "$ROOT/tests/smoke_v1_22_task_matcher.py"
 python3 "$ROOT/tests/smoke_v1_22_step_executor_ledger_seed.py"
@@ -182,6 +185,7 @@ python3 "$ROOT/tests/smoke_v1_22_pre_step_handler_map.py"
 python3 "$ROOT/tests/smoke_v1_22_planner_exports.py"
 python3 "$ROOT/tests/smoke_v1_22_planner_runtime_contracts.py"
 python3 "$ROOT/tests/smoke_v1_22_planner_fallback_helper.py"
+python3 "$ROOT/tests/smoke_v1_22_execute_helper_callsites.py"
 python3 "$ROOT/tests/smoke_v1_22_fallback_metadata_shape.py"
 python3 "$ROOT/tests/smoke_v1_22_execute_step_metadata_provenance.py"
 python3 "$ROOT/tests/smoke_v1_22_step_output_refs_persistence.py"

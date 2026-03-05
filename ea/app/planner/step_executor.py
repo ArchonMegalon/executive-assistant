@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, Awaitable, Callable
 
 from app.gog import gog_scout
+from app.planner.provider_outcomes import record_provider_outcome
 
 _PLANNER_PRE_EXEC_STEPS = {
     "collect_intake_context",
@@ -541,6 +542,18 @@ async def execute_planned_reasoning_step(
             "output_refs": execute_output_refs,
         },
     )
+    if execute_provider_key:
+        try:
+            record_provider_outcome(
+                tenant_key=str((intent_spec or {}).get("tenant_key") or ""),
+                provider_key=str(execute_provider_key or ""),
+                task_type=str(metadata.get("task_type") or "free_text_response"),
+                outcome_status="success",
+                score_delta=1,
+                source="planner_execution",
+            )
+        except Exception:
+            pass
     payload = dict(metadata)
     payload["execute_step_id"] = execute_step_id
     payload["execute_step_order"] = execute_step_order
