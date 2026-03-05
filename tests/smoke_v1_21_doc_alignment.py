@@ -49,6 +49,7 @@ def test_v121_doc_alignment() -> None:
     assert "capability_router.py" in guide
     assert "intent_compiler.py" in guide
     assert "step_executor.py" in guide
+    assert "execute_planned_reasoning_step" in guide
     assert "_run_planner_pre_execution_steps" in guide
     assert "create_action(...)" in guide
     assert "skill_commands.py" in guide

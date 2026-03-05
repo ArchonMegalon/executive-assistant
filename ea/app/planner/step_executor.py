@@ -5,6 +5,18 @@ from typing import Any, Awaitable, Callable
 
 from app.gog import gog_scout
 
+_PLANNER_PRE_EXEC_STEPS = {
+    "collect_intake_context",
+    "compile_prompt_pack",
+    "prepare_draft_context",
+    "prepare_multimodal_context",
+    "analyze_trip_commitment",
+    "compare_travel_options",
+    "verify_payment_context",
+    "gather_project_context",
+    "review_health_context",
+}
+
 
 async def run_reasoning_step(
     *,
@@ -29,4 +41,134 @@ async def run_reasoning_step(
     )
 
 
-__all__ = ["run_reasoning_step"]
+def run_pre_execution_steps(
+    *,
+    session_id: str,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+    mark_step: Callable[..., None],
+    append_event: Callable[..., None],
+) -> None:
+    if not session_id:
+        return
+    domain = str((intent_spec or {}).get("domain") or "")
+    task_type = str((intent_spec or {}).get("task_type") or "")
+    objective = str((intent_spec or {}).get("objective") or "")[:200]
+    for row in list(plan_steps or []):
+        step_key = str((row or {}).get("step_key") or "").strip()
+        if step_key not in _PLANNER_PRE_EXEC_STEPS:
+            continue
+        mark_step(
+            session_id,
+            step_key,
+            "running",
+            evidence={"domain": domain, "task_type": task_type},
+        )
+        mark_step(
+            session_id,
+            step_key,
+            "completed",
+            result={
+                "planner_step": step_key,
+                "status": "deterministic_context_ready",
+                "domain": domain,
+                "task_type": task_type,
+                "objective_preview": objective,
+            },
+        )
+        append_event(
+            session_id,
+            event_type="planner_context_step_completed",
+            message=f"Planner pre-execution step completed: {step_key}",
+            payload={"step_key": step_key, "domain": domain, "task_type": task_type},
+        )
+
+
+def _execute_step_metadata(
+    *,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+) -> dict[str, Any]:
+    execute_row = next(
+        (row for row in list(plan_steps or []) if str((row or {}).get("step_key") or "").strip() == "execute_intent"),
+        {},
+    )
+    task_type = str((execute_row or {}).get("task_type") or (intent_spec or {}).get("task_type") or "free_text_response")
+    artifact_type = str((execute_row or {}).get("output_artifact_type") or "chat_response")
+    providers = [str(x) for x in list((execute_row or {}).get("provider_candidates") or []) if str(x or "").strip()]
+    return {
+        "task_type": task_type,
+        "output_artifact_type": artifact_type,
+        "provider_candidates": providers,
+    }
+
+
+async def execute_planned_reasoning_step(
+    *,
+    session_id: str,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+    prompt: str,
+    container: str,
+    google_account: str,
+    ui_updater: Callable[[str], Awaitable[None]],
+    task_name: str,
+    mark_step: Callable[..., None],
+    append_event: Callable[..., None],
+    run_reasoning_step_func: Callable[..., Awaitable[str]] = run_reasoning_step,
+    reasoning_runner: Callable[..., Awaitable[str]] | None = None,
+    timeout_sec: float = 240.0,
+) -> dict[str, Any]:
+    metadata = _execute_step_metadata(plan_steps=plan_steps, intent_spec=intent_spec)
+    mark_step(
+        session_id,
+        "execute_intent",
+        "running",
+        evidence={
+            "task_type": metadata["task_type"],
+            "output_artifact_type": metadata["output_artifact_type"],
+            "provider_candidates": metadata["provider_candidates"],
+        },
+    )
+    report = await run_reasoning_step_func(
+        container=str(container or ""),
+        prompt=str(prompt or ""),
+        google_account=str(google_account or ""),
+        ui_updater=ui_updater,
+        task_name=str(task_name or "Intent Execution"),
+        timeout_sec=float(timeout_sec),
+        runner=reasoning_runner,
+    )
+    report_chars = len(str(report or ""))
+    mark_step(
+        session_id,
+        "execute_intent",
+        "completed",
+        result={
+            "report_chars": report_chars,
+            "task_type": metadata["task_type"],
+            "output_artifact_type": metadata["output_artifact_type"],
+            "provider_candidates": metadata["provider_candidates"],
+        },
+    )
+    append_event(
+        session_id,
+        event_type="execute_intent_completed",
+        message="Planner-owned execute_intent step completed.",
+        payload={
+            "task_type": metadata["task_type"],
+            "output_artifact_type": metadata["output_artifact_type"],
+            "provider_candidates": metadata["provider_candidates"],
+            "report_chars": report_chars,
+        },
+    )
+    payload = dict(metadata)
+    payload["report"] = report
+    return payload
+
+
+__all__ = [
+    "run_reasoning_step",
+    "run_pre_execution_steps",
+    "execute_planned_reasoning_step",
+]

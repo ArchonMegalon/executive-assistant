@@ -22,21 +22,12 @@ from app.execution import (
 )
 from app.gog import gog_scout
 from app.memory import save_button_context
-from app.planner.step_executor import run_reasoning_step
+from app.planner.step_executor import (
+    execute_planned_reasoning_step,
+    run_pre_execution_steps,
+    run_reasoning_step,
+)
 from app.poll_ui import build_dynamic_ui, clean_html_for_telegram
-
-
-_PLANNER_PRE_EXEC_STEPS = {
-    "collect_intake_context",
-    "compile_prompt_pack",
-    "prepare_draft_context",
-    "prepare_multimodal_context",
-    "analyze_trip_commitment",
-    "compare_travel_options",
-    "verify_payment_context",
-    "gather_project_context",
-    "review_health_context",
-}
 
 
 def _run_planner_pre_execution_steps(
@@ -45,39 +36,14 @@ def _run_planner_pre_execution_steps(
     plan_steps: list[dict[str, Any]],
     intent_spec: dict[str, Any],
 ) -> None:
-    if not session_id:
-        return
-    domain = str((intent_spec or {}).get("domain") or "")
-    task_type = str((intent_spec or {}).get("task_type") or "")
-    objective = str((intent_spec or {}).get("objective") or "")[:200]
-    for row in list(plan_steps or []):
-        step_key = str((row or {}).get("step_key") or "").strip()
-        if step_key not in _PLANNER_PRE_EXEC_STEPS:
-            continue
-        mark_execution_step_status(
-            session_id,
-            step_key,
-            "running",
-            evidence={"domain": domain, "task_type": task_type},
-        )
-        mark_execution_step_status(
-            session_id,
-            step_key,
-            "completed",
-            result={
-                "planner_step": step_key,
-                "status": "deterministic_context_ready",
-                "domain": domain,
-                "task_type": task_type,
-                "objective_preview": objective,
-            },
-        )
-        append_execution_event(
-            session_id,
-            event_type="planner_context_step_completed",
-            message=f"Planner pre-execution step completed: {step_key}",
-            payload={"step_key": step_key, "domain": domain, "task_type": task_type},
-        )
+    # planner_context_step_completed events are emitted by planner.step_executor.
+    run_pre_execution_steps(
+        session_id=session_id,
+        plan_steps=list(plan_steps or []),
+        intent_spec=dict(intent_spec or {}),
+        mark_step=mark_execution_step_status,
+        append_event=append_execution_event,
+    )
 
 
 async def execute_approved_intent_action(
@@ -149,22 +115,31 @@ async def execute_approved_intent_action(
     current_step = "execute_intent"
     try:
         if session_id:
-            mark_execution_step_status(session_id, "execute_intent", "running")
-        report = await run_reasoning_step(
-            container=t_openclaw,
-            prompt=prompt,
-            google_account=get_val(tenant_cfg, "google_account", ""),
-            ui_updater=_ui_updater,
-            task_name="Intent: Approved Free Text",
-            timeout_sec=240.0,
-            runner=gog_scout,
-        )
-        if session_id:
-            mark_execution_step_status(
-                session_id,
-                "execute_intent",
-                "completed",
-                result={"report_chars": len(str(report or ""))},
+            exec_result = await execute_planned_reasoning_step(
+                session_id=session_id,
+                plan_steps=[{"step_key": "execute_intent"}],
+                intent_spec={"task_type": str(payload.get("task_type") or "free_text_response")},
+                prompt=prompt,
+                container=t_openclaw,
+                google_account=get_val(tenant_cfg, "google_account", ""),
+                ui_updater=_ui_updater,
+                task_name="Intent: Approved Free Text",
+                mark_step=mark_execution_step_status,
+                append_event=append_execution_event,
+                run_reasoning_step_func=run_reasoning_step,
+                reasoning_runner=gog_scout,
+                timeout_sec=240.0,
+            )
+            report = str(exec_result.get("report") or "")
+        else:
+            report = await run_reasoning_step(
+                container=t_openclaw,
+                prompt=prompt,
+                google_account=get_val(tenant_cfg, "google_account", ""),
+                ui_updater=_ui_updater,
+                task_name="Intent: Approved Free Text",
+                timeout_sec=240.0,
+                runner=gog_scout,
             )
         kb_dict = build_dynamic_ui(report, prompt, save_ctx=save_button_context)
         clean_rep = clean_html_for_telegram(
@@ -472,22 +447,31 @@ async def handle_free_text_intent(
     try:
         current_step = "execute_intent"
         if session_id:
-            mark_execution_step_status(session_id, "execute_intent", "running")
-        report = await run_reasoning_step(
-            container=t_openclaw,
-            prompt=prompt,
-            google_account=get_val(tenant_cfg, "google_account", ""),
-            ui_updater=_ui_updater,
-            task_name="Intent: Free Text",
-            timeout_sec=240.0,
-            runner=gog_scout,
-        )
-        if session_id:
-            mark_execution_step_status(
-                session_id,
-                "execute_intent",
-                "completed",
-                result={"report_chars": len(str(report or ""))},
+            exec_result = await execute_planned_reasoning_step(
+                session_id=session_id,
+                plan_steps=list(plan_steps or []),
+                intent_spec=dict(intent_spec or {}),
+                prompt=prompt,
+                container=t_openclaw,
+                google_account=get_val(tenant_cfg, "google_account", ""),
+                ui_updater=_ui_updater,
+                task_name="Intent: Free Text",
+                mark_step=mark_execution_step_status,
+                append_event=append_execution_event,
+                run_reasoning_step_func=run_reasoning_step,
+                reasoning_runner=gog_scout,
+                timeout_sec=240.0,
+            )
+            report = str(exec_result.get("report") or "")
+        else:
+            report = await run_reasoning_step(
+                container=t_openclaw,
+                prompt=prompt,
+                google_account=get_val(tenant_cfg, "google_account", ""),
+                ui_updater=_ui_updater,
+                task_name="Intent: Free Text",
+                timeout_sec=240.0,
+                runner=gog_scout,
             )
         kb_dict = build_dynamic_ui(report, prompt, save_ctx=save_button_context)
         clean_rep = clean_html_for_telegram(

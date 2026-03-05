@@ -280,6 +280,20 @@ existing capability routing behavior.
    - Added `tests/smoke_v1_22_sim_user_harness.py` and wired it into
      host/docker/CI gates.
 
+25. Planner-owned free-text execution handoff (in progress):
+   - Expanded `ea/app/planner/step_executor.py` with:
+     - `run_pre_execution_steps(...)`
+     - `execute_planned_reasoning_step(...)`
+   - `ea/app/intent_runtime.py` now delegates free-text and approved-callback
+     execution through planner step-executor helpers, keeping `gog_scout`
+     as a provider-backed runner.
+   - `execute_intent` completion payload now includes stable metadata:
+     - `task_type`
+     - `output_artifact_type`
+     - `provider_candidates`
+   - Expanded `tests/smoke_v1_21_intent_runtime_planner_steps.py`
+     assertions for metadata persistence.
+
 ## Why this matters
 
 This keeps provider contracts (`CapabilityContract`) but introduces a stable task layer the

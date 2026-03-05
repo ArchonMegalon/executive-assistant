@@ -83,6 +83,13 @@ Owner: Codex runtime worker
       - move free-text runtime to execute persisted plan steps through planner runtime.
       - keep `gog_scout` as provider-backed step, not top-level control flow.
       - persist per-step outputs with stable artifact metadata.
+   - Progress:
+      - `planner/step_executor.py` now owns pre-step execution and `execute_intent`
+        metadata/result persistence (`run_pre_execution_steps`, `execute_planned_reasoning_step`).
+      - `intent_runtime.py` now delegates free-text and approved-callback
+        execute paths to planner-owned step executor helpers.
+      - step results now include stable metadata (`task_type`,
+        `output_artifact_type`, `provider_candidates`) on `execute_intent`.
 
 10. `PENDING` - Approval runtime hardening.
    - Deliverables:

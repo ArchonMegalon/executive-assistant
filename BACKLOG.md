@@ -275,3 +275,13 @@ Branch: `main`
 ## Next Queue (on new feedback)
 - [IN_PROGRESS] Planner-owned free-text execution handoff
 - [PENDING] Approval runtime hardening
+
+## In-Progress Detail
+- Planner-owned free-text execution handoff:
+  - `planner/step_executor.py` now contains:
+    - `run_pre_execution_steps(...)`
+    - `execute_planned_reasoning_step(...)`
+  - `intent_runtime.py` delegates free-text and approved-callback execution
+    through planner-owned step execution helpers.
+  - `execute_intent` completion payload now persists stable metadata:
+    `task_type`, `output_artifact_type`, `provider_candidates`.

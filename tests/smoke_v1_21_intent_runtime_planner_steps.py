@@ -139,6 +139,13 @@ def test_intent_runtime_executes_pre_steps_before_execute_intent() -> None:
         assert ("prepare_draft_context", "completed") in step_pairs
         assert ("execute_intent", "completed") in step_pairs
         assert ("render_reply", "completed") in step_pairs
+        execute_completed = [
+            kwargs for (step, status, kwargs) in captured["steps"] if step == "execute_intent" and status == "completed"
+        ]
+        assert execute_completed, "expected execute_intent completion payload"
+        exec_result = dict(execute_completed[-1].get("result") or {})
+        assert str(exec_result.get("task_type") or "") == "polish_human_tone"
+        assert str(exec_result.get("output_artifact_type") or "") == "polished_draft"
         assert captured["finalized"], "session should finalize after response render"
         assert captured["finalized"][0]["status"] == "completed"
         _pass("v1.21 intent-runtime planner-step behavior")

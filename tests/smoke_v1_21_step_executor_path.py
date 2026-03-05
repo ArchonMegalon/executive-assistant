@@ -19,8 +19,11 @@ def test_step_executor_module_and_intent_runtime_wiring() -> None:
     step_src = (ROOT / "ea/app/planner/step_executor.py").read_text(encoding="utf-8")
     runtime_src = (ROOT / "ea/app/intent_runtime.py").read_text(encoding="utf-8")
     assert "def run_reasoning_step(" in step_src
-    assert "from app.planner.step_executor import run_reasoning_step" in runtime_src
-    assert "runner=gog_scout" in runtime_src
+    assert "def run_pre_execution_steps(" in step_src
+    assert "def execute_planned_reasoning_step(" in step_src
+    assert "from app.planner.step_executor import (" in runtime_src
+    assert "execute_planned_reasoning_step(" in runtime_src
+    assert "reasoning_runner=gog_scout" in runtime_src
     _pass("v1.21 step executor module + runtime wiring")
 
 
