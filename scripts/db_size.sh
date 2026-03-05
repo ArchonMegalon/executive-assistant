@@ -16,6 +16,7 @@ Environment:
   POSTGRES_USER            Postgres user (default: postgres)
   POSTGRES_DB              Postgres database name (default: ea)
   EA_DB_SIZE_LIMIT         Number of largest tables to print (default: 20)
+  EA_DB_SIZE_TABLE_PREFIX  Optional table-name prefix filter
 EOF
   exit 0
 fi
@@ -30,10 +31,21 @@ DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-ea}"
 SIZE_LIMIT="${EA_DB_SIZE_LIMIT:-20}"
+TABLE_PREFIX="${EA_DB_SIZE_TABLE_PREFIX:-}"
 
 if ! [[ "${SIZE_LIMIT}" =~ ^[0-9]+$ ]]; then
   echo "EA_DB_SIZE_LIMIT must be an integer" >&2
   exit 2
+fi
+
+if [[ -n "${TABLE_PREFIX}" && ! "${TABLE_PREFIX}" =~ ^[A-Za-z0-9_]+$ ]]; then
+  echo "EA_DB_SIZE_TABLE_PREFIX must match [A-Za-z0-9_]+" >&2
+  exit 2
+fi
+
+WHERE_CLAUSE=""
+if [[ -n "${TABLE_PREFIX}" ]]; then
+  WHERE_CLAUSE="WHERE relname LIKE '${TABLE_PREFIX}%'"
 fi
 
 echo "== EA DB size =="
@@ -56,15 +68,18 @@ docker exec -i "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c \
      pg_size_pretty(COALESCE(SUM(pg_relation_size(relid)),0)) AS table_bytes, \
      pg_size_pretty(COALESCE(SUM(pg_indexes_size(relid)),0)) AS index_bytes, \
      pg_size_pretty(COALESCE(SUM(pg_total_relation_size(relid)),0)) AS relation_total \
-   FROM pg_catalog.pg_statio_user_tables;"
+   FROM pg_catalog.pg_statio_user_tables ${WHERE_CLAUSE};"
 
 echo "-- largest user tables (top ${SIZE_LIMIT}) --"
+if [[ -n "${TABLE_PREFIX}" ]]; then
+  echo "table_prefix_filter=${TABLE_PREFIX}"
+fi
 docker exec -i "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c \
   "SELECT \
      relname AS table_name, \
      pg_size_pretty(pg_relation_size(relid)) AS table_size, \
      pg_size_pretty(pg_indexes_size(relid)) AS index_size, \
      pg_size_pretty(pg_total_relation_size(relid)) AS total_size \
-   FROM pg_catalog.pg_statio_user_tables \
+   FROM pg_catalog.pg_statio_user_tables ${WHERE_CLAUSE} \
    ORDER BY pg_total_relation_size(relid) DESC \
    LIMIT ${SIZE_LIMIT};"

@@ -14,7 +14,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | Q-044 | P2 | Keep queue log current as slices are added/closed | codex | queued | Use this file as the default intake point for new tasks |
-| Q-141 | P1 | Continue kernel ops hardening (`db_size.sh` table prefix filter + docs contract) | codex | queued | Chain after retention table-filter slice commit |
+| Q-142 | P1 | Continue kernel ops hardening (`db_size.sh` min-size threshold filter + docs contract) | codex | queued | Chain after db-size prefix-filter slice commit |
 
 ## In Progress
 
@@ -172,6 +172,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-138 | P0 | Continue kernel operations hardening (support-bundle optional DB-size snapshot hook + docs linkage) | codex | done | Added support-bundle DB-size snapshot toggles/limits and updated operator docs + milestone/task tracking |
 | D-139 | P0 | Continue kernel operations hardening (`db_retention.sh` table policy profile presets + docs contract) | codex | done | Added retention profile presets (`aggressive|standard|conservative`) with per-table day-window overrides and docs/milestone linkage |
 | D-140 | P1 | Continue kernel ops hardening (`db_retention.sh` table whitelist/skip list controls + docs contract) | codex | done | Added retention table allowlist/skip-list filters and documented scoped retention runs in README/RUNBOOK/changelog |
+| D-141 | P1 | Continue kernel ops hardening (`db_size.sh` table prefix filter + docs contract) | codex | done | Added optional `EA_DB_SIZE_TABLE_PREFIX` filter with validation and docs/milestone/task-log updates |
 
 ## Intake Template
 

@@ -198,6 +198,9 @@ Check table/index size footprint:
 bash scripts/db_size.sh
 # or
 make db-size
+
+# optional table-prefix filter
+EA_DB_SIZE_TABLE_PREFIX=execution_ bash scripts/db_size.sh
 ```
 
 Retention dry-run (default) and apply mode:

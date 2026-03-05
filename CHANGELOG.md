@@ -144,6 +144,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Support bundle export now optionally includes DB size snapshots (`SUPPORT_INCLUDE_DB_SIZE`, `SUPPORT_DB_SIZE_LIMIT`).
 - Retention operator flow now supports profile presets (`EA_RETENTION_PROFILE=aggressive|standard|conservative`) with per-window overrides.
 - Retention operator flow now supports table allowlist/skip filters (`EA_RETENTION_TABLES`, `EA_RETENTION_SKIP_TABLES`).
+- DB size operator flow now supports table-prefix scoping (`EA_DB_SIZE_TABLE_PREFIX`).
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

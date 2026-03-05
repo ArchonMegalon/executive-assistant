@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -56,6 +56,7 @@
     "interruption_budgets_seed",
     "principal_scoped_interruption_budgets_api",
     "db_size_visibility",
+    "db_size_table_prefix_filter",
     "db_retention_baseline",
     "db_retention_profile_presets",
     "db_retention_table_filters",
