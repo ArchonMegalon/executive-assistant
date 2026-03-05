@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.34.0",
+  "version": "0.35.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -67,6 +67,9 @@
     "postgres_smoke_path",
     "ci_postgres_smoke_job",
     "ci_gates_postgres_local_target",
+    "postgres_smoke_isolated_db",
+    "execution_ledger_v2_uuid_text_compat",
+    "env_example_template_tracked",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",

@@ -144,6 +144,7 @@ DB size inspection supports optional schema/sort/prefix/size scoping via `EA_DB_
 Script help contract smoke is available via `scripts/smoke_help.sh` or `make smoke-help`.
 Release smoke aggregate is available via `make release-smoke`.
 Postgres-backed smoke run is available via `scripts/smoke_postgres.sh` or `make smoke-postgres`.
+The script targets an isolated smoke database (`EA_SMOKE_DB`, default `ea_smoke_runtime`) and restores local `.env` state after the run.
 Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.

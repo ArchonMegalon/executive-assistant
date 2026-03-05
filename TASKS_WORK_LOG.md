@@ -178,6 +178,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-145 | P1 | Add local Postgres-backed smoke contract script + docs wiring | codex | done | Added `scripts/smoke_postgres.sh`, make target/operator linkage, and docs/milestone references for Postgres e2e smoke path |
 | D-146 | P1 | Add CI job for Postgres-backed smoke script (`make smoke-postgres`) | codex | done | Workflow now runs `scripts/smoke_postgres.sh` in dedicated `smoke-runtime-postgres` job and docs track the expanded CI gate path |
 | D-147 | P1 | Add local parity aggregate target for API+Postgres smoke (`make ci-gates-postgres`) | codex | done | Added combined local gate target, checklist/docs references, and release-asset guard for `ci-gates-postgres` parity line |
+| D-148 | P0 | Harden Postgres smoke compatibility against legacy host volumes | codex | done | `v0_6` now supports UUID/TEXT FK compatibility; `scripts/smoke_postgres.sh` now uses isolated smoke DB + env-template fallback + readiness retries |
 
 ## Intake Template
 

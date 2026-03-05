@@ -308,9 +308,11 @@ make release-smoke
 bash scripts/smoke_postgres.sh
 # or
 make smoke-postgres
+# optional isolated DB name override
+EA_SMOKE_DB=ea_smoke_runtime bash scripts/smoke_postgres.sh
 ```
 
-The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input).
+The smoke script now includes a blocked-policy assertion (`403` on oversized rewrite input) and runs against an isolated smoke DB so legacy runtime data is not mutated.
 
 ## 8) Memory Candidate Promotion Smoke
 
