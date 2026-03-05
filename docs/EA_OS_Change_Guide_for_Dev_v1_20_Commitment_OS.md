@@ -115,4 +115,4 @@ foundation for broader v1.20 planner/session unification across slash commands, 
 - `ea/app/gog.py` now generates a unique execution session id per run (no fixed `ea-exec` id),
   reducing collision risk under concurrent free-text/agent runs.
 - `ea/app/callback_commands.py` now sessionizes legacy `act:*` button-context execution
-  (the `gog_scout` runtime path), not just typed actions.
+  (the `gog_scout` runtime path) under execution source `button_context_action`, not just typed actions.

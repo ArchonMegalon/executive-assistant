@@ -23,6 +23,8 @@ def test_v120_doc_and_runtime_alignment() -> None:
     assert "execution_steps" in guide
     assert "execution_events" in guide
     assert "ea/app/execution/session_store.py" in guide
+    assert "smoke_v1_20_gog_session_id_uniqueness.py" in guide
+    assert "button_context_action" in guide
     _pass("v1.20 doc/runtime alignment")
 
 
