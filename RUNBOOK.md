@@ -152,3 +152,11 @@ cp .githooks/pre-commit.example .githooks/pre-commit
 chmod +x .githooks/pre-commit
 git config core.hooksPath .githooks
 ```
+
+## 10) Print Endpoint Inventory
+
+```bash
+bash scripts/list_endpoints.sh
+# or
+make endpoints
+```

@@ -71,3 +71,4 @@ Release operations checklist is `RELEASE_CHECKLIST.md`.
 OpenAPI snapshot export is available via `scripts/export_openapi.sh` or `make openapi-export`.
 Snapshot diff is available via `scripts/diff_openapi.sh` or `make openapi-diff`.
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
+Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.

@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-024 | P3 | Add script to print runtime endpoint inventory from OpenAPI | codex | queued | Fast operator visibility |
+| Q-025 | P3 | Add lightweight `scripts/version_info.sh` (git + milestone + date) | codex | queued | Quick runtime/support fingerprint |
 
 ## In Progress
 
@@ -43,6 +43,7 @@ Use this file as the execution queue and progress ledger.
 | D-023 | P3 | Add local memory-profile env template | codex | done | Added `.env.local.example` and README quick-start note |
 | D-024 | P3 | Add compose memory override + deploy-memory path | codex | done | Added `docker-compose.memory.yml` and `EA_MEMORY_ONLY=1` flow |
 | D-025 | P3 | Add pre-commit hook template for local checks | codex | done | Added `.githooks/pre-commit.example` and runbook setup |
+| D-026 | P3 | Add endpoint inventory script + make target | codex | done | Added `scripts/list_endpoints.sh` and `make endpoints` |
 
 ## Intake Template
 

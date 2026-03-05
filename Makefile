@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints
 
 deploy:
 	bash scripts/deploy.sh
@@ -29,3 +29,6 @@ openapi-diff:
 
 openapi-prune:
 	bash scripts/prune_openapi.sh
+
+endpoints:
+	bash scripts/list_endpoints.sh
