@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| - | - | - | - | - | - |
+| Q-149 | P1 | Add migration-regression test for legacy UUID/approval schemas | codex | queued | Build synthetic legacy-schema fixture and assert `scripts/db_bootstrap.sh` upgrades it without errors in CI |
 
 ## In Progress
 
