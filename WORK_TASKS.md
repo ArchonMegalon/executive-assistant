@@ -472,17 +472,48 @@ Owner: Codex runtime worker
       - added/wired `tests/smoke_v1_22_generic_runtime_outcomes.py`.
       - host gates passing with synthetic and runtime outcome-source coverage.
 
-43. `IN_PROGRESS` - Planner execute fallback hardening.
+43. `DONE` - Planner execute fallback hardening.
    - Deliverables:
       - centralize fallback reasoning execution through a shared helper in
         `intent_runtime` so both free-text and approval-resume paths preserve
         the same planner metadata contract.
       - add smoke that guards fallback helper reuse across both paths.
+   - Progress:
+      - added shared helper `_execute_reasoning_with_planner_fallback(...)`.
+      - rewired both free-text and approval-resume execution paths to use helper.
+      - added/wired `tests/smoke_v1_22_planner_fallback_helper.py`.
+      - host gates passing after fallback helper consolidation.
 
-44. `PENDING` - Planner contract drift guard for fallback path.
+44. `DONE` - Planner contract drift guard for fallback path.
    - Deliverables:
       - add smoke asserting fallback execute path persists deterministic
         `task_type/output_artifact_type/provider_candidates` metadata shape.
+      - wire smoke into host/CI gates.
+   - Progress:
+      - fallback helper now seeds deterministic metadata shape including
+        `provider_candidates`.
+      - added/wired `tests/smoke_v1_22_fallback_metadata_shape.py`.
+      - host gates passing with fallback metadata assertions.
+
+45. `DONE` - Full Docker E2E checkpoint after planner fallback slice.
+   - Deliverables:
+      - run `bash scripts/docker_e2e.sh` on current queue state.
+      - resolve runtime-safe regressions if present and rerun to PASS.
+   - Progress:
+      - full `scripts/docker_e2e.sh` passed on the planner-fallback slice.
+      - design workflows, milestone suite, and BrowserAct HTTP chain all passed.
+      - gate report generated:
+        `logs/gates/docker_e2e_20260305T110054Z.json`.
+
+46. `IN_PROGRESS` - Queue checkpoint commit after Docker E2E pass.
+   - Deliverables:
+      - local commit current queue slice.
+      - keep next pending architectural hardening item queued.
+
+47. `PENDING` - Planner runtime contract guard for shared execute helper callsites.
+   - Deliverables:
+      - add smoke asserting both free-text and approved callback paths call
+        shared planner fallback helper before render stage.
       - wire smoke into host/CI gates.
 
 ## Validation Command

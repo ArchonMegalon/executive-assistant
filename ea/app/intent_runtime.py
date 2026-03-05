@@ -64,6 +64,54 @@ def _run_planner_pre_execution_steps(
     )
 
 
+async def _execute_reasoning_with_planner_fallback(
+    *,
+    session_id: str,
+    plan_steps: list[dict[str, Any]],
+    intent_spec: dict[str, Any],
+    prompt: str,
+    container: str,
+    google_account: str,
+    ui_updater: Callable[[str], Any],
+    task_name: str,
+) -> tuple[str, dict[str, Any]]:
+    task_type = str((intent_spec or {}).get("task_type") or "free_text_response").strip().lower() or "free_text_response"
+    exec_meta: dict[str, Any] = {
+        "output_artifact_type": "chat_response",
+        "task_type": task_type,
+        "provider_candidates": [],
+    }
+    if session_id:
+        exec_result = await execute_planned_reasoning_step(
+            session_id=session_id,
+            plan_steps=list(plan_steps or []),
+            intent_spec=dict(intent_spec or {}),
+            prompt=str(prompt or ""),
+            container=str(container or ""),
+            google_account=str(google_account or ""),
+            ui_updater=ui_updater,
+            task_name=str(task_name or "Intent Execution"),
+            mark_step=mark_execution_step_status,
+            append_event=append_execution_event,
+            run_reasoning_step_func=run_reasoning_step,
+            reasoning_runner=gog_scout,
+            timeout_sec=240.0,
+        )
+        exec_meta = dict(exec_result or {})
+        report = str((exec_result or {}).get("report") or "")
+    else:
+        report = await run_reasoning_step(
+            container=str(container or ""),
+            prompt=str(prompt or ""),
+            google_account=str(google_account or ""),
+            ui_updater=ui_updater,
+            task_name=str(task_name or "Intent Execution"),
+            timeout_sec=240.0,
+            runner=gog_scout,
+        )
+    return report, exec_meta
+
+
 def _persist_execution_artifact(
     *,
     tenant_key: str,
@@ -226,34 +274,16 @@ async def execute_approved_intent_action(
     current_step = "execute_intent"
     exec_meta: dict[str, Any] = {"output_artifact_type": "chat_response", "task_type": "free_text_response"}
     try:
-        if session_id:
-            exec_result = await execute_planned_reasoning_step(
-                session_id=session_id,
-                plan_steps=[{"step_key": "execute_intent"}],
-                intent_spec={"task_type": str(payload.get("task_type") or "free_text_response")},
-                prompt=prompt,
-                container=t_openclaw,
-                google_account=get_val(tenant_cfg, "google_account", ""),
-                ui_updater=_ui_updater,
-                task_name="Intent: Approved Free Text",
-                mark_step=mark_execution_step_status,
-                append_event=append_execution_event,
-                run_reasoning_step_func=run_reasoning_step,
-                reasoning_runner=gog_scout,
-                timeout_sec=240.0,
-            )
-            exec_meta = dict(exec_result or {})
-            report = str(exec_result.get("report") or "")
-        else:
-            report = await run_reasoning_step(
-                container=t_openclaw,
-                prompt=prompt,
-                google_account=get_val(tenant_cfg, "google_account", ""),
-                ui_updater=_ui_updater,
-                task_name="Intent: Approved Free Text",
-                timeout_sec=240.0,
-                runner=gog_scout,
-            )
+        report, exec_meta = await _execute_reasoning_with_planner_fallback(
+            session_id=session_id,
+            plan_steps=[{"step_key": "execute_intent"}],
+            intent_spec={"task_type": str(payload.get("task_type") or "free_text_response")},
+            prompt=prompt,
+            container=t_openclaw,
+            google_account=get_val(tenant_cfg, "google_account", ""),
+            ui_updater=_ui_updater,
+            task_name="Intent: Approved Free Text",
+        )
         kb_dict = build_dynamic_ui(report, prompt, save_ctx=save_button_context)
         clean_rep = clean_html_for_telegram(
             re.sub(r"\[OPTIONS:.*?\]", "", humanize_agent_report(report)).replace("[YES/NO]", "")
@@ -601,34 +631,16 @@ async def handle_free_text_intent(
             "output_artifact_type": "chat_response",
             "task_type": str((intent_spec or {}).get("task_type") or "free_text_response"),
         }
-        if session_id:
-            exec_result = await execute_planned_reasoning_step(
-                session_id=session_id,
-                plan_steps=list(plan_steps or []),
-                intent_spec=dict(intent_spec or {}),
-                prompt=prompt,
-                container=t_openclaw,
-                google_account=get_val(tenant_cfg, "google_account", ""),
-                ui_updater=_ui_updater,
-                task_name="Intent: Free Text",
-                mark_step=mark_execution_step_status,
-                append_event=append_execution_event,
-                run_reasoning_step_func=run_reasoning_step,
-                reasoning_runner=gog_scout,
-                timeout_sec=240.0,
-            )
-            exec_meta = dict(exec_result or {})
-            report = str(exec_result.get("report") or "")
-        else:
-            report = await run_reasoning_step(
-                container=t_openclaw,
-                prompt=prompt,
-                google_account=get_val(tenant_cfg, "google_account", ""),
-                ui_updater=_ui_updater,
-                task_name="Intent: Free Text",
-                timeout_sec=240.0,
-                runner=gog_scout,
-            )
+        report, exec_meta = await _execute_reasoning_with_planner_fallback(
+            session_id=session_id,
+            plan_steps=list(plan_steps or []),
+            intent_spec=dict(intent_spec or {}),
+            prompt=prompt,
+            container=t_openclaw,
+            google_account=get_val(tenant_cfg, "google_account", ""),
+            ui_updater=_ui_updater,
+            task_name="Intent: Free Text",
+        )
         kb_dict = build_dynamic_ui(report, prompt, save_ctx=save_button_context)
         clean_rep = clean_html_for_telegram(
             re.sub(r"\[OPTIONS:.*?\]", "", humanize_agent_report(report)).replace("[YES/NO]", "")
