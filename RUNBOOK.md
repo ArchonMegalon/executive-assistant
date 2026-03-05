@@ -98,6 +98,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/db_bootstrap.sh` | `bash scripts/db_bootstrap.sh --help` | Apply kernel DB migrations |
 | `scripts/db_status.sh` | `bash scripts/db_status.sh --help` | Check kernel table presence/counts |
 | `scripts/db_size.sh` | `bash scripts/db_size.sh --help` | Inspect table/index/total DB size footprint |
+| `scripts/db_retention.sh` | `bash scripts/db_retention.sh --help` | Dry-run/apply runtime retention pruning |
 | `scripts/smoke_api.sh` | `bash scripts/smoke_api.sh --help` | Run API smoke contracts |
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune task log Done rows |
@@ -197,6 +198,17 @@ Check table/index size footprint:
 bash scripts/db_size.sh
 # or
 make db-size
+```
+
+Retention dry-run (default) and apply mode:
+
+```bash
+bash scripts/db_retention.sh
+# or
+make db-retention
+
+# apply deletions
+bash scripts/db_retention.sh --apply
 ```
 
 ## 3) Health Check

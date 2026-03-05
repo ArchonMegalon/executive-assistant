@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "date": "2026-03-05",
   "features": [
     "execution_ledger",
@@ -56,6 +56,7 @@
     "interruption_budgets_seed",
     "principal_scoped_interruption_budgets_api",
     "db_size_visibility",
+    "db_retention_baseline",
     "script_help_contracts",
     "ci_gate_bundle",
     "release_preflight_bundle",

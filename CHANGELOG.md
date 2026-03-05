@@ -107,6 +107,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
   - `scripts/db_bootstrap.sh`
   - `scripts/db_status.sh`
   - `scripts/db_size.sh`
+  - `scripts/db_retention.sh`
   - `scripts/smoke_api.sh`
   - `scripts/smoke_help.sh`
   - `Makefile` shortcuts
