@@ -12,7 +12,8 @@ fi
 
 OUT_DIR="${EA_ROOT}/artifacts"
 mkdir -p "${OUT_DIR}"
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+STAMP_FMT="${SUPPORT_BUNDLE_TIMESTAMP_FMT:-%Y%m%dT%H%M%SZ}"
+STAMP="$(date -u +"${STAMP_FMT}")"
 PREFIX="${SUPPORT_BUNDLE_PREFIX:-support_bundle}"
 OUT_FILE="${OUT_DIR}/${PREFIX}_${STAMP}.txt"
 TAIL_LINES="${SUPPORT_LOG_TAIL_LINES:-300}"

@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-040 | P3 | Add support bundle timestamp format override env | codex | queued | Align filenames with external incident tooling |
+| Q-041 | P3 | Add support bundle host-port override note in runbook | codex | queued | Clarify `EA_HOST_PORT` behavior for scripts |
 
 ## In Progress
 
@@ -59,6 +59,7 @@ Use this file as the execution queue and progress ledger.
 | D-039 | P3 | Add optional API-log exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_API=0` support |
 | D-040 | P3 | Add optional queue-snapshot exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_QUEUE=0` support |
 | D-041 | P3 | Add support bundle filename prefix override | codex | done | Added `SUPPORT_BUNDLE_PREFIX` support |
+| D-042 | P3 | Add support bundle timestamp-format override | codex | done | Added `SUPPORT_BUNDLE_TIMESTAMP_FMT` support |
 
 ## Intake Template
 

@@ -80,6 +80,7 @@ Set `SUPPORT_INCLUDE_DB=0` to skip DB logs in support bundle generation.
 Set `SUPPORT_INCLUDE_API=0` to skip API logs in support bundle generation.
 Set `SUPPORT_INCLUDE_QUEUE=0` to skip queued-task snapshot in support bundles.
 Set `SUPPORT_BUNDLE_PREFIX=<tag>` to customize support bundle filenames.
+Set `SUPPORT_BUNDLE_TIMESTAMP_FMT=<date format>` to customize bundle timestamp formatting.
 Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
 Local CI-parity compile checks can be run via `make ci-local`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.

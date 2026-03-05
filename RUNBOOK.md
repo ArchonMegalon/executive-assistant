@@ -191,6 +191,8 @@ SUPPORT_INCLUDE_API=0 bash scripts/support_bundle.sh
 SUPPORT_INCLUDE_QUEUE=0 bash scripts/support_bundle.sh
 # optional: custom filename prefix
 SUPPORT_BUNDLE_PREFIX=incident_42 bash scripts/support_bundle.sh
+# optional: custom timestamp format
+SUPPORT_BUNDLE_TIMESTAMP_FMT=%Y-%m-%dT%H%M%SZ bash scripts/support_bundle.sh
 # or
 make support-bundle
 ```
