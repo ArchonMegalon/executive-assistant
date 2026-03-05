@@ -77,3 +77,4 @@ Operator summary can be printed via `scripts/operator_summary.sh` or `make opera
 Support bundle export is available via `scripts/support_bundle.sh` or `make support-bundle`.
 Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
 Local CI-parity compile checks can be run via `make ci-local`.
+Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.

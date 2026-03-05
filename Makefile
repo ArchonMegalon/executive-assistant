@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status smoke-api test-api openapi-export openapi-diff openapi-prune endpoints version-info operator-summary support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local verify-release-assets
 
 deploy:
 	bash scripts/deploy.sh
@@ -54,3 +54,6 @@ tasks-archive-dry-run:
 ci-local:
 	python3 -m compileall -q ea/app
 	python3 -m py_compile tests/smoke_runtime_api.py
+
+verify-release-assets:
+	bash scripts/verify_release_assets.sh

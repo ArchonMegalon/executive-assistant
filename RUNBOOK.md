@@ -201,3 +201,11 @@ make tasks-archive
 make tasks-archive-dry-run
 make tasks-archive-prune
 ```
+
+## 15) Verify Release Assets
+
+```bash
+bash scripts/verify_release_assets.sh
+# or
+make verify-release-assets
+```

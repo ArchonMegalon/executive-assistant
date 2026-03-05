@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-031 | P3 | Add script to verify required files exist for release checklist | codex | queued | Catch missing ops docs/scripts before ship |
+| Q-032 | P3 | Add `make all-local` to chain ci-local + verify-release-assets | codex | queued | One command for local readiness checks |
 
 ## In Progress
 
@@ -50,6 +50,7 @@ Use this file as the execution queue and progress ledger.
 | D-030 | P3 | Add task archive rotation helper + make targets | codex | done | Added `scripts/archive_tasks.sh` with prune option |
 | D-031 | P3 | Add dry-run preview mode for task archive rotation | codex | done | Added `--dry-run` and `make tasks-archive-dry-run` |
 | D-032 | P3 | Add `make ci-local` preflight target | codex | done | Chains compile + test-module syntax checks |
+| D-033 | P3 | Add release asset verification script + make target | codex | done | Added `scripts/verify_release_assets.sh` and `make verify-release-assets` |
 
 ## Intake Template
 
