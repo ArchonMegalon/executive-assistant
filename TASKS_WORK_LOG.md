@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-038 | P3 | Add bundle flag to include queue snapshot toggle | codex | queued | Reduce noise for log-only bundles |
+| Q-039 | P3 | Add support bundle filename prefix override env (`SUPPORT_BUNDLE_PREFIX`) | codex | queued | Easier incident grouping |
 
 ## In Progress
 
@@ -57,6 +57,7 @@ Use this file as the execution queue and progress ledger.
 | D-037 | P3 | Add baseline support-bundle redaction patterns | codex | done | Redacts common secret/password/token forms in captured logs |
 | D-038 | P3 | Add optional DB-log exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_DB=0` support |
 | D-039 | P3 | Add optional API-log exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_API=0` support |
+| D-040 | P3 | Add optional queue-snapshot exclusion in support bundles | codex | done | Added `SUPPORT_INCLUDE_QUEUE=0` support |
 
 ## Intake Template
 

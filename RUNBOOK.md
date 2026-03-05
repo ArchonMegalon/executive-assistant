@@ -187,6 +187,8 @@ SUPPORT_LOG_TAIL_LINES=500 bash scripts/support_bundle.sh
 SUPPORT_INCLUDE_DB=0 bash scripts/support_bundle.sh
 # optional: skip API logs
 SUPPORT_INCLUDE_API=0 bash scripts/support_bundle.sh
+# optional: skip queue snapshot
+SUPPORT_INCLUDE_QUEUE=0 bash scripts/support_bundle.sh
 # or
 make support-bundle
 ```

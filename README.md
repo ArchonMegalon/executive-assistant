@@ -78,6 +78,7 @@ Support bundle export is available via `scripts/support_bundle.sh` or `make supp
 Support bundles apply baseline redaction for common secret/token/password patterns.
 Set `SUPPORT_INCLUDE_DB=0` to skip DB logs in support bundle generation.
 Set `SUPPORT_INCLUDE_API=0` to skip API logs in support bundle generation.
+Set `SUPPORT_INCLUDE_QUEUE=0` to skip queued-task snapshot in support bundles.
 Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
 Local CI-parity compile checks can be run via `make ci-local`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.

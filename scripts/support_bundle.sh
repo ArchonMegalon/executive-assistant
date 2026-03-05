@@ -17,6 +17,7 @@ OUT_FILE="${OUT_DIR}/support_bundle_${STAMP}.txt"
 TAIL_LINES="${SUPPORT_LOG_TAIL_LINES:-300}"
 INCLUDE_DB="${SUPPORT_INCLUDE_DB:-1}"
 INCLUDE_API="${SUPPORT_INCLUDE_API:-1}"
+INCLUDE_QUEUE="${SUPPORT_INCLUDE_QUEUE:-1}"
 
 redact() {
   sed -E \
@@ -61,8 +62,13 @@ redact() {
     echo
   fi
 
-  echo "-- queued task snapshot --"
-  awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md || true
+  if [[ "${INCLUDE_QUEUE}" == "1" ]]; then
+    echo "-- queued task snapshot --"
+    awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md || true
+  else
+    echo "-- queued task snapshot --"
+    echo "skipped (SUPPORT_INCLUDE_QUEUE=${INCLUDE_QUEUE})"
+  fi
 } > "${OUT_FILE}"
 
 echo "support bundle written: ${OUT_FILE}"
