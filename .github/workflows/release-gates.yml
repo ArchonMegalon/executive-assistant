@@ -76,6 +76,7 @@ jobs:
           python3 tests/smoke_v1_21_plan_builder.py
           python3 tests/smoke_v1_21_gate_alias.py
           python3 tests/smoke_v1_21_doc_alignment.py
+          python3 tests/smoke_work_tasks_contract.py
           python3 tests/smoke_v1_19_3_control_plane_decomposition.py
           python3 tests/smoke_v1_19_3_source_acquisition_split.py
           python3 tests/smoke_v1_19_3_briefing_runtime_behavior.py

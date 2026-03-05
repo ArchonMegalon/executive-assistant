@@ -167,6 +167,7 @@ run_step "smoke_v1_21_generic_skill_execution" python3 tests/smoke_v1_21_generic
 run_step "smoke_v1_21_plan_builder" python3 tests/smoke_v1_21_plan_builder.py
 run_step "smoke_v1_21_gate_alias" python3 tests/smoke_v1_21_gate_alias.py
 run_step "smoke_v1_21_doc_alignment" python3 tests/smoke_v1_21_doc_alignment.py
+run_step "smoke_work_tasks_contract" python3 tests/smoke_work_tasks_contract.py
 run_step "smoke_v1_19_3_control_plane_decomposition" python3 tests/smoke_v1_19_3_control_plane_decomposition.py
 run_step "smoke_v1_19_3_source_acquisition_split" python3 tests/smoke_v1_19_3_source_acquisition_split.py
 run_step "smoke_v1_19_3_briefing_runtime_behavior" python3 tests/smoke_v1_19_3_briefing_runtime_behavior.py

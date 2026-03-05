@@ -199,6 +199,10 @@ Branch: `main`
 - [DONE] Auditor LTD inventory hardening:
   - `LTD_INVENTORY.md` now explicitly separates capability-backed LTD tier declarations
     from non-tiered runtime dependencies.
+- [DONE] Unattended work-queue contract:
+  - Added root `WORK_TASKS.md` with ordered `DONE/IN_PROGRESS/PENDING/BLOCKED` queue and
+    explicit operating rule: always chain the next pending item.
+  - Added `tests/smoke_work_tasks_contract.py` and wired it into host/docker/CI gates.
 
 ## Blocked
 - None.
