@@ -6,7 +6,7 @@ Use this file as the execution queue and progress ledger.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-009 | P2 | Add a compact architecture map doc for current rewrite kernel surfaces | codex | queued | Keep map aligned with API/routes and repos |
+| Q-010 | P2 | Add HTTP collection/examples for all runtime endpoints | codex | queued | Keep samples runnable with localhost defaults |
 
 ## In Progress
 
@@ -28,6 +28,7 @@ Use this file as the execution queue and progress ledger.
 | D-008 | P1 | Add CI smoke job for runtime API tests | codex | done | Added `.github/workflows/smoke-runtime.yml` |
 | D-009 | P2 | Add Makefile shortcuts and a full smoke script | codex | done | Added `Makefile` + `scripts/smoke_api.sh` |
 | D-010 | P2 | Add DB schema status script and make target | codex | done | Added `scripts/db_status.sh` + `make db-status` |
+| D-011 | P2 | Add compact architecture map for kernel surfaces | codex | done | Added `ARCHITECTURE_MAP.md` |
 
 ## Intake Template
 
