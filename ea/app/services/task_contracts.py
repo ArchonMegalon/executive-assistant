@@ -71,12 +71,17 @@ class TaskContractService:
             updated_at=now_utc_iso(),
         )
 
-    def compile_rewrite_intent(self, principal_id: str = "local-user") -> IntentSpecV3:
+    def compile_rewrite_intent(
+        self,
+        principal_id: str = "local-user",
+        *,
+        goal: str = "rewrite supplied text into an artifact",
+    ) -> IntentSpecV3:
         contract = self.contract_or_default("rewrite_text")
         budget_class = str(contract.budget_policy_json.get("class") or "low")
         return IntentSpecV3(
             principal_id=str(principal_id or "local-user"),
-            goal="rewrite supplied text into an artifact",
+            goal=str(goal or "rewrite supplied text into an artifact"),
             task_type=contract.task_key,
             deliverable_type=contract.deliverable_type,
             risk_class=contract.default_risk_class,

@@ -118,6 +118,43 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert missing_artifact.status_code == 404
     assert missing_artifact.json()["error"]["code"] == "artifact_not_found"
 
+
+def test_rewrite_routes_enforce_principal_scope() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    create = client.post(
+        "/v1/rewrite/artifact",
+        json={"text": "principal scoped rewrite", "principal_id": "exec-1"},
+    )
+    assert create.status_code == 200
+    artifact_id = create.json()["artifact_id"]
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    body = session.json()
+    receipt_id = body["receipts"][0]["receipt_id"]
+    cost_id = body["run_costs"][0]["cost_id"]
+
+    mismatch_headers = _headers(principal_id="exec-2")
+    for path in (
+        f"/v1/rewrite/sessions/{session_id}",
+        f"/v1/rewrite/artifacts/{artifact_id}",
+        f"/v1/rewrite/receipts/{receipt_id}",
+        f"/v1/rewrite/run-costs/{cost_id}",
+    ):
+        mismatch = client.get(path, headers=mismatch_headers)
+        assert mismatch.status_code == 403
+        assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    create_mismatch = client.post(
+        "/v1/rewrite/artifact",
+        headers=_headers(principal_id="exec-1"),
+        json={"text": "principal mismatch", "principal_id": "exec-2"},
+    )
+    assert create_mismatch.status_code == 403
+    assert create_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
     missing_receipt = client.get("/v1/rewrite/receipts/not-a-real-receipt-id")
     assert missing_receipt.status_code == 404
     assert missing_receipt.json()["error"]["code"] == "receipt_not_found"
@@ -2490,6 +2527,25 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     assert rewrite.status_code == 202
     assert rewrite.json()["status"] == "awaiting_approval"
     assert rewrite.json()["next_action"] == "poll_or_subscribe"
+
+
+def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "rewrite_text", "goal": "rewrite this"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["intent"]["principal_id"] == "exec-1"
+    assert compiled.json()["plan"]["principal_id"] == "exec-1"
+
+    mismatch = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "rewrite_text", "principal_id": "exec-2", "goal": "rewrite this"},
+    )
+    assert mismatch.status_code == 403
+    assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
 
 def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:

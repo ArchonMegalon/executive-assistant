@@ -13,11 +13,11 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/health/live` | `200` | n/a |
 | GET | `/health/ready` | `200` | `503 not_ready:*` |
 | GET | `/version` | `200` | n/a |
-| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human` | `400 text is required`, `403 policy_denied:*` (including `tool_not_allowed`) |
-| GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found` |
-| GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found` |
-| GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
-| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, inline human task assignment history, `plan_compiled` event, computed reviewer routing hints, and supports `human_task_assignment_source`) |
+| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human` | `400 text is required`, `403 principal_scope_mismatch`, `403 policy_denied:*` (including `tool_not_allowed`) |
+| GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found`, `403 principal_scope_mismatch` |
+| GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found`, `403 principal_scope_mismatch` |
+| GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found`, `403 principal_scope_mismatch` |
+| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found`, `403 principal_scope_mismatch` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, inline human task assignment history, `plan_compiled` event, computed reviewer routing hints, and supports `human_task_assignment_source`) |
 | POST | `/v1/human/tasks` | `200` | `400 step_id_required`, `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` (supports `resume_session_on_return=true` to move a linked step into `waiting_human`) |
 | GET | `/v1/human/tasks/priority-summary` | `200` | validation `422`, `403 principal_scope_mismatch` (supports `status`, `role_required`, `operator_id`, `assigned_operator_id`, `assignment_state`, `assignment_source`, and `overdue_only`) |
 | GET | `/v1/human/tasks` | `200` | validation `422`, `403 principal_scope_mismatch` (supports `role_required`, `priority`, `assigned_operator_id`, `assignment_state`, `assignment_source`, `overdue_only`, and `sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc`) |
@@ -56,7 +56,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | POST | `/v1/tasks/contracts` | `200` | validation `422` |
 | GET | `/v1/tasks/contracts` | `200` | validation `422` |
 | GET | `/v1/tasks/contracts/{task_key}` | `200` | `404 task_contract_not_found` |
-| POST | `/v1/plans/compile` | `200` | validation `422` |
+| POST | `/v1/plans/compile` | `200` | validation `422`, `403 principal_scope_mismatch` |
 | POST | `/v1/memory/candidates` | `200` | validation `422` |
 | GET | `/v1/memory/candidates` | `200` | validation `422` |
 | POST | `/v1/memory/candidates/{candidate_id}/promote` | `200` | `404 memory_candidate_not_found` |
@@ -106,7 +106,7 @@ Error envelope for failures:
 Auth:
 - Set `EA_API_TOKEN=<token>` to require auth for all non-health routes.
 - Use `Authorization: Bearer <token>` or `X-API-Token: <token>`.
-- Use `X-EA-Principal-ID: <principal>` for principal-scoped connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
+- Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
 
 Runtime mode:
@@ -121,6 +121,7 @@ Policy notes:
 - Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers.
 - The current rewrite scaffold now executes as three explicit queued steps: `step_input_prepare`, `step_policy_evaluate`, and `step_artifact_save`.
 - `POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys` so plan projections show the same dependency graph the rewrite runtime now executes.
+- Rewrite creation and session/artifact/receipt/run-cost fetches now enforce the same request principal contract as the rest of the scoped surface, so foreign-principal fetch attempts fail with `403 principal_scope_mismatch` instead of exposing another execution thread.
 - Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; the rewrite runtime auto-creates the linked human task packet with those routing and review-contract fields when that step executes, auto-assigns a unique exact reviewer when the flag is enabled, and a returned `final_text` payload now overrides the downstream artifact-save input.
 - Tool-call steps now flow through a registry-backed `ToolExecutionService`; the built-in `artifact_repository` handler emits normalized `tool.v1` receipt metadata and `tool_execution_completed` events.
 - `POST /v1/tools/execute` now exposes the same execution plane directly for built-in handlers; `connector.dispatch` queues a delivery outbox row and returns normalized `tool.v1` receipt metadata.

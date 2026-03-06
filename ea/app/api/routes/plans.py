@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 
 router = APIRouter(prefix="/v1/plans", tags=["plans"])
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/v1/plans", tags=["plans"])
 
 class PlanCompileIn(BaseModel):
     task_key: str = Field(min_length=1, max_length=200)
-    principal_id: str = Field(default="local-user", min_length=1, max_length=200)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     goal: str = Field(default="", max_length=2000)
 
 
@@ -73,10 +73,12 @@ class PlanCompileOut(BaseModel):
 def compile_plan(
     body: PlanCompileIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> PlanCompileOut:
+    principal_id = resolve_principal_id(body.principal_id, context)
     intent, plan = container.planner.build_plan(
         task_key=body.task_key,
-        principal_id=body.principal_id,
+        principal_id=principal_id,
         goal=body.goal,
     )
     return PlanCompileOut(

@@ -50,7 +50,8 @@ Removed:
 - `/v1/memory/follow-up-rules*` upserts/list/gets principal-scoped follow-up automation rules
 - `/v1/memory/interruption-budgets*` upserts/list/gets principal-scoped interruption budgets
 - the principal-scoped memory seed surface is explicitly covered by both `tests/smoke_runtime_api.py` and the approved host smoke path (`scripts/smoke_api.sh` via `scripts/smoke_postgres.sh`)
-- principal-scoped connector and memory routes now derive their effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query IDs
+- principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes now derive their effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query IDs
+- caller-supplied `principal_id` on those rewrite and plan routes is now a compatibility field only; mismatches fail with `403 principal_scope_mismatch`, and foreign-principal session/artifact/receipt/run-cost fetches are blocked the same way
 - rewrite execution now records `plan_compiled`, runs a typed three-step queue path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) through the execution ledger, and dispatches tool steps through a registry-backed `ToolExecutionService`
 - `POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys so planner output reflects the current multi-step rewrite runtime instead of a thin artifact-save wrapper
 - Task contracts can now project a first-class `human_task` branch (`step_human_review`) in plan output by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; rewrite execution now returns `202 awaiting_human` when that compiled review step pauses the queue runtime, creates the linked human task with those routing and review-contract semantics, can auto-preassign a unique exact reviewer when the policy flag is enabled, and downstream artifact persistence can consume `returned_payload_json.final_text` from the completed review packet
@@ -156,7 +157,7 @@ Removed:
 
 - Set `EA_API_TOKEN=<token>` to require bearer auth on all non-health routes.
 - Set `EA_DEFAULT_PRINCIPAL_ID=<principal>` to define the fallback request principal when `X-EA-Principal-ID` is omitted (default `local-user`).
-- Principal-scoped connector, human-task, and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
+- Principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
 
 ## Policy Tuning
 

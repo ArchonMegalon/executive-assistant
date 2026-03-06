@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 from app.domain.models import RewriteRequest
 from app.repositories.human_tasks import _parse_assignment_source_filter
@@ -16,6 +16,8 @@ router = APIRouter(prefix="/v1/rewrite", tags=["rewrite"])
 
 class RewriteIn(BaseModel):
     text: str
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    goal: str = Field(default="", max_length=2000)
 
 
 class RewriteOut(BaseModel):
@@ -185,12 +187,20 @@ def _to_assignment_history_out(event) -> SessionHumanTaskAssignmentHistoryOut:  
 def create_artifact(
     payload: RewriteIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> RewriteOut | RewriteAcceptedOut:
     text = str(payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
+    principal_id = resolve_principal_id(payload.principal_id, context)
     try:
-        artifact = container.orchestrator.build_artifact(RewriteRequest(text=text))
+        artifact = container.orchestrator.build_artifact(
+            RewriteRequest(
+                text=text,
+                principal_id=principal_id,
+                goal=str(payload.goal or ""),
+            )
+        )
     except ApprovalRequiredError as exc:
         return JSONResponse(
             status_code=202,
@@ -227,10 +237,12 @@ def get_session(
     session_id: str,
     human_task_assignment_source: str | None = None,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> SessionOut:
     found = container.orchestrator.fetch_session(session_id)
     if not found:
         raise HTTPException(status_code=404, detail="session not found")
+    resolve_principal_id(found.session.intent.principal_id, context)
     session = found.session
     events = found.events
     has_source_filter, source_filter = _parse_assignment_source_filter(human_task_assignment_source)
@@ -376,10 +388,15 @@ def get_session(
 def get_artifact(
     artifact_id: str,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> RewriteOut:
     found = container.orchestrator.fetch_artifact(artifact_id)
     if not found:
         raise HTTPException(status_code=404, detail="artifact_not_found")
+    session = container.orchestrator.fetch_session(found.execution_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="artifact_not_found")
+    resolve_principal_id(session.session.intent.principal_id, context)
     return RewriteOut(
         artifact_id=found.artifact_id,
         kind=found.kind,
@@ -392,10 +409,15 @@ def get_artifact(
 def get_receipt(
     receipt_id: str,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> SessionReceiptOut:
     found = container.orchestrator.fetch_receipt(receipt_id)
     if not found:
         raise HTTPException(status_code=404, detail="receipt_not_found")
+    session = container.orchestrator.fetch_session(found.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="receipt_not_found")
+    resolve_principal_id(session.session.intent.principal_id, context)
     return SessionReceiptOut(
         receipt_id=found.receipt_id,
         step_id=found.step_id,
@@ -411,10 +433,15 @@ def get_receipt(
 def get_run_cost(
     cost_id: str,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> SessionRunCostOut:
     found = container.orchestrator.fetch_run_cost(cost_id)
     if not found:
         raise HTTPException(status_code=404, detail="run_cost_not_found")
+    session = container.orchestrator.fetch_session(found.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="run_cost_not_found")
+    resolve_principal_id(session.session.intent.principal_id, context)
     return SessionRunCostOut(
         cost_id=found.cost_id,
         model_name=found.model_name,

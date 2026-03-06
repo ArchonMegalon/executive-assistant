@@ -20,7 +20,7 @@
 @interruption_budget_id = replace_me
 @oversized_text = replace_with_20001_chars
 
-### Principal-scoped connector, human-task, and memory routes
+### Principal-scoped rewrite/session/plan, connector, human-task, and memory routes
 ### Use X-EA-Principal-ID to set the effective principal.
 ### body/query principal_id values below are compatibility filters only and mismatches return 403 principal_scope_mismatch.
 
@@ -40,6 +40,7 @@ GET {{host}}/version
 POST {{host}}/v1/rewrite/artifact
 Content-Type: application/json
 Authorization: Bearer {{token}}
+X-EA-Principal-ID: {{principal_id}}
 
 {
   "text": "Prepare a concise follow-up draft."
@@ -47,21 +48,38 @@ Authorization: Bearer {{token}}
 
 ### Rewrite -> fetch session
 GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
 
 ### Rewrite -> fetch session filtered to one human-task assignment source
 GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual
+X-EA-Principal-ID: {{principal_id}}
 
 ### Rewrite -> fetch session filtered to current ownerless human-task rows
 GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none
+X-EA-Principal-ID: {{principal_id}}
 
 ### Rewrite -> fetch artifact
 GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
+X-EA-Principal-ID: {{principal_id}}
 
 ### Rewrite -> fetch receipt
 GET {{host}}/v1/rewrite/receipts/{{receipt_id}}
+X-EA-Principal-ID: {{principal_id}}
 
 ### Rewrite -> fetch run cost
 GET {{host}}/v1/rewrite/run-costs/{{cost_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Rewrite -> body principal mismatch (expected 403 principal_scope_mismatch)
+POST {{host}}/v1/rewrite/artifact
+Content-Type: application/json
+Authorization: Bearer {{token}}
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "text": "This should stay inside one principal scope.",
+  "principal_id": "exec-2"
+}
 
 ### Rewrite -> blocked policy (expected 403)
 POST {{host}}/v1/rewrite/artifact
@@ -517,10 +535,21 @@ GET {{host}}/v1/tasks/contracts/rewrite_text
 ### Plans -> compile from task contract
 POST {{host}}/v1/plans/compile
 Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
 
 {
   "task_key": "rewrite_text",
-  "principal_id": "exec-1",
+  "goal": "rewrite this text for board notes"
+}
+
+### Plans -> principal mismatch (expected 403 principal_scope_mismatch)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "rewrite_text",
+  "principal_id": "exec-2",
   "goal": "rewrite this text for board notes"
 }
 

@@ -15,7 +15,8 @@ and memory candidate/item/entity/relationship/commitment/authority-binding/deliv
 
 Auth:
   If EA_API_TOKEN is set, the script sends Authorization: Bearer <token>.
-  Principal-scoped connector/memory checks send X-EA-Principal-ID from EA_PRINCIPAL_ID
+  Principal-scoped rewrite/plan, connector, human-task, and memory checks send
+  X-EA-Principal-ID from EA_PRINCIPAL_ID
   (default: exec-1) and verify mismatches against EA_MISMATCH_PRINCIPAL_ID
   (default: exec-2) return principal_scope_mismatch.
 
@@ -66,7 +67,7 @@ curl -fsS "${BASE}/version" >/dev/null
 echo "health/version ok"
 
 echo "== smoke: rewrite =="
-REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
+REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"
 ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("artifact_id",""))' <<<"${REWRITE_JSON}")"
 SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("execution_session_id",""))' <<<"${REWRITE_JSON}")"
@@ -78,8 +79,8 @@ if [[ -z "${SESSION_ID}" ]]; then
 fi
 
 echo "== smoke: session + policy =="
-curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" >/dev/null
-SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 3, len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events, len(history) == 0))" <<<"${SESSION_JSON}")"
 if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True|True|True" ]]; then
   echo "expected initial rewrite session to complete with three steps, done queue items, input_prepared, policy_step_completed, tool_execution_completed, and empty human-task assignment history; got ${SESSION_RUNTIME_FIELDS}" >&2
@@ -94,17 +95,50 @@ fi
 if [[ -z "${COST_ID}" ]]; then
   fail 13 "missing cost_id from session response"
 fi
-RECEIPT_JSON="$(curl -fsS "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}")"
+RECEIPT_JSON="$(curl -fsS "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 RECEIPT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; print('{}|{}'.format(receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${RECEIPT_JSON}")"
 if [[ "${RECEIPT_FIELDS}" != "artifact_repository|tool.v1" ]]; then
   echo "expected normalized receipt contract for artifact_repository; got ${RECEIPT_FIELDS}" >&2
   echo "${RECEIPT_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" >/dev/null
+REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_principal_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+if [[ "${REWRITE_PRINCIPAL_MISMATCH_CODE}" != "403" ]]; then
+  echo "expected rewrite principal mismatch create to return 403; got ${REWRITE_PRINCIPAL_MISMATCH_CODE}" >&2
+  cat /tmp/ea_rewrite_principal_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+REWRITE_PRINCIPAL_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /tmp/ea_rewrite_principal_mismatch_resp.json)"
+if [[ "${REWRITE_PRINCIPAL_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected rewrite principal mismatch create code principal_scope_mismatch; got ${REWRITE_PRINCIPAL_MISMATCH_REASON}" >&2
+  cat /tmp/ea_rewrite_principal_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+REWRITE_SESSION_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_session_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_ARTIFACT_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_artifact_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_RECEIPT_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_receipt_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_COST_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_cost_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+if [[ "${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" != "403|403|403|403" ]]; then
+  echo "expected foreign-principal session/artifact/receipt/run-cost fetches to return 403; got ${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" >&2
+  cat /tmp/ea_rewrite_session_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_artifact_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_receipt_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_cost_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+REWRITE_SCOPE_MISMATCH_REASONS="$(python3 -c 'import json,sys; paths=sys.argv[1:]; print("|".join(((json.load(open(path)).get("error") or {}).get("code","")) for path in paths))' /tmp/ea_rewrite_session_mismatch_resp.json /tmp/ea_rewrite_artifact_mismatch_resp.json /tmp/ea_rewrite_receipt_mismatch_resp.json /tmp/ea_rewrite_cost_mismatch_resp.json)"
+if [[ "${REWRITE_SCOPE_MISMATCH_REASONS}" != "principal_scope_mismatch|principal_scope_mismatch|principal_scope_mismatch|principal_scope_mismatch" ]]; then
+  echo "expected foreign-principal rewrite fetches to report principal_scope_mismatch; got ${REWRITE_SCOPE_MISMATCH_REASONS}" >&2
+  cat /tmp/ea_rewrite_session_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_artifact_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_receipt_mismatch_resp.json >&2
+  cat /tmp/ea_rewrite_cost_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
 echo "session/policy ok"
 
 echo "== smoke: human tasks =="
@@ -130,7 +164,7 @@ if [[ "${HUMAN_CREATE_SUMMARY_FIELDS}" != "human_task_created|True|unassigned|||
   echo "${HUMAN_CREATE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-SESSION_HUMAN_WAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_WAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_HUMAN_WAITING_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; steps=body.get('steps') or []; step_id='${SESSION_STEP_ID}'; print('{}|{}|{}'.format(body.get('status',''), 'session_paused_for_human_task' in events, any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'waiting_human' for row in steps)))" <<<"${SESSION_HUMAN_WAITING_JSON}")"
 if [[ "${SESSION_HUMAN_WAITING_FIELDS}" != "awaiting_human|True|True" ]]; then
   echo "expected session to reopen into awaiting_human with waiting_human step after human task creation; got ${SESSION_HUMAN_WAITING_FIELDS}" >&2
@@ -227,7 +261,7 @@ if [[ "${HUMAN_OWNERLESS_BACKLOG_FIELDS}" != "True|True" ]]; then
   echo "${HUMAN_OWNERLESS_BACKLOG_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-SESSION_HUMAN_NONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=none" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_NONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=none" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_HUMAN_NONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; wanted='${HUMAN_OWNERLESS_ID}'; print('{}|{}|{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), all((row or {}).get('assignment_source','') == '' for row in history), all((row or {}).get('event_name','') == 'human_task_created' for row in history), any((row or {}).get('human_task_id','') == wanted for row in history)))" <<<"${SESSION_HUMAN_NONE_JSON}")"
 if [[ "${SESSION_HUMAN_NONE_FIELDS}" != "1|${HUMAN_OWNERLESS_ID}|True|True|True" ]]; then
   echo "expected session assignment_source=none filter to isolate current ownerless rows and created-only history; got ${SESSION_HUMAN_NONE_FIELDS}" >&2
@@ -331,7 +365,7 @@ if [[ "${SESSION_HUMAN_NONE_TRANSITION_FIELDS}" != "${HUMAN_OWNERLESS_NEWER_ID}|
   echo "${SESSION_HUMAN_NONE_TRANSITION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-SESSION_HUMAN_NONE_PROJECTION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=none" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_NONE_PROJECTION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=none" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_HUMAN_NONE_PROJECTION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); wanted=['${HUMAN_OWNERLESS_ID}','${HUMAN_OWNERLESS_NEWER_ID}']; current_blocked='${HUMAN_TASK_ID}'; tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; wanted_tasks=[row for row in tasks if (row or {}).get('human_task_id') in wanted]; wanted_history=[row for row in history if (row or {}).get('human_task_id') in wanted]; current_only=all((row or {}).get('human_task_id') != current_blocked for row in tasks); history_longer=len(history) > len(tasks); history_prefix='|'.join((row or {}).get('human_task_id','') for row in history[:3]); print('{}|{}|{}|{}|{}|{}'.format(len(tasks), history_longer, '|'.join((row or {}).get('human_task_id','') for row in wanted_tasks[:2]), '|'.join((row or {}).get('human_task_id','') for row in wanted_history[:2]), current_only, history_prefix))" <<<"${SESSION_HUMAN_NONE_PROJECTION_JSON}")"
 if [[ "${SESSION_HUMAN_NONE_PROJECTION_FIELDS}" != "2|True|${HUMAN_OWNERLESS_ID}|${HUMAN_OWNERLESS_NEWER_ID}|${HUMAN_OWNERLESS_ID}|${HUMAN_OWNERLESS_NEWER_ID}|True|${HUMAN_TASK_ID}|${HUMAN_OWNERLESS_ID}|${HUMAN_OWNERLESS_NEWER_ID}" ]]; then
   echo "expected session detail human_task_assignment_source=none projection to keep a two-row current ownerless slice while preserving a longer empty-source history trail under mixed-source churn; got ${SESSION_HUMAN_NONE_PROJECTION_FIELDS}" >&2
@@ -462,7 +496,7 @@ if [[ "${HUMAN_HISTORY_NONE_FIELDS}" != "1|human_task_created|" ]]; then
   echo "${HUMAN_HISTORY_NONE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; task_id='${HUMAN_TASK_ID}'; step_id='${SESSION_STEP_ID}'; names=[(row or {}).get('event_name','') for row in history if (row or {}).get('human_task_id') == task_id]; operators=[(row or {}).get('assigned_operator_id','') for row in history if (row or {}).get('human_task_id') == task_id]; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), 'human_task_created' in events and 'human_task_assigned' in events, 'human_task_claimed' in events, 'human_task_returned' in events and 'session_resumed_from_human_task' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' and (row or {}).get('assignment_state') == 'returned' and (row or {}).get('assignment_source') == 'manual' and bool((row or {}).get('assigned_at','')) and (row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks), any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'completed' and ((row or {}).get('output_json') or {}).get('human_task_id') == task_id for row in steps), any((row or {}).get('assignment_source') == 'manual' for row in tasks if (row or {}).get('human_task_id') == task_id), any((row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks if (row or {}).get('human_task_id') == task_id), ','.join(names), ','.join(operators)))" <<<"${SESSION_HUMAN_JSON}")"
 if [[ "${SESSION_HUMAN_FIELDS}" != "completed|True|True|True|True|True|True|True|human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned|,operator-specialist,operator-junior,operator-junior,operator-junior" ]]; then
   echo "expected resumed session projection to expose returned row, completed resumed step, and inline assignment history; got ${SESSION_HUMAN_FIELDS}" >&2
@@ -475,7 +509,7 @@ if [[ "${SESSION_HUMAN_SUMMARY_FIELDS}" != "human_task_returned|True|returned|op
   echo "${SESSION_HUMAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-SESSION_HUMAN_MANUAL_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=manual" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_MANUAL_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=manual" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SESSION_HUMAN_MANUAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; print('{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), ','.join((row or {}).get('event_name','') for row in history)))" <<<"${SESSION_HUMAN_MANUAL_JSON}")"
 if [[ "${SESSION_HUMAN_MANUAL_FIELDS}" != "1|${HUMAN_TASK_ID}|human_task_assigned,human_task_claimed,human_task_returned" ]]; then
   echo "expected session assignment-source filter to isolate manual ownership rows and transitions; got ${SESSION_HUMAN_MANUAL_FIELDS}" >&2
@@ -485,9 +519,9 @@ fi
 echo "human tasks ok"
 
 echo "== smoke: human task last-transition sort =="
-SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sort seed"}')"
+SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sort seed"}')"
 SORT_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SORT_REWRITE_JSON}")"
-SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SORT_SESSION_ID}" "${AUTH_ARGS[@]}")"
+SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SORT_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SORT_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SORT_SESSION_JSON}")"
 if [[ -z "${SORT_STEP_ID}" ]]; then
   fail 13 "missing sort step_id from session response"
@@ -525,9 +559,9 @@ fi
 echo "human task last-transition sort ok"
 
 echo "== smoke: human task created-asc sort =="
-CREATED_ASC_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"created asc seed"}')"
+CREATED_ASC_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"created asc seed"}')"
 CREATED_ASC_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${CREATED_ASC_REWRITE_JSON}")"
-CREATED_ASC_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${CREATED_ASC_SESSION_ID}" "${AUTH_ARGS[@]}")"
+CREATED_ASC_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${CREATED_ASC_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 CREATED_ASC_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${CREATED_ASC_SESSION_JSON}")"
 if [[ -z "${CREATED_ASC_STEP_ID}" ]]; then
   fail 13 "missing created-asc sort step_id from session response"
@@ -587,9 +621,9 @@ fi
 echo "human task created-asc sort ok"
 
 echo "== smoke: human task priority-desc-created-asc sort =="
-PRIORITY_SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority sort seed"}')"
+PRIORITY_SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority sort seed"}')"
 PRIORITY_SORT_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_SORT_REWRITE_JSON}")"
-PRIORITY_SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SORT_SESSION_ID}" "${AUTH_ARGS[@]}")"
+PRIORITY_SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SORT_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_SORT_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_SORT_SESSION_JSON}")"
 if [[ -z "${PRIORITY_SORT_STEP_ID}" ]]; then
   fail 13 "missing priority sort step_id from session response"
@@ -652,9 +686,9 @@ fi
 echo "human task priority-desc-created-asc sort ok"
 
 echo "== smoke: human task priority filter =="
-PRIORITY_FILTER_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority filter seed"}')"
+PRIORITY_FILTER_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority filter seed"}')"
 PRIORITY_FILTER_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_FILTER_REWRITE_JSON}")"
-PRIORITY_FILTER_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_FILTER_SESSION_ID}" "${AUTH_ARGS[@]}")"
+PRIORITY_FILTER_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_FILTER_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_FILTER_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_FILTER_SESSION_JSON}")"
 PRIORITY_FILTER_ROLE="priority_filter_reviewer"
 PRIORITY_FILTER_OPERATOR="operator-priority-filter"
@@ -740,9 +774,9 @@ fi
 echo "human task multi-priority filter ok"
 
 echo "== smoke: human task priority summary =="
-PRIORITY_SUMMARY_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority summary seed"}')"
+PRIORITY_SUMMARY_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority summary seed"}')"
 PRIORITY_SUMMARY_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_SUMMARY_REWRITE_JSON}")"
-PRIORITY_SUMMARY_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SUMMARY_SESSION_ID}" "${AUTH_ARGS[@]}")"
+PRIORITY_SUMMARY_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SUMMARY_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_SUMMARY_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_SUMMARY_SESSION_JSON}")"
 PRIORITY_SUMMARY_ROLE="priority_summary_reviewer"
 if [[ -z "${PRIORITY_SUMMARY_STEP_ID}" ]]; then
@@ -847,9 +881,9 @@ rm -f /tmp/ea_priority_summary_urgent.json /tmp/ea_priority_summary_high_unassig
 echo "human task priority summary ok"
 
 echo "== smoke: human task SLA sort =="
-SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
+SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
 SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"
-SLA_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SLA_SESSION_ID}" "${AUTH_ARGS[@]}")"
+SLA_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SLA_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SLA_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SLA_SESSION_JSON}")"
 if [[ -z "${SLA_STEP_ID}" ]]; then
   fail 13 "missing sla sort step_id from session response"
@@ -880,9 +914,9 @@ fi
 echo "human task SLA sort ok"
 
 echo "== smoke: human task combined SLA + transition sort =="
-COMBINED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"combined sort seed"}')"
+COMBINED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"combined sort seed"}')"
 COMBINED_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${COMBINED_REWRITE_JSON}")"
-COMBINED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${COMBINED_SESSION_ID}" "${AUTH_ARGS[@]}")"
+COMBINED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${COMBINED_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 COMBINED_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${COMBINED_SESSION_JSON}")"
 if [[ -z "${COMBINED_STEP_ID}" ]]; then
   fail 13 "missing combined sort step_id from session response"
@@ -923,9 +957,9 @@ fi
 echo "human task combined sort ok"
 
 echo "== smoke: human task unscheduled fallback sort =="
-UNSCHED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"unscheduled fallback seed"}')"
+UNSCHED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"unscheduled fallback seed"}')"
 UNSCHED_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${UNSCHED_REWRITE_JSON}")"
-UNSCHED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${UNSCHED_SESSION_ID}" "${AUTH_ARGS[@]}")"
+UNSCHED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${UNSCHED_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 UNSCHED_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${UNSCHED_SESSION_JSON}")"
 if [[ -z "${UNSCHED_STEP_ID}" ]]; then
   fail 13 "missing unscheduled fallback step_id from session response"
@@ -984,7 +1018,7 @@ threshold = int(sys.argv[1])
 print("a" * (threshold + 10))
 PY
 )" > "${APPROVAL_PAYLOAD}"
-APPROVAL_CODE="$(curl -sS -o /tmp/ea_approval_required_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
+APPROVAL_CODE="$(curl -sS -o /tmp/ea_approval_required_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
 rm -f "${APPROVAL_PAYLOAD}"
 if [[ "${APPROVAL_CODE}" != "202" ]]; then
   echo "expected 202 for approval-required path; got ${APPROVAL_CODE}" >&2
@@ -1056,7 +1090,7 @@ if [[ "${PENDING_MATCH}" != "True" ]]; then
 fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"smoke-operator","reason":"resume execution"}' >/dev/null
-APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}")"
+APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 3 and len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
 if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True|True|True" ]]; then
   echo "expected resumed session to complete with artifacts/receipts/run_costs, a three-step queue, input_prepared, policy_step_completed, and tool_execution_completed; got ${APPROVED_FIELDS}" >&2
@@ -1082,7 +1116,7 @@ printf '{"text":"%s"}' "$(python3 - <<'PY'
 print("x" * 20001)
 PY
 )" > "${BLOCKED_PAYLOAD}"
-BLOCKED_CODE="$(curl -sS -o /tmp/ea_blocked_policy_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
+BLOCKED_CODE="$(curl -sS -o /tmp/ea_blocked_policy_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
 rm -f "${BLOCKED_PAYLOAD}"
 if [[ "${BLOCKED_CODE}" != "403" ]]; then
   echo "expected 403 for blocked policy path; got ${BLOCKED_CODE}" >&2
@@ -1248,18 +1282,36 @@ curl -fsS "${BASE}/v1/tasks/contracts/rewrite_text" "${AUTH_ARGS[@]}" >/dev/null
 echo "task contracts ok"
 
 echo "== smoke: plans =="
-PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"task_key":"rewrite_text","principal_id":"exec-1","goal":"rewrite this text"}')"
+PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"rewrite_text","goal":"rewrite this text"}')"
 PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; print('{}|{}|{}|{}|{}'.format(len(steps), (steps[0] or {}).get('step_key','') if steps else '', (steps[1] or {}).get('step_key','') if len(steps) > 1 else '', ','.join((steps[1] or {}).get('depends_on') or []) if len(steps) > 1 else '', (steps[2] or {}).get('tool_name','') if len(steps) > 2 else ''))" <<<"${PLAN_JSON}")"
 if [[ "${PLAN_FIELDS}" != "3|step_input_prepare|step_policy_evaluate|step_input_prepare|artifact_repository" ]]; then
   echo "expected three-step plan compile response with an explicit policy step; got ${PLAN_FIELDS}" >&2
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+PLAN_PRINCIPAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}'.format(body.get('intent',{}).get('principal_id',''), body.get('plan',{}).get('principal_id','')))" <<<"${PLAN_JSON}")"
+if [[ "${PLAN_PRINCIPAL_FIELDS}" != "${PRINCIPAL_ID}|${PRINCIPAL_ID}" ]]; then
+  echo "expected plan compile to derive principal from request context when principal_id body field is omitted; got ${PLAN_PRINCIPAL_FIELDS}" >&2
+  echo "${PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PLAN_MISMATCH_CODE="$(curl -sS -o /tmp/ea_plan_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"rewrite_text\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
+if [[ "${PLAN_MISMATCH_CODE}" != "403" ]]; then
+  echo "expected plan compile principal mismatch to return 403; got ${PLAN_MISMATCH_CODE}" >&2
+  cat /tmp/ea_plan_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+PLAN_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /tmp/ea_plan_mismatch_resp.json)"
+if [[ "${PLAN_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected plan compile mismatch code principal_scope_mismatch; got ${PLAN_MISMATCH_REASON}" >&2
+  cat /tmp/ea_plan_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_review","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it.","human_review_priority":"high","human_review_sla_minutes":45,"human_review_auto_assign_if_unique":true,"human_review_desired_output_json":{"format":"review_packet","escalation_policy":"manager_review"},"human_review_authority_required":"send_on_behalf_review","human_review_why_human":"Executive-facing rewrite needs human judgment before finalization.","human_review_quality_rubric_json":{"checks":["tone","accuracy","stakeholder_sensitivity"]}}}' >/dev/null
-REVIEW_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"task_key":"rewrite_review","principal_id":"exec-1","goal":"review this rewrite"}')"
+REVIEW_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"rewrite_review","goal":"review this rewrite"}')"
 REVIEW_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; review=(steps[2] if len(steps) > 2 else {}); checks=(review.get('quality_rubric_json') or {}).get('checks') or []; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(len(steps), review.get('step_kind',''), review.get('role_required',''), review.get('priority',''), review.get('sla_minutes',''), review.get('auto_assign_if_unique', False), (review.get('desired_output_json') or {}).get('escalation_policy',''), review.get('authority_required',''), checks[0] if checks else '', ','.join((steps[3] or {}).get('depends_on') or []) if len(steps) > 3 else ''))" <<<"${REVIEW_PLAN_JSON}")"
 if [[ "${REVIEW_PLAN_FIELDS}" != "4|human_task|communications_reviewer|high|45|True|manager_review|send_on_behalf_review|tone|step_human_review" ]]; then
   echo "expected compiled human-review branch in plan response; got ${REVIEW_PLAN_FIELDS}" >&2
@@ -1271,9 +1323,9 @@ echo "plans ok"
 echo "== smoke: compiled human review runtime =="
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it.","human_review_priority":"high","human_review_sla_minutes":45,"human_review_auto_assign_if_unique":true,"human_review_desired_output_json":{"format":"review_packet","escalation_policy":"manager_review"},"human_review_authority_required":"send_on_behalf_review","human_review_why_human":"Executive-facing rewrite needs human judgment before finalization.","human_review_quality_rubric_json":{"checks":["tone","accuracy","stakeholder_sensitivity"]}}}' >/dev/null
-curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"operator_id":"operator-specialist","display_name":"Senior Comms Reviewer","roles":["communications_reviewer"],"skill_tags":["tone","accuracy","stakeholder_sensitivity"],"trust_tier":"senior","status":"active"}' >/dev/null
-HUMAN_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"rewrite with human review"}')"
+HUMAN_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"rewrite with human review"}')"
 HUMAN_REWRITE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), body.get("next_action",""), bool(body.get("human_task_id","")), body.get("approval_id","")))' <<<"${HUMAN_REWRITE_JSON}")"
 if [[ "${HUMAN_REWRITE_FIELDS}" != "awaiting_human|poll_or_subscribe|True|" ]]; then
   echo "expected awaiting_human rewrite acceptance contract with human_task_id; got ${HUMAN_REWRITE_FIELDS}" >&2
@@ -1282,7 +1334,7 @@ if [[ "${HUMAN_REWRITE_FIELDS}" != "awaiting_human|poll_or_subscribe|True|" ]]; 
 fi
 HUMAN_REWRITE_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
 HUMAN_REWRITE_TASK_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
-HUMAN_REWRITE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; queues=body.get('queue_items') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; review=next((row for row in tasks if (row or {}).get('human_task_id') == '${HUMAN_REWRITE_TASK_ID}'), {}); checks=(review.get('quality_rubric_json') or {}).get('checks') or []; names=[(row or {}).get('event_name','') for row in history if (row or {}).get('human_task_id') == '${HUMAN_REWRITE_TASK_ID}']; fields=[body.get('status',''), len(steps) == 4, len(queues) == 3 and all((q or {}).get('state','') == 'done' for q in queues), bool(review.get('human_task_id','')) and review.get('status') == 'pending', any((row or {}).get('step_id') and (row or {}).get('input_json',{}).get('plan_step_key') == 'step_human_review' and (row or {}).get('state') == 'waiting_human' for row in steps), review.get('priority',''), bool(review.get('sla_due_at','')), (review.get('desired_output_json') or {}).get('escalation_policy',''), review.get('authority_required',''), review.get('why_human',''), checks[0] if checks else '', review.get('assignment_state',''), review.get('assigned_operator_id',''), review.get('assignment_source',''), bool(review.get('assigned_at','')), review.get('assigned_by_actor_id',''), ','.join(names)]; print('|'.join(str(v) for v in fields))" <<<"${HUMAN_REWRITE_SESSION_JSON}")"
 if [[ "${HUMAN_REWRITE_SESSION_FIELDS}" != "awaiting_human|True|True|True|True|high|True|manager_review|send_on_behalf_review|Executive-facing rewrite needs human judgment before finalization.|tone|assigned|operator-specialist|auto_preselected|True|orchestrator:auto_preselected|human_task_created,human_task_assigned" ]]; then
   echo "expected awaiting_human session with queued human review step; got ${HUMAN_REWRITE_SESSION_FIELDS}" >&2
@@ -1295,35 +1347,35 @@ if [[ "${HUMAN_REWRITE_SUMMARY_FIELDS}" != "human_task_assigned|True|assigned|op
   echo "${HUMAN_REWRITE_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_AUTO_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}?human_task_assignment_source=auto_preselected" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_AUTO_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}?human_task_assignment_source=auto_preselected" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_AUTO_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; print('{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), ','.join((row or {}).get('event_name','') for row in history)))" <<<"${HUMAN_REWRITE_AUTO_SESSION_JSON}")"
 if [[ "${HUMAN_REWRITE_AUTO_SESSION_FIELDS}" != "1|${HUMAN_REWRITE_TASK_ID}|human_task_assigned" ]]; then
   echo "expected session assignment-source filter to isolate planner auto-preselected pending rows and transitions; got ${HUMAN_REWRITE_AUTO_SESSION_FIELDS}" >&2
   echo "${HUMAN_REWRITE_AUTO_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_AUTO_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?session_id=${HUMAN_REWRITE_SESSION_ID}&assignment_source=auto_preselected&limit=10" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_AUTO_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?session_id=${HUMAN_REWRITE_SESSION_ID}&assignment_source=auto_preselected&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_AUTO_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted='${HUMAN_REWRITE_TASK_ID}'; print(any((row or {}).get('human_task_id') == wanted for row in rows))" <<<"${HUMAN_REWRITE_AUTO_LIST_JSON}")"
 if [[ "${HUMAN_REWRITE_AUTO_LIST_FIELDS}" != "True" ]]; then
   echo "expected session-scoped assignment-source list filter to expose planner auto-preselected pending work" >&2
   echo "${HUMAN_REWRITE_AUTO_LIST_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_AUTO_SUMMARY_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator-specialist&assignment_source=auto_preselected" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_AUTO_SUMMARY_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator-specialist&assignment_source=auto_preselected" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_AUTO_SUMMARY_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('assignment_source',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" <<<"${HUMAN_REWRITE_AUTO_SUMMARY_JSON}")"
 if [[ "${HUMAN_REWRITE_AUTO_SUMMARY_FIELDS}" != "auto_preselected|1|high|0|1|0|0" ]]; then
   echo "expected assignment-source priority summary to isolate planner auto-preselected pending work; got ${HUMAN_REWRITE_AUTO_SUMMARY_FIELDS}" >&2
   echo "${HUMAN_REWRITE_AUTO_SUMMARY_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_AUTO_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?operator_id=operator-specialist&assignment_source=auto_preselected&limit=10" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_AUTO_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?operator_id=operator-specialist&assignment_source=auto_preselected&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_AUTO_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted='${HUMAN_REWRITE_TASK_ID}'; print(any((row or {}).get('human_task_id') == wanted for row in rows))" <<<"${HUMAN_REWRITE_AUTO_BACKLOG_JSON}")"
 if [[ "${HUMAN_REWRITE_AUTO_BACKLOG_FIELDS}" != "True" ]]; then
   echo "expected assignment-source backlog filter to expose planner auto-preselected pending work" >&2
   echo "${HUMAN_REWRITE_AUTO_BACKLOG_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_REWRITE_TASK_ID}/return" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+HUMAN_REWRITE_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_REWRITE_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"operator_id":"reviewer-1","resolution":"ready_for_send","returned_payload_json":{"final_text":"rewrite with human review, edited by reviewer"},"provenance_json":{"review_mode":"human"}}')"
 HUMAN_REWRITE_RETURN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("last_transition_event_name",""), bool(body.get("last_transition_at","")), body.get("last_transition_assignment_state",""), body.get("last_transition_operator_id",""), body.get("last_transition_assignment_source",""), body.get("last_transition_by_actor_id","")))' <<<"${HUMAN_REWRITE_RETURN_JSON}")"
 if [[ "${HUMAN_REWRITE_RETURN_FIELDS}" != "human_task_returned|True|returned|reviewer-1|manual|reviewer-1" ]]; then
@@ -1331,7 +1383,7 @@ if [[ "${HUMAN_REWRITE_RETURN_FIELDS}" != "human_task_returned|True|returned|rev
   echo "${HUMAN_REWRITE_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_REWRITE_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(artifacts) >= 1, (artifacts[0] or {}).get('content','') if artifacts else '', 'human_task_step_started' in events, 'session_resumed_from_human_task' in events, len(queues) == 4 and all((q or {}).get('state','') == 'done' for q in queues), len(steps) == 4 and all((row or {}).get('state') == 'completed' for row in steps)))" <<<"${HUMAN_REWRITE_DONE_JSON}")"
 if [[ "${HUMAN_REWRITE_DONE_FIELDS}" != "completed|True|rewrite with human review, edited by reviewer|True|True|True|True" ]]; then
   echo "expected resumed human-review rewrite to complete with reviewer-edited artifact and fully drained queue; got ${HUMAN_REWRITE_DONE_FIELDS}" >&2

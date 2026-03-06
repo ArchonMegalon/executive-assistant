@@ -1442,6 +1442,28 @@ def test_principal_request_context_guardrails_are_documented_and_smoked() -> Non
     assert capability["status"] == "tested"
 
 
+def test_principal_scoped_rewrite_and_plan_routes_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "rewrite/session/artifact/receipt/run-cost, plan-compile" in readme
+    assert "/v1/rewrite/sessions/{session_id}" in runbook
+    assert "/v1/plans/compile" in runbook
+    assert "403 principal_scope_mismatch" in runbook
+    assert '"principal_id": "exec-2"' in http_examples
+    assert "REWRITE_SESSION_MISMATCH_CODE" in smoke_api
+    assert "PLAN_MISMATCH_CODE" in smoke_api
+    assert "test_rewrite_routes_enforce_principal_scope" in smoke_runtime
+    assert "test_plan_compile_derives_request_principal_and_rejects_mismatch" in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_rewrite_and_plan_routes")
+    assert capability["status"] == "tested"
+
+
 def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

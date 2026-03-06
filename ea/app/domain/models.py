@@ -8,6 +8,8 @@ from typing import Any
 @dataclass(frozen=True)
 class RewriteRequest:
     text: str
+    principal_id: str = "local-user"
+    goal: str = ""
 
 
 @dataclass(frozen=True)

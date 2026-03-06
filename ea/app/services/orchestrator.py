@@ -388,10 +388,10 @@ class RewriteOrchestrator:
             filtered = overdue_rows
         return filtered
 
-    def _fallback_rewrite_intent(self) -> IntentSpecV3:
+    def _fallback_rewrite_intent(self, *, principal_id: str, goal: str) -> IntentSpecV3:
         return IntentSpecV3(
-            principal_id="local-user",
-            goal="rewrite supplied text into an artifact",
+            principal_id=str(principal_id or "local-user"),
+            goal=str(goal or "rewrite supplied text into an artifact"),
             task_type="rewrite_text",
             deliverable_type="rewrite_note",
             risk_class="low",
@@ -600,14 +600,27 @@ class RewriteOrchestrator:
 
     def _complete_tool_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
         input_json = dict(rewrite_step.input_json or {})
+        session = self._ledger.get_session(session_id)
         parent_step = self._ledger.get_step(rewrite_step.parent_step_id) if rewrite_step.parent_step_id else None
         if parent_step is not None:
             parent_output = dict(parent_step.output_json or {})
+            for key in (
+                "normalized_text",
+                "text_length",
+                "allow",
+                "requires_approval",
+                "reason",
+                "retention_policy",
+                "plan_id",
+            ):
+                if key in parent_output and key not in input_json:
+                    input_json[key] = parent_output[key]
             human_payload = parent_output.get("human_returned_payload_json")
             if isinstance(human_payload, dict):
                 final_text = str(human_payload.get("final_text") or human_payload.get("content") or "").strip()
                 if final_text:
                     input_json["source_text"] = final_text
+                    input_json["normalized_text"] = final_text
                     input_json["human_task_id"] = str(parent_output.get("human_task_id") or "")
         tool_name = str(input_json.get("tool_name") or "artifact_repository") or "artifact_repository"
         action_kind = str(input_json.get("action_kind") or "artifact.save") or "artifact.save"
@@ -628,6 +641,7 @@ class RewriteOrchestrator:
                 action_kind=action_kind,
                 payload_json=input_json,
                 context_json={
+                    "principal_id": session.intent.principal_id if session is not None else "",
                     "correlation_id": rewrite_step.correlation_id,
                     "causation_id": rewrite_step.causation_id,
                 },
@@ -807,17 +821,19 @@ class RewriteOrchestrator:
         return self._execute_leased_queue_item(queue_item)
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
+        principal_id = str(req.principal_id or "").strip() or "local-user"
+        goal = str(req.goal or "").strip() or "rewrite supplied text into an artifact"
         if self._planner:
             intent, plan = self._planner.build_plan(
                 task_key="rewrite_text",
-                principal_id="local-user",
-                goal="rewrite supplied text into an artifact",
+                principal_id=principal_id,
+                goal=goal,
             )
         elif self._task_contracts:
-            intent = self._task_contracts.compile_rewrite_intent(principal_id="local-user")
+            intent = self._task_contracts.compile_rewrite_intent(principal_id=principal_id, goal=goal)
             plan = self._fallback_plan(intent)
         else:
-            intent = self._fallback_rewrite_intent()
+            intent = self._fallback_rewrite_intent(principal_id=principal_id, goal=goal)
             plan = self._fallback_plan(intent)
         session = self._ledger.start_session(intent)
         correlation_id = str(uuid.uuid4())

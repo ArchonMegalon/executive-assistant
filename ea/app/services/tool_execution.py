@@ -115,7 +115,7 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        source_text = str(payload.get("source_text") or "").strip()
+        source_text = str(payload.get("normalized_text") or payload.get("source_text") or "").strip()
         artifact_kind = str(payload.get("expected_artifact") or "rewrite_note")
         plan_id = str(payload.get("plan_id") or "")
         plan_step_key = str(payload.get("plan_step_key") or "")

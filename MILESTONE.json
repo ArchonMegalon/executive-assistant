@@ -237,6 +237,19 @@
       "notes": "Principal-scoped connector and memory routes now derive scope from request context, fall back to `EA_DEFAULT_PRINCIPAL_ID`, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and hide foreign connector updates."
     },
     {
+      "name": "principal_scoped_rewrite_and_plan_routes",
+      "status": "tested",
+      "scope": [
+        "rewrite_route_principal_derivation",
+        "rewrite_session_fetch_scope_guard",
+        "rewrite_artifact_fetch_scope_guard",
+        "rewrite_receipt_fetch_scope_guard",
+        "rewrite_run_cost_fetch_scope_guard",
+        "plan_compile_principal_derivation"
+      ],
+      "notes": "Rewrite creation/session/artifact/receipt/run-cost routes plus `POST /v1/plans/compile` now derive their effective principal from request context, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches."
+    },
+    {
       "name": "typed_step_handler_gateway",
       "status": "tested",
       "scope": [

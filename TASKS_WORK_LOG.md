@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-240 | P1 | Add explicit mixed-source stability coverage on manual and auto-preselected assignment-source summaries so non-ownerless counts stay isolated after extra ownerless rows are added | codex | queued | The ownerless session-detail projection now has explicit mixed-source count coverage, but the manual and auto-preselected summary slices still only prove their pre-ownerless-churn single-row case instead of staying isolated after additional ownerless rows are added |
+| Q-241 | P1 | Add approved host-smoke/docs parity for manual and auto-preselected assignment-source summaries after extra ownerless rows are added | codex | queued | Python smoke already proves manual and auto-preselected summary isolation after ownerless churn, but the approved host smoke path still lacks an explicit mixed-source assertion for those non-ownerless summary slices |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-240 | P1 | Scope rewrite/session/artifact/proof routes and plan compile to the request principal so foreign execution threads cannot be fetched across a shared token domain | codex | done | Rewrite creation plus session/artifact/receipt/run-cost fetches and `POST /v1/plans/compile` now derive the effective principal from request context, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and the approved host smoke path proves foreign-principal fetches are blocked |
 | D-239 | P1 | Add explicit ownerless alias multi-row session-detail count coverage so `human_task_assignment_source=none` keeps current tasks ownerless-only while history stays explainable after mixed-source churn | codex | done | Added approved smoke/docs coverage proving the mixed-source session-detail ownerless projection keeps a two-row current `human_tasks` slice while the inline empty-source history remains longer than the current ownerless slice |
 | D-238 | P1 | Add explicit ownerless alias multi-row unsorted session coverage so `session_id=<id>&assignment_source=none` keeps only ownerless rows after manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving the unsorted session-scoped `assignment_source=none` list still contains only the ownerless packets after mixed-source churn introduces manual and auto-preselected neighbors |
 | D-237 | P1 | Add explicit ownerless alias multi-row unsorted coverage on list, backlog, and unassigned queue slices so `assignment_source=none` keeps only ownerless rows after manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving unsorted ownerless list, backlog, and unassigned slices still contain only the ownerless packets after mixed-source churn introduces manual and auto-preselected neighbors |

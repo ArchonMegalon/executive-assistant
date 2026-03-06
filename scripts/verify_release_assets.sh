@@ -871,6 +871,33 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_rewrite_and_plan_routes")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "rewrite/session/artifact/receipt/run-cost, plan-compile" "README.md" && \
+     grep -Fq '/v1/rewrite/sessions/{session_id}' "RUNBOOK.md" && \
+     grep -Fq '/v1/plans/compile' "RUNBOOK.md" && \
+     grep -Fq '"principal_id": "exec-2"' "HTTP_EXAMPLES.http" && \
+     grep -Fq "REWRITE_SESSION_MISMATCH_CODE" "scripts/smoke_api.sh" && \
+     grep -Fq "PLAN_MISMATCH_CODE" "scripts/smoke_api.sh" && \
+     grep -Fq "test_rewrite_routes_enforce_principal_scope" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_plan_compile_derives_request_principal_and_rejects_mismatch" "tests/smoke_runtime_api.py"; then
+    echo "ok: principal-scoped rewrite and plan routes docs"
+  else
+    echo "missing: principal-scoped rewrite and plan routes docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: principal-scoped rewrite and plan routes milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
 assert capability["status"] == "tested"
 planner_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection")
