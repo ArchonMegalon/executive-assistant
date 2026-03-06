@@ -358,6 +358,68 @@ if [[ "${SORT_BACKLOG_FIELDS}" != "${SORT_TASK_OLDER_ID}|human_task_assigned|${S
 fi
 echo "human task last-transition sort ok"
 
+echo "== smoke: human task created-asc sort =="
+CREATED_ASC_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"created asc seed"}')"
+CREATED_ASC_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${CREATED_ASC_REWRITE_JSON}")"
+CREATED_ASC_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${CREATED_ASC_SESSION_ID}" "${AUTH_ARGS[@]}")"
+CREATED_ASC_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${CREATED_ASC_SESSION_JSON}")"
+if [[ -z "${CREATED_ASC_STEP_ID}" ]]; then
+  fail 13 "missing created-asc sort step_id from session response"
+fi
+CREATED_ASC_OLDEST_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${CREATED_ASC_SESSION_ID}\",\"step_id\":\"${CREATED_ASC_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Oldest unassigned task.\",\"resume_session_on_return\":false}")"
+CREATED_ASC_OLDEST_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${CREATED_ASC_OLDEST_JSON}")"
+CREATED_ASC_OLDER_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${CREATED_ASC_SESSION_ID}\",\"step_id\":\"${CREATED_ASC_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Older assigned task.\",\"resume_session_on_return\":false}")"
+CREATED_ASC_OLDER_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${CREATED_ASC_OLDER_MINE_JSON}")"
+CREATED_ASC_MIDDLE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${CREATED_ASC_SESSION_ID}\",\"step_id\":\"${CREATED_ASC_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Middle unassigned task.\",\"resume_session_on_return\":false}")"
+CREATED_ASC_MIDDLE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${CREATED_ASC_MIDDLE_JSON}")"
+CREATED_ASC_NEWER_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${CREATED_ASC_SESSION_ID}\",\"step_id\":\"${CREATED_ASC_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Newer assigned task.\",\"resume_session_on_return\":false}")"
+CREATED_ASC_NEWER_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${CREATED_ASC_NEWER_MINE_JSON}")"
+if [[ -z "${CREATED_ASC_OLDEST_ID}" || -z "${CREATED_ASC_OLDER_MINE_ID}" || -z "${CREATED_ASC_MIDDLE_ID}" || -z "${CREATED_ASC_NEWER_MINE_ID}" ]]; then
+  fail 13 "missing human task ids from created-asc sort smoke setup"
+fi
+CREATED_ASC_ASSIGN_OLDER_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${CREATED_ASC_OLDER_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-sorter"}')"
+CREATED_ASC_ASSIGN_NEWER_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${CREATED_ASC_NEWER_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-sorter"}')"
+CREATED_ASC_ASSIGN_FIELDS="$(python3 -c "import json,sys; first=json.loads(sys.argv[1] or '{}'); second=json.loads(sys.argv[2] or '{}'); print('{}|{}|{}|{}'.format(first.get('human_task_id',''), first.get('last_transition_event_name',''), second.get('human_task_id',''), second.get('last_transition_event_name','')))" "${CREATED_ASC_ASSIGN_OLDER_JSON}" "${CREATED_ASC_ASSIGN_NEWER_JSON}")"
+if [[ "${CREATED_ASC_ASSIGN_FIELDS}" != "${CREATED_ASC_OLDER_MINE_ID}|human_task_assigned|${CREATED_ASC_NEWER_MINE_ID}|human_task_assigned" ]]; then
+  echo "expected created-asc setup assignments to preserve assigned task ownership metadata; got ${CREATED_ASC_ASSIGN_FIELDS}" >&2
+  echo "${CREATED_ASC_ASSIGN_OLDER_JSON}" >&2
+  echo "${CREATED_ASC_ASSIGN_NEWER_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+CREATED_ASC_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?status=pending&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CREATED_ASC_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${CREATED_ASC_OLDEST_ID}','${CREATED_ASC_OLDER_MINE_ID}','${CREATED_ASC_MIDDLE_ID}','${CREATED_ASC_NEWER_MINE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:4]]; print('|'.join(ids))" <<<"${CREATED_ASC_LIST_JSON}")"
+if [[ "${CREATED_ASC_LIST_FIELDS}" != "${CREATED_ASC_OLDEST_ID}|${CREATED_ASC_OLDER_MINE_ID}|${CREATED_ASC_MIDDLE_ID}|${CREATED_ASC_NEWER_MINE_ID}" ]]; then
+  echo "expected sort=created_asc to order the general pending queue by oldest created task first; got ${CREATED_ASC_LIST_FIELDS}" >&2
+  echo "${CREATED_ASC_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+CREATED_ASC_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CREATED_ASC_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${CREATED_ASC_OLDEST_ID}','${CREATED_ASC_OLDER_MINE_ID}','${CREATED_ASC_MIDDLE_ID}','${CREATED_ASC_NEWER_MINE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:4]]; print('|'.join(ids))" <<<"${CREATED_ASC_BACKLOG_JSON}")"
+if [[ "${CREATED_ASC_BACKLOG_FIELDS}" != "${CREATED_ASC_OLDEST_ID}|${CREATED_ASC_OLDER_MINE_ID}|${CREATED_ASC_MIDDLE_ID}|${CREATED_ASC_NEWER_MINE_ID}" ]]; then
+  echo "expected backlog sort=created_asc to order pending work by oldest created task first; got ${CREATED_ASC_BACKLOG_FIELDS}" >&2
+  echo "${CREATED_ASC_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+CREATED_ASC_UNASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/unassigned?sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CREATED_ASC_UNASSIGNED_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${CREATED_ASC_OLDEST_ID}','${CREATED_ASC_MIDDLE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:2]]; print('|'.join(ids))" <<<"${CREATED_ASC_UNASSIGNED_JSON}")"
+if [[ "${CREATED_ASC_UNASSIGNED_FIELDS}" != "${CREATED_ASC_OLDEST_ID}|${CREATED_ASC_MIDDLE_ID}" ]]; then
+  echo "expected unassigned sort=created_asc to keep oldest unassigned work first; got ${CREATED_ASC_UNASSIGNED_FIELDS}" >&2
+  echo "${CREATED_ASC_UNASSIGNED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+CREATED_ASC_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-sorter&status=pending&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CREATED_ASC_MINE_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${CREATED_ASC_OLDER_MINE_ID}','${CREATED_ASC_NEWER_MINE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:2]]; print('|'.join(ids))" <<<"${CREATED_ASC_MINE_JSON}")"
+if [[ "${CREATED_ASC_MINE_FIELDS}" != "${CREATED_ASC_OLDER_MINE_ID}|${CREATED_ASC_NEWER_MINE_ID}" ]]; then
+  echo "expected mine sort=created_asc to keep the operator queue in oldest-created order; got ${CREATED_ASC_MINE_FIELDS}" >&2
+  echo "${CREATED_ASC_MINE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human task created-asc sort ok"
+
 echo "== smoke: human task SLA sort =="
 SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
 SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"

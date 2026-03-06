@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -565,6 +565,16 @@
         "unscheduled_backlog_stability"
       ],
       "notes": "SLA-oriented human task queue sorts now fall back to oldest-created ordering for rows without `sla_due_at`, keeping unscheduled backlog stable even when newer packets are reassigned."
+    },
+    {
+      "name": "human_task_created_asc_sorting",
+      "status": "tested",
+      "scope": [
+        "human_task_list_created_asc_sort_param",
+        "human_task_backlog_created_asc_sort_param",
+        "human_task_operator_fifo_queue_ordering"
+      ],
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=created_asc` so operators can request an explicit oldest-created FIFO queue order without relying on SLA fields or repository defaults."
     }
   ],
   "migrations": [

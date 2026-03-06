@@ -260,6 +260,11 @@ class RewriteOrchestrator:
 
     def _sort_human_tasks(self, rows: list[HumanTask], *, sort: str | None = None) -> list[HumanTask]:
         sort_key = str(sort or "").strip().lower()
+        if sort_key == "created_asc":
+            return sorted(
+                rows,
+                key=lambda row: (str(row.created_at or ""), str(row.human_task_id or "")),
+            )
         if sort_key == "created_desc":
             return sorted(
                 rows,
