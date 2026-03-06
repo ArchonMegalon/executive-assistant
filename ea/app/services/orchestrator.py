@@ -1038,6 +1038,12 @@ class RewriteOrchestrator:
     def fetch_run_cost(self, cost_id: str) -> RunCost | None:
         return self._ledger.get_run_cost(cost_id)
 
+    def _require_session_principal_alignment(self, session: ExecutionSession, *, principal_id: str) -> None:
+        session_principal = str(session.intent.principal_id or "").strip() or "local-user"
+        requested_principal = str(principal_id or "").strip() or "local-user"
+        if session_principal != requested_principal:
+            raise PermissionError("principal_scope_mismatch")
+
     def create_human_task(
         self,
         *,
@@ -1059,6 +1065,7 @@ class RewriteOrchestrator:
         session = self._ledger.get_session(session_id)
         if session is None:
             raise KeyError("session_not_found")
+        self._require_session_principal_alignment(session, principal_id=principal_id)
         step: ExecutionStep | None = None
         if resume_session_on_return and not step_id:
             raise KeyError("step_id_required")
@@ -1151,6 +1158,7 @@ class RewriteOrchestrator:
             found = self._ledger.get_session(session)
             if found is None:
                 return []
+            self._require_session_principal_alignment(found, principal_id=principal_id)
             rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
             rows = self._filter_human_task_rows(
                 rows,

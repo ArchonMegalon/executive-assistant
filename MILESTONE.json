@@ -250,6 +250,16 @@
       "notes": "Rewrite creation/session/artifact/receipt/run-cost routes plus `POST /v1/plans/compile` now derive their effective principal from request context, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches."
     },
     {
+      "name": "session_principal_scoped_human_task_routes",
+      "status": "tested",
+      "scope": [
+        "human_task_create_session_principal_guard",
+        "human_task_session_list_principal_guard",
+        "cross_principal_session_attach_block"
+      ],
+      "notes": "Session-bound human task creation and `GET /v1/human/tasks?session_id=...` now enforce that the request principal matches the linked execution session principal, rejecting foreign-principal attach/list attempts with `403 principal_scope_mismatch`."
+    },
+    {
       "name": "typed_step_handler_gateway",
       "status": "tested",
       "scope": [

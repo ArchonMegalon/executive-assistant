@@ -164,6 +164,44 @@ def test_rewrite_routes_enforce_principal_scope() -> None:
     assert missing_cost.json()["error"]["code"] == "run_cost_not_found"
 
 
+def test_human_task_session_routes_enforce_session_principal_scope() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    create = client.post("/v1/rewrite/artifact", json={"text": "human task session scope"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    step_id = session.json()["steps"][-1]["step_id"]
+
+    create_mismatch = client.post(
+        "/v1/human/tasks",
+        headers=_headers(principal_id="exec-2"),
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "cross-principal attach attempt",
+        },
+    )
+    assert create_mismatch.status_code == 403
+    assert create_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    list_mismatch = client.get(
+        "/v1/human/tasks",
+        headers=_headers(principal_id="exec-2"),
+        params={"session_id": session_id, "limit": 10},
+    )
+    assert list_mismatch.status_code == 403
+    assert list_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    listed = client.get("/v1/human/tasks", params={"session_id": session_id, "limit": 10})
+    assert listed.status_code == 200
+    assert listed.json() == []
+
+
 def test_rewrite_requires_approval_then_approve_flow() -> None:
     client = _client(storage_backend="memory", approval_threshold_chars=5)
     create = client.post("/v1/rewrite/artifact", json={"text": "approval smoke payload"})

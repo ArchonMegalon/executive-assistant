@@ -224,6 +224,8 @@ def create_human_task(
             sla_due_at=payload.sla_due_at,
             resume_session_on_return=payload.resume_session_on_return,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
     except KeyError as exc:
         code = str(exc.args[0] or "session_not_found")
         status_code = 400 if code == "step_id_required" else 404
@@ -251,19 +253,22 @@ def list_human_tasks(
     context: RequestContext = Depends(get_request_context),
 ) -> list[HumanTaskOut]:
     resolved_principal = resolve_principal_id(principal_id, context)
-    rows = container.orchestrator.list_human_tasks(
-        principal_id=resolved_principal,
-        session_id=session_id,
-        status=status,
-        role_required=role_required,
-        priority=priority,
-        assigned_operator_id=assigned_operator_id,
-        assignment_state=assignment_state,
-        assignment_source=assignment_source,
-        overdue_only=overdue_only,
-        limit=limit,
-        sort=sort,
-    )
+    try:
+        rows = container.orchestrator.list_human_tasks(
+            principal_id=resolved_principal,
+            session_id=session_id,
+            status=status,
+            role_required=role_required,
+            priority=priority,
+            assigned_operator_id=assigned_operator_id,
+            assignment_state=assignment_state,
+            assignment_source=assignment_source,
+            overdue_only=overdue_only,
+            limit=limit,
+            sort=sort,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
     return [_to_out(row) for row in rows]
 
 

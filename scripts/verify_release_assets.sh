@@ -898,6 +898,30 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "session-bound human task create/list requests now also enforce the linked execution session principal" "README.md" && \
+     grep -Fq 'GET /v1/human/tasks?session_id=...' "RUNBOOK.md" && \
+     grep -Fq "HUMAN_CREATE_MISMATCH_CODE" "scripts/smoke_api.sh" && \
+     grep -Fq "HUMAN_SESSION_LIST_MISMATCH_CODE" "scripts/smoke_api.sh" && \
+     grep -Fq "test_human_task_session_routes_enforce_session_principal_scope" "tests/smoke_runtime_api.py"; then
+    echo "ok: session-principal-scoped human task routes docs"
+  else
+    echo "missing: session-principal-scoped human task routes docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: session-principal-scoped human task routes milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
 assert capability["status"] == "tested"
 planner_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection")

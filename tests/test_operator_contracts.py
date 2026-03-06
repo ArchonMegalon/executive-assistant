@@ -1485,6 +1485,23 @@ def test_principal_scoped_rewrite_and_plan_routes_are_documented_and_smoked() ->
     assert capability["status"] == "tested"
 
 
+def test_session_principal_scoped_human_task_routes_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "session-bound human task create/list requests now also enforce the linked execution session principal" in readme
+    assert "GET /v1/human/tasks?session_id=..." in runbook
+    assert "HUMAN_CREATE_MISMATCH_CODE" in smoke_api
+    assert "HUMAN_SESSION_LIST_MISMATCH_CODE" in smoke_api
+    assert "test_human_task_session_routes_enforce_session_principal_scope" in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
+    assert capability["status"] == "tested"
+
+
 def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

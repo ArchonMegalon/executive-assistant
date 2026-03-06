@@ -146,6 +146,17 @@ SESSION_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read()
 if [[ -z "${SESSION_STEP_ID}" ]]; then
   fail 13 "missing step_id from session response"
 fi
+HUMAN_CREATE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_human_create_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Cross-principal attach attempt.\"}")"
+HUMAN_CREATE_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/ea_human_create_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
+HUMAN_SESSION_LIST_MISMATCH_CODE="$(curl -sS -o /tmp/ea_human_session_list_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/human/tasks?session_id=${SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+HUMAN_SESSION_LIST_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/ea_human_session_list_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
+if [[ "${HUMAN_CREATE_MISMATCH_CODE}" != "403" || "${HUMAN_CREATE_MISMATCH_REASON}" != "principal_scope_mismatch" || "${HUMAN_SESSION_LIST_MISMATCH_CODE}" != "403" || "${HUMAN_SESSION_LIST_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected foreign-principal session-bound human task create/list requests to fail with principal_scope_mismatch; got ${HUMAN_CREATE_MISMATCH_CODE}|${HUMAN_CREATE_MISMATCH_REASON}|${HUMAN_SESSION_LIST_MISMATCH_CODE}|${HUMAN_SESSION_LIST_MISMATCH_REASON}" >&2
+  cat /tmp/ea_human_create_mismatch_resp.json >&2
+  cat /tmp/ea_human_session_list_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
 HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"authority_required\":\"send_on_behalf_review\",\"why_human\":\"External executive communication needs human tone review.\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\",\"sla_due_at\":\"2000-01-01T00:00:00+00:00\",\"resume_session_on_return\":true}")"
 HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HUMAN_CREATE_JSON}")"
