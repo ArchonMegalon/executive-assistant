@@ -234,6 +234,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> ownerless unassigned queue oldest-first
+GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> ownerless unassigned queue newest-first by transition time
 GET {{host}}/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20
 X-EA-Principal-ID: {{principal_id}}

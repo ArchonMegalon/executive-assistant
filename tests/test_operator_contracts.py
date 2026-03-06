@@ -1000,6 +1000,29 @@ def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_
     assert "ownerless_unassigned_last_transition_desc_ordering" in capability["scope"]
 
 
+def test_human_task_ownerless_unassigned_created_sort_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "assignment_source=none&sort=created_asc" in readme
+    assert "assignment_source=none&sort=created_asc" in runbook
+    assert "HUMAN_OWNERLESS_UNASSIGNED_CREATED_JSON" in smoke_api
+    assert 'params={"assignment_source": "none", "sort": "created_asc"}' in smoke_runtime
+    assert "/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20" in http_examples
+
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_ownerless_unassigned_created_sort"
+    )
+    assert capability["status"] == "tested"
+    assert "ownerless_unassigned_created_asc_fifo" in capability["scope"]
+
+
 def test_human_task_assignment_history_source_filter_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

@@ -712,6 +712,15 @@
       "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=last_transition_desc`, keeping its newest-first ordering aligned with the backlog slice."
     },
     {
+      "name": "human_task_ownerless_unassigned_created_sort",
+      "status": "tested",
+      "scope": [
+        "ownerless_unassigned_created_asc_fifo",
+        "ownerless_unassigned_backlog_created_alignment"
+      ],
+      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=created_asc`, keeping its oldest-first FIFO ordering aligned with the backlog slice."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [

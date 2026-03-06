@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-227 | P1 | Add ownerless alias created-order coverage on direct unassigned queues so `/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc` is explicitly mirrored in smoke/docs too | codex | queued | The dedicated unassigned queue now has newest-first ownerless coverage under `sort=last_transition_desc`, but it still lacks explicit oldest-first FIFO smoke/docs matching the backlog slice |
+| Q-228 | P1 | Add ownerless alias FIFO coverage on the general pending human-task list so `/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc` is explicitly mirrored in smoke/docs too | codex | queued | Backlog and direct unassigned ownerless slices now have explicit FIFO coverage, but the general pending list still lacks the same oldest-first ownerless sort contract in dedicated smoke/docs |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-227 | P1 | Add ownerless alias created-order coverage on direct unassigned queues so `/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc` is explicitly mirrored in smoke/docs too | codex | done | Added approved smoke/docs coverage proving the direct unassigned ownerless queue mirrors the backlog’s oldest-first FIFO ordering under `sort=created_asc`, keeping untouched ownerless triage aligned across both queue surfaces |
 | D-226 | P1 | Add ownerless alias last-transition sort coverage on direct unassigned queues so `/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc` matches the backlog ordering contract | codex | done | Added approved smoke/docs coverage proving the direct unassigned ownerless queue mirrors the backlog’s newest-first ordering under `sort=last_transition_desc`, even when each row only has the initial creation transition |
 | D-225 | P1 | Add ownerless alias last-transition sort coverage on backlog queues so `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` stays stable for untouched ownerless work | codex | done | Added approved smoke/docs coverage proving untouched ownerless backlog slices sort newest-first under `sort=last_transition_desc`, even when each row only carries the initial `human_task_created` transition |
 | D-224 | P1 | Add ownerless alias sort coverage on backlog queues so `assignment_state=unassigned&assignment_source=none` keeps FIFO order explicit under `sort=created_asc` | codex | done | Added approved smoke/docs coverage proving the ownerless backlog slice preserves oldest-created FIFO order under `sort=created_asc`, keeping operator triage predictable on untouched ownerless work |
