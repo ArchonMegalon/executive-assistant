@@ -118,6 +118,7 @@ class SessionHumanTaskOut(BaseModel):
     resume_session_on_return: bool
     returned_payload_json: dict[str, object]
     provenance_json: dict[str, object]
+    routing_hints_json: dict[str, object]
     created_at: str
     updated_at: str
 
@@ -295,6 +296,7 @@ def get_session(
                 resume_session_on_return=t.resume_session_on_return,
                 returned_payload_json=t.returned_payload_json,
                 provenance_json=t.provenance_json,
+                routing_hints_json=t.routing_hints_json,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
             )

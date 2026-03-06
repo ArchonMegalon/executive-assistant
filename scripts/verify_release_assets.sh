@@ -1263,6 +1263,36 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment_hints")
+assert capability["status"] == "tested"
+assert "suggested_operator_ids" in capability["scope"]
+assert "auto_assign_operator_id" in capability["scope"]
+PY
+then
+  if grep -Fq "routing_hints_json" "README.md" && \
+     grep -Fq "auto_assign_operator_id" "README.md" && \
+     grep -Fq "routing_hints_json" "RUNBOOK.md" && \
+     grep -Fq "auto_assign_operator_id" "RUNBOOK.md" && \
+     grep -Fq "operator auto-assignment hint" "scripts/smoke_api.sh" && \
+     grep -Fq "routing_hints_json" "tests/smoke_runtime_api.py" && \
+     grep -Fq "auto_assign_operator_id" "tests/smoke_runtime_api.py" && \
+     grep -Fq "routing_hints_json: dict[str, object]" "ea/app/api/routes/rewrite.py" && \
+     grep -Fq "routing_hints_json: dict[str, object]" "ea/app/api/routes/human.py"; then
+    echo "ok: human task operator assignment hints docs"
+  else
+    echo "missing: human task operator assignment hints docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task operator assignment hints milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.56.0",
+  "version": "0.57.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -323,6 +323,17 @@
         "trust_tier_routing_gate"
       ],
       "notes": "Principal-scoped operator profiles now persist `roles`, `skill_tags`, and `trust_tier`, and backlog views can filter pending human tasks to only the work a given reviewer profile is specialized and trusted to handle."
+    },
+    {
+      "name": "human_task_operator_assignment_hints",
+      "status": "tested",
+      "scope": [
+        "human_task_routing_hints_projection",
+        "session_human_task_routing_hints_projection",
+        "suggested_operator_ids",
+        "auto_assign_operator_id"
+      ],
+      "notes": "Human task payloads now compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so specialized operators can be suggested or preselected directly on each packet without a separate backlog scan."
     },
     {
       "name": "registry_backed_tool_execution_service",

@@ -482,6 +482,7 @@ class HumanTask:
     resume_session_on_return: bool = False
     returned_payload_json: dict[str, Any] = field(default_factory=dict)
     provenance_json: dict[str, Any] = field(default_factory=dict)
+    routing_hints_json: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

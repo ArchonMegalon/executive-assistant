@@ -13,13 +13,13 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-196 | P1 | Add backlog auto-assignment hints so specialized operator profiles can be suggested or preselected without manual backlog scanning | codex | queued | Operator profiles now exist and backlog matching can filter by specialization, but the queue still requires a human to manually ask for a profile-specific view instead of surfacing the best reviewer candidates directly on each packet |
+| Q-198 | P1 | Let planner-native human-task creation auto-apply a unique exact reviewer preselection when policy allows | codex | queued | Routing hints can now identify a single exact reviewer candidate, but compiled review work still lands ownerless even when the match is unambiguous and policy-safe |
 
 ## In Progress
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| - | - | - | - | - | - |
+| Q-197 | P1 | Add a recommended-reviewer assignment action so human tasks can use `auto_assign_operator_id` without forcing clients to submit a manual operator choice | codex | in_progress | Routing hints now expose `recommended_operator_id` and `auto_assign_operator_id`, but assignment still requires the caller to post an explicit `operator_id` even when the server has already identified a unique exact reviewer match |
 
 ## Blocked
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-196 | P1 | Add backlog auto-assignment hints so specialized operator profiles can be suggested or preselected without manual backlog scanning | codex | done | Human task payloads and session-linked `human_tasks` now compute `routing_hints_json` from active operator profiles, rubric-derived skill tags, and trust-tier requirements, exposing `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` with approved smoke and Postgres contract coverage |
 | D-195 | P1 | Add operator profile and skill metadata so human-task routing can target reviewer specialization instead of only role labels | codex | done | Durable operator profiles now persist role, skill-tag, and trust-tier metadata, and backlog filtering can target a specific operator profile so only matching pending work is surfaced over the human-task plane with approved smoke and Postgres contract coverage |
 | D-194 | P1 | Add planner-native human-review quality rubric and authority metadata so operator packets explain why a human is needed and how returned work should be judged | codex | done | Compiled `step_human_review` nodes and direct human task packets now persist `authority_required`, `why_human`, and `quality_rubric_json` through plan output, API/session projections, Postgres storage, and approved smoke/contract coverage |
 | D-193 | P1 | Add task-contract-driven SLA/priority metadata for compiled human-review steps so planner-native review work can route with stronger operational semantics | codex | done | Planner output now projects `priority`, relative `human_review_sla_minutes`, and `human_review_desired_output_json` onto `step_human_review`, and the runtime-created human task packet consumes those values directly for reviewer routing and SLA visibility |

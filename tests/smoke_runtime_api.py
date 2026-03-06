@@ -245,6 +245,34 @@ def test_human_task_flow_and_session_projection() -> None:
     assert len(steps) >= 2
     step_id = steps[-1]["step_id"]
 
+    operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-specialist",
+            "display_name": "Senior Comms Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
+            "trust_tier": "senior",
+            "status": "active",
+            "notes": "Specialist in external executive communication.",
+        },
+    )
+    assert operator_profile.status_code == 200
+    assert operator_profile.json()["trust_tier"] == "senior"
+
+    operator_low = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-junior",
+            "display_name": "Junior Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert operator_low.status_code == 200
+
     created = client.post(
         "/v1/human/tasks",
         json={
@@ -273,6 +301,10 @@ def test_human_task_flow_and_session_projection() -> None:
     assert task["authority_required"] == "send_on_behalf_review"
     assert task["why_human"] == "External executive communication needs human tone review."
     assert task["quality_rubric_json"]["checks"][0] == "tone"
+    assert task["routing_hints_json"]["required_skill_tags"] == ["accuracy", "stakeholder_sensitivity", "tone"]
+    assert task["routing_hints_json"]["required_trust_tier"] == "senior"
+    assert task["routing_hints_json"]["suggested_operator_ids"][0] == "operator-specialist"
+    assert task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
 
     session_waiting = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session_waiting.status_code == 200
@@ -281,6 +313,9 @@ def test_human_task_flow_and_session_projection() -> None:
     assert waiting_body["status"] == "awaiting_human"
     assert "session_paused_for_human_task" in waiting_events
     assert any(step["step_id"] == step_id and step["state"] == "waiting_human" for step in waiting_body["steps"])
+    waiting_task = next(row for row in waiting_body["human_tasks"] if row["human_task_id"] == task_id)
+    assert waiting_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
+    assert waiting_task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
 
     listed = client.get("/v1/human/tasks", params={"limit": 10})
     assert listed.status_code == 200
@@ -331,34 +366,6 @@ def test_human_task_flow_and_session_projection() -> None:
     )
     assert unassigned_after.status_code == 200
     assert all(row["human_task_id"] != task_id for row in unassigned_after.json())
-
-    operator_profile = client.post(
-        "/v1/human/tasks/operators",
-        json={
-            "operator_id": "operator-specialist",
-            "display_name": "Senior Comms Reviewer",
-            "roles": ["communications_reviewer"],
-            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
-            "trust_tier": "senior",
-            "status": "active",
-            "notes": "Specialist in external executive communication.",
-        },
-    )
-    assert operator_profile.status_code == 200
-    assert operator_profile.json()["trust_tier"] == "senior"
-
-    operator_low = client.post(
-        "/v1/human/tasks/operators",
-        json={
-            "operator_id": "operator-junior",
-            "display_name": "Junior Reviewer",
-            "roles": ["communications_reviewer"],
-            "skill_tags": ["tone"],
-            "trust_tier": "standard",
-            "status": "active",
-        },
-    )
-    assert operator_low.status_code == 200
 
     operators = client.get("/v1/human/tasks/operators", params={"limit": 10})
     assert operators.status_code == 200
@@ -787,6 +794,31 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     )
     assert contract.status_code == 200
 
+    operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-specialist",
+            "display_name": "Senior Comms Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
+            "trust_tier": "senior",
+            "status": "active",
+        },
+    )
+    assert operator_profile.status_code == 200
+    operator_low = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-junior",
+            "display_name": "Junior Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert operator_low.status_code == 200
+
     create = client.post("/v1/rewrite/artifact", json={"text": "rewrite with human review"})
     assert create.status_code == 202
     assert create.json()["status"] == "awaiting_human"
@@ -813,6 +845,9 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert review_task["authority_required"] == "send_on_behalf_review"
     assert review_task["why_human"] == "Executive-facing rewrite needs human judgment before finalization."
     assert review_task["quality_rubric_json"]["checks"][0] == "tone"
+    assert review_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
+    assert review_task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
+    assert review_task["routing_hints_json"]["candidate_count"] == 1
 
     reviewed_text = "rewrite with human review, edited by reviewer"
     returned = client.post(

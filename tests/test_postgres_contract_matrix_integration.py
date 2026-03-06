@@ -12,6 +12,7 @@ from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.operator_profiles_postgres import PostgresOperatorProfileRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
+from app.services.orchestrator import RewriteOrchestrator
 
 
 def _db_url() -> str:
@@ -322,3 +323,72 @@ def test_postgres_operator_profiles_upsert_get_and_list() -> None:
 
     listed = repo.list_for_principal(principal_id="exec-1", status="active", limit=10)
     assert any(row.operator_id == operator_id for row in listed)
+
+
+def test_postgres_human_task_operator_assignment_hints() -> None:
+    db_url = _db_url()
+    ledger = PostgresExecutionLedgerRepository(db_url)
+    human_tasks = PostgresHumanTaskRepository(db_url)
+    operator_profiles = PostgresOperatorProfileRepository(db_url)
+    orchestrator = RewriteOrchestrator(ledger=ledger, human_tasks=human_tasks, operator_profiles=operator_profiles)
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id=f"hint-tester-{uuid.uuid4().hex}",
+            goal="route a human review packet",
+            task_type="rewrite_text",
+            deliverable_type="rewrite_note",
+            risk_class="medium",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    step = ledger.start_step(
+        session.session_id,
+        "human_task",
+        input_json={"task_type": "communications_review"},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+    operator_profiles.upsert_profile(
+        principal_id=session.intent.principal_id,
+        operator_id="operator-specialist",
+        display_name="Senior Reviewer",
+        roles=("communications_reviewer",),
+        skill_tags=("tone", "accuracy", "stakeholder_sensitivity"),
+        trust_tier="senior",
+        status="active",
+    )
+    operator_profiles.upsert_profile(
+        principal_id=session.intent.principal_id,
+        operator_id="operator-junior",
+        display_name="Junior Reviewer",
+        roles=("communications_reviewer",),
+        skill_tags=("tone",),
+        trust_tier="standard",
+        status="active",
+    )
+
+    created = orchestrator.create_human_task(
+        session_id=session.session_id,
+        step_id=step.step_id,
+        principal_id=session.intent.principal_id,
+        task_type="communications_review",
+        role_required="communications_reviewer",
+        brief="Review the executive draft before send.",
+        authority_required="send_on_behalf_review",
+        why_human="External executive communication needs human tone review.",
+        quality_rubric_json={"checks": ["tone", "accuracy", "stakeholder_sensitivity"]},
+        input_json={"artifact_id": "artifact-1"},
+        desired_output_json={"format": "review_packet"},
+        priority="high",
+        sla_due_at="2000-01-01T00:00:00+00:00",
+        resume_session_on_return=True,
+    )
+
+    assert created.routing_hints_json["required_trust_tier"] == "senior"
+    assert created.routing_hints_json["suggested_operator_ids"] == ["operator-specialist"]
+    assert created.routing_hints_json["recommended_operator_id"] == "operator-specialist"
+    assert created.routing_hints_json["auto_assign_operator_id"] == "operator-specialist"

@@ -322,6 +322,31 @@ def test_operator_profile_specialized_backlog_routing_is_documented_and_smoked()
     assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 
 
+def test_human_task_operator_assignment_hints_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
+    human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "routing_hints_json" in readme
+    assert "auto_assign_operator_id" in readme
+    assert "routing_hints_json" in runbook
+    assert "auto_assign_operator_id" in runbook
+    assert "operator auto-assignment hint" in smoke_api
+    assert "routing_hints_json" in smoke_runtime
+    assert "auto_assign_operator_id" in smoke_runtime
+    assert "routing_hints_json: dict[str, object]" in rewrite_route
+    assert "routing_hints_json: dict[str, object]" in human_route
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment_hints")
+    assert capability["status"] == "tested"
+    assert "suggested_operator_ids" in capability["scope"]
+    assert "auto_assign_operator_id" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

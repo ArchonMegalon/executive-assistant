@@ -59,6 +59,7 @@ class HumanTaskOut(BaseModel):
     resume_session_on_return: bool
     returned_payload_json: dict[str, object]
     provenance_json: dict[str, object]
+    routing_hints_json: dict[str, object]
     created_at: str
     updated_at: str
 
@@ -110,6 +111,7 @@ def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
         resume_session_on_return=row.resume_session_on_return,
         returned_payload_json=row.returned_payload_json,
         provenance_json=row.provenance_json,
+        routing_hints_json=row.routing_hints_json,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

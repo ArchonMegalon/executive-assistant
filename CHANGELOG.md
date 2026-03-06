@@ -20,6 +20,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Human task packets can now reopen a linked session step into `waiting_human` and resume it back to `completed` when the returned packet arrives.
 - Human task packets and compiled `step_human_review` branches now carry explicit `authority_required`, `why_human`, and `quality_rubric_json` review-contract metadata for operator-facing hybrid-intelligence workflows.
 - Added durable operator profiles plus `operator_id`-scoped backlog matching so the human-task queue can route by reviewer role, rubric-derived skill tags, and trust tier instead of only raw role labels.
+- Human task and session projections now compute `routing_hints_json` so specialized reviewers can be suggested or preselected directly on each packet, including `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` when a single exact reviewer match exists.
 - Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters for operator-targeted backlogs.
 - Added direct `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` endpoints so operators can pull pending and assigned queues without reconstructing filter sets manually.
 - Added `POST /v1/human/tasks/{human_task_id}/assign` so operator ownership can be set while a task remains pending, before `claim` transitions it into active work.

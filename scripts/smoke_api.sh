@@ -152,6 +152,22 @@ if [[ "${HUMAN_UNASSIGNED_MATCH}" != "True" ]]; then
   echo "${HUMAN_UNASSIGNED_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+HUMAN_OPERATOR_SPECIALIST_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-specialist","display_name":"Senior Comms Reviewer","roles":["communications_reviewer"],"skill_tags":["tone","accuracy","stakeholder_sensitivity"],"trust_tier":"senior","status":"active","notes":"Specialist in external executive communication."}')"
+HUMAN_OPERATOR_SPECIALIST_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); tags=body.get("skill_tags") or []; print("{}|{}|{}".format(body.get("operator_id",""), body.get("trust_tier",""), tags[0] if tags else ""))' <<<"${HUMAN_OPERATOR_SPECIALIST_JSON}")"
+if [[ "${HUMAN_OPERATOR_SPECIALIST_FIELDS}" != "operator-specialist|senior|tone" ]]; then
+  echo "expected specialist operator profile to persist role/skill/trust metadata; got ${HUMAN_OPERATOR_SPECIALIST_FIELDS}" >&2
+  echo "${HUMAN_OPERATOR_SPECIALIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"operator_id":"operator-junior","display_name":"Junior Reviewer","roles":["communications_reviewer"],"skill_tags":["tone"],"trust_tier":"standard","status":"active"}' >/dev/null
+HUMAN_ROUTING_HINT_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_ROUTING_HINT_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); hints=body.get("routing_hints_json") or {}; suggested=hints.get("suggested_operator_ids") or []; print("{}|{}|{}|{}".format((hints.get("required_skill_tags") or [None])[0], hints.get("required_trust_tier",""), suggested[0] if suggested else "", hints.get("auto_assign_operator_id","")))' <<<"${HUMAN_ROUTING_HINT_JSON}")"
+if [[ "${HUMAN_ROUTING_HINT_FIELDS}" != "accuracy|senior|operator-specialist|operator-specialist" ]]; then
+  echo "expected human task operator auto-assignment hint after specialist profile creation; got ${HUMAN_ROUTING_HINT_FIELDS}" >&2
+  echo "${HUMAN_ROUTING_HINT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 HUMAN_ASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
 HUMAN_ASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id","")))' <<<"${HUMAN_ASSIGN_JSON}")"
 if [[ "${HUMAN_ASSIGN_FIELDS}" != "pending|assigned|smoke-operator" ]]; then
@@ -173,15 +189,6 @@ if [[ "${HUMAN_UNASSIGNED_AFTER_MATCH}" != "True" ]]; then
   echo "${HUMAN_UNASSIGNED_AFTER_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_OPERATOR_SPECIALIST_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-specialist","display_name":"Senior Comms Reviewer","roles":["communications_reviewer"],"skill_tags":["tone","accuracy","stakeholder_sensitivity"],"trust_tier":"senior","status":"active","notes":"Specialist in external executive communication."}')"
-HUMAN_OPERATOR_SPECIALIST_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); tags=body.get("skill_tags") or []; print("{}|{}|{}".format(body.get("operator_id",""), body.get("trust_tier",""), tags[0] if tags else ""))' <<<"${HUMAN_OPERATOR_SPECIALIST_JSON}")"
-if [[ "${HUMAN_OPERATOR_SPECIALIST_FIELDS}" != "operator-specialist|senior|tone" ]]; then
-  echo "expected specialist operator profile to persist role/skill/trust metadata; got ${HUMAN_OPERATOR_SPECIALIST_FIELDS}" >&2
-  echo "${HUMAN_OPERATOR_SPECIALIST_JSON}" >&2
-  fail 12 "policy contract mismatch"
-fi
-curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"operator_id":"operator-junior","display_name":"Junior Reviewer","roles":["communications_reviewer"],"skill_tags":["tone"],"trust_tier":"standard","status":"active"}' >/dev/null
 HUMAN_OPERATOR_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?operator_id=operator-specialist&overdue_only=true&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_OPERATOR_BACKLOG_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_OPERATOR_BACKLOG_JSON}")"
 if [[ "${HUMAN_OPERATOR_BACKLOG_MATCH}" != "True" ]]; then

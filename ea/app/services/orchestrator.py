@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from app.domain.models import (
@@ -64,6 +64,28 @@ class HumanTaskRequiredError(RuntimeError):
 
 
 class RewriteOrchestrator:
+    _TRUST_RANK = {
+        "junior": 0,
+        "standard": 1,
+        "senior": 2,
+        "exec_delegate": 3,
+        "principal_delegate": 3,
+    }
+    _AUTHORITY_RANK = {
+        "": 0,
+        "review": 0,
+        "draft_review": 0,
+        "send_on_behalf_review": 2,
+        "principal_sensitive_review": 3,
+        "principal_review": 3,
+    }
+    _RANK_TO_TIER = {
+        0: "junior",
+        1: "standard",
+        2: "senior",
+        3: "principal_delegate",
+    }
+
     def __init__(
         self,
         artifacts: ArtifactRepository | None = None,
@@ -87,6 +109,112 @@ class RewriteOrchestrator:
         self._task_contracts = task_contracts
         self._planner = planner
         self._tool_execution = tool_execution or ToolExecutionService(artifacts=self._artifacts)
+
+    def _required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    str(v).strip().lower()
+                    for v in ((row.quality_rubric_json or {}).get("checks") or [])
+                    if str(v).strip()
+                }
+            )
+        )
+
+    def _required_trust_rank(self, authority_required: str) -> int:
+        return self._AUTHORITY_RANK.get(str(authority_required or "").strip().lower(), 0)
+
+    def _required_trust_tier(self, authority_required: str) -> str:
+        return self._RANK_TO_TIER.get(self._required_trust_rank(authority_required), "standard")
+
+    def _operator_match_details(self, profile: OperatorProfile, row: HumanTask) -> dict[str, object]:
+        roles = {str(v).strip() for v in profile.roles if str(v).strip()}
+        role_required = str(row.role_required or "").strip()
+        role_match = not role_required or not roles or role_required in roles
+        required_skill_tags = set(self._required_skill_tags(row))
+        operator_skill_tags = {str(v).strip().lower() for v in profile.skill_tags if str(v).strip()}
+        matched_skill_tags = tuple(sorted(required_skill_tags & operator_skill_tags))
+        missing_skill_tags = tuple(sorted(required_skill_tags - operator_skill_tags))
+        trust_rank = self._TRUST_RANK.get(str(profile.trust_tier or "").strip().lower(), 1)
+        required_rank = self._required_trust_rank(row.authority_required)
+        authority_ok = trust_rank >= required_rank
+        exact_match = role_match and authority_ok and not missing_skill_tags
+        score = (
+            (100 if exact_match else 0)
+            + (20 if role_match else 0)
+            + (len(matched_skill_tags) * 10)
+            - (len(missing_skill_tags) * 5)
+            + trust_rank
+        )
+        return {
+            "role_match": role_match,
+            "matched_skill_tags": matched_skill_tags,
+            "missing_skill_tags": missing_skill_tags,
+            "authority_ok": authority_ok,
+            "exact_match": exact_match,
+            "score": score,
+        }
+
+    def _build_human_task_routing_hints(self, row: HumanTask) -> dict[str, object]:
+        profiles = self._operator_profiles.list_for_principal(
+            principal_id=row.principal_id,
+            status="active",
+            limit=200,
+        )
+        suggestions: list[dict[str, object]] = []
+        exact_matches: list[dict[str, object]] = []
+        for profile in profiles:
+            details = self._operator_match_details(profile, row)
+            if not bool(details["role_match"]) or not bool(details["authority_ok"]):
+                continue
+            suggestion = {
+                "operator_id": profile.operator_id,
+                "display_name": profile.display_name,
+                "trust_tier": profile.trust_tier,
+                "score": int(details["score"]),
+                "matched_skill_tags": list(details["matched_skill_tags"]),
+                "missing_skill_tags": list(details["missing_skill_tags"]),
+            }
+            suggestions.append(suggestion)
+            if bool(details["exact_match"]):
+                exact_matches.append(suggestion)
+        suggestions.sort(
+            key=lambda item: (
+                len(item["missing_skill_tags"]),  # type: ignore[arg-type]
+                -int(item["score"]),
+                str(item["display_name"]),
+                str(item["operator_id"]),
+            )
+        )
+        exact_matches.sort(
+            key=lambda item: (
+                -int(item["score"]),
+                str(item["display_name"]),
+                str(item["operator_id"]),
+            )
+        )
+        suggested_operator_ids = [str(item["operator_id"]) for item in suggestions[:3]]
+        recommended_operator_id = str(suggested_operator_ids[0]) if suggested_operator_ids else ""
+        auto_assign_operator_id = ""
+        if (
+            row.status == "pending"
+            and row.assignment_state == "unassigned"
+            and len(exact_matches) == 1
+            and exact_matches[0]["operator_id"] == recommended_operator_id
+        ):
+            auto_assign_operator_id = recommended_operator_id
+        return {
+            "required_skill_tags": list(self._required_skill_tags(row)),
+            "required_trust_tier": self._required_trust_tier(row.authority_required),
+            "candidate_count": len(suggestions),
+            "suggested_operator_ids": suggested_operator_ids,
+            "recommended_operator_id": recommended_operator_id,
+            "auto_assign_operator_id": auto_assign_operator_id,
+            "suggestions": suggestions[:3],
+        }
+
+    def _decorate_human_task(self, row: HumanTask) -> HumanTask:
+        return replace(row, routing_hints_json=self._build_human_task_routing_hints(row))
 
     def _fallback_rewrite_intent(self) -> IntentSpecV3:
         return IntentSpecV3(
@@ -279,7 +407,7 @@ class RewriteOrchestrator:
                 "sla_due_at": row.sla_due_at or "",
             },
         )
-        return row
+        return self._decorate_human_task(row)
 
     def _complete_tool_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
         input_json = dict(rewrite_step.input_json or {})
@@ -784,13 +912,13 @@ class RewriteOrchestrator:
                 "resume_session_on_return": row.resume_session_on_return,
             },
         )
-        return row
+        return self._decorate_human_task(row)
 
     def fetch_human_task(self, human_task_id: str, *, principal_id: str) -> HumanTask | None:
         row = self._human_tasks.get(human_task_id)
         if row is None or row.principal_id != str(principal_id or ""):
             return None
-        return row
+        return self._decorate_human_task(row)
 
     def list_human_tasks(
         self,
@@ -811,7 +939,11 @@ class RewriteOrchestrator:
             if found is None:
                 return []
             rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
-            return [row for row in rows if row.principal_id == str(principal_id or "")]
+            return [
+                self._decorate_human_task(row)
+                for row in rows
+                if row.principal_id == str(principal_id or "")
+            ]
         rows = self._human_tasks.list_for_principal(
             principal_id,
             status=status,
@@ -823,42 +955,15 @@ class RewriteOrchestrator:
         )
         resolved_operator_id = str(operator_id or "").strip()
         if not resolved_operator_id:
-            return rows
+            return [self._decorate_human_task(row) for row in rows]
         profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
         if profile is None:
             return []
-        return [row for row in rows if self._operator_matches_human_task(profile, row)]
+        return [self._decorate_human_task(row) for row in rows if self._operator_matches_human_task(profile, row)]
 
     def _operator_matches_human_task(self, profile: OperatorProfile, row: HumanTask) -> bool:
-        roles = {str(v).strip() for v in profile.roles if str(v).strip()}
-        if row.role_required and roles and row.role_required not in roles:
-            return False
-        skills = {str(v).strip().lower() for v in profile.skill_tags if str(v).strip()}
-        required_checks = {
-            str(v).strip().lower()
-            for v in ((row.quality_rubric_json or {}).get("checks") or [])
-            if str(v).strip()
-        }
-        if required_checks and not required_checks.issubset(skills):
-            return False
-        trust_rank = {
-            "junior": 0,
-            "standard": 1,
-            "senior": 2,
-            "exec_delegate": 3,
-            "principal_delegate": 3,
-        }
-        required_rank = {
-            "": 0,
-            "review": 0,
-            "draft_review": 0,
-            "send_on_behalf_review": 2,
-            "principal_sensitive_review": 3,
-            "principal_review": 3,
-        }
-        profile_rank = trust_rank.get(str(profile.trust_tier or "").strip().lower(), 1)
-        needed_rank = required_rank.get(str(row.authority_required or "").strip().lower(), 0)
-        return profile_rank >= needed_rank
+        details = self._operator_match_details(profile, row)
+        return bool(details["exact_match"])
 
     def upsert_operator_profile(
         self,
@@ -920,7 +1025,7 @@ class RewriteOrchestrator:
                 "step_id": updated.step_id or "",
             },
         )
-        return updated
+        return self._decorate_human_task(updated)
 
     def assign_human_task(self, human_task_id: str, *, principal_id: str, operator_id: str) -> HumanTask | None:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
@@ -939,7 +1044,7 @@ class RewriteOrchestrator:
                 "step_id": updated.step_id or "",
             },
         )
-        return updated
+        return self._decorate_human_task(updated)
 
     def return_human_task(
         self,
@@ -1004,7 +1109,7 @@ class RewriteOrchestrator:
                     },
                 )
                 _ = self._queue_next_step_after(updated.session_id, updated.step_id, lease_owner="inline")
-        return updated
+        return self._decorate_human_task(updated)
 
     def fetch_session(self, session_id: str) -> ExecutionSessionSnapshot | None:
         session = self._ledger.get_session(session_id)
@@ -1019,7 +1124,7 @@ class RewriteOrchestrator:
             receipts=self._ledger.receipts_for(sid),
             artifacts=self._artifacts.list_for_session(sid),
             run_costs=self._ledger.run_costs_for(sid),
-            human_tasks=self._human_tasks.list_for_session(sid),
+            human_tasks=[self._decorate_human_task(row) for row in self._human_tasks.list_for_session(sid)],
         )
 
     def list_policy_decisions(self, limit: int = 50, session_id: str | None = None):
