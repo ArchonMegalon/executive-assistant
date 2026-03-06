@@ -132,7 +132,8 @@ X-EA-Principal-ID: {{principal_id}}
   "desired_output_json": {
     "format": "review_packet"
   },
-  "priority": "high"
+  "priority": "high",
+  "resume_session_on_return": true
 }
 
 ### Human tasks -> list for principal

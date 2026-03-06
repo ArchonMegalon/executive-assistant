@@ -113,15 +113,22 @@ if [[ -z "${SESSION_STEP_ID}" ]]; then
   fail 13 "missing step_id from session response"
 fi
 HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\"}")"
+  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\",\"resume_session_on_return\":true}")"
 HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HUMAN_CREATE_JSON}")"
-HUMAN_CREATE_STATUS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("status",""))' <<<"${HUMAN_CREATE_JSON}")"
+HUMAN_CREATE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}".format(body.get("status",""), body.get("resume_session_on_return", False)))' <<<"${HUMAN_CREATE_JSON}")"
 if [[ -z "${HUMAN_TASK_ID}" ]]; then
   fail 13 "missing human_task_id from human task create response"
 fi
-if [[ "${HUMAN_CREATE_STATUS}" != "pending" ]]; then
-  echo "expected pending human task after creation; got ${HUMAN_CREATE_STATUS}" >&2
+if [[ "${HUMAN_CREATE_FIELDS}" != "pending|True" ]]; then
+  echo "expected pending human task with resume flag after creation; got ${HUMAN_CREATE_FIELDS}" >&2
   echo "${HUMAN_CREATE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+SESSION_HUMAN_WAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_WAITING_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; steps=body.get('steps') or []; step_id='${SESSION_STEP_ID}'; print('{}|{}|{}'.format(body.get('status',''), 'session_paused_for_human_task' in events, any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'waiting_human' for row in steps)))" <<<"${SESSION_HUMAN_WAITING_JSON}")"
+if [[ "${SESSION_HUMAN_WAITING_FIELDS}" != "awaiting_human|True|True" ]]; then
+  echo "expected session to reopen into awaiting_human with waiting_human step after human task creation; got ${SESSION_HUMAN_WAITING_FIELDS}" >&2
+  echo "${SESSION_HUMAN_WAITING_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
@@ -140,9 +147,9 @@ if [[ "${HUMAN_RETURN_FIELDS}" != "returned|ready_for_send" ]]; then
   fail 12 "policy contract mismatch"
 fi
 SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
-SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; task_id='${HUMAN_TASK_ID}'; print('{}|{}|{}|{}'.format('human_task_created' in events, 'human_task_claimed' in events, 'human_task_returned' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' for row in tasks)))" <<<"${SESSION_HUMAN_JSON}")"
-if [[ "${SESSION_HUMAN_FIELDS}" != "True|True|True|True" ]]; then
-  echo "expected session projection to expose created/claimed/returned human task events and row; got ${SESSION_HUMAN_FIELDS}" >&2
+SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; steps=body.get('steps') or []; task_id='${HUMAN_TASK_ID}'; step_id='${SESSION_STEP_ID}'; print('{}|{}|{}|{}|{}|{}'.format(body.get('status',''), 'human_task_created' in events, 'human_task_claimed' in events, 'human_task_returned' in events and 'session_resumed_from_human_task' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' for row in tasks), any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'completed' and ((row or {}).get('output_json') or {}).get('human_task_id') == task_id for row in steps)))" <<<"${SESSION_HUMAN_JSON}")"
+if [[ "${SESSION_HUMAN_FIELDS}" != "completed|True|True|True|True|True" ]]; then
+  echo "expected resumed session projection to expose human task events, returned row, and completed resumed step; got ${SESSION_HUMAN_FIELDS}" >&2
   echo "${SESSION_HUMAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

@@ -463,6 +463,7 @@ class HumanTask:
     resolution: str
     created_at: str
     updated_at: str
+    resume_session_on_return: bool = False
     returned_payload_json: dict[str, Any] = field(default_factory=dict)
     provenance_json: dict[str, Any] = field(default_factory=dict)
 

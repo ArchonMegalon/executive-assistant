@@ -240,9 +240,11 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
         input_json={"artifact_id": "artifact-1"},
         desired_output_json={"format": "review_packet"},
         priority="high",
+        resume_session_on_return=True,
     )
     assert created.status == "pending"
     assert created.step_id == step.step_id
+    assert created.resume_session_on_return is True
 
     listed_principal = repo.list_for_principal(session.intent.principal_id, limit=10)
     assert any(row.human_task_id == created.human_task_id for row in listed_principal)
@@ -263,6 +265,7 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     assert returned.status == "returned"
     assert returned.resolution == "ready_for_send"
     assert returned.returned_payload_json["summary"] == "Reviewed and tightened tone."
+    assert returned.resume_session_on_return is True
 
     listed_session = repo.list_for_session(session.session_id, limit=10)
     assert any(row.human_task_id == created.human_task_id and row.status == "returned" for row in listed_session)

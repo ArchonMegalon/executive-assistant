@@ -14,6 +14,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - `connector.dispatch` now requires an enabled connector binding owned by the request principal before the shared tool plane will queue delivery.
 - Approval-required rewrite requests now return a first-class `202 Accepted` workflow contract with `session_id` and `approval_id` instead of a `409` error envelope.
 - Added first-class principal-scoped human task packets linked to execution sessions/steps, with claim/return APIs and ledger events for returned-from-human work.
+- Human task packets can now reopen a linked session step into `waiting_human` and resume it back to `completed` when the returned packet arrives.
 
 ## 2026-03-05
 

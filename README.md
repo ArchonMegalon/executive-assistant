@@ -56,6 +56,7 @@ Removed:
 - `/v1/policy/evaluate` exposes direct policy checks for tool/action/channel combinations, including external-send approval branches
 - `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints
 - human task packets append `human_task_created`, `human_task_claimed`, and `human_task_returned` events into the linked session ledger so returned-from-human work is auditable
+- human task packets can optionally reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume that step to completion when the operator returns the packet
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial
 - rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning
@@ -99,6 +100,7 @@ Removed:
 - interruption budgets kernel migration: `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
 - execution queue kernel migration: `ea/schema/20260305_v0_23_execution_queue_kernel.sql`
 - human tasks kernel migration: `ea/schema/20260305_v0_24_human_tasks_kernel.sql`
+- human task resume kernel migration: `ea/schema/20260305_v0_25_human_task_resume_kernel.sql`
 
 ## Auth
 
@@ -112,6 +114,7 @@ Removed:
 - `EA_APPROVAL_TTL_MINUTES` sets default approval request expiration window (default `120`).
 - Policy decisions also consider declared tool/action metadata plus task risk and budget classes; disallowed tools fail closed with `policy_denied:tool_not_allowed`.
 - `POST /v1/policy/evaluate` can dry-run external-send approval checks over HTTP without going through rewrite artifact creation.
+- `POST /v1/human/tasks` accepts `resume_session_on_return=true` to pause a linked step for human review and resume it when `/v1/human/tasks/{human_task_id}/return` is called.
 
 ## Quick Start
 

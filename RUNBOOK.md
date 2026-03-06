@@ -18,7 +18,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found` |
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
 | GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, including `plan_compiled` event) |
-| POST | `/v1/human/tasks` | `200` | `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` |
+| POST | `/v1/human/tasks` | `200` | `400 step_id_required`, `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` (supports `resume_session_on_return=true` to move a linked step into `waiting_human`) |
 | GET | `/v1/human/tasks` | `200` | validation `422`, `403 principal_scope_mismatch` |
 | GET | `/v1/human/tasks/{human_task_id}` | `200` | `404 human_task_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/claim` | `200` | `404 human_task_not_found`, `409 human_task_not_claimable` |
@@ -115,6 +115,7 @@ Policy notes:
 - `POST /v1/tools/execute` now exposes the same execution plane directly for built-in handlers; `connector.dispatch` queues a delivery outbox row and returns normalized `tool.v1` receipt metadata.
 - `connector.dispatch` execution now requires a real enabled connector binding in the caller's principal scope; foreign-principal or missing bindings fail before any outbox row is queued.
 - Human review/work packets can now be attached to a session with `POST /v1/human/tasks`, claimed by an operator, and returned with structured payload/provenance while emitting `human_task_created`, `human_task_claimed`, and `human_task_returned` ledger events.
+- If `resume_session_on_return=true` is set on human task creation, the linked step reopens into `waiting_human`, the session becomes `awaiting_human`, and returning the packet resumes the step back to `completed`.
 
 ## Operator Script Help Index
 

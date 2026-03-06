@@ -21,6 +21,7 @@ class HumanTaskRepository(Protocol):
         desired_output_json: dict[str, object] | None = None,
         priority: str = "normal",
         sla_due_at: str | None = None,
+        resume_session_on_return: bool = False,
     ) -> HumanTask:
         ...
 
@@ -72,6 +73,7 @@ class InMemoryHumanTaskRepository:
         desired_output_json: dict[str, object] | None = None,
         priority: str = "normal",
         sla_due_at: str | None = None,
+        resume_session_on_return: bool = False,
     ) -> HumanTask:
         ts = now_utc_iso()
         row = HumanTask(
@@ -91,6 +93,7 @@ class InMemoryHumanTaskRepository:
             resolution="",
             created_at=ts,
             updated_at=ts,
+            resume_session_on_return=bool(resume_session_on_return),
             returned_payload_json={},
             provenance_json={},
         )

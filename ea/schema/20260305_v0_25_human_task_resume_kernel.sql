@@ -1,0 +1,2 @@
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS resume_session_on_return BOOLEAN NOT NULL DEFAULT FALSE;

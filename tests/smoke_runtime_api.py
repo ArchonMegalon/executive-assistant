@@ -250,6 +250,7 @@ def test_human_task_flow_and_session_projection() -> None:
             "input_json": {"artifact_id": create.json()["artifact_id"]},
             "desired_output_json": {"format": "review_packet"},
             "priority": "high",
+            "resume_session_on_return": True,
         },
     )
     assert created.status_code == 200
@@ -257,6 +258,15 @@ def test_human_task_flow_and_session_projection() -> None:
     task_id = task["human_task_id"]
     assert task["status"] == "pending"
     assert task["step_id"] == step_id
+    assert task["resume_session_on_return"] is True
+
+    session_waiting = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session_waiting.status_code == 200
+    waiting_body = session_waiting.json()
+    waiting_events = [event["name"] for event in waiting_body["events"]]
+    assert waiting_body["status"] == "awaiting_human"
+    assert "session_paused_for_human_task" in waiting_events
+    assert any(step["step_id"] == step_id and step["state"] == "waiting_human" for step in waiting_body["steps"])
 
     listed = client.get("/v1/human/tasks", params={"limit": 10})
     assert listed.status_code == 200
@@ -287,10 +297,15 @@ def test_human_task_flow_and_session_projection() -> None:
     assert session_after.status_code == 200
     session_body = session_after.json()
     event_names = [event["name"] for event in session_body["events"]]
+    assert session_body["status"] == "completed"
     assert "human_task_created" in event_names
     assert "human_task_claimed" in event_names
     assert "human_task_returned" in event_names
+    assert "session_resumed_from_human_task" in event_names
     assert any(row["human_task_id"] == task_id and row["status"] == "returned" for row in session_body["human_tasks"])
+    resumed_step = next(step for step in session_body["steps"] if step["step_id"] == step_id)
+    assert resumed_step["state"] == "completed"
+    assert resumed_step["output_json"]["human_task_id"] == task_id
 
 
 def test_rewrite_blocked_policy_flow_has_error_envelope() -> None:

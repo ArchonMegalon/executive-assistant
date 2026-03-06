@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -301,6 +301,17 @@
         "returned_from_human_ledger_events"
       ],
       "notes": "Principal-scoped human task packets can now be created, listed, claimed, and returned over HTTP while staying linked to execution sessions/steps and surfacing in session projections plus host smoke and Postgres contract coverage."
+    },
+    {
+      "name": "human_task_pause_resume_session_flow",
+      "status": "tested",
+      "scope": [
+        "awaiting_human_session_state",
+        "waiting_human_step_state",
+        "human_task_resume_session_on_return",
+        "session_resumed_from_human_task_event"
+      ],
+      "notes": "Human task packets can now explicitly reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back."
     }
   ],
   "migrations": [
@@ -326,7 +337,8 @@
     "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql",
     "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql",
     "ea/schema/20260305_v0_23_execution_queue_kernel.sql",
-    "ea/schema/20260305_v0_24_human_tasks_kernel.sql"
+    "ea/schema/20260305_v0_24_human_tasks_kernel.sql",
+    "ea/schema/20260305_v0_25_human_task_resume_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

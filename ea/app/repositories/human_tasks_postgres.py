@@ -52,6 +52,7 @@ class PostgresHumanTaskRepository:
                         status TEXT NOT NULL,
                         assigned_operator_id TEXT NOT NULL,
                         resolution TEXT NOT NULL,
+                        resume_session_on_return BOOLEAN NOT NULL DEFAULT FALSE,
                         returned_payload_json JSONB NOT NULL,
                         provenance_json JSONB NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL,
@@ -71,6 +72,12 @@ class PostgresHumanTaskRepository:
                     ON human_tasks(session_id, created_at ASC, human_task_id ASC)
                     """
                 )
+                cur.execute(
+                    """
+                    ALTER TABLE human_tasks
+                    ADD COLUMN IF NOT EXISTS resume_session_on_return BOOLEAN NOT NULL DEFAULT FALSE
+                    """
+                )
 
     def _from_row(self, row: tuple[Any, ...]) -> HumanTask:
         (
@@ -88,6 +95,7 @@ class PostgresHumanTaskRepository:
             status,
             assigned_operator_id,
             resolution,
+            resume_session_on_return,
             returned_payload_json,
             provenance_json,
             created_at,
@@ -108,6 +116,7 @@ class PostgresHumanTaskRepository:
             status=str(status),
             assigned_operator_id=str(assigned_operator_id or ""),
             resolution=str(resolution or ""),
+            resume_session_on_return=bool(resume_session_on_return),
             created_at=_to_iso(created_at),
             updated_at=_to_iso(updated_at),
             returned_payload_json=dict(returned_payload_json or {}),
@@ -127,6 +136,7 @@ class PostgresHumanTaskRepository:
         desired_output_json: dict[str, object] | None = None,
         priority: str = "normal",
         sla_due_at: str | None = None,
+        resume_session_on_return: bool = False,
     ) -> HumanTask:
         ts = now_utc_iso()
         row = HumanTask(
@@ -146,6 +156,7 @@ class PostgresHumanTaskRepository:
             resolution="",
             created_at=ts,
             updated_at=ts,
+            resume_session_on_return=bool(resume_session_on_return),
             returned_payload_json={},
             provenance_json={},
         )
@@ -156,8 +167,8 @@ class PostgresHumanTaskRepository:
                     INSERT INTO human_tasks (
                         human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                         input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                        resolution, returned_payload_json, provenance_json, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         row.human_task_id,
@@ -174,6 +185,7 @@ class PostgresHumanTaskRepository:
                         row.status,
                         row.assigned_operator_id,
                         row.resolution,
+                        row.resume_session_on_return,
                         self._json_value(row.returned_payload_json),
                         self._json_value(row.provenance_json),
                         row.created_at,
@@ -192,7 +204,7 @@ class PostgresHumanTaskRepository:
                     """
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                            input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                           resolution, returned_payload_json, provenance_json, created_at, updated_at
+                           resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     FROM human_tasks
                     WHERE human_task_id = %s
                     """,
@@ -220,7 +232,7 @@ class PostgresHumanTaskRepository:
                         """
                         SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                                input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                               resolution, returned_payload_json, provenance_json, created_at, updated_at
+                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                         FROM human_tasks
                         WHERE principal_id = %s AND status = %s
                         ORDER BY created_at DESC, human_task_id DESC
@@ -233,7 +245,7 @@ class PostgresHumanTaskRepository:
                         """
                         SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                                input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                               resolution, returned_payload_json, provenance_json, created_at, updated_at
+                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                         FROM human_tasks
                         WHERE principal_id = %s
                         ORDER BY created_at DESC, human_task_id DESC
@@ -253,7 +265,7 @@ class PostgresHumanTaskRepository:
                     """
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                            input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                           resolution, returned_payload_json, provenance_json, created_at, updated_at
+                           resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     FROM human_tasks
                     WHERE session_id = %s
                     ORDER BY created_at ASC, human_task_id ASC
@@ -279,7 +291,7 @@ class PostgresHumanTaskRepository:
                     WHERE human_task_id = %s AND status = 'pending'
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                               input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                              resolution, returned_payload_json, provenance_json, created_at, updated_at
+                              resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     """,
                     (str(operator_id or ""), now_utc_iso(), task_id),
                 )
@@ -314,7 +326,7 @@ class PostgresHumanTaskRepository:
                     WHERE human_task_id = %s AND status IN ('pending', 'claimed')
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                               input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                              resolution, returned_payload_json, provenance_json, created_at, updated_at
+                              resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     """,
                     (
                         str(operator_id or ""),

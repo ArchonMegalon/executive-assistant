@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-183 | P1 | Resume or advance execution from returned human task packets instead of leaving them as linked review records only | codex | queued | Human tasks are now durable and session-linked, but the runtime still does not consume a returned packet to continue a waiting workflow branch |
+| Q-184 | P1 | Add operator-facing role and SLA filters to the human task queue so reviewers can work from targeted pending packets | codex | queued | Human tasks now support pause/resume semantics, but the queue view still lacks role-required and overdue/SLA targeting for operator work allocation |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-183 | P1 | Resume or advance execution from returned human task packets instead of leaving them as linked review records only | codex | done | Human task packets can now reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back |
 | D-182 | P1 | Introduce first-class human task packets instead of using approvals as the only human interaction primitive | codex | done | Added durable human task storage plus `/v1/human/tasks` create/list/get/claim/return routes, linked session projection rows, ledger events, migration/bootstrap wiring, and smoke/contract coverage |
 | D-181 | P1 | Replace approval-required rewrite `409` responses with a first-class async acceptance contract (`202` + pending session metadata) | codex | done | Approval-required rewrites now return `202 Accepted` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe`, while the existing approval resume flow remains intact |
 | D-180 | P1 | Require connector binding resolution and principal-aware credential checks before `connector.dispatch` execution can queue delivery | codex | done | `connector.dispatch` now requires an enabled connector binding in the caller's principal scope before `/v1/tools/execute` can queue delivery, and foreign-principal attempts fail before side effects |

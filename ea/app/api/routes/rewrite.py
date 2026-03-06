@@ -109,6 +109,7 @@ class SessionHumanTaskOut(BaseModel):
     status: str
     assigned_operator_id: str
     resolution: str
+    resume_session_on_return: bool
     returned_payload_json: dict[str, object]
     provenance_json: dict[str, object]
     created_at: str
@@ -271,6 +272,7 @@ def get_session(
                 status=t.status,
                 assigned_operator_id=t.assigned_operator_id,
                 resolution=t.resolution,
+                resume_session_on_return=t.resume_session_on_return,
                 returned_payload_json=t.returned_payload_json,
                 provenance_json=t.provenance_json,
                 created_at=t.created_at,

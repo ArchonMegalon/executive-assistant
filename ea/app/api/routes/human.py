@@ -20,6 +20,7 @@ class HumanTaskCreateIn(BaseModel):
     desired_output_json: dict[str, object] = Field(default_factory=dict)
     priority: str = "normal"
     sla_due_at: str | None = None
+    resume_session_on_return: bool = False
 
 
 class HumanTaskClaimIn(BaseModel):
@@ -48,6 +49,7 @@ class HumanTaskOut(BaseModel):
     status: str
     assigned_operator_id: str
     resolution: str
+    resume_session_on_return: bool
     returned_payload_json: dict[str, object]
     provenance_json: dict[str, object]
     created_at: str
@@ -70,6 +72,7 @@ def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
         status=row.status,
         assigned_operator_id=row.assigned_operator_id,
         resolution=row.resolution,
+        resume_session_on_return=row.resume_session_on_return,
         returned_payload_json=row.returned_payload_json,
         provenance_json=row.provenance_json,
         created_at=row.created_at,
@@ -96,10 +99,12 @@ def create_human_task(
             desired_output_json=payload.desired_output_json,
             priority=payload.priority,
             sla_due_at=payload.sla_due_at,
+            resume_session_on_return=payload.resume_session_on_return,
         )
     except KeyError as exc:
         code = str(exc.args[0] or "session_not_found")
-        raise HTTPException(status_code=404, detail=code) from exc
+        status_code = 400 if code == "step_id_required" else 404
+        raise HTTPException(status_code=status_code, detail=code) from exc
     return _to_out(row)
 
 

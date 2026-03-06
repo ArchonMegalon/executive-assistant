@@ -503,10 +503,14 @@ class RewriteOrchestrator:
         priority: str = "normal",
         sla_due_at: str | None = None,
         step_id: str | None = None,
+        resume_session_on_return: bool = False,
     ) -> HumanTask:
         session = self._ledger.get_session(session_id)
         if session is None:
             raise KeyError("session_not_found")
+        step: ExecutionStep | None = None
+        if resume_session_on_return and not step_id:
+            raise KeyError("step_id_required")
         if step_id:
             step = self._ledger.get_step(step_id)
             if step is None or step.session_id != session.session_id:
@@ -522,7 +526,26 @@ class RewriteOrchestrator:
             desired_output_json=desired_output_json,
             priority=priority,
             sla_due_at=sla_due_at,
+            resume_session_on_return=resume_session_on_return,
         )
+        if row.resume_session_on_return and step is not None:
+            self._ledger.update_step(
+                step.step_id,
+                state="waiting_human",
+                output_json=step.output_json,
+                error_json={"reason": "human_task_required", "human_task_id": row.human_task_id},
+                attempt_count=step.attempt_count,
+            )
+            self._ledger.complete_session(session.session_id, status="awaiting_human")
+            self._ledger.append_event(
+                session.session_id,
+                "session_paused_for_human_task",
+                {
+                    "human_task_id": row.human_task_id,
+                    "step_id": step.step_id,
+                    "role_required": row.role_required,
+                },
+            )
         self._ledger.append_event(
             session.session_id,
             "human_task_created",
@@ -532,6 +555,7 @@ class RewriteOrchestrator:
                 "task_type": row.task_type,
                 "role_required": row.role_required,
                 "priority": row.priority,
+                "resume_session_on_return": row.resume_session_on_return,
             },
         )
         return row
@@ -609,6 +633,36 @@ class RewriteOrchestrator:
                 "step_id": updated.step_id or "",
             },
         )
+        if updated.resume_session_on_return and updated.step_id:
+            step = self._ledger.get_step(updated.step_id)
+            if step is not None:
+                output_json = dict(step.output_json or {})
+                output_json.update(
+                    {
+                        "human_task_id": updated.human_task_id,
+                        "human_resolution": updated.resolution,
+                        "human_returned_payload_json": updated.returned_payload_json,
+                        "human_provenance_json": updated.provenance_json,
+                    }
+                )
+                self._ledger.update_step(
+                    updated.step_id,
+                    state="completed",
+                    output_json=output_json,
+                    error_json={},
+                    attempt_count=step.attempt_count,
+                )
+                self._ledger.complete_session(updated.session_id, status="running")
+                self._ledger.append_event(
+                    updated.session_id,
+                    "session_resumed_from_human_task",
+                    {
+                        "human_task_id": updated.human_task_id,
+                        "step_id": updated.step_id,
+                        "resolution": updated.resolution,
+                    },
+                )
+                _ = self._queue_next_step_after(updated.session_id, updated.step_id, lease_owner="inline")
         return updated
 
     def fetch_session(self, session_id: str) -> ExecutionSessionSnapshot | None:
