@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import pytest
+
+from app.domain.models import TaskExecutionRequest
+from app.repositories.approvals import InMemoryApprovalRepository
+from app.repositories.artifacts import InMemoryArtifactRepository
+from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
+from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
+from app.repositories.ledger import InMemoryExecutionLedgerRepository
+from app.repositories.observation import InMemoryObservationEventRepository
+from app.repositories.policy_decisions import InMemoryPolicyDecisionRepository
+from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.repositories.tool_registry import InMemoryToolRegistryRepository
+from app.services.channel_runtime import ChannelRuntimeService
+from app.services.orchestrator import RewriteOrchestrator
+from app.services.planner import PlannerService
+from app.services.policy import ApprovalRequiredError, PolicyDecisionService
+from app.services.task_contracts import TaskContractService
+from app.services.tool_execution import ToolExecutionService
+from app.services.tool_runtime import ToolRuntimeService
+
+
+def _step_keys(plan) -> tuple[str, ...]:
+    return tuple(step.step_key for step in plan.steps)
+
+
+def _build_dispatch_runtime() -> tuple[RewriteOrchestrator, ChannelRuntimeService, ToolRuntimeService]:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_dispatch",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={"class": "low", "workflow_template": "artifact_then_dispatch"},
+    )
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    artifacts = InMemoryArtifactRepository()
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    orchestrator = RewriteOrchestrator(
+        artifacts=artifacts,
+        ledger=InMemoryExecutionLedgerRepository(),
+        approvals=InMemoryApprovalRepository(),
+        policy_repo=InMemoryPolicyDecisionRepository(),
+        policy=PolicyDecisionService(),
+        task_contracts=task_contracts,
+        planner=PlannerService(task_contracts),
+        tool_execution=ToolExecutionService(
+            tool_runtime=tool_runtime,
+            artifacts=artifacts,
+            channel_runtime=channel_runtime,
+        ),
+    )
+    return orchestrator, channel_runtime, tool_runtime
+
+
+def test_planner_can_compile_dispatch_workflow_template() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_dispatch",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={"class": "low", "workflow_template": "artifact_then_dispatch"},
+    )
+    planner = PlannerService(task_contracts)
+
+    intent, plan = planner.build_plan(
+        task_key="stakeholder_dispatch",
+        principal_id="exec-1",
+        goal="prepare and send a stakeholder briefing",
+    )
+
+    assert intent.task_type == "stakeholder_dispatch"
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    )
+    assert plan.steps[1].tool_name == "artifact_repository"
+    assert plan.steps[1].depends_on == ("step_input_prepare",)
+    assert plan.steps[2].depends_on == ("step_artifact_save",)
+    assert plan.steps[3].tool_name == "connector.dispatch"
+    assert plan.steps[3].depends_on == ("step_policy_evaluate",)
+    assert plan.steps[3].authority_class == "execute"
+    assert plan.steps[3].input_keys == ("binding_id", "channel", "recipient", "content")
+    assert plan.steps[3].output_keys == ("delivery_id", "status", "binding_id")
+
+
+def test_dispatch_workflow_template_pauses_for_approval_after_artifact_persistence() -> None:
+    orchestrator, channel_runtime, tool_runtime = _build_dispatch_runtime()
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-1",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ApprovalRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="stakeholder_dispatch",
+                principal_id="exec-1",
+                goal="prepare and send a stakeholder briefing",
+                input_json={
+                    "source_text": "Board context and stakeholder sensitivities.",
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                },
+            )
+        )
+    assert exc.value.session_id
+    assert exc.value.approval_id
+
+    snapshot = orchestrator.fetch_session(exc.value.session_id)
+    assert snapshot is not None
+    assert snapshot.session.status == "awaiting_approval"
+    assert [step.input_json["plan_step_key"] for step in snapshot.steps] == [
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    ]
+    steps_by_key = {step.input_json["plan_step_key"]: step for step in snapshot.steps}
+    assert steps_by_key["step_artifact_save"].state == "completed"
+    assert steps_by_key["step_policy_evaluate"].state == "completed"
+    assert steps_by_key["step_connector_dispatch"].state == "waiting_approval"
+    assert len(snapshot.artifacts) == 1
+    assert snapshot.artifacts[0].kind == "stakeholder_briefing"
+    assert snapshot.artifacts[0].content == "Board context and stakeholder sensitivities."
+    assert channel_runtime.list_pending_delivery(limit=10) == []
+
+    decision = orchestrator.decide_approval(
+        exc.value.approval_id,
+        decision="approve",
+        decided_by="operator",
+        reason="approved dispatch template",
+    )
+    assert decision is not None
+
+    resumed = orchestrator.fetch_session(exc.value.session_id)
+    assert resumed is not None
+    resumed_steps = {step.input_json["plan_step_key"]: step for step in resumed.steps}
+    assert resumed.session.status == "completed"
+    assert resumed_steps["step_connector_dispatch"].state == "completed"
+    assert len(resumed.receipts) == 2
+    assert resumed.receipts[-1].tool_name == "connector.dispatch"
+    pending = channel_runtime.list_pending_delivery(limit=10)
+    assert len(pending) == 1
+    assert pending[0].recipient == "ops@example.com"

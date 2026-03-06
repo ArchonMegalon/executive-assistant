@@ -2982,6 +2982,134 @@ def test_generic_task_execution_supports_async_approval_and_human_contracts() ->
     )
 
 
+def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "gmail",
+            "external_account_ref": "acct-dispatch",
+            "scope_json": {"scopes": ["mail.send"]},
+            "auth_metadata_json": {"provider": "google"},
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "stakeholder_dispatch",
+            "deliverable_type": "stakeholder_briefing",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository", "connector.dispatch"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "artifact_then_dispatch",
+            },
+        },
+    )
+    assert contract.status_code == 200
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "stakeholder_dispatch",
+            "goal": "prepare and send a stakeholder briefing",
+        },
+    )
+    assert compiled.status_code == 200
+    plan_steps = compiled.json()["plan"]["steps"]
+    assert [step["step_key"] for step in plan_steps] == [
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    ]
+    assert plan_steps[1]["tool_name"] == "artifact_repository"
+    assert plan_steps[1]["depends_on"] == ["step_input_prepare"]
+    assert plan_steps[2]["depends_on"] == ["step_artifact_save"]
+    assert plan_steps[3]["tool_name"] == "connector.dispatch"
+    assert plan_steps[3]["depends_on"] == ["step_policy_evaluate"]
+    assert plan_steps[3]["authority_class"] == "execute"
+    assert plan_steps[3]["input_keys"] == ["binding_id", "channel", "recipient", "content"]
+    assert plan_steps[3]["output_keys"] == ["delivery_id", "status", "binding_id"]
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "stakeholder_dispatch",
+            "goal": "prepare and send a stakeholder briefing",
+            "input_json": {
+                "source_text": "Board context and stakeholder sensitivities.",
+                "binding_id": binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+            },
+        },
+    )
+    assert execute.status_code == 202
+    execute_body = execute.json()
+    assert execute_body["task_key"] == "stakeholder_dispatch"
+    assert execute_body["status"] == "awaiting_approval"
+    assert execute_body["approval_id"]
+    session_id = execute_body["session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_task_type"] == "stakeholder_dispatch"
+    assert session_body["status"] == "awaiting_approval"
+    steps_by_key = {step["input_json"]["plan_step_key"]: step for step in session_body["steps"]}
+    assert steps_by_key["step_artifact_save"]["state"] == "completed"
+    assert steps_by_key["step_artifact_save"]["dependency_states"] == {"step_input_prepare": "completed"}
+    assert steps_by_key["step_policy_evaluate"]["state"] == "completed"
+    assert steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_artifact_save": "completed"}
+    assert steps_by_key["step_connector_dispatch"]["state"] == "waiting_approval"
+    assert steps_by_key["step_connector_dispatch"]["dependency_states"] == {"step_policy_evaluate": "completed"}
+    assert steps_by_key["step_connector_dispatch"]["blocked_dependency_keys"] == []
+    assert steps_by_key["step_connector_dispatch"]["dependencies_satisfied"] is True
+    assert len(session_body["artifacts"]) == 1
+    assert session_body["artifacts"][0]["kind"] == "stakeholder_briefing"
+    assert session_body["artifacts"][0]["content"] == "Board context and stakeholder sensitivities."
+    assert [row["tool_name"] for row in session_body["receipts"]] == ["artifact_repository"]
+
+    pending_before = client.get("/v1/delivery/outbox/pending", params={"limit": 10})
+    assert pending_before.status_code == 200
+    assert pending_before.json() == []
+
+    approved = client.post(
+        f"/v1/policy/approvals/{execute_body['approval_id']}/approve",
+        json={"decided_by": "operator", "reason": "approved dispatch workflow"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["task_key"] == "stakeholder_dispatch"
+    assert approved.json()["deliverable_type"] == "stakeholder_briefing"
+
+    done = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert done.status_code == 200
+    done_body = done.json()
+    assert done_body["status"] == "completed"
+    done_steps = {step["input_json"]["plan_step_key"]: step for step in done_body["steps"]}
+    assert done_steps["step_connector_dispatch"]["state"] == "completed"
+    assert [row["tool_name"] for row in done_body["receipts"]] == ["artifact_repository", "connector.dispatch"]
+    dispatch_receipt = next(row for row in done_body["receipts"] if row["tool_name"] == "connector.dispatch")
+    fetched_receipt = client.get(f"/v1/rewrite/receipts/{dispatch_receipt['receipt_id']}")
+    assert fetched_receipt.status_code == 200
+    assert fetched_receipt.json()["task_key"] == "stakeholder_dispatch"
+    assert fetched_receipt.json()["deliverable_type"] == "stakeholder_briefing"
+
+    pending_after = client.get("/v1/delivery/outbox/pending", params={"limit": 10})
+    assert pending_after.status_code == 200
+    assert pending_after.json()[0]["delivery_id"] == dispatch_receipt["target_ref"]
+    assert pending_after.json()[0]["recipient"] == "ops@example.com"
+
+
 def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     client = _client(storage_backend="memory")
     contract = client.post(

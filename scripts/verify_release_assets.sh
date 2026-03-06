@@ -3131,6 +3131,36 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "task_contract_workflow_templates")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "workflow_template" "README.md" && \
+     grep -Fq "artifact_then_dispatch" "README.md" && \
+     grep -Fq "workflow_template" "RUNBOOK.md" && \
+     grep -Fq "artifact_then_dispatch" "RUNBOOK.md" && \
+     grep -Fq "stakeholder_dispatch" "HTTP_EXAMPLES.http" && \
+     grep -Fq "artifact_then_dispatch" "HTTP_EXAMPLES.http" && \
+     grep -Fq "stakeholder_dispatch" "scripts/smoke_api.sh" && \
+     grep -Fq "step_connector_dispatch" "scripts/smoke_api.sh" && \
+     grep -Fq "stakeholder_dispatch" "tests/smoke_runtime_api.py" && \
+     grep -Fq "step_connector_dispatch" "tests/smoke_runtime_api.py" && \
+     grep -Fq "tests/test_task_contract_step_templates.py" "scripts/test_postgres_contracts.sh"; then
+    echo "ok: task contract workflow template docs"
+  else
+    echo "missing: task contract workflow template docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: task contract workflow template milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

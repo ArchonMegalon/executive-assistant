@@ -230,6 +230,34 @@ def test_step_io_contracts_are_wired_into_focused_contract_bundle() -> None:
     assert "_validate_step_output_contract" in orchestrator
 
 
+def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle() -> None:
+    script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "tests/test_task_contract_step_templates.py" in script
+    assert "artifact_then_dispatch" in workflow_test
+    assert "step_connector_dispatch" in workflow_test
+    assert "workflow_template" in readme
+    assert "artifact_then_dispatch" in readme
+    assert "workflow_template" in runbook
+    assert "artifact_then_dispatch" in runbook
+    assert "stakeholder_dispatch" in http_examples
+    assert "artifact_then_dispatch" in http_examples
+    assert "stakeholder_dispatch" in smoke_api
+    assert "step_connector_dispatch" in smoke_api
+    assert "stakeholder_dispatch" in smoke_runtime
+    assert "step_connector_dispatch" in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "task_contract_workflow_templates")
+    assert capability["status"] == "tested"
+
+
 def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")

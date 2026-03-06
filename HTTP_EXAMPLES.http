@@ -550,6 +550,34 @@ X-EA-Principal-ID: {{principal_id}}
   "goal": "rewrite this text for board notes"
 }
 
+### Task Contracts -> upsert dispatch workflow template (artifact -> policy -> connector.dispatch)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_dispatch",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_dispatch"
+  }
+}
+
+### Plans -> compile dispatch workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch",
+  "goal": "prepare and send a stakeholder briefing"
+}
+
 ### Plans -> principal mismatch (expected 403 principal_scope_mismatch)
 POST {{host}}/v1/plans/compile
 Content-Type: application/json
@@ -578,6 +606,22 @@ X-EA-Principal-ID: {{principal_id}}
     "memory:item:stakeholder-brief"
   ],
   "goal": "prepare a stakeholder briefing"
+}
+
+### Plans -> execute dispatch workflow template (expected 202 awaiting_approval before connector dispatch)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch",
+  "goal": "prepare and send a stakeholder briefing",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "binding_id": "{{binding_id}}",
+    "channel": "email",
+    "recipient": "workflow@example.com"
+  }
 }
 
 ### Plans -> execute principal mismatch (expected 403 principal_scope_mismatch)

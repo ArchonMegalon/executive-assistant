@@ -1081,6 +1081,17 @@
         "plan_execute_artifact_preview_handle"
       ],
       "notes": "Direct artifact reads, inline session artifact rows, and generic task execution responses now project preview text plus a stable storage handle so clients can start treating artifacts as metadata-plus-handle envelopes without losing inline content."
+    },
+    {
+      "name": "task_contract_workflow_templates",
+      "status": "tested",
+      "scope": [
+        "workflow_template_metadata",
+        "artifact_then_dispatch_compile_shape",
+        "dispatch_workflow_approval_resume",
+        "dispatch_workflow_receipt_identity"
+      ],
+      "notes": "Task contracts can now compile materially different workflow skeletons through `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template persists the artifact first, evaluates the delivery gate, then resumes into `connector.dispatch` only after approval so not every task is forced through the rewrite-shaped skeleton."
     }
   ],
   "migrations": [

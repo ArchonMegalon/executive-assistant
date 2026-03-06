@@ -1512,6 +1512,77 @@ if [[ "${GENERIC_HUMAN_DONE_FIELDS}" != "completed|stakeholder_briefing|Stakehol
   echo "expected generic human-review task to resume to completion after packet return; got ${GENERIC_HUMAN_DONE_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
+DISPATCH_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  "${PRINCIPAL_ARGS[@]}" \
+  -d '{"connector_name":"gmail","external_account_ref":"acct-dispatch","scope_json":{"scopes":["mail.send"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"
+DISPATCH_BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("binding_id",""))' <<<"${DISPATCH_BINDING_JSON}")"
+if [[ -z "${DISPATCH_BINDING_ID}" ]]; then
+  fail 13 "missing binding_id from dispatch workflow binding response"
+fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_dispatch","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository","connector.dispatch"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_dispatch"}}' >/dev/null
+DISPATCH_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_dispatch","goal":"prepare and send a stakeholder briefing"}')"
+DISPATCH_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; dispatch=(steps[3] if len(steps) > 3 else {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(len(steps), ','.join((row.get('step_key') or '') for row in steps), dispatch.get('tool_name',''), ','.join(dispatch.get('depends_on') or []), dispatch.get('authority_class',''), ','.join(dispatch.get('input_keys') or []), ','.join(dispatch.get('output_keys') or []), steps[1].get('tool_name','') if len(steps) > 1 else '', ','.join((steps[2].get('depends_on') or [])) if len(steps) > 2 else ''))" <<<"${DISPATCH_PLAN_JSON}")"
+if [[ "${DISPATCH_PLAN_FIELDS}" != "4|step_input_prepare,step_artifact_save,step_policy_evaluate,step_connector_dispatch|connector.dispatch|step_policy_evaluate|execute|binding_id,channel,recipient,content|delivery_id,status,binding_id|artifact_repository|step_artifact_save" ]]; then
+  echo "expected contract workflow template to compile artifact->policy->dispatch graph; got ${DISPATCH_PLAN_FIELDS}" >&2
+  echo "${DISPATCH_PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"stakeholder_dispatch\",\"goal\":\"prepare and send a stakeholder briefing\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"workflow@example.com\"}}")"
+DISPATCH_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${DISPATCH_EXECUTE_JSON}")"
+if [[ "${DISPATCH_EXECUTE_FIELDS}" != "stakeholder_dispatch|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+  echo "expected dispatch workflow template to pause behind approval; got ${DISPATCH_EXECUTE_FIELDS}" >&2
+  echo "${DISPATCH_EXECUTE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("approval_id",""))' <<<"${DISPATCH_EXECUTE_JSON}")"
+DISPATCH_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${DISPATCH_EXECUTE_JSON}")"
+DISPATCH_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; artifacts=body.get('artifacts') or []; receipts=body.get('receipts') or []; dispatch=steps.get('step_connector_dispatch') or {}; policy=steps.get('step_policy_evaluate') or {}; save=steps.get('step_artifact_save') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), save.get('state',''), policy.get('state',''), dispatch.get('state',''), dispatch.get('dependency_states') == {'step_policy_evaluate': 'completed'}, dispatch.get('blocked_dependency_keys') == [], dispatch.get('dependencies_satisfied') is True, len(artifacts) == 1 and (artifacts[0] or {}).get('content','') == 'Board context and stakeholder sensitivities.', len(receipts) == 1 and (receipts[0] or {}).get('tool_name','') == 'artifact_repository', (artifacts[0] or {}).get('kind','') if artifacts else ''))" <<<"${DISPATCH_SESSION_JSON}")"
+if [[ "${DISPATCH_SESSION_FIELDS}" != "stakeholder_dispatch|awaiting_approval|completed|completed|waiting_approval|True|True|True|True|True|stakeholder_briefing" ]]; then
+  echo "expected dispatch workflow session to persist artifact before approval while waiting on connector dispatch; got ${DISPATCH_SESSION_FIELDS}" >&2
+  echo "${DISPATCH_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_PENDING_BEFORE_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=20" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); print(any((row or {}).get('recipient') == 'workflow@example.com' for row in rows))" )"
+if [[ "${DISPATCH_PENDING_BEFORE_FIELDS}" != "False" ]]; then
+  echo "expected dispatch workflow to avoid queueing delivery before approval" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"decided_by":"operator","reason":"approved dispatch workflow"}')"
+DISPATCH_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${DISPATCH_APPROVE_JSON}")"
+if [[ "${DISPATCH_APPROVE_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing|approved" ]]; then
+  echo "expected dispatch workflow approval decision to keep task identity; got ${DISPATCH_APPROVE_FIELDS}" >&2
+  echo "${DISPATCH_APPROVE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(receipts) == 2, bool(dispatch.get('receipt_id','')), bool(dispatch.get('target_ref','')), dispatch.get('task_key','')))" <<<"${DISPATCH_DONE_JSON}")"
+if [[ "${DISPATCH_DONE_FIELDS}" != "completed|True|True|True|stakeholder_dispatch" ]]; then
+  echo "expected completed dispatch workflow to emit connector.dispatch receipt and target ref; got ${DISPATCH_DONE_FIELDS}" >&2
+  echo "${DISPATCH_DONE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_RECEIPT_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('receipt_id',''))" <<<"${DISPATCH_DONE_JSON}")"
+DISPATCH_DELIVERY_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('target_ref',''))" <<<"${DISPATCH_DONE_JSON}")"
+if [[ -z "${DISPATCH_RECEIPT_ID}" || -z "${DISPATCH_DELIVERY_ID}" ]]; then
+  echo "expected completed dispatch workflow to emit connector.dispatch receipt and delivery target" >&2
+  echo "${DISPATCH_DONE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_RECEIPT_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/receipts/${DISPATCH_RECEIPT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('tool_name',''), (body.get('receipt_json') or {}).get('handler_key','')))" )"
+if [[ "${DISPATCH_RECEIPT_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing|connector.dispatch|connector.dispatch" ]]; then
+  echo "expected direct receipt lookup to keep dispatch workflow task identity" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_PENDING_AFTER_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=20" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); delivery_id='${DISPATCH_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('delivery_id') == delivery_id), {}); print('{}|{}'.format(row.get('recipient',''), row.get('status','')))" )"
+if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" != "workflow@example.com|queued" ]]; then
+  echo "expected approved dispatch workflow to queue delivery outbox row; got ${DISPATCH_PENDING_AFTER_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
 echo "generic task async contracts ok"
 
 echo "== smoke: compiled human review runtime =="

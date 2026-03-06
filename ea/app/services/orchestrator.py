@@ -679,6 +679,10 @@ class RewriteOrchestrator:
             input_json["normalized_text"] = source_text
         if "text_length" not in input_json and source_text:
             input_json["text_length"] = len(source_text)
+        if not str(input_json.get("content") or "").strip():
+            content = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
+            if content:
+                input_json["content"] = content
         return self._validate_step_input_contract(rewrite_step, input_json)
 
     def _approval_target_step_for_session(self, session_id: str) -> ExecutionStep | None:
@@ -686,7 +690,7 @@ class RewriteOrchestrator:
         return next(
             (
                 row
-                for row in steps
+                for row in reversed(steps)
                 if bool((row.input_json or {}).get("approval_required")) or row.step_kind == "tool_call"
             ),
             steps[0] if steps else None,
@@ -1322,32 +1326,37 @@ class RewriteOrchestrator:
             raise RuntimeError(f"task queue did not resolve a ready step: {session.session_id}")
         queue_item = self._enqueue_rewrite_step(session.session_id, next_step.step_id)
         artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
-        if artifact is None:
-            snapshot = self.fetch_session(session.session_id)
-            if snapshot is not None:
-                if snapshot.session.status == "awaiting_human":
-                    human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
-                    raise HumanTaskRequiredError(
-                        session_id=session.session_id,
-                        human_task_id=human_task_id,
-                        status=snapshot.session.status,
-                    )
-                if snapshot.session.status == "awaiting_approval":
-                    approval_request = next(
-                        (row for row in self._approvals.list_pending(limit=100) if row.session_id == session.session_id),
-                        None,
-                    )
-                    raise ApprovalRequiredError(
-                        session_id=session.session_id,
-                        approval_id=approval_request.approval_id if approval_request is not None else "",
-                        status=snapshot.session.status,
-                    )
-                if snapshot.session.status == "blocked":
-                    decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=session.session_id)), None)
-                    reason = str(decision.reason if decision is not None else "") or "policy_denied"
-                    raise PolicyDeniedError(reason)
-            raise RuntimeError(f"queued task did not execute: {queue_item.queue_id}")
-        return artifact
+        snapshot = self.fetch_session(session.session_id)
+        if snapshot is not None:
+            if snapshot.session.status == "awaiting_human":
+                human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
+                raise HumanTaskRequiredError(
+                    session_id=session.session_id,
+                    human_task_id=human_task_id,
+                    status=snapshot.session.status,
+                )
+            if snapshot.session.status == "awaiting_approval":
+                approval_request = next(
+                    (row for row in self._approvals.list_pending(limit=100) if row.session_id == session.session_id),
+                    None,
+                )
+                raise ApprovalRequiredError(
+                    session_id=session.session_id,
+                    approval_id=approval_request.approval_id if approval_request is not None else "",
+                    status=snapshot.session.status,
+                )
+            if snapshot.session.status == "blocked":
+                decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=session.session_id)), None)
+                reason = str(decision.reason if decision is not None else "") or "policy_denied"
+                raise PolicyDeniedError(reason)
+            if snapshot.session.status == "completed":
+                if artifact is not None:
+                    return artifact
+                if snapshot.artifacts:
+                    return snapshot.artifacts[-1]
+        if artifact is not None:
+            return artifact
+        raise RuntimeError(f"queued task did not execute: {queue_item.queue_id}")
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
         return self.execute_task_artifact(
@@ -1977,8 +1986,11 @@ class RewriteOrchestrator:
                 artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
                 if artifact is None:
                     snapshot = self.fetch_session(request.session_id)
-                    if snapshot is not None and snapshot.session.status == "awaiting_human":
-                        return request, decision_row
+                    if snapshot is not None:
+                        if snapshot.session.status == "awaiting_human":
+                            return request, decision_row
+                        if snapshot.session.status == "completed":
+                            return request, decision_row
                     raise RuntimeError(f"approved queue item did not execute: {queue_item.queue_id}")
         else:
             self._ledger.update_step(
