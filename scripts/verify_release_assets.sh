@@ -2301,6 +2301,38 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(
+    entry
+    for entry in milestone["capabilities"]
+    if entry["name"] == "human_task_ownerless_unsorted_queue_mixed_source_isolation"
+)
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "unsorted ownerless \`assignment_source=none\` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn" "README.md" && \
+     grep -Fq "unsorted ownerless \`assignment_source=none\` list, backlog, and unassigned slices are now also covered after mixed-source churn" "RUNBOOK.md" && \
+     grep -Fq "HUMAN_OWNERLESS_LIST_MIXED_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "HUMAN_UNASSIGNED_NONE_MIXED_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "HUMAN_OWNERLESS_BACKLOG_MIXED_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "stay ownerless-only after mixed-source churn" "scripts/smoke_api.sh" && \
+     grep -Fq "ownerless_list_after_churn_ids ==" "tests/smoke_runtime_api.py" && \
+     grep -Fq "ownerless_unassigned_after_churn_ids ==" "tests/smoke_runtime_api.py" && \
+     grep -Fq "ownerless_backlog_after_churn_ids ==" "tests/smoke_runtime_api.py"; then
+    echo "ok: human task ownerless unsorted queue mixed-source isolation docs"
+  else
+    echo "missing: human task ownerless unsorted queue mixed-source isolation docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task ownerless unsorted queue mixed-source isolation milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(
     entry for entry in milestone["capabilities"] if entry["name"] == "session_ownerless_projection_created_order"
 )
 assert capability["status"] == "tested"

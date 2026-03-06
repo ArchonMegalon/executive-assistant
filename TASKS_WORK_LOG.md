@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-237 | P1 | Add explicit ownerless alias multi-row unsorted coverage on list, backlog, and unassigned queue slices so `assignment_source=none` keeps only ownerless rows after manual and auto rows coexist | codex | queued | Ownerless priority summaries and sorted queue slices now have explicit mixed-source coverage, but the unsorted ownerless list/backlog/unassigned views still only prove the single-ownerless case instead of the mixed-source multi-ownerless slice after manual and auto-preselected neighbors coexist |
+| Q-238 | P1 | Add explicit ownerless alias multi-row unsorted session coverage so `session_id=<id>&assignment_source=none` keeps only ownerless rows after manual and auto rows coexist | codex | queued | Unsorted global ownerless list/backlog/unassigned views now have explicit mixed-source multi-row coverage, but the unsorted session-scoped ownerless list still only proves the pre-churn single-ownerless case instead of the mixed-source multi-ownerless slice after manual and auto-preselected neighbors coexist |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-237 | P1 | Add explicit ownerless alias multi-row unsorted coverage on list, backlog, and unassigned queue slices so `assignment_source=none` keeps only ownerless rows after manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving unsorted ownerless list, backlog, and unassigned slices still contain only the ownerless packets after mixed-source churn introduces manual and auto-preselected neighbors |
 | D-236 | P1 | Add explicit ownerless alias mixed-source count coverage on priority summaries so `assignment_source=none` totals stay ownerless-only after manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving the ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice keeps total and low-priority counts ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors |
 | D-235 | P1 | Add explicit ownerless alias mixed-source exclusion coverage on backlog, unassigned, and general pending sort slices so ordered `assignment_source=none` queues stay ownerless even when manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving ownerless backlog, unassigned, and general pending `sort=created_asc` plus `sort=last_transition_desc` slices keep non-ownerless rows out while preserving expected ownerless ordering under mixed-source churn |
 | D-234 | P1 | Add explicit ownerless alias mixed-source exclusion coverage on session-scoped task list sorts so `assignment_source=none` ordered queue slices stay ownerless even when manual and auto rows coexist | codex | done | Added approved smoke/docs coverage proving session-scoped ownerless `sort=created_asc` and `sort=last_transition_desc` slices keep non-ownerless rows out while preserving the expected ownerless ordering under mixed-source churn |

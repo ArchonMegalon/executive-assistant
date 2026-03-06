@@ -803,6 +803,16 @@
       "notes": "The ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice now has explicit smoke/docs coverage proving total and low-priority counts stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors."
     },
     {
+      "name": "human_task_ownerless_unsorted_queue_mixed_source_isolation",
+      "status": "tested",
+      "scope": [
+        "ownerless_list_unsorted_excludes_non_ownerless_after_churn",
+        "ownerless_backlog_unsorted_excludes_non_ownerless_after_churn",
+        "ownerless_unassigned_unsorted_excludes_non_ownerless_after_churn"
+      ],
+      "notes": "Unsorted ownerless list, backlog, and unassigned queue slices now have explicit smoke/docs coverage proving multi-row `assignment_source=none` fetches stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [

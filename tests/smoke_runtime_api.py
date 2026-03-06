@@ -1656,6 +1656,32 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
     assert ownerless_summary_after_churn_body["counts_json"]["normal"] == 0
     assert ownerless_summary_after_churn_body["counts_json"]["low"] == 2
 
+    ownerless_list_after_churn = client.get(
+        "/v1/human/tasks",
+        params={"status": "pending", "assignment_state": "unassigned", "assignment_source": "none"},
+    )
+    assert ownerless_list_after_churn.status_code == 200
+    ownerless_list_after_churn_ids = {row["human_task_id"] for row in ownerless_list_after_churn.json()}
+    assert ownerless_list_after_churn_ids == {ownerless_task_id, ownerless_newer_task_id}
+
+    ownerless_unassigned_after_churn = client.get(
+        "/v1/human/tasks/unassigned",
+        params={"assignment_source": "none"},
+    )
+    assert ownerless_unassigned_after_churn.status_code == 200
+    ownerless_unassigned_after_churn_ids = {
+        row["human_task_id"] for row in ownerless_unassigned_after_churn.json()
+    }
+    assert ownerless_unassigned_after_churn_ids == {ownerless_task_id, ownerless_newer_task_id}
+
+    ownerless_backlog_after_churn = client.get(
+        "/v1/human/tasks/backlog",
+        params={"assignment_state": "unassigned", "assignment_source": "none"},
+    )
+    assert ownerless_backlog_after_churn.status_code == 200
+    ownerless_backlog_after_churn_ids = {row["human_task_id"] for row in ownerless_backlog_after_churn.json()}
+    assert ownerless_backlog_after_churn_ids == {ownerless_task_id, ownerless_newer_task_id}
+
     ownerless_backlog_created = client.get(
         "/v1/human/tasks/backlog",
         params={
