@@ -107,6 +107,7 @@ class SessionHumanTaskOut(BaseModel):
     priority: str
     sla_due_at: str | None
     status: str
+    assignment_state: str
     assigned_operator_id: str
     resolution: str
     resume_session_on_return: bool
@@ -270,6 +271,7 @@ def get_session(
                 priority=t.priority,
                 sla_due_at=t.sla_due_at,
                 status=t.status,
+                assignment_state=t.assignment_state,
                 assigned_operator_id=t.assigned_operator_id,
                 resolution=t.resolution,
                 resume_session_on_return=t.resume_session_on_return,

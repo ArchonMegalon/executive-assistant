@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.48.0",
+  "version": "0.49.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -347,11 +347,13 @@
       "name": "human_task_assignment_state_visibility",
       "status": "tested",
       "scope": [
+        "human_task_assignment_state_field",
         "human_task_unassigned_route",
         "human_task_assignment_state_filter",
-        "assigned_vs_unassigned_pending_backlog"
+        "assigned_vs_unassigned_pending_backlog",
+        "claimed_and_returned_assignment_projection"
       ],
-      "notes": "The operator backlog now distinguishes pre-assigned pending work from ownerless pending work via `assignment_state=assigned|unassigned` and the dedicated `/v1/human/tasks/unassigned` endpoint."
+      "notes": "Human task payloads now persist and project explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) so operator backlogs and session views can distinguish assignment lifecycle state without inferring it from generic pending status plus owner fields."
     }
   ],
   "migrations": [
@@ -378,7 +380,8 @@
     "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql",
     "ea/schema/20260305_v0_23_execution_queue_kernel.sql",
     "ea/schema/20260305_v0_24_human_tasks_kernel.sql",
-    "ea/schema/20260305_v0_25_human_task_resume_kernel.sql"
+    "ea/schema/20260305_v0_25_human_task_resume_kernel.sql",
+    "ea/schema/20260305_v0_26_human_task_assignment_state.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

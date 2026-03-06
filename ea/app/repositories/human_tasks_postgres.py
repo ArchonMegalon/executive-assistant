@@ -50,6 +50,7 @@ class PostgresHumanTaskRepository:
                         priority TEXT NOT NULL,
                         sla_due_at TIMESTAMPTZ NULL,
                         status TEXT NOT NULL,
+                        assignment_state TEXT NOT NULL DEFAULT 'unassigned',
                         assigned_operator_id TEXT NOT NULL,
                         resolution TEXT NOT NULL,
                         resume_session_on_return BOOLEAN NOT NULL DEFAULT FALSE,
@@ -78,6 +79,12 @@ class PostgresHumanTaskRepository:
                     ADD COLUMN IF NOT EXISTS resume_session_on_return BOOLEAN NOT NULL DEFAULT FALSE
                     """
                 )
+                cur.execute(
+                    """
+                    ALTER TABLE human_tasks
+                    ADD COLUMN IF NOT EXISTS assignment_state TEXT NOT NULL DEFAULT 'unassigned'
+                    """
+                )
 
     def _from_row(self, row: tuple[Any, ...]) -> HumanTask:
         (
@@ -93,6 +100,7 @@ class PostgresHumanTaskRepository:
             priority,
             sla_due_at,
             status,
+            assignment_state,
             assigned_operator_id,
             resolution,
             resume_session_on_return,
@@ -114,6 +122,7 @@ class PostgresHumanTaskRepository:
             priority=str(priority),
             sla_due_at=_to_iso(sla_due_at) if sla_due_at else None,
             status=str(status),
+            assignment_state=str(assignment_state),
             assigned_operator_id=str(assigned_operator_id or ""),
             resolution=str(resolution or ""),
             resume_session_on_return=bool(resume_session_on_return),
@@ -152,6 +161,7 @@ class PostgresHumanTaskRepository:
             priority=str(priority or "normal"),
             sla_due_at=str(sla_due_at) if sla_due_at else None,
             status="pending",
+            assignment_state="unassigned",
             assigned_operator_id="",
             resolution="",
             created_at=ts,
@@ -166,9 +176,9 @@ class PostgresHumanTaskRepository:
                     """
                     INSERT INTO human_tasks (
                         human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                        input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                        input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                         resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         row.human_task_id,
@@ -183,6 +193,7 @@ class PostgresHumanTaskRepository:
                         row.priority,
                         row.sla_due_at,
                         row.status,
+                        row.assignment_state,
                         row.assigned_operator_id,
                         row.resolution,
                         row.resume_session_on_return,
@@ -203,7 +214,7 @@ class PostgresHumanTaskRepository:
                 cur.execute(
                     """
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                           input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                           input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                            resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     FROM human_tasks
                     WHERE human_task_id = %s
@@ -243,10 +254,9 @@ class PostgresHumanTaskRepository:
         if operator_filter:
             clauses.append("assigned_operator_id = %s")
             params.append(operator_filter)
-        if assignment_filter == "assigned":
-            clauses.append("assigned_operator_id <> ''")
-        elif assignment_filter == "unassigned":
-            clauses.append("assigned_operator_id = ''")
+        if assignment_filter:
+            clauses.append("assignment_state = %s")
+            params.append(assignment_filter)
         if overdue_only:
             clauses.append("sla_due_at IS NOT NULL")
             clauses.append("sla_due_at <= NOW()")
@@ -256,7 +266,7 @@ class PostgresHumanTaskRepository:
                 cur.execute(
                     f"""
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                           input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                           input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                            resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     FROM human_tasks
                     WHERE {' AND '.join(clauses)}
@@ -276,7 +286,7 @@ class PostgresHumanTaskRepository:
                 cur.execute(
                     """
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                           input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                           input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                            resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     FROM human_tasks
                     WHERE session_id = %s
@@ -298,11 +308,12 @@ class PostgresHumanTaskRepository:
                     """
                     UPDATE human_tasks
                     SET status = 'claimed',
+                        assignment_state = 'claimed',
                         assigned_operator_id = %s,
                         updated_at = %s
                     WHERE human_task_id = %s AND status = 'pending'
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                              input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                              input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     """,
                     (str(operator_id or ""), now_utc_iso(), task_id),
@@ -321,11 +332,12 @@ class PostgresHumanTaskRepository:
                 cur.execute(
                     """
                     UPDATE human_tasks
-                    SET assigned_operator_id = %s,
+                    SET assignment_state = 'assigned',
+                        assigned_operator_id = %s,
                         updated_at = %s
                     WHERE human_task_id = %s AND status = 'pending'
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                              input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                              input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     """,
                     (str(operator_id or ""), now_utc_iso(), task_id),
@@ -353,6 +365,7 @@ class PostgresHumanTaskRepository:
                     """
                     UPDATE human_tasks
                     SET status = 'returned',
+                        assignment_state = 'returned',
                         assigned_operator_id = %s,
                         resolution = %s,
                         returned_payload_json = %s,
@@ -360,7 +373,7 @@ class PostgresHumanTaskRepository:
                         updated_at = %s
                     WHERE human_task_id = %s AND status IN ('pending', 'claimed')
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                              input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                              input_json, desired_output_json, priority, sla_due_at, status, assignment_state, assigned_operator_id,
                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
                     """,
                     (

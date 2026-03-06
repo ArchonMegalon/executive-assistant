@@ -97,6 +97,7 @@ class InMemoryHumanTaskRepository:
             priority=str(priority or "normal"),
             sla_due_at=str(sla_due_at) if sla_due_at else None,
             status="pending",
+            assignment_state="unassigned",
             assigned_operator_id="",
             resolution="",
             created_at=ts,
@@ -137,10 +138,8 @@ class InMemoryHumanTaskRepository:
             rows = [row for row in rows if row.role_required == role_filter]
         if operator_filter:
             rows = [row for row in rows if row.assigned_operator_id == operator_filter]
-        if assignment_filter == "assigned":
-            rows = [row for row in rows if str(row.assigned_operator_id or "").strip()]
-        elif assignment_filter == "unassigned":
-            rows = [row for row in rows if not str(row.assigned_operator_id or "").strip()]
+        if assignment_filter:
+            rows = [row for row in rows if row.assignment_state == assignment_filter]
         if overdue_only:
             now = datetime.now(timezone.utc)
             overdue_rows: list[HumanTask] = []
@@ -173,6 +172,7 @@ class InMemoryHumanTaskRepository:
         updated = replace(
             found,
             status="claimed",
+            assignment_state="claimed",
             assigned_operator_id=str(operator_id or ""),
             updated_at=now_utc_iso(),
         )
@@ -185,6 +185,7 @@ class InMemoryHumanTaskRepository:
             return None
         updated = replace(
             found,
+            assignment_state="assigned",
             assigned_operator_id=str(operator_id or ""),
             updated_at=now_utc_iso(),
         )
@@ -206,6 +207,7 @@ class InMemoryHumanTaskRepository:
         updated = replace(
             found,
             status="returned",
+            assignment_state="returned",
             assigned_operator_id=str(operator_id or found.assigned_operator_id or ""),
             resolution=str(resolution or ""),
             returned_payload_json=dict(returned_payload_json or {}),

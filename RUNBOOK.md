@@ -19,8 +19,8 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
 | GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, including `plan_compiled` event) |
 | POST | `/v1/human/tasks` | `200` | `400 step_id_required`, `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` (supports `resume_session_on_return=true` to move a linked step into `waiting_human`) |
-| GET | `/v1/human/tasks` | `200` | validation `422`, `403 principal_scope_mismatch` (supports `role_required`, `assigned_operator_id`, and `overdue_only` queue filters) |
-| GET | `/v1/human/tasks/backlog` | `200` | validation `422` |
+| GET | `/v1/human/tasks` | `200` | validation `422`, `403 principal_scope_mismatch` (supports `role_required`, `assigned_operator_id`, `assignment_state`, and `overdue_only` queue filters) |
+| GET | `/v1/human/tasks/backlog` | `200` | validation `422` (supports `assignment_state`) |
 | GET | `/v1/human/tasks/unassigned` | `200` | validation `422` |
 | GET | `/v1/human/tasks/mine` | `200` | validation `422` |
 | POST | `/v1/human/tasks/{human_task_id}/assign` | `200` | `404 human_task_not_found`, `409 human_task_not_assignable` |
@@ -124,6 +124,7 @@ Policy notes:
 - `GET /v1/human/tasks/backlog` is the direct pending-queue view, while `GET /v1/human/tasks/mine?operator_id=<id>` exposes the current operator assignment queue without rebuilding filters manually.
 - `POST /v1/human/tasks/{human_task_id}/assign` sets `assigned_operator_id` while the task remains `pending`, emits `human_task_assigned`, and lets operators be pre-assigned before `claim` moves the packet into active work.
 - `GET /v1/human/tasks/unassigned` and `assignment_state=assigned|unassigned` make pre-assigned pending work distinct from ownerless pending work in the backlog view.
+- Human task payloads now expose `assignment_state` directly (`unassigned`, `assigned`, `claimed`, `returned`) so session projections and operator queues do not have to infer assignment from `status` plus `assigned_operator_id`.
 
 ## Operator Script Help Index
 

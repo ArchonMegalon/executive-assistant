@@ -324,8 +324,8 @@ if [[ "${prod_status}" != "exited" && "${prod_status}" != "dead" && "${prod_stat
   exit 35
 fi
 prod_log_ok=0
-for _ in $(seq 1 10); do
-  if docker logs --tail 120 ea-api 2>&1 | grep -Fq "EA_RUNTIME_MODE=prod forbids memory fallback"; then
+for _ in $(seq 1 20); do
+  if (docker logs ea-api 2>&1 || true) | grep -Fq "EA_RUNTIME_MODE=prod forbids memory fallback"; then
     prod_log_ok=1
     break
   fi
@@ -333,7 +333,7 @@ for _ in $(seq 1 10); do
 done
 if [[ "${prod_log_ok}" != "1" ]]; then
   echo "expected prod fail-fast log message from ea-api" >&2
-  docker logs --tail 120 ea-api >&2 || true
+  docker logs ea-api >&2 || true
   exit 36
 fi
 echo "prod fail-fast path ok"

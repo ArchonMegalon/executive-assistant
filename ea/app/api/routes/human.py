@@ -47,6 +47,7 @@ class HumanTaskOut(BaseModel):
     priority: str
     sla_due_at: str | None
     status: str
+    assignment_state: str
     assigned_operator_id: str
     resolution: str
     resume_session_on_return: bool
@@ -70,6 +71,7 @@ def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
         priority=row.priority,
         sla_due_at=row.sla_due_at,
         status=row.status,
+        assignment_state=row.assignment_state,
         assigned_operator_id=row.assigned_operator_id,
         resolution=row.resolution,
         resume_session_on_return=row.resume_session_on_return,

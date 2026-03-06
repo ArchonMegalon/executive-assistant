@@ -23,7 +23,7 @@ Removed:
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
 - `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work
-- `/v1/human/tasks/unassigned` and `assignment_state=assigned|unassigned` expose the difference between ownerless pending work and pre-assigned pending work
+- `/v1/human/tasks/unassigned` and `assignment_state=unassigned|assigned|claimed|returned` expose the difference between ownerless pending work, pre-assigned pending work, active claims, and returned packets
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/delivery/outbox/{delivery_id}/failed` marks retry/dead-letter transitions with error context
@@ -61,6 +61,7 @@ Removed:
 - human task packets append `human_task_created`, `human_task_claimed`, and `human_task_returned` events into the linked session ledger so returned-from-human work is auditable
 - human task packets can optionally reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume that step to completion when the operator returns the packet
 - human task queue listings now support operator-facing `role_required`, `assigned_operator_id`, and `overdue_only` filters for targeted reviewer backlogs
+- human task payloads now include explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) so pre-assigned pending work is first-class in session and queue projections
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial
 - rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning
@@ -105,6 +106,7 @@ Removed:
 - execution queue kernel migration: `ea/schema/20260305_v0_23_execution_queue_kernel.sql`
 - human tasks kernel migration: `ea/schema/20260305_v0_24_human_tasks_kernel.sql`
 - human task resume kernel migration: `ea/schema/20260305_v0_25_human_task_resume_kernel.sql`
+- human task assignment-state kernel migration: `ea/schema/20260305_v0_26_human_task_assignment_state.sql`
 
 ## Auth
 

@@ -244,6 +244,7 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
         resume_session_on_return=True,
     )
     assert created.status == "pending"
+    assert created.assignment_state == "unassigned"
     assert created.step_id == step.step_id
     assert created.resume_session_on_return is True
 
@@ -261,6 +262,7 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     claimed = repo.claim(created.human_task_id, operator_id="operator-1")
     assert claimed is not None
     assert claimed.status == "claimed"
+    assert claimed.assignment_state == "claimed"
     assert claimed.assigned_operator_id == "operator-1"
 
     listed_operator = repo.list_for_principal(
@@ -280,6 +282,7 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     )
     assert returned is not None
     assert returned.status == "returned"
+    assert returned.assignment_state == "returned"
     assert returned.resolution == "ready_for_send"
     assert returned.returned_payload_json["summary"] == "Reviewed and tightened tone."
     assert returned.resume_session_on_return is True

@@ -169,6 +169,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&assignment_state=assigned&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> any claimed packets
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&assignment_state=claimed&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> claim
 POST {{host}}/v1/human/tasks/{{human_task_id}}/claim
 Content-Type: application/json

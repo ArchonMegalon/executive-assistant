@@ -224,6 +224,7 @@ def test_human_task_docs_and_milestone_cover_session_linked_packets() -> None:
 
     assert "v0_24 human tasks kernel" in db_bootstrap
     assert "v0_25 human task resume kernel" in db_bootstrap
+    assert "v0_26 human task assignment-state kernel" in db_bootstrap
     assert "human_tasks" in db_status
 
     assert "human tasks ok" in smoke_api
@@ -260,6 +261,9 @@ def test_human_task_docs_and_milestone_cover_session_linked_packets() -> None:
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_state_visibility"
     )
     assert visibility_capability["status"] == "tested"
+    assert "human_task_assignment_state_field" in visibility_capability["scope"]
+    assert "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
+    assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 
 
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:

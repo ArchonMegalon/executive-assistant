@@ -459,6 +459,7 @@ class HumanTask:
     priority: str
     sla_due_at: str | None
     status: str
+    assignment_state: str
     assigned_operator_id: str
     resolution: str
     created_at: str

@@ -555,6 +555,7 @@ class RewriteOrchestrator:
                 "task_type": row.task_type,
                 "role_required": row.role_required,
                 "priority": row.priority,
+                "assignment_state": row.assignment_state,
                 "resume_session_on_return": row.resume_session_on_return,
             },
         )
@@ -608,6 +609,7 @@ class RewriteOrchestrator:
             {
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
+                "assignment_state": updated.assignment_state,
                 "step_id": updated.step_id or "",
             },
         )
@@ -626,6 +628,7 @@ class RewriteOrchestrator:
             {
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
+                "assignment_state": updated.assignment_state,
                 "step_id": updated.step_id or "",
             },
         )
@@ -660,6 +663,7 @@ class RewriteOrchestrator:
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
                 "resolution": updated.resolution,
+                "assignment_state": updated.assignment_state,
                 "step_id": updated.step_id or "",
             },
         )

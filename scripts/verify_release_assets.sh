@@ -1015,6 +1015,9 @@ assignment_capability = next(entry for entry in milestone["capabilities"] if ent
 assert assignment_capability["status"] == "tested"
 visibility_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_state_visibility")
 assert visibility_capability["status"] == "tested"
+assert "human_task_assignment_state_field" in visibility_capability["scope"]
+assert "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
+assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 PY
 then
   if grep -Fq "/v1/human/tasks" "README.md" && \
@@ -1042,6 +1045,7 @@ then
      grep -Fq '"resume_session_on_return": true' "HTTP_EXAMPLES.http" && \
      grep -Fq "v0_24 human tasks kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "v0_25 human task resume kernel" "scripts/db_bootstrap.sh" && \
+     grep -Fq "v0_26 human task assignment-state kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "human_tasks" "scripts/db_status.sh" && \
      grep -Fq "human tasks ok" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_human|True|True" "scripts/smoke_api.sh" && \

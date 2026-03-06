@@ -258,6 +258,7 @@ def test_human_task_flow_and_session_projection() -> None:
     task = created.json()
     task_id = task["human_task_id"]
     assert task["status"] == "pending"
+    assert task["assignment_state"] == "unassigned"
     assert task["step_id"] == step_id
     assert task["resume_session_on_return"] is True
 
@@ -297,6 +298,7 @@ def test_human_task_flow_and_session_projection() -> None:
     assigned = client.post(f"/v1/human/tasks/{task_id}/assign", json={"operator_id": "operator-1"})
     assert assigned.status_code == 200
     assert assigned.json()["status"] == "pending"
+    assert assigned.json()["assignment_state"] == "assigned"
     assert assigned.json()["assigned_operator_id"] == "operator-1"
 
     assigned_backlog = client.get(
@@ -325,6 +327,7 @@ def test_human_task_flow_and_session_projection() -> None:
     claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-1"})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
+    assert claimed.json()["assignment_state"] == "claimed"
 
     operator_filtered = client.get(
         "/v1/human/tasks",
@@ -348,6 +351,7 @@ def test_human_task_flow_and_session_projection() -> None:
     )
     assert returned.status_code == 200
     assert returned.json()["status"] == "returned"
+    assert returned.json()["assignment_state"] == "returned"
     assert returned.json()["resolution"] == "ready_for_send"
 
     fetched = client.get(f"/v1/human/tasks/{task_id}")
@@ -364,7 +368,10 @@ def test_human_task_flow_and_session_projection() -> None:
     assert "human_task_claimed" in event_names
     assert "human_task_returned" in event_names
     assert "session_resumed_from_human_task" in event_names
-    assert any(row["human_task_id"] == task_id and row["status"] == "returned" for row in session_body["human_tasks"])
+    assert any(
+        row["human_task_id"] == task_id and row["status"] == "returned" and row["assignment_state"] == "returned"
+        for row in session_body["human_tasks"]
+    )
     resumed_step = next(step for step in session_body["steps"] if step["step_id"] == step_id)
     assert resumed_step["state"] == "completed"
     assert resumed_step["output_json"]["human_task_id"] == task_id
