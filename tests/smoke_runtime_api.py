@@ -663,6 +663,8 @@ def test_human_task_flow_and_session_projection() -> None:
     assert any(
         row["human_task_id"] == task_id
         and row["status"] == "returned"
+        and row["task_key"] == "rewrite_text"
+        and row["deliverable_type"] == "rewrite_note"
         and row["assignment_state"] == "returned"
         and row["assignment_source"] == "manual"
         and row["assigned_by_actor_id"] == "operator-junior"
@@ -2787,6 +2789,8 @@ def test_generic_task_execution_supports_async_approval_and_human_contracts() ->
     review_session_body = review_session.json()
     assert review_session_body["intent_task_type"] == "stakeholder_briefing_review"
     assert review_session_body["status"] == "awaiting_human"
+    assert review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"
+    assert review_session_body["human_tasks"][0]["deliverable_type"] == "stakeholder_briefing"
     assert review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"
     assert review_session_body["human_task_assignment_history"][0]["deliverable_type"] == "stakeholder_briefing"
 

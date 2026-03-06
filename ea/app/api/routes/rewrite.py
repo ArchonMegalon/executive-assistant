@@ -112,6 +112,8 @@ class SessionHumanTaskOut(BaseModel):
     session_id: str
     step_id: str | None
     principal_id: str
+    task_key: str = ""
+    deliverable_type: str = ""
     task_type: str
     role_required: str
     brief: str
@@ -378,6 +380,8 @@ def get_session(
                 session_id=t.session_id,
                 step_id=t.step_id,
                 principal_id=t.principal_id,
+                task_key=session.intent.task_type,
+                deliverable_type=session.intent.deliverable_type,
                 task_type=t.task_type,
                 role_required=t.role_required,
                 brief=t.brief,

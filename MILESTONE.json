@@ -1000,6 +1000,16 @@
         "generic_session_assignment_history_identity"
       ],
       "notes": "Inline session human-task assignment-history rows now return the originating task key and deliverable type too, so one-fetch operator session views keep non-rewrite task context in the embedded transition log."
+    },
+    {
+      "name": "session_human_task_packet_task_identity_projection",
+      "status": "tested",
+      "scope": [
+        "session_human_task_task_key",
+        "session_human_task_deliverable_type",
+        "generic_session_human_task_identity"
+      ],
+      "notes": "Inline session human-task packet rows now return the originating task key and deliverable type too, so paused non-rewrite packet detail stays self-describing inside the main session envelope."
     }
   ],
   "migrations": [

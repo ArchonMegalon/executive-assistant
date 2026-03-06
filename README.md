@@ -21,6 +21,7 @@ Removed:
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion, including originating task identity for non-rewrite runs
 - `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets, and human task assignment history), and inline artifact/proof rows now carry originating task identity for non-rewrite runs
 - `/v1/rewrite/sessions/{session_id}` inline human-task assignment-history rows now carry originating task identity too, so one-fetch operator views keep non-rewrite task context in the embedded transition log
+- `/v1/rewrite/sessions/{session_id}` inline human-task packet rows now carry originating task identity too, so paused non-rewrite packet detail stays self-describing inside the main session envelope
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue

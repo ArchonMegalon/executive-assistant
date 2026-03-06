@@ -1101,6 +1101,30 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_packet_task_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'inline human-task packet rows now carry originating task identity' "README.md" && \
+     grep -Fq 'inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
+     grep -Fq 'human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'GENERIC_HUMAN_SESSION_TASK_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py"; then
+    echo "ok: session human task packet task identity docs"
+  else
+    echo "missing: session human task packet task identity docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: session human task packet task identity milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
 assert capability["status"] == "tested"
 PY

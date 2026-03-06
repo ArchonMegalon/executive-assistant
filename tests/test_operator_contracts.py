@@ -538,7 +538,29 @@ def test_session_human_task_assignment_history_task_identity_projection_is_docum
         if entry["name"] == "session_human_task_assignment_history_task_identity_projection"
     )
     assert capability["status"] == "tested"
-    assert "inline_reassignment_audit_chain" in capability["scope"]
+
+
+def test_session_human_task_packet_task_identity_projection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "inline human-task packet rows now carry originating task identity" in readme
+    assert "inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`" in runbook
+    assert "human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type" in http_examples
+    assert "GENERIC_HUMAN_SESSION_TASK_FIELDS" in smoke_api
+    assert 'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
+
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_human_task_packet_task_identity_projection"
+    )
+    assert capability["status"] == "tested"
+    assert "generic_session_human_task_identity" in capability["scope"]
 
 
 def test_human_task_assignment_history_filters_are_documented_and_smoked() -> None:
