@@ -1022,6 +1022,18 @@
         "runtime_step_input_semantics_projection"
       ],
       "notes": "Compiled plan steps and queued step input payloads now project explicit owner, authority/review class, and failure strategy semantics so operator tooling can inspect runtime posture before the graph grows deeper."
+    },
+    {
+      "name": "artifact_preview_handle_projection",
+      "status": "tested",
+      "scope": [
+        "direct_artifact_preview_text",
+        "direct_artifact_storage_handle",
+        "session_artifact_preview_text",
+        "session_artifact_storage_handle",
+        "plan_execute_artifact_preview_handle"
+      ],
+      "notes": "Direct artifact reads, inline session artifact rows, and generic task execution responses now project preview text plus a stable storage handle so clients can start treating artifacts as metadata-plus-handle envelopes without losing inline content."
     }
   ],
   "migrations": [

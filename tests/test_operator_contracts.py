@@ -1634,6 +1634,28 @@ def test_artifact_lookup_task_identity_projection_is_documented_and_smoked() -> 
     assert capability["status"] == "tested"
 
 
+def test_artifact_preview_handle_projection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "preview_text" in readme
+    assert "storage_handle" in readme
+    assert "preview_text" in runbook
+    assert "storage_handle" in runbook
+    assert "preview_text and storage_handle" in http_examples
+    assert "TASK_EXECUTE_ARTIFACT_FIELDS" in smoke_api
+    assert "REWRITE_ARTIFACT_FIELDS" in smoke_api
+    assert 'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."' in smoke_runtime
+    assert 'fetched_artifact.json()["storage_handle"] == f"artifact://{body[\'artifact_id\']}"' in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_preview_handle_projection")
+    assert capability["status"] == "tested"
+
+
 def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

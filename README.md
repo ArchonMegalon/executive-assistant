@@ -17,9 +17,10 @@ Removed:
 - `app.main` exposes a FastAPI app
 - `/health`, `/health/live`, `/health/ready`, `/version` provide liveness/readiness/version probes
 - `/v1/rewrite/artifact` creates an artifact and an execution session
-- `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store, including the originating task key and deliverable type for non-rewrite runs
+- `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store, including the originating task key and deliverable type for non-rewrite runs plus `preview_text` and a stable `storage_handle`
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion, including originating task identity for non-rewrite runs
 - `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets, and human task assignment history), and inline artifact/proof rows now carry originating task identity for non-rewrite runs
+- rewrite and generic task execution artifact payloads now also project `preview_text` and a stable `storage_handle`, so artifact reads can start moving toward metadata-plus-handle envelopes without dropping inline content yet
 - `/v1/rewrite/sessions/{session_id}` inline human-task assignment-history rows now carry originating task identity too, so one-fetch operator views keep non-rewrite task context in the embedded transition log
 - `/v1/rewrite/sessions/{session_id}` inline human-task packet rows now carry originating task identity too, so paused non-rewrite packet detail stays self-describing inside the main session envelope
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps

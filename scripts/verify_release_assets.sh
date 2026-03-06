@@ -975,6 +975,33 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_preview_handle_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'preview_text' "README.md" && \
+     grep -Fq 'storage_handle' "README.md" && \
+     grep -Fq 'preview_text' "RUNBOOK.md" && \
+     grep -Fq 'storage_handle' "RUNBOOK.md" && \
+     grep -Fq 'preview_text and storage_handle' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'REWRITE_ARTIFACT_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'TASK_EXECUTE_ARTIFACT_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."' "tests/smoke_runtime_api.py"; then
+    echo "ok: artifact preview/handle projection docs"
+  else
+    echo "missing: artifact preview/handle projection docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: artifact preview/handle projection milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
 assert capability["status"] == "tested"
 PY

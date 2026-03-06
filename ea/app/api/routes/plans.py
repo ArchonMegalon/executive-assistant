@@ -89,6 +89,8 @@ class PlanExecuteOut(BaseModel):
     artifact_id: str
     kind: str
     content: str
+    preview_text: str = ""
+    storage_handle: str = ""
     execution_session_id: str
     deliverable_type: str = ""
 
@@ -216,6 +218,8 @@ def execute_plan(
         artifact_id=artifact.artifact_id,
         kind=artifact.kind,
         content=artifact.content,
+        preview_text=(f"{artifact.content[:157]}..." if len(artifact.content) > 160 else artifact.content),
+        storage_handle=f"artifact://{artifact.artifact_id}",
         execution_session_id=artifact.execution_session_id,
         deliverable_type=artifact.kind,
     )

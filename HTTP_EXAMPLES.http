@@ -58,7 +58,7 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none
 X-EA-Principal-ID: {{principal_id}}
 
-### Rewrite -> fetch artifact (includes originating task_key and deliverable_type)
+### Rewrite -> fetch artifact (includes originating task_key/deliverable_type plus preview_text and storage_handle)
 GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
 X-EA-Principal-ID: {{principal_id}}
 

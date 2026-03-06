@@ -79,11 +79,17 @@ if [[ -z "${SESSION_ID}" ]]; then
 fi
 
 echo "== smoke: session + policy =="
-curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+REWRITE_ARTIFACT_JSON="$(curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+REWRITE_ARTIFACT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}'.format(body.get('content',''), body.get('preview_text',''), body.get('storage_handle',''), body.get('task_key','')))" <<<"${REWRITE_ARTIFACT_JSON}")"
+if [[ "${REWRITE_ARTIFACT_FIELDS}" != "smoke run|smoke run|artifact://${ARTIFACT_ID}|rewrite_text" ]]; then
+  echo "expected direct rewrite artifact fetch to project preview/storage envelope fields; got ${REWRITE_ARTIFACT_FIELDS}" >&2
+  echo "${REWRITE_ARTIFACT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); names=[e.get('name','') for e in (body.get('events') or [])]; events=set(names); queues=body.get('queue_items') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; order_ok=('input_prepared' in events and 'policy_decision' in events and 'policy_step_completed' in events and names.index('input_prepared') < names.index('policy_decision') < names.index('policy_step_completed')); print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 3, len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_decision' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events, len(history) == 0 and order_ok))" <<<"${SESSION_JSON}")"
-if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True|True|True|True" ]]; then
-  echo "expected initial rewrite session to complete with ordered queued input/policy events, done queue items, tool execution, and empty human-task assignment history; got ${SESSION_RUNTIME_FIELDS}" >&2
+SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); names=[e.get('name','') for e in (body.get('events') or [])]; events=set(names); queues=body.get('queue_items') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; artifacts=body.get('artifacts') or []; first=(artifacts[0] if artifacts else {}); order_ok=('input_prepared' in events and 'policy_decision' in events and 'policy_step_completed' in events and names.index('input_prepared') < names.index('policy_decision') < names.index('policy_step_completed')); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 3, len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_decision' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events, len(history) == 0 and order_ok, first.get('preview_text',''), first.get('storage_handle','')))" <<<"${SESSION_JSON}")"
+if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True|True|True|True|smoke run|artifact://${ARTIFACT_ID}" ]]; then
+  echo "expected initial rewrite session to complete with ordered queued input/policy events, done queue items, empty human-task assignment history, and artifact envelope fields; got ${SESSION_RUNTIME_FIELDS}" >&2
   echo "${SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -1343,27 +1349,27 @@ curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-typ
   -d '{"task_key":"stakeholder_briefing","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
 TASK_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_briefing","text":"Board context and stakeholder sensitivities.","goal":"prepare a stakeholder briefing"}')"
-TASK_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('deliverable_type',''), body.get('content',''), bool(body.get('artifact_id','')), bool(body.get('execution_session_id',''))))" <<<"${TASK_EXECUTE_JSON}")"
-if [[ "${TASK_EXECUTE_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|Board context and stakeholder sensitivities.|True|True" ]]; then
+TASK_EXECUTE_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${TASK_EXECUTE_JSON}")"
+TASK_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('deliverable_type',''), body.get('content',''), body.get('preview_text',''), body.get('storage_handle',''), bool(body.get('artifact_id','')), bool(body.get('execution_session_id',''))))" <<<"${TASK_EXECUTE_JSON}")"
+if [[ "${TASK_EXECUTE_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|Board context and stakeholder sensitivities.|Board context and stakeholder sensitivities.|artifact://${TASK_EXECUTE_ARTIFACT_ID}|True|True" ]]; then
   echo "expected generic task execution route to reuse the compiled contract runtime; got ${TASK_EXECUTE_FIELDS}" >&2
   echo "${TASK_EXECUTE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-TASK_EXECUTE_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${TASK_EXECUTE_JSON}")"
 TASK_EXECUTE_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${TASK_EXECUTE_JSON}")"
 TASK_EXECUTE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${TASK_EXECUTE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-TASK_EXECUTE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; steps=body.get('steps') or []; events=body.get('events') or []; first=(artifacts[0] if artifacts else {}); prepare=(steps[0] if steps else {}); save=(steps[2] if len(steps) > 2 else {}); plan_event=next((event for event in events if (event or {}).get('name') == 'plan_compiled'), {}); semantics=(plan_event.get('payload',{}) or {}).get('step_semantics') or []; first_semantics=(semantics[0] if semantics else {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), len(steps), first.get('kind',''), first.get('task_key',''), first.get('deliverable_type',''), any((event or {}).get('name') == 'plan_compiled' for event in events), (prepare.get('input_json',{}) or {}).get('owner',''), (prepare.get('input_json',{}) or {}).get('authority_class',''), (save.get('input_json',{}) or {}).get('owner',''), (save.get('input_json',{}) or {}).get('failure_strategy',''), first_semantics.get('owner','')))" <<<"${TASK_EXECUTE_SESSION_JSON}")"
-if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|True|system|observe|tool|fail|system" ]]; then
-  echo "expected generic task execution session to retain compiled step semantics and persisted artifact kind; got ${TASK_EXECUTE_SESSION_FIELDS}" >&2
+TASK_EXECUTE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; steps=body.get('steps') or []; events=body.get('events') or []; first=(artifacts[0] if artifacts else {}); prepare=(steps[0] if steps else {}); save=(steps[2] if len(steps) > 2 else {}); plan_event=next((event for event in events if (event or {}).get('name') == 'plan_compiled'), {}); semantics=(plan_event.get('payload',{}) or {}).get('step_semantics') or []; first_semantics=(semantics[0] if semantics else {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), len(steps), first.get('kind',''), first.get('task_key',''), first.get('deliverable_type',''), any((event or {}).get('name') == 'plan_compiled' for event in events), (prepare.get('input_json',{}) or {}).get('owner',''), (prepare.get('input_json',{}) or {}).get('authority_class',''), (save.get('input_json',{}) or {}).get('owner',''), (save.get('input_json',{}) or {}).get('failure_strategy',''), first_semantics.get('owner',''), first.get('preview_text',''), first.get('storage_handle','')))" <<<"${TASK_EXECUTE_SESSION_JSON}")"
+if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|True|system|observe|tool|fail|system|Board context and stakeholder sensitivities.|artifact://${TASK_EXECUTE_ARTIFACT_ID}" ]]; then
+  echo "expected generic task execution session to retain compiled step semantics plus artifact envelope fields; got ${TASK_EXECUTE_SESSION_FIELDS}" >&2
   echo "${TASK_EXECUTE_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 TASK_EXECUTE_RECEIPT_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); rows=body.get('receipts') or []; print((rows[0] or {}).get('receipt_id','') if rows else '')" <<<"${TASK_EXECUTE_SESSION_JSON}")"
 TASK_EXECUTE_COST_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); rows=body.get('run_costs') or []; print((rows[0] or {}).get('cost_id','') if rows else '')" <<<"${TASK_EXECUTE_SESSION_JSON}")"
 TASK_EXECUTE_ARTIFACT_JSON="$(curl -fsS "${BASE}/v1/rewrite/artifacts/${TASK_EXECUTE_ARTIFACT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-TASK_EXECUTE_ARTIFACT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('deliverable_type',''), body.get('execution_session_id','')))" <<<"${TASK_EXECUTE_ARTIFACT_JSON}")"
-if [[ "${TASK_EXECUTE_ARTIFACT_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|${TASK_EXECUTE_SESSION_ID}" ]]; then
-  echo "expected direct artifact lookup to project generic task identity and deliverable context; got ${TASK_EXECUTE_ARTIFACT_FIELDS}" >&2
+TASK_EXECUTE_ARTIFACT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('deliverable_type',''), body.get('execution_session_id',''), body.get('preview_text',''), body.get('storage_handle','')))" <<<"${TASK_EXECUTE_ARTIFACT_JSON}")"
+if [[ "${TASK_EXECUTE_ARTIFACT_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|${TASK_EXECUTE_SESSION_ID}|Board context and stakeholder sensitivities.|artifact://${TASK_EXECUTE_ARTIFACT_ID}" ]]; then
+  echo "expected direct artifact lookup to project generic task identity plus preview/storage envelope fields; got ${TASK_EXECUTE_ARTIFACT_FIELDS}" >&2
   echo "${TASK_EXECUTE_ARTIFACT_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

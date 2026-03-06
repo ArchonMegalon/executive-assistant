@@ -24,6 +24,8 @@ class RewriteOut(BaseModel):
     artifact_id: str
     kind: str
     content: str
+    preview_text: str = ""
+    storage_handle: str = ""
     execution_session_id: str
     task_key: str = ""
     deliverable_type: str = ""
@@ -77,6 +79,8 @@ class SessionArtifactOut(BaseModel):
     artifact_id: str
     kind: str
     content: str
+    preview_text: str = ""
+    storage_handle: str = ""
     execution_session_id: str
     task_key: str = ""
     deliverable_type: str = ""
@@ -178,6 +182,17 @@ class SessionOut(BaseModel):
     human_task_assignment_history: list[SessionHumanTaskAssignmentHistoryOut]
 
 
+def _artifact_preview_text(content: str, *, limit: int = 160) -> str:
+    normalized = str(content or "")
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: max(limit - 3, 0)]}..."
+
+
+def _artifact_storage_handle(artifact_id: str) -> str:
+    return f"artifact://{artifact_id}"
+
+
 def _to_assignment_history_out(
     event,
     *,
@@ -248,6 +263,8 @@ def create_artifact(
         artifact_id=artifact.artifact_id,
         kind=artifact.kind,
         content=artifact.content,
+        preview_text=_artifact_preview_text(artifact.content),
+        storage_handle=_artifact_storage_handle(artifact.artifact_id),
         execution_session_id=artifact.execution_session_id,
         task_key=session.session.intent.task_type if session is not None else "rewrite_text",
         deliverable_type=session.session.intent.deliverable_type if session is not None else artifact.kind,
@@ -355,6 +372,8 @@ def get_session(
                 artifact_id=a.artifact_id,
                 kind=a.kind,
                 content=a.content,
+                preview_text=_artifact_preview_text(a.content),
+                storage_handle=_artifact_storage_handle(a.artifact_id),
                 execution_session_id=a.execution_session_id,
                 task_key=session.intent.task_type,
                 deliverable_type=session.intent.deliverable_type,
@@ -435,6 +454,8 @@ def get_artifact(
         artifact_id=found.artifact_id,
         kind=found.kind,
         content=found.content,
+        preview_text=_artifact_preview_text(found.content),
+        storage_handle=_artifact_storage_handle(found.artifact_id),
         execution_session_id=found.execution_session_id,
         task_key=session.session.intent.task_type,
         deliverable_type=session.session.intent.deliverable_type,
