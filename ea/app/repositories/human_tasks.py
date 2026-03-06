@@ -47,6 +47,9 @@ class HumanTaskRepository(Protocol):
     def claim(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
         ...
 
+    def assign(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
+        ...
+
     def return_task(
         self,
         human_task_id: str,
@@ -163,6 +166,18 @@ class InMemoryHumanTaskRepository:
         updated = replace(
             found,
             status="claimed",
+            assigned_operator_id=str(operator_id or ""),
+            updated_at=now_utc_iso(),
+        )
+        self._rows[updated.human_task_id] = updated
+        return updated
+
+    def assign(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
+        found = self._rows.get(str(human_task_id or ""))
+        if not found or found.status != "pending":
+            return None
+        updated = replace(
+            found,
             assigned_operator_id=str(operator_id or ""),
             updated_at=now_utc_iso(),
         )

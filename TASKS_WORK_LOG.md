@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-186 | P1 | Add explicit operator assignment semantics beyond claim-only ownership so reviewers can pre-assign packets without starting work | codex | queued | Operators now have direct backlog endpoints, but assignment is still coupled to the `claim` transition instead of a separate pre-assignment action |
+| Q-187 | P1 | Add explicit assignment-state visibility or dedicated pre-assigned backlog views so pending owner assignment is distinct from unassigned work | codex | queued | Operator ownership can now be pre-assigned, but the API still represents pre-assigned packets with the same `pending` status as unassigned work |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-186 | P1 | Add explicit operator assignment semantics beyond claim-only ownership so reviewers can pre-assign packets without starting work | codex | done | Added `/v1/human/tasks/{human_task_id}/assign`, preserved pending status for pre-assigned packets, and emitted `human_task_assigned` ledger events before later claim/return transitions |
 | D-185 | P1 | Add role-claim assignment flow and explicit operator backlog endpoints on top of the filtered human task queue | codex | done | Added `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` views backed by the existing filtered queue so operators can pull pending and assigned work directly after claim |
 | D-184 | P1 | Add operator-facing role and SLA filters to the human task queue so reviewers can work from targeted pending packets | codex | done | Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters across HTTP and Postgres repository contract coverage |
 | D-183 | P1 | Resume or advance execution from returned human task packets instead of leaving them as linked review records only | codex | done | Human task packets can now reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back |

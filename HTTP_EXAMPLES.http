@@ -152,6 +152,15 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/mine?operator_id=operator&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> assign operator while task remains pending
+POST {{host}}/v1/human/tasks/{{human_task_id}}/assign
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator"
+}
+
 ### Human tasks -> claim
 POST {{host}}/v1/human/tasks/{{human_task_id}}/claim
 Content-Type: application/json

@@ -611,6 +611,24 @@ class RewriteOrchestrator:
         )
         return updated
 
+    def assign_human_task(self, human_task_id: str, *, principal_id: str, operator_id: str) -> HumanTask | None:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return None
+        updated = self._human_tasks.assign(human_task_id, operator_id=operator_id)
+        if updated is None:
+            return None
+        self._ledger.append_event(
+            updated.session_id,
+            "human_task_assigned",
+            {
+                "human_task_id": updated.human_task_id,
+                "operator_id": updated.assigned_operator_id,
+                "step_id": updated.step_id or "",
+            },
+        )
+        return updated
+
     def return_human_task(
         self,
         human_task_id: str,

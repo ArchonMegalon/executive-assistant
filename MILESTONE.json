@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -332,6 +332,16 @@
         "claim_assigns_operator_queue"
       ],
       "notes": "Operators now have direct pending-backlog and assigned-queue endpoints on top of the filtered human task store, and the smoke path asserts that claim actions surface immediately in those views."
+    },
+    {
+      "name": "human_task_operator_assignment",
+      "status": "tested",
+      "scope": [
+        "human_task_assign_route",
+        "pending_assignment_owner_field",
+        "human_task_assigned_event"
+      ],
+      "notes": "Operator ownership can now be assigned explicitly while a human task remains pending, and the session ledger records `human_task_assigned` before later claim/return transitions."
     }
   ],
   "migrations": [

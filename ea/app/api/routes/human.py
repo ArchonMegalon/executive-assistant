@@ -154,7 +154,7 @@ def list_human_task_backlog(
 @router.get("/mine")
 def list_my_human_tasks(
     operator_id: str,
-    status: str = "claimed",
+    status: str = "",
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
@@ -166,6 +166,26 @@ def list_my_human_tasks(
         limit=limit,
     )
     return [_to_out(row) for row in rows]
+
+
+@router.post("/{human_task_id}/assign")
+def assign_human_task(
+    human_task_id: str,
+    payload: HumanTaskClaimIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HumanTaskOut:
+    found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="human_task_not_found")
+    row = container.orchestrator.assign_human_task(
+        human_task_id,
+        principal_id=context.principal_id,
+        operator_id=payload.operator_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=409, detail="human_task_not_assignable")
+    return _to_out(row)
 
 
 @router.get("/{human_task_id}")

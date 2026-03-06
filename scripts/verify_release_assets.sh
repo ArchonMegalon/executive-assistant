@@ -1011,6 +1011,8 @@ filter_capability = next(entry for entry in milestone["capabilities"] if entry["
 assert filter_capability["status"] == "tested"
 backlog_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_backlog_endpoints")
 assert backlog_capability["status"] == "tested"
+assignment_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment")
+assert assignment_capability["status"] == "tested"
 PY
 then
   if grep -Fq "/v1/human/tasks" "README.md" && \
@@ -1018,16 +1020,19 @@ then
      grep -Fq "resume_session_on_return=true" "README.md" && \
      grep -Fq "assigned_operator_id" "README.md" && \
      grep -Fq "/v1/human/tasks/backlog" "README.md" && \
+     grep -Fq "/v1/human/tasks/{human_task_id}/assign" "README.md" && \
      grep -Fq "/v1/human/tasks" "RUNBOOK.md" && \
      grep -Fq "awaiting_human" "RUNBOOK.md" && \
      grep -Fq "overdue_only" "RUNBOOK.md" && \
      grep -Fq "/v1/human/tasks/mine" "RUNBOOK.md" && \
+     grep -Fq "human_task_assigned" "RUNBOOK.md" && \
      grep -Fq "human_task_returned" "RUNBOOK.md" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/return" "HTTP_EXAMPLES.http" && \
      grep -Fq "role_required=communications_reviewer&overdue_only=true" "HTTP_EXAMPLES.http" && \
      grep -Fq "assigned_operator_id=operator&status=claimed" "HTTP_EXAMPLES.http" && \
      grep -Fq "/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "/v1/human/tasks/mine?operator_id=operator&limit=20" "HTTP_EXAMPLES.http" && \
+     grep -Fq "/v1/human/tasks/{{human_task_id}}/assign" "HTTP_EXAMPLES.http" && \
      grep -Fq '"resume_session_on_return": true' "HTTP_EXAMPLES.http" && \
      grep -Fq "v0_24 human tasks kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "v0_25 human task resume kernel" "scripts/db_bootstrap.sh" && \
@@ -1038,6 +1043,7 @@ then
      grep -Fq "assigned-operator human task queue filter" "scripts/smoke_api.sh" && \
      grep -Fq "human task backlog endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "human task mine endpoint" "scripts/smoke_api.sh" && \
+     grep -Fq "pre-assigned task" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/human/tasks" "tests/smoke_runtime_api.py" && \
      grep -Fq "test_postgres_human_tasks_create_claim_return_and_list" "tests/test_postgres_contract_matrix_integration.py"; then
     echo "ok: human task packet kernel docs"

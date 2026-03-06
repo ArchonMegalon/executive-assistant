@@ -287,6 +287,15 @@ def test_human_task_flow_and_session_projection() -> None:
     assert backlog.status_code == 200
     assert any(row["human_task_id"] == task_id for row in backlog.json())
 
+    assigned = client.post(f"/v1/human/tasks/{task_id}/assign", json={"operator_id": "operator-1"})
+    assert assigned.status_code == 200
+    assert assigned.json()["status"] == "pending"
+    assert assigned.json()["assigned_operator_id"] == "operator-1"
+
+    mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-1"})
+    assert mine_assigned.status_code == 200
+    assert any(row["human_task_id"] == task_id for row in mine_assigned.json())
+
     claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-1"})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
@@ -325,6 +334,7 @@ def test_human_task_flow_and_session_projection() -> None:
     event_names = [event["name"] for event in session_body["events"]]
     assert session_body["status"] == "completed"
     assert "human_task_created" in event_names
+    assert "human_task_assigned" in event_names
     assert "human_task_claimed" in event_names
     assert "human_task_returned" in event_names
     assert "session_resumed_from_human_task" in event_names

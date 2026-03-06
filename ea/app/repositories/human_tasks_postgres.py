@@ -306,6 +306,29 @@ class PostgresHumanTaskRepository:
             return None
         return self._from_row(row)
 
+    def assign(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
+        task_id = str(human_task_id or "")
+        if not task_id:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE human_tasks
+                    SET assigned_operator_id = %s,
+                        updated_at = %s
+                    WHERE human_task_id = %s AND status = 'pending'
+                    RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
+                              input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                              resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
+                    """,
+                    (str(operator_id or ""), now_utc_iso(), task_id),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._from_row(row)
+
     def return_task(
         self,
         human_task_id: str,
