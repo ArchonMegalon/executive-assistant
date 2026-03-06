@@ -925,6 +925,32 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_async_contracts")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'same first-class `202 awaiting_approval` and `202 awaiting_human` async contract' "README.md" && \
+     grep -Fq 'same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract' "RUNBOOK.md" && \
+     grep -Fq '"task_key": "decision_brief_approval"' "HTTP_EXAMPLES.http" && \
+     grep -Fq '"task_key": "stakeholder_briefing_review"' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'GENERIC_APPROVAL_JSON' "scripts/smoke_api.sh" && \
+     grep -Fq 'GENERIC_HUMAN_JSON' "scripts/smoke_api.sh" && \
+     grep -Fq 'test_generic_task_execution_supports_async_approval_and_human_contracts' "tests/smoke_runtime_api.py"; then
+    echo "ok: generic task execution async contracts docs"
+  else
+    echo "missing: generic task execution async contracts docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: generic task execution async contracts milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
 assert capability["status"] == "tested"
 PY

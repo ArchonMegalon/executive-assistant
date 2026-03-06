@@ -576,6 +576,28 @@ X-EA-Principal-ID: {{principal_id}}
   "goal": "prepare a stakeholder briefing"
 }
 
+### Plans -> execute approval-backed task contract (expected 202 awaiting_approval)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "decision_brief_approval",
+  "text": "Decision context for the approval-backed briefing.",
+  "goal": "prepare a decision brief"
+}
+
+### Plans -> execute human-review-backed task contract (expected 202 awaiting_human)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_briefing_review",
+  "text": "Stakeholder context for human-reviewed briefing.",
+  "goal": "prepare a stakeholder briefing"
+}
+
 ### Memory -> stage candidate
 POST {{host}}/v1/memory/candidates
 Content-Type: application/json

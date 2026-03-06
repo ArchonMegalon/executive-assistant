@@ -1526,6 +1526,27 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
     assert capability["status"] == "tested"
 
 
+def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "same first-class `202 awaiting_approval` and `202 awaiting_human` async contract" in readme
+    assert "same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract" in runbook
+    assert '"task_key": "decision_brief_approval"' in http_examples
+    assert '"task_key": "stakeholder_briefing_review"' in http_examples
+    assert "GENERIC_APPROVAL_JSON" in smoke_api
+    assert "GENERIC_HUMAN_JSON" in smoke_api
+    assert "generic task async contracts ok" in smoke_api
+    assert "test_generic_task_execution_supports_async_approval_and_human_contracts" in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_async_contracts")
+    assert capability["status"] == "tested"
+
+
 def test_dependency_aware_execution_scheduler_is_documented_and_tested() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

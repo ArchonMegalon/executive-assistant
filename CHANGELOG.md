@@ -9,6 +9,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Caller-supplied `principal_id` on those routes is now a compatibility filter only; mismatches fail with `403 principal_scope_mismatch`.
 - Rewrite creation/session/artifact/receipt/run-cost and plan-compile routes now derive the effective principal from request context too, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches.
 - Generic `POST /v1/plans/execute` task execution now derives the effective principal from request context too, rejects caller-supplied mismatches with `403 principal_scope_mismatch`, and reuses the same queued session/artifact runtime as rewrite execution.
+- Generic `POST /v1/plans/execute` task execution now returns the same first-class `202 awaiting_approval` and `202 awaiting_human` async contract as rewrite execution, and those non-rewrite task sessions resume through the shared approval and human-task paths.
 - Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.

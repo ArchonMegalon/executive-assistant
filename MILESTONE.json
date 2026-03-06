@@ -930,6 +930,16 @@
         "principal_scoped_task_execution"
       ],
       "notes": "POST /v1/plans/execute now runs non-rewrite task-contract keys through the same queue-backed graph runtime as rewrite execution, preserving task identity and deliverable type while enforcing the request principal contract."
+    },
+    {
+      "name": "generic_task_execution_async_contracts",
+      "status": "tested",
+      "scope": [
+        "plan_execute_awaiting_approval",
+        "plan_execute_awaiting_human",
+        "generic_task_resume_shared_async_paths"
+      ],
+      "notes": "Generic POST /v1/plans/execute task runs now return the same first-class awaiting-approval and awaiting-human async contract as rewrite execution, and those non-rewrite task sessions resume through the shared approval and human-task endpoints."
     }
   ],
   "migrations": [

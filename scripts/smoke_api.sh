@@ -1371,6 +1371,57 @@ if [[ "${TASK_EXECUTE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
 fi
 echo "generic task execution ok"
 
+echo "== smoke: generic task async contracts =="
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"decision_brief_approval","deliverable_type":"decision_brief","default_risk_class":"low","default_approval_class":"manager","allowed_tools":["artifact_repository"],"evidence_requirements":["decision_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+GENERIC_APPROVAL_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"decision_brief_approval","text":"Decision context for the approval-backed briefing.","goal":"prepare a decision brief"}')"
+GENERIC_APPROVAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${GENERIC_APPROVAL_JSON}")"
+if [[ "${GENERIC_APPROVAL_FIELDS}" != "decision_brief_approval|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+  echo "expected generic task execution approval contract to return a first-class awaiting_approval response; got ${GENERIC_APPROVAL_FIELDS}" >&2
+  echo "${GENERIC_APPROVAL_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+GENERIC_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("approval_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
+GENERIC_APPROVAL_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
+GENERIC_APPROVAL_SESSION_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}'.format(body.get('intent_task_type',''), body.get('status','')))" )"
+if [[ "${GENERIC_APPROVAL_SESSION_FIELDS}" != "decision_brief_approval|awaiting_approval" ]]; then
+  echo "expected generic approval-backed task session to preserve task identity and awaiting_approval state; got ${GENERIC_APPROVAL_SESSION_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/policy/approvals/${GENERIC_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"decided_by":"operator","reason":"approved generic task execution"}' >/dev/null
+GENERIC_APPROVAL_DONE_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', len(artifacts) >= 1))" )"
+if [[ "${GENERIC_APPROVAL_DONE_FIELDS}" != "completed|decision_brief|True" ]]; then
+  echo "expected generic approval-backed task to resume to completion after approval; got ${GENERIC_APPROVAL_DONE_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_briefing_review","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"briefing_reviewer","human_review_task_type":"briefing_review","human_review_brief":"Review the stakeholder briefing before finalization.","human_review_priority":"high","human_review_desired_output_json":{"format":"review_packet"}}}' >/dev/null
+GENERIC_HUMAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_briefing_review","text":"Stakeholder context for human-reviewed briefing.","goal":"prepare a stakeholder briefing"}')"
+GENERIC_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('human_task_id','')), bool(body.get('session_id',''))))" <<<"${GENERIC_HUMAN_JSON}")"
+if [[ "${GENERIC_HUMAN_FIELDS}" != "stakeholder_briefing_review|awaiting_human|poll_or_subscribe|True|True" ]]; then
+  echo "expected generic task execution human-review contract to return a first-class awaiting_human response; got ${GENERIC_HUMAN_FIELDS}" >&2
+  echo "${GENERIC_HUMAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+GENERIC_HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${GENERIC_HUMAN_JSON}")"
+GENERIC_HUMAN_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${GENERIC_HUMAN_JSON}")"
+GENERIC_HUMAN_SESSION_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_HUMAN_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}'.format(body.get('intent_task_type',''), body.get('status','')))" )"
+if [[ "${GENERIC_HUMAN_SESSION_FIELDS}" != "stakeholder_briefing_review|awaiting_human" ]]; then
+  echo "expected generic human-review task session to preserve task identity and awaiting_human state; got ${GENERIC_HUMAN_SESSION_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/human/tasks/${GENERIC_HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"operator_id":"briefing-reviewer","resolution":"ready_for_publish","returned_payload_json":{"final_text":"Stakeholder context for human-reviewed briefing, edited by reviewer."},"provenance_json":{"review_mode":"human"}}' >/dev/null
+GENERIC_HUMAN_DONE_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_HUMAN_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', (artifacts[0] or {}).get('content','') if artifacts else ''))" )"
+if [[ "${GENERIC_HUMAN_DONE_FIELDS}" != "completed|stakeholder_briefing|Stakeholder context for human-reviewed briefing, edited by reviewer." ]]; then
+  echo "expected generic human-review task to resume to completion after packet return; got ${GENERIC_HUMAN_DONE_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "generic task async contracts ok"
+
 echo "== smoke: compiled human review runtime =="
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it.","human_review_priority":"high","human_review_sla_minutes":45,"human_review_auto_assign_if_unique":true,"human_review_desired_output_json":{"format":"review_packet","escalation_policy":"manager_review"},"human_review_authority_required":"send_on_behalf_review","human_review_why_human":"Executive-facing rewrite needs human judgment before finalization.","human_review_quality_rubric_json":{"checks":["tone","accuracy","stakeholder_sensitivity"]}}}' >/dev/null

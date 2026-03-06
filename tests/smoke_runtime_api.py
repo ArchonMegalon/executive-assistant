@@ -2643,6 +2643,123 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
 
+def test_generic_task_execution_supports_async_approval_and_human_contracts() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    approval_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "decision_brief_approval",
+            "deliverable_type": "decision_brief",
+            "default_risk_class": "low",
+            "default_approval_class": "manager",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["decision_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {"class": "low"},
+        },
+    )
+    assert approval_contract.status_code == 200
+
+    approval_execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "decision_brief_approval",
+            "text": "Decision context for the approval-backed briefing.",
+            "goal": "prepare a decision brief",
+        },
+    )
+    assert approval_execute.status_code == 202
+    approval_body = approval_execute.json()
+    assert approval_body["task_key"] == "decision_brief_approval"
+    assert approval_body["status"] == "awaiting_approval"
+    assert approval_body["approval_id"]
+    approval_session_id = approval_body["session_id"]
+
+    approval_session = client.get(f"/v1/rewrite/sessions/{approval_session_id}")
+    assert approval_session.status_code == 200
+    assert approval_session.json()["intent_task_type"] == "decision_brief_approval"
+    assert approval_session.json()["status"] == "awaiting_approval"
+
+    approved = client.post(
+        f"/v1/policy/approvals/{approval_body['approval_id']}/approve",
+        json={"decided_by": "operator", "reason": "approved generic task execution"},
+    )
+    assert approved.status_code == 200
+
+    approval_done = client.get(f"/v1/rewrite/sessions/{approval_session_id}")
+    assert approval_done.status_code == 200
+    approval_done_body = approval_done.json()
+    assert approval_done_body["status"] == "completed"
+    assert approval_done_body["artifacts"][0]["kind"] == "decision_brief"
+
+    review_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "stakeholder_briefing_review",
+            "deliverable_type": "stakeholder_briefing",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "human_review_role": "briefing_reviewer",
+                "human_review_task_type": "briefing_review",
+                "human_review_brief": "Review the stakeholder briefing before finalization.",
+                "human_review_priority": "high",
+                "human_review_desired_output_json": {"format": "review_packet"},
+            },
+        },
+    )
+    assert review_contract.status_code == 200
+
+    review_execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "stakeholder_briefing_review",
+            "text": "Stakeholder context for human-reviewed briefing.",
+            "goal": "prepare a stakeholder briefing",
+        },
+    )
+    assert review_execute.status_code == 202
+    review_body = review_execute.json()
+    assert review_body["task_key"] == "stakeholder_briefing_review"
+    assert review_body["status"] == "awaiting_human"
+    assert review_body["human_task_id"]
+    review_session_id = review_body["session_id"]
+
+    review_session = client.get(f"/v1/rewrite/sessions/{review_session_id}")
+    assert review_session.status_code == 200
+    review_session_body = review_session.json()
+    assert review_session_body["intent_task_type"] == "stakeholder_briefing_review"
+    assert review_session_body["status"] == "awaiting_human"
+
+    returned = client.post(
+        f"/v1/human/tasks/{review_body['human_task_id']}/return",
+        json={
+            "operator_id": "briefing-reviewer",
+            "resolution": "ready_for_publish",
+            "returned_payload_json": {
+                "final_text": "Stakeholder context for human-reviewed briefing, edited by reviewer."
+            },
+            "provenance_json": {"review_mode": "human"},
+        },
+    )
+    assert returned.status_code == 200
+
+    review_done = client.get(f"/v1/rewrite/sessions/{review_session_id}")
+    assert review_done.status_code == 200
+    review_done_body = review_done.json()
+    assert review_done_body["status"] == "completed"
+    assert review_done_body["artifacts"][0]["kind"] == "stakeholder_briefing"
+    assert (
+        review_done_body["artifacts"][0]["content"]
+        == "Stakeholder context for human-reviewed briefing, edited by reviewer."
+    )
+
+
 def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     client = _client(storage_backend="memory")
     contract = client.post(
