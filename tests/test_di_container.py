@@ -31,6 +31,7 @@ class _FakeOrchestrator:
             kind="rewrite_note",
             content="fake-content",
             execution_session_id="session-fake",
+            principal_id="local-user",
         )
 
     def fetch_session(self, session_id: str):

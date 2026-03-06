@@ -1304,6 +1304,18 @@ class RewriteOrchestrator:
         artifact = self.fetch_artifact(artifact_id)
         if artifact is None:
             return None
+        requested_principal = self._require_effective_principal(principal_id)
+        artifact_principal = str(artifact.principal_id or "").strip()
+        if artifact_principal:
+            if artifact_principal != requested_principal:
+                raise PermissionError("principal_scope_mismatch")
+        else:
+            # Legacy rows created before explicit artifact ownership still fall back to the
+            # linked session scope until the migration/backfill has touched them.
+            session = self.fetch_session_for_principal(artifact.execution_session_id, principal_id=principal_id)
+            if session is None:
+                return None
+            return artifact, session
         session = self.fetch_session_for_principal(artifact.execution_session_id, principal_id=principal_id)
         if session is None:
             return None

@@ -22,6 +22,7 @@ def test_principal_scoped_rewrite_fetch_helpers_enforce_ownership() -> None:
     scoped_artifact = orchestrator.fetch_artifact_for_principal(artifact.artifact_id, principal_id="exec-1")
     assert scoped_artifact is not None
     assert scoped_artifact[0].artifact_id == artifact.artifact_id
+    assert scoped_artifact[0].principal_id == "exec-1"
     assert scoped_artifact[1].session.session_id == session.session.session_id
 
     receipt_id = session.receipts[0].receipt_id

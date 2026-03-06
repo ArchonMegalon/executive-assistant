@@ -26,6 +26,7 @@ class Artifact:
     kind: str
     content: str
     execution_session_id: str
+    principal_id: str
 
 
 @dataclass(frozen=True)

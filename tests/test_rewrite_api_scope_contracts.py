@@ -28,6 +28,11 @@ def test_rewrite_fetch_routes_reject_cross_principal_access() -> None:
     session = owner.get(f"/v1/rewrite/sessions/{payload['execution_session_id']}")
     assert session.status_code == 200
     session_body = session.json()
+    assert payload["principal_id"] == "exec-1"
+    assert session_body["artifacts"][0]["principal_id"] == "exec-1"
+    fetched_artifact = owner.get(f"/v1/rewrite/artifacts/{payload['artifact_id']}")
+    assert fetched_artifact.status_code == 200
+    assert fetched_artifact.json()["principal_id"] == "exec-1"
 
     for path in (
         f"/v1/rewrite/sessions/{payload['execution_session_id']}",

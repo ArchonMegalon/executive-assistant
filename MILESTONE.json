@@ -250,6 +250,17 @@
       "notes": "Rewrite creation/session/artifact/receipt/run-cost routes plus `POST /v1/plans/compile` now derive their effective principal from request context, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches."
     },
     {
+      "name": "artifact_principal_ownership_projection",
+      "status": "tested",
+      "scope": [
+        "artifact_principal_id_domain_field",
+        "artifact_postgres_principal_backfill",
+        "rewrite_artifact_principal_projection",
+        "plan_execute_artifact_principal_projection"
+      ],
+      "notes": "Durable artifacts now persist explicit `principal_id` ownership in domain/storage/API projections, with Postgres backfill plus approved smoke and contract coverage keeping artifact scope self-describing instead of session-join-only."
+    },
+    {
       "name": "session_principal_scoped_human_task_routes",
       "status": "tested",
       "scope": [

@@ -93,6 +93,7 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "tests/test_rewrite_scope_contracts.py" in script
     assert "tests/test_rewrite_api_scope_contracts.py" in script
     assert "tests/test_rewrite_dependency_projection_contracts.py" in script
+    assert "tests/test_tool_execution.py" in script
 
 
 def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
@@ -196,6 +197,43 @@ def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -
     assert "orchestrator.build_artifact" in fallback_test
     assert "orchestrator.execute_task_artifact" in fallback_test
     assert "service.compile_rewrite_intent" in fallback_test
+
+
+def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> None:
+    rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
+    plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
+    artifact_repo = (ROOT / "ea/app/repositories/artifacts_postgres.py").read_text(encoding="utf-8")
+    postgres_test = (ROOT / "tests/test_artifacts_postgres_integration.py").read_text(encoding="utf-8")
+    rewrite_scope_test = (ROOT / "tests/test_rewrite_scope_contracts.py").read_text(encoding="utf-8")
+    rewrite_api_scope_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+
+    assert "principal_id: str" in rewrite_route
+    assert "principal_id: str" in plans_route
+    assert "principal_id TEXT NOT NULL" in artifact_repo
+    assert 'loaded.principal_id == "exec-1"' in postgres_test
+    assert 'scoped_artifact[0].principal_id == "exec-1"' in rewrite_scope_test
+    assert 'payload["principal_id"] == "exec-1"' in rewrite_api_scope_test
+    assert 'body["artifacts"][0]["principal_id"] == "exec-1"' in smoke_test
+    assert 'fetched_artifact.json()["principal_id"] == "exec-1"' in smoke_test
+    assert "first.get('principal_id','')" in smoke_script
+    assert 'match="principal_id_required"' in (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+
+
+def test_artifact_principal_ownership_docs_and_milestone_cover_explicit_scope() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "explicit `principal_id` ownership" in readme
+    assert "explicit `principal_id` ownership" in runbook
+    assert "principal_id ownership" in http_examples
+    assert "explicit `principal_id` ownership" in changelog
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_principal_ownership_projection")
+    assert capability["status"] == "tested"
 
 
 def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:

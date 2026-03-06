@@ -33,6 +33,7 @@ def test_tool_execution_service_executes_builtin_artifact_repository_handler() -
                 "plan_id": "plan-1",
                 "plan_step_key": "step_artifact_save",
             },
+            context_json={"principal_id": "exec-1"},
         )
     )
 
@@ -45,6 +46,7 @@ def test_tool_execution_service_executes_builtin_artifact_repository_handler() -
     saved = artifacts.get(result.target_ref)
     assert saved is not None
     assert saved.content == "draft note"
+    assert saved.principal_id == "exec-1"
 
 
 def test_tool_execution_service_rejects_disabled_tools() -> None:
@@ -70,6 +72,29 @@ def test_tool_execution_service_rejects_disabled_tools() -> None:
                 tool_name="artifact_repository",
                 action_kind="artifact.save",
                 payload_json={"source_text": "draft note"},
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_tool_execution_service_requires_principal_for_artifact_repository_handler() -> None:
+    service = ToolExecutionService(
+        tool_runtime=ToolRuntimeService(
+            tool_registry=InMemoryToolRegistryRepository(),
+            connector_bindings=InMemoryConnectorBindingRepository(),
+        ),
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_id_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-1",
+                step_id="step-1",
+                tool_name="artifact_repository",
+                action_kind="artifact.save",
+                payload_json={"source_text": "draft note"},
+                context_json={},
             )
         )
 

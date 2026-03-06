@@ -64,6 +64,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     payload = create.json()
     artifact_id = payload["artifact_id"]
     session_id = payload["execution_session_id"]
+    assert payload["principal_id"] == "exec-1"
 
     session = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session.status_code == 200
@@ -129,6 +130,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert body["artifacts"][0]["artifact_id"] == payload["artifact_id"]
     assert body["artifacts"][0]["task_key"] == "rewrite_text"
     assert body["artifacts"][0]["deliverable_type"] == "rewrite_note"
+    assert body["artifacts"][0]["principal_id"] == "exec-1"
     assert body["artifacts"][0]["preview_text"] == "smoke"
     assert body["artifacts"][0]["storage_handle"] == f"artifact://{artifact_id}"
     assert len(body["run_costs"]) >= 1
@@ -139,6 +141,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert fetched_artifact.json()["artifact_id"] == artifact_id
     assert fetched_artifact.json()["execution_session_id"] == session_id
     assert fetched_artifact.json()["content"] == "smoke"
+    assert fetched_artifact.json()["principal_id"] == "exec-1"
     assert fetched_artifact.json()["preview_text"] == "smoke"
     assert fetched_artifact.json()["storage_handle"] == f"artifact://{artifact_id}"
     assert fetched_artifact.json()["task_key"] == "rewrite_text"
@@ -2713,6 +2716,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert body["content"] == "Board context and stakeholder sensitivities."
     assert body["execution_session_id"]
     assert body["deliverable_type"] == "stakeholder_briefing"
+    assert body["principal_id"] == "exec-1"
     assert body["preview_text"] == "Board context and stakeholder sensitivities."
     assert body["storage_handle"] == f"artifact://{body['artifact_id']}"
 
@@ -2724,6 +2728,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert session_body["artifacts"][0]["kind"] == "stakeholder_briefing"
     assert session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"
     assert session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"
+    assert session_body["artifacts"][0]["principal_id"] == "exec-1"
     assert session_body["artifacts"][0]["preview_text"] == "Board context and stakeholder sensitivities."
     assert session_body["artifacts"][0]["storage_handle"] == f"artifact://{body['artifact_id']}"
     assert session_body["steps"][2]["input_json"]["plan_step_key"] == "step_artifact_save"
@@ -2734,6 +2739,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert fetched_artifact.status_code == 200
     assert fetched_artifact.json()["task_key"] == "stakeholder_briefing"
     assert fetched_artifact.json()["deliverable_type"] == "stakeholder_briefing"
+    assert fetched_artifact.json()["principal_id"] == "exec-1"
     assert fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."
     assert fetched_artifact.json()["storage_handle"] == f"artifact://{body['artifact_id']}"
 

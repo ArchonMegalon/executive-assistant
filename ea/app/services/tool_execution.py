@@ -115,6 +115,9 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
+        principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
+        if not principal_id:
+            raise ToolExecutionError("principal_id_required")
         source_text = str(payload.get("normalized_text") or payload.get("source_text") or "").strip()
         artifact_kind = str(payload.get("expected_artifact") or "rewrite_note")
         plan_id = str(payload.get("plan_id") or "")
@@ -124,6 +127,7 @@ class ToolExecutionService:
             kind=artifact_kind,
             content=source_text,
             execution_session_id=request.session_id,
+            principal_id=principal_id,
         )
         self._artifacts.save(artifact)
         return ToolInvocationResult(
@@ -136,6 +140,7 @@ class ToolExecutionService:
                 "content_length": len(source_text),
                 "plan_id": plan_id,
                 "plan_step_key": plan_step_key,
+                "principal_id": artifact.principal_id,
                 "tool_name": definition.tool_name,
                 "action_kind": str(request.action_kind or "artifact.save") or "artifact.save",
             },
@@ -146,6 +151,7 @@ class ToolExecutionService:
                 "invocation_contract": "tool.v1",
                 "plan_id": plan_id,
                 "plan_step_key": plan_step_key,
+                "principal_id": artifact.principal_id,
                 "tool_version": definition.version,
             },
             artifacts=(artifact,),

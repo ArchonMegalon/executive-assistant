@@ -48,6 +48,7 @@ class PostgresArtifactRepository:
                         artifact_id TEXT PRIMARY KEY,
                         tenant_id TEXT NOT NULL,
                         session_id TEXT NOT NULL,
+                        principal_id TEXT NOT NULL,
                         artifact_type TEXT NOT NULL,
                         mime_type TEXT NOT NULL,
                         storage_uri TEXT NOT NULL,
@@ -63,6 +64,40 @@ class PostgresArtifactRepository:
                     ON artifacts(session_id, created_at DESC)
                     """
                 )
+                cur.execute(
+                    """
+                    ALTER TABLE artifacts
+                    ADD COLUMN IF NOT EXISTS principal_id TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    UPDATE artifacts
+                    SET principal_id = COALESCE(NULLIF(principal_id, ''), COALESCE(metadata_json->>'principal_id', ''), '')
+                    WHERE principal_id IS NULL OR principal_id = ''
+                    """
+                )
+                cur.execute(
+                    """
+                    DO $$
+                    BEGIN
+                        IF to_regclass('public.execution_sessions') IS NOT NULL THEN
+                            UPDATE artifacts AS a
+                            SET principal_id = COALESCE(NULLIF(a.principal_id, ''), COALESCE(es.intent_json->>'principal_id', ''))
+                            FROM execution_sessions AS es
+                            WHERE a.session_id = es.session_id
+                              AND COALESCE(a.principal_id, '') = '';
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_artifacts_principal_created
+                    ON artifacts(principal_id, created_at DESC)
+                    """
+                )
 
     def _path_for(self, artifact_id: str) -> Path:
         return self._artifacts_dir / f"{artifact_id}.txt"
@@ -76,10 +111,11 @@ class PostgresArtifactRepository:
                 cur.execute(
                     """
                     INSERT INTO artifacts
-                    (artifact_id, tenant_id, session_id, artifact_type, mime_type, storage_uri, metadata_json, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (artifact_id, tenant_id, session_id, principal_id, artifact_type, mime_type, storage_uri, metadata_json, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (artifact_id) DO UPDATE
                     SET session_id = EXCLUDED.session_id,
+                        principal_id = EXCLUDED.principal_id,
                         artifact_type = EXCLUDED.artifact_type,
                         mime_type = EXCLUDED.mime_type,
                         storage_uri = EXCLUDED.storage_uri,
@@ -90,12 +126,14 @@ class PostgresArtifactRepository:
                         artifact.artifact_id,
                         self._tenant_id,
                         artifact.execution_session_id,
+                        artifact.principal_id,
                         artifact.kind,
                         "text/plain",
                         _file_uri(path),
                         self._json_value(
                             {
                                 "execution_session_id": artifact.execution_session_id,
+                                "principal_id": artifact.principal_id,
                                 "artifact_kind": artifact.kind,
                             }
                         ),
@@ -112,7 +150,7 @@ class PostgresArtifactRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT artifact_id, session_id, artifact_type, storage_uri
+                    SELECT artifact_id, session_id, principal_id, artifact_type, storage_uri
                     FROM artifacts
                     WHERE artifact_id = %s AND tenant_id = %s
                     """,
@@ -121,7 +159,7 @@ class PostgresArtifactRepository:
                 row = cur.fetchone()
         if not row:
             return None
-        found_id, session_id, artifact_type, storage_uri = row
+        found_id, session_id, principal_id, artifact_type, storage_uri = row
         path = _path_from_uri(str(storage_uri or ""))
         if not path.exists():
             return None
@@ -131,6 +169,7 @@ class PostgresArtifactRepository:
             kind=str(artifact_type),
             content=content,
             execution_session_id=str(session_id),
+            principal_id=str(principal_id or ""),
         )
 
     def list_for_session(self, session_id: str) -> list[Artifact]:
@@ -141,7 +180,7 @@ class PostgresArtifactRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT artifact_id, session_id, artifact_type, storage_uri
+                    SELECT artifact_id, session_id, principal_id, artifact_type, storage_uri
                     FROM artifacts
                     WHERE session_id = %s AND tenant_id = %s
                     ORDER BY created_at ASC, artifact_id ASC
@@ -150,7 +189,7 @@ class PostgresArtifactRepository:
                 )
                 rows = cur.fetchall()
         out: list[Artifact] = []
-        for found_id, found_session_id, artifact_type, storage_uri in rows:
+        for found_id, found_session_id, principal_id, artifact_type, storage_uri in rows:
             path = _path_from_uri(str(storage_uri or ""))
             if not path.exists():
                 continue
@@ -161,6 +200,7 @@ class PostgresArtifactRepository:
                     kind=str(artifact_type),
                     content=content,
                     execution_session_id=str(found_session_id),
+                    principal_id=str(principal_id or ""),
                 )
             )
         return out

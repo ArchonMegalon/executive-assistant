@@ -27,6 +27,7 @@ class RewriteOut(BaseModel):
     preview_text: str = ""
     storage_handle: str = ""
     execution_session_id: str
+    principal_id: str
     task_key: str = ""
     deliverable_type: str = ""
 
@@ -172,6 +173,7 @@ class SessionArtifactOut(BaseModel):
     preview_text: str = ""
     storage_handle: str = ""
     execution_session_id: str
+    principal_id: str
     task_key: str = ""
     deliverable_type: str = ""
 
@@ -382,6 +384,7 @@ def create_artifact(
         preview_text=_artifact_preview_text(artifact.content),
         storage_handle=_artifact_storage_handle(artifact.artifact_id),
         execution_session_id=artifact.execution_session_id,
+        principal_id=artifact.principal_id,
         task_key=session.session.intent.task_type if session is not None else "rewrite_text",
         deliverable_type=session.session.intent.deliverable_type if session is not None else artifact.kind,
     )
@@ -502,6 +505,7 @@ def get_session(
                 preview_text=_artifact_preview_text(a.content),
                 storage_handle=_artifact_storage_handle(a.artifact_id),
                 execution_session_id=a.execution_session_id,
+                principal_id=a.principal_id,
                 task_key=session.intent.task_type,
                 deliverable_type=session.intent.deliverable_type,
             )
@@ -584,6 +588,7 @@ def get_artifact(
         preview_text=_artifact_preview_text(found.content),
         storage_handle=_artifact_storage_handle(found.artifact_id),
         execution_session_id=found.execution_session_id,
+        principal_id=found.principal_id,
         task_key=session.session.intent.task_type,
         deliverable_type=session.session.intent.deliverable_type,
     )
