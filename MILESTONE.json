@@ -980,6 +980,16 @@
         "generic_async_queue_identity_before_completion"
       ],
       "notes": "Pending/history approval rows, approval decision responses, and human-task queue/detail payloads now return the originating task key and deliverable type for generic async task runs before completion."
+    },
+    {
+      "name": "human_task_assignment_history_task_identity_projection",
+      "status": "tested",
+      "scope": [
+        "human_task_assignment_history_task_key",
+        "human_task_assignment_history_deliverable_type",
+        "generic_assignment_history_identity_before_completion"
+      ],
+      "notes": "Direct human-task assignment-history rows now return the originating task key and deliverable type too, so operator transition logs stay self-describing for generic paused task runs."
     }
   ],
   "migrations": [

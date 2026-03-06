@@ -473,8 +473,8 @@ if [[ "${HUMAN_RETURN_SUMMARY_FIELDS}" != "human_task_returned|True|returned|ope
   fail 12 "policy contract mismatch"
 fi
 HUMAN_HISTORY_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history?limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-HUMAN_HISTORY_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names=[(row or {}).get('event_name','') for row in rows]; operators=[(row or {}).get('assigned_operator_id','') for row in rows]; sources=[(row or {}).get('assignment_source','') for row in rows]; actors=[(row or {}).get('assigned_by_actor_id','') for row in rows]; print('{}|{}|{}|{}'.format(','.join(names), ','.join(operators), ','.join(sources), ','.join(actors)))" <<<"${HUMAN_HISTORY_JSON}")"
-if [[ "${HUMAN_HISTORY_FIELDS}" != "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned|,operator-specialist,operator-junior,operator-junior,operator-junior|,recommended,manual,manual,manual|,exec-1,exec-1,operator-junior,operator-junior" ]]; then
+HUMAN_HISTORY_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names=[(row or {}).get('event_name','') for row in rows]; operators=[(row or {}).get('assigned_operator_id','') for row in rows]; sources=[(row or {}).get('assignment_source','') for row in rows]; actors=[(row or {}).get('assigned_by_actor_id','') for row in rows]; task_keys={((row or {}).get('task_key','')) for row in rows}; deliverables={((row or {}).get('deliverable_type','')) for row in rows}; print('{}|{}|{}|{}|{}|{}'.format(','.join(names), ','.join(operators), ','.join(sources), ','.join(actors), ','.join(sorted(task_keys)), ','.join(sorted(deliverables))))" <<<"${HUMAN_HISTORY_JSON}")"
+if [[ "${HUMAN_HISTORY_FIELDS}" != "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned|,operator-specialist,operator-junior,operator-junior,operator-junior|,recommended,manual,manual,manual|,exec-1,exec-1,operator-junior,operator-junior|rewrite_text|rewrite_note" ]]; then
   echo "expected task-scoped assignment-history endpoint to preserve both recommended and later manual owner transitions; got ${HUMAN_HISTORY_FIELDS}" >&2
   echo "${HUMAN_HISTORY_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -1461,6 +1461,11 @@ fi
 GENERIC_HUMAN_DETAIL_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/${GENERIC_HUMAN_TASK_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('status','')))" )"
 if [[ "${GENERIC_HUMAN_DETAIL_FIELDS}" != "stakeholder_briefing_review|stakeholder_briefing|pending" ]]; then
   echo "expected human task detail projection to carry generic task identity before completion; got ${GENERIC_HUMAN_DETAIL_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+GENERIC_HUMAN_HISTORY_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/${GENERIC_HUMAN_TASK_ID}/assignment-history?limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); first=(rows[0] if rows else {}); print('{}|{}|{}'.format(first.get('task_key',''), first.get('deliverable_type',''), first.get('event_name','')))" )"
+if [[ "${GENERIC_HUMAN_HISTORY_FIELDS}" != "stakeholder_briefing_review|stakeholder_briefing|human_task_created" ]]; then
+  echo "expected human task assignment-history projection to carry generic task identity before completion; got ${GENERIC_HUMAN_HISTORY_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 GENERIC_HUMAN_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${GENERIC_HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \

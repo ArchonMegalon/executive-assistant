@@ -294,6 +294,7 @@ X-EA-Principal-ID: {{principal_id}}
 }
 
 ### Human tasks -> assignment history
+### Human tasks -> assignment history (includes originating task_key and deliverable_type)
 GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20
 X-EA-Principal-ID: {{principal_id}}
 

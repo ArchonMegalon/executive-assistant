@@ -84,6 +84,8 @@ class HumanTaskAssignmentHistoryOut(BaseModel):
     session_id: str
     human_task_id: str
     step_id: str | None
+    task_key: str = ""
+    deliverable_type: str = ""
     event_name: str
     assignment_state: str
     assigned_operator_id: str
@@ -211,13 +213,20 @@ def _to_operator_out(row) -> OperatorProfileOut:  # type: ignore[no-untyped-def]
     )
 
 
-def _to_assignment_history_out(event) -> HumanTaskAssignmentHistoryOut:  # type: ignore[no-untyped-def]
+def _to_assignment_history_out(
+    event,
+    *,
+    task_key: str = "",
+    deliverable_type: str = "",
+) -> HumanTaskAssignmentHistoryOut:  # type: ignore[no-untyped-def]
     payload = dict(getattr(event, "payload", {}) or {})
     return HumanTaskAssignmentHistoryOut(
         event_id=event.event_id,
         session_id=event.session_id,
         human_task_id=str(payload.get("human_task_id") or ""),
         step_id=str(payload.get("step_id") or "") or None,
+        task_key=task_key,
+        deliverable_type=deliverable_type,
         event_name=event.name,
         assignment_state=str(payload.get("assignment_state") or ""),
         assigned_operator_id=str(payload.get("assigned_operator_id") or payload.get("operator_id") or ""),
@@ -540,6 +549,7 @@ def get_human_task_assignment_history(
     found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if found is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
+    task_key, deliverable_type = _session_task_identity(container, found.session_id)
     rows = container.orchestrator.list_human_task_assignment_history(
         human_task_id,
         principal_id=context.principal_id,
@@ -549,7 +559,14 @@ def get_human_task_assignment_history(
         assignment_source=assignment_source,
         limit=limit,
     )
-    return [_to_assignment_history_out(row) for row in rows]
+    return [
+        _to_assignment_history_out(
+            row,
+            task_key=task_key,
+            deliverable_type=deliverable_type,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/{human_task_id}")

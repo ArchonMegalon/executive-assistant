@@ -1054,6 +1054,30 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_task_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'assignment-history` exposes task-scoped ownership transitions, now carries originating task identity too' "README.md" && \
+     grep -Fq 'those direct history rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
+     grep -Fq 'assignment history (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'GENERIC_HUMAN_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'review_history.json()[0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py"; then
+    echo "ok: human task assignment-history task identity docs"
+  else
+    echo "missing: human task assignment-history task identity docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task assignment-history task identity milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
 assert capability["status"] == "tested"
 PY
