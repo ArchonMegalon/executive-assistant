@@ -173,7 +173,8 @@ class InMemoryHumanTaskRepository:
         }
         operator_filter = str(assigned_operator_id or "").strip()
         assignment_filter = str(assignment_state or "").strip().lower()
-        n = max(1, min(500, int(limit or 50)))
+        raw_limit = int(limit or 0)
+        n = max(1, min(500, raw_limit)) if raw_limit > 0 else 0
         rows = [self._rows[row_id] for row_id in reversed(self._order) if row_id in self._rows]
         rows = [row for row in rows if row.principal_id == principal]
         if status_filter:
@@ -202,6 +203,8 @@ class InMemoryHumanTaskRepository:
                 if due <= now:
                     overdue_rows.append(row)
             rows = overdue_rows
+        if n <= 0:
+            return rows
         return rows[:n]
 
     def list_for_session(self, session_id: str, *, limit: int = 200) -> list[HumanTask]:

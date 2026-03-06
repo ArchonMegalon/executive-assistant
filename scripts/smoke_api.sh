@@ -614,7 +614,42 @@ if [[ "${PRIORITY_SUMMARY_ASSIGNED_FIELDS}" != "${PRIORITY_SUMMARY_OPERATOR}|1|h
   echo "${PRIORITY_SUMMARY_ASSIGNED_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-rm -f /tmp/ea_priority_summary_urgent.json /tmp/ea_priority_summary_high_unassigned.json /tmp/ea_priority_summary_normal.json
+PRIORITY_SUMMARY_MATCH_ROLE="matched_priority_summary_reviewer"
+PRIORITY_SUMMARY_SCHED_ROLE="matched_priority_summary_scheduler"
+curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"operator_id\":\"operator-specialist-summary\",\"display_name\":\"Senior Comms Reviewer\",\"roles\":[\"${PRIORITY_SUMMARY_MATCH_ROLE}\"],\"skill_tags\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"],\"trust_tier\":\"senior\",\"status\":\"active\"}" >/dev/null
+curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"operator_id\":\"operator-junior-summary\",\"display_name\":\"Junior Reviewer\",\"roles\":[\"${PRIORITY_SUMMARY_MATCH_ROLE}\"],\"skill_tags\":[\"tone\"],\"trust_tier\":\"standard\",\"status\":\"active\"}" >/dev/null
+curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"operator_id\":\"operator-scheduler-summary\",\"display_name\":\"Scheduler\",\"roles\":[\"${PRIORITY_SUMMARY_SCHED_ROLE}\"],\"skill_tags\":[\"calendar\"],\"trust_tier\":\"standard\",\"status\":\"active\"}" >/dev/null
+curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"Urgent specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"urgent\",\"resume_session_on_return\":false}" >/tmp/ea_priority_summary_match_urgent.json
+curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_MATCH_ROLE}\",\"brief\":\"High specialist-only task.\",\"authority_required\":\"send_on_behalf_review\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"priority\":\"high\",\"resume_session_on_return\":false}" >/tmp/ea_priority_summary_match_high.json
+curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"schedule_review\",\"role_required\":\"${PRIORITY_SUMMARY_SCHED_ROLE}\",\"brief\":\"Normal scheduler task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}" >/tmp/ea_priority_summary_match_scheduler.json
+PRIORITY_SUMMARY_MATCHED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist-summary" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SUMMARY_MATCHED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('operator_id',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" <<<"${PRIORITY_SUMMARY_MATCHED_JSON}")"
+if [[ "${PRIORITY_SUMMARY_MATCHED_FIELDS}" != "operator-specialist-summary|2|urgent|1|1|0|0" ]]; then
+  echo "expected operator-matched priority summary to count only specialist-ready unclaimed work; got ${PRIORITY_SUMMARY_MATCHED_FIELDS}" >&2
+  echo "${PRIORITY_SUMMARY_MATCHED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SUMMARY_MATCHED_LOW_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-junior-summary" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SUMMARY_MATCHED_LOW_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('operator_id',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" <<<"${PRIORITY_SUMMARY_MATCHED_LOW_JSON}")"
+if [[ "${PRIORITY_SUMMARY_MATCHED_LOW_FIELDS}" != "operator-junior-summary|0||0|0|0|0" ]]; then
+  echo "expected operator-matched priority summary to exclude under-skilled or under-trust reviewers; got ${PRIORITY_SUMMARY_MATCHED_LOW_FIELDS}" >&2
+  echo "${PRIORITY_SUMMARY_MATCHED_LOW_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SUMMARY_MATCHED_SCHED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-scheduler-summary" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SUMMARY_MATCHED_SCHED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('operator_id',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" <<<"${PRIORITY_SUMMARY_MATCHED_SCHED_JSON}")"
+if [[ "${PRIORITY_SUMMARY_MATCHED_SCHED_FIELDS}" != "operator-scheduler-summary|1|normal|0|0|1|0" ]]; then
+  echo "expected operator-matched priority summary to isolate scheduler-role work separately from comms review packets; got ${PRIORITY_SUMMARY_MATCHED_SCHED_FIELDS}" >&2
+  echo "${PRIORITY_SUMMARY_MATCHED_SCHED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+rm -f /tmp/ea_priority_summary_urgent.json /tmp/ea_priority_summary_high_unassigned.json /tmp/ea_priority_summary_normal.json /tmp/ea_priority_summary_match_urgent.json /tmp/ea_priority_summary_match_high.json /tmp/ea_priority_summary_match_scheduler.json
 echo "human task priority summary ok"
 
 echo "== smoke: human task SLA sort =="

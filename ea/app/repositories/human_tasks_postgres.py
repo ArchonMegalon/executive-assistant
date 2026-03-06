@@ -319,7 +319,8 @@ class PostgresHumanTaskRepository:
         )
         operator_filter = str(assigned_operator_id or "").strip()
         assignment_filter = str(assignment_state or "").strip().lower()
-        n = max(1, min(500, int(limit or 50)))
+        raw_limit = int(limit or 0)
+        n = max(1, min(500, raw_limit)) if raw_limit > 0 else 0
         clauses = ["principal_id = %s"]
         params: list[object] = [principal]
         if status_filter:
@@ -340,7 +341,10 @@ class PostgresHumanTaskRepository:
         if overdue_only:
             clauses.append("sla_due_at IS NOT NULL")
             clauses.append("sla_due_at <= NOW()")
-        params.append(n)
+        limit_clause = ""
+        if n > 0:
+            params.append(n)
+            limit_clause = "\n                    LIMIT %s"
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -352,7 +356,7 @@ class PostgresHumanTaskRepository:
                     FROM human_tasks
                     WHERE {' AND '.join(clauses)}
                     ORDER BY created_at DESC, human_task_id DESC
-                    LIMIT %s
+                    {limit_clause}
                     """,
                     tuple(params),
                 )

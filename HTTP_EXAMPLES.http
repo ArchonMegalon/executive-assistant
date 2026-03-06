@@ -168,7 +168,11 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer
 X-EA-Principal-ID: {{principal_id}}
 
-### Human tasks -> priority summary for one assigned operator queue
+### Human tasks -> priority summary for an exact operator-profile match queue
+GET {{host}}/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> priority summary for one assigned reviewer queue
 GET {{host}}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator
 X-EA-Principal-ID: {{principal_id}}
 

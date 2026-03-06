@@ -625,6 +625,16 @@
         "assigned_reviewer_queue_counts"
       ],
       "notes": "Human task priority summaries now accept `assigned_operator_id`, so assigned reviewer queues can expose their own urgent/high/normal totals without fetching the full packet list."
+    },
+    {
+      "name": "human_task_operator_matched_priority_summary",
+      "status": "tested",
+      "scope": [
+        "priority_summary_operator_profile_filter",
+        "role_skill_trust_filtered_backlog_counts",
+        "preclaim_reviewer_routing_band_projection"
+      ],
+      "notes": "Human task priority summaries now accept `operator_id`, so pre-claim reviewer-routing dashboards can count only the pending packets that exactly match one operator profile's role, rubric-derived skill tags, and trust tier."
     }
   ],
   "migrations": [

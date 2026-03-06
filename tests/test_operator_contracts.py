@@ -792,6 +792,31 @@ def test_human_task_assigned_priority_summary_is_documented_and_smoked() -> None
     assert "mine_queue_priority_band_projection" in capability["scope"]
 
 
+def test_human_task_operator_matched_priority_summary_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "also accepts `operator_id`" in readme
+    assert "operator_id" in runbook
+    assert "PRIORITY_SUMMARY_MATCHED_JSON" in smoke_api
+    assert "PRIORITY_SUMMARY_MATCHED_FIELDS" in smoke_api
+    assert 'params={' in smoke_runtime
+    assert '"operator_id": "operator-specialist-summary"' in smoke_runtime
+    assert "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist" in http_examples
+    assert "operator_id: str" in human_route
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_matched_priority_summary"
+    )
+    assert capability["status"] == "tested"
+    assert "role_skill_trust_filtered_backlog_counts" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

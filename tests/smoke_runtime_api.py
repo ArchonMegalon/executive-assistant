@@ -1311,6 +1311,138 @@ def test_human_task_priority_summary_for_assigned_operator() -> None:
     assert body["counts_json"]["normal"] == 0
 
 
+def test_human_task_priority_summary_for_matching_operator_profile() -> None:
+    client = _client(storage_backend="memory")
+    create = client.post("/v1/rewrite/artifact", json={"text": "operator-matched priority summary seed"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    step_id = session.json()["steps"][-1]["step_id"]
+
+    specialist = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-specialist-summary",
+            "display_name": "Senior Comms Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
+            "trust_tier": "senior",
+            "status": "active",
+        },
+    )
+    assert specialist.status_code == 200
+    junior = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-junior-summary",
+            "display_name": "Junior Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert junior.status_code == 200
+    scheduler = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-scheduler-summary",
+            "display_name": "Scheduler",
+            "roles": ["schedule_coordinator"],
+            "skill_tags": ["calendar"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert scheduler.status_code == 200
+
+    for priority in ("urgent", "high"):
+        response = client.post(
+            "/v1/human/tasks",
+            json={
+                "session_id": session_id,
+                "step_id": step_id,
+                "task_type": "communications_review",
+                "role_required": "communications_reviewer",
+                "brief": f"{priority.title()} specialist-only task.",
+                "authority_required": "send_on_behalf_review",
+                "quality_rubric_json": {
+                    "checks": ["tone", "accuracy", "stakeholder_sensitivity"],
+                },
+                "priority": priority,
+                "resume_session_on_return": False,
+            },
+        )
+        assert response.status_code == 200
+
+    scheduler_task = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "schedule_review",
+            "role_required": "schedule_coordinator",
+            "brief": "Normal scheduling task.",
+            "priority": "normal",
+            "resume_session_on_return": False,
+        },
+    )
+    assert scheduler_task.status_code == 200
+
+    specialist_summary = client.get(
+        "/v1/human/tasks/priority-summary",
+        params={
+            "status": "pending",
+            "assignment_state": "unassigned",
+            "operator_id": "operator-specialist-summary",
+        },
+    )
+    assert specialist_summary.status_code == 200
+    specialist_body = specialist_summary.json()
+    assert specialist_body["operator_id"] == "operator-specialist-summary"
+    assert specialist_body["total"] == 2
+    assert specialist_body["highest_priority"] == "urgent"
+    assert specialist_body["counts_json"]["urgent"] == 1
+    assert specialist_body["counts_json"]["high"] == 1
+    assert specialist_body["counts_json"]["normal"] == 0
+
+    junior_summary = client.get(
+        "/v1/human/tasks/priority-summary",
+        params={
+            "status": "pending",
+            "assignment_state": "unassigned",
+            "operator_id": "operator-junior-summary",
+        },
+    )
+    assert junior_summary.status_code == 200
+    junior_body = junior_summary.json()
+    assert junior_body["operator_id"] == "operator-junior-summary"
+    assert junior_body["total"] == 0
+    assert junior_body["highest_priority"] == ""
+    assert junior_body["counts_json"]["urgent"] == 0
+    assert junior_body["counts_json"]["high"] == 0
+    assert junior_body["counts_json"]["normal"] == 0
+
+    scheduler_summary = client.get(
+        "/v1/human/tasks/priority-summary",
+        params={
+            "status": "pending",
+            "assignment_state": "unassigned",
+            "operator_id": "operator-scheduler-summary",
+        },
+    )
+    assert scheduler_summary.status_code == 200
+    scheduler_body = scheduler_summary.json()
+    assert scheduler_body["operator_id"] == "operator-scheduler-summary"
+    assert scheduler_body["total"] == 1
+    assert scheduler_body["highest_priority"] == "normal"
+    assert scheduler_body["counts_json"]["urgent"] == 0
+    assert scheduler_body["counts_json"]["high"] == 0
+    assert scheduler_body["counts_json"]["normal"] == 1
+
+
 def test_human_task_sort_by_sla_due_at_asc() -> None:
     client = _client(storage_backend="memory")
     create = client.post("/v1/rewrite/artifact", json={"text": "sla sort seed"})

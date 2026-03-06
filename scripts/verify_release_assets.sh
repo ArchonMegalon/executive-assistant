@@ -1810,6 +1810,32 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_matched_priority_summary")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "also accepts \`operator_id\`" "README.md" && \
+     grep -Fq "operator_id" "RUNBOOK.md" && \
+     grep -Fq "PRIORITY_SUMMARY_MATCHED_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "PRIORITY_SUMMARY_MATCHED_FIELDS" "scripts/smoke_api.sh" && \
+     grep -Fq '"operator_id": "operator-specialist-summary"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist" "HTTP_EXAMPLES.http" && \
+     grep -Fq "operator_id: str" "ea/app/api/routes/human.py"; then
+    echo "ok: human task operator-matched priority summary docs"
+  else
+    echo "missing: human task operator-matched priority summary docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task operator-matched priority summary milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

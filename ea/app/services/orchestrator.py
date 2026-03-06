@@ -1175,18 +1175,41 @@ class RewriteOrchestrator:
         principal_id: str,
         status: str = "pending",
         role_required: str | None = None,
+        operator_id: str | None = None,
         assigned_operator_id: str | None = None,
         assignment_state: str | None = None,
         overdue_only: bool = False,
     ) -> dict[str, object]:
-        counts = self._human_tasks.count_by_priority_for_principal(
-            principal_id,
-            status=status,
-            role_required=role_required,
-            assigned_operator_id=assigned_operator_id,
-            assignment_state=assignment_state,
-            overdue_only=overdue_only,
-        )
+        resolved_operator_id = str(operator_id or "").strip()
+        if resolved_operator_id:
+            profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+            if profile is None:
+                counts: dict[str, int] = {}
+            else:
+                rows = self._human_tasks.list_for_principal(
+                    principal_id,
+                    status=status,
+                    role_required=role_required,
+                    assigned_operator_id=assigned_operator_id,
+                    assignment_state=assignment_state,
+                    overdue_only=overdue_only,
+                    limit=0,
+                )
+                counts = {}
+                for row in rows:
+                    if not self._operator_matches_human_task(profile, row):
+                        continue
+                    key = str(row.priority or "").strip().lower() or "normal"
+                    counts[key] = counts.get(key, 0) + 1
+        else:
+            counts = self._human_tasks.count_by_priority_for_principal(
+                principal_id,
+                status=status,
+                role_required=role_required,
+                assigned_operator_id=assigned_operator_id,
+                assignment_state=assignment_state,
+                overdue_only=overdue_only,
+            )
         normalized = {
             "urgent": int(counts.get("urgent", 0)),
             "high": int(counts.get("high", 0)),
@@ -1203,6 +1226,7 @@ class RewriteOrchestrator:
         return {
             "status": status,
             "role_required": str(role_required or ""),
+            "operator_id": resolved_operator_id,
             "assigned_operator_id": str(assigned_operator_id or ""),
             "assignment_state": str(assignment_state or ""),
             "overdue_only": bool(overdue_only),

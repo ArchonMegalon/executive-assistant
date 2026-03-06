@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-215 | P1 | Add role-match-aware priority summaries for operator backlog routing so reviewers can see candidate urgent/high load before claiming work | codex | queued | Assigned-operator summaries now exist, but reviewer-routing backlog summaries still cannot count only packets that match an operator profile’s role/skill/trust constraints before claim |
+| Q-216 | P1 | Add assignment-source filters on human task priority summaries so operator dashboards can separate auto-preselected, manual-assigned, and ownerless load before claim | codex | queued | Operator-matched summaries now exist, but routing dashboards still cannot isolate recommended/auto-preselected pending packets from manual or ownerless backlog in one summary projection |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-215 | P1 | Add role-match-aware priority summaries for operator backlog routing so reviewers can see candidate urgent/high load before claiming work | codex | done | `GET /v1/human/tasks/priority-summary` now accepts `operator_id`, and approved smoke coverage proves pre-claim reviewer-routing summaries can count only packets that exactly match one operator profile’s role, rubric-derived skill tags, and trust tier |
 | D-214 | P1 | Add operator-specific priority summaries so `mine` queues can expose urgent/high/normal load after reviewer-assignment filters | codex | done | `GET /v1/human/tasks/priority-summary` now accepts `assigned_operator_id`, and approved smoke coverage proves assigned reviewer queues can inspect their own priority-band totals without fetching the full packet list |
 | D-213 | P1 | Add priority summary counts on operator human-task queues so reviewers can see urgent/high/normal load before applying queue filters | codex | done | Added `GET /v1/human/tasks/priority-summary`, backed by repository priority counts and approved smoke coverage, so operators can inspect band totals before choosing `urgent`, `urgent,high`, or full-queue views |
 | D-212 | P1 | Add comma-separated priority filters on operator human-task queues so reviewers can pull urgent and high work together without client-side merging | codex | done | Human task list/backlog/unassigned/mine endpoints now accept comma-separated `priority` filters such as `urgent,high`, and approved smoke coverage proves combined priority-band queues stay ordered correctly without client-side union logic |

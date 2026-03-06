@@ -119,6 +119,7 @@ class OperatorProfileOut(BaseModel):
 class HumanTaskPrioritySummaryOut(BaseModel):
     status: str
     role_required: str
+    operator_id: str
     assigned_operator_id: str
     assignment_state: str
     overdue_only: bool
@@ -268,6 +269,7 @@ def get_human_task_priority_summary(
     principal_id: str | None = None,
     status: str = "pending",
     role_required: str | None = None,
+    operator_id: str | None = None,
     assigned_operator_id: str | None = None,
     assignment_state: str | None = None,
     overdue_only: bool = False,
@@ -280,6 +282,7 @@ def get_human_task_priority_summary(
             principal_id=resolved_principal,
             status=status,
             role_required=role_required,
+            operator_id=operator_id,
             assigned_operator_id=assigned_operator_id,
             assignment_state=assignment_state,
             overdue_only=overdue_only,

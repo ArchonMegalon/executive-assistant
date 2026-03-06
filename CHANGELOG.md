@@ -38,6 +38,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Added `POST /v1/human/tasks/{human_task_id}/assign` so operator ownership can be set while a task remains pending, before `claim` transitions it into active work.
 - Added `GET /v1/human/tasks/unassigned` plus `assignment_state=assigned|unassigned` backlog filters so ownerless pending work is distinct from pre-assigned pending work.
 - Human task payloads now expose explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) instead of requiring callers to infer pre-assigned pending work from generic `pending` status plus owner fields.
+- `GET /v1/human/tasks/priority-summary` now also accepts `operator_id`, so pre-claim reviewer-routing summaries can count only the pending packets that exactly match one operator profile’s role, rubric-derived skill tags, and trust tier.
 
 ## 2026-03-05
 
