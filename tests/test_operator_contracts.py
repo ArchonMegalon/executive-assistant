@@ -842,6 +842,27 @@ def test_human_task_assignment_source_priority_summary_is_documented_and_smoked(
     assert "manual_vs_auto_preselected_pending_projection" in capability["scope"]
 
 
+def test_human_task_priority_summary_mixed_source_non_ownerless_isolation_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "rechecked after extra ownerless rows are added" in readme
+    assert "rechecked after extra ownerless rows are added" in runbook
+    assert "PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS" in smoke_api
+    assert "HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS" in smoke_api
+
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "human_task_priority_summary_mixed_source_non_ownerless_isolation"
+    )
+    assert capability["status"] == "tested"
+    assert "manual_summary_after_ownerless_churn" in capability["scope"]
+    assert "auto_preselected_summary_after_ownerless_churn" in capability["scope"]
+
+
 def test_human_task_assignment_source_queue_filters_are_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

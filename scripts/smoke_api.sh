@@ -842,6 +842,13 @@ if [[ "${PRIORITY_SUMMARY_MANUAL_SESSION_FIELDS}" != "True" ]]; then
   echo "${PRIORITY_SUMMARY_MANUAL_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SUMMARY_SESSION_ID}\",\"step_id\":\"${PRIORITY_SUMMARY_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_SUMMARY_ROLE}\",\"brief\":\"Ownerless low task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >/tmp/ea_priority_summary_ownerless_low.json
+PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&role_required=${PRIORITY_SUMMARY_ROLE}&assignment_source=manual" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('assignment_source',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" )"
+if [[ "${PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS}" != "manual|1|high|0|1|0|0" ]]; then
+  echo "expected manual assignment_source summary to stay isolated after extra ownerless rows are added; got ${PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
 PRIORITY_SUMMARY_MATCH_ROLE="matched_priority_summary_reviewer"
 PRIORITY_SUMMARY_SCHED_ROLE="matched_priority_summary_scheduler"
 curl -fsS -X POST "${BASE}/v1/human/tasks/operators" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
@@ -1366,6 +1373,13 @@ HUMAN_REWRITE_AUTO_SUMMARY_FIELDS="$(python3 -c "import json,sys; body=json.load
 if [[ "${HUMAN_REWRITE_AUTO_SUMMARY_FIELDS}" != "auto_preselected|1|high|0|1|0|0" ]]; then
   echo "expected assignment-source priority summary to isolate planner auto-preselected pending work; got ${HUMAN_REWRITE_AUTO_SUMMARY_FIELDS}" >&2
   echo "${HUMAN_REWRITE_AUTO_SUMMARY_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${HUMAN_REWRITE_SESSION_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Ownerless mixed-source review task.\",\"priority\":\"low\",\"resume_session_on_return\":false}" >/tmp/ea_human_rewrite_ownerless_low.json
+HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&assignment_source=auto_preselected" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); counts=body.get('counts_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('assignment_source',''), body.get('total',''), body.get('highest_priority',''), counts.get('urgent',''), counts.get('high',''), counts.get('normal',''), counts.get('low','')))" )"
+if [[ "${HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS}" != "auto_preselected|1|high|0|1|0|0" ]]; then
+  echo "expected auto_preselected assignment_source summary to stay isolated after extra ownerless rows are added; got ${HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_REWRITE_AUTO_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?operator_id=operator-specialist&assignment_source=auto_preselected&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"

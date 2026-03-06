@@ -133,6 +133,7 @@ Policy notes:
 - Operator queue views can also pass `priority=urgent|high|normal|low` to isolate one priority band before applying any of the queue sort modes above.
 - Operator queue views can also pass comma-separated filters like `priority=urgent,high` to pull a combined action queue without client-side set merging.
 - Operator queue views can also pass `assignment_source=manual|recommended|auto_preselected` to open just one pending ownership slice instead of filtering manual or planner-preselected rows client-side after fetch.
+- Manual and planner auto-preselected `priority-summary?assignment_source=...` slices are now also rechecked after extra ownerless rows are added, so mixed-source churn does not leak ownerless work into non-ownerless summary counts.
 - `GET /v1/human/tasks/unassigned?assignment_source=none` isolates ownerless pending packets directly, so UIs do not need empty-string query conventions to open the unassigned-only backlog.
 - `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none` exposes that same ownerless slice through the general pending backlog endpoint, so direct backlog and unassigned-only queues share one contract.
 - `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc` keeps that ownerless slice in explicit FIFO order, so reviewer triage can pull oldest untouched ownerless work first.

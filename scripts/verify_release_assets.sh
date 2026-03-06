@@ -1896,6 +1896,33 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(
+    entry
+    for entry in milestone["capabilities"]
+    if entry["name"] == "human_task_priority_summary_mixed_source_non_ownerless_isolation"
+)
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "rechecked after extra ownerless rows are added" "README.md" && \
+     grep -Fq "rechecked after extra ownerless rows are added" "RUNBOOK.md" && \
+     grep -Fq "PRIORITY_SUMMARY_MANUAL_MIXED_FIELDS" "scripts/smoke_api.sh" && \
+     grep -Fq "HUMAN_REWRITE_AUTO_SUMMARY_MIXED_FIELDS" "scripts/smoke_api.sh"; then
+    echo "ok: human task mixed-source non-ownerless priority summary docs"
+  else
+    echo "missing: human task mixed-source non-ownerless priority summary docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task mixed-source non-ownerless priority summary milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_source_queue_filters")
 assert capability["status"] == "tested"
 PY

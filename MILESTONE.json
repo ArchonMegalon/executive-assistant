@@ -660,6 +660,15 @@
       "notes": "Human task priority summaries now accept `assignment_source`, so dashboards can separate manual, recommended, and planner auto-preselected pending work without fetching the full queue."
     },
     {
+      "name": "human_task_priority_summary_mixed_source_non_ownerless_isolation",
+      "status": "tested",
+      "scope": [
+        "manual_summary_after_ownerless_churn",
+        "auto_preselected_summary_after_ownerless_churn"
+      ],
+      "notes": "Manual and planner auto-preselected assignment-source summary slices now have explicit approved smoke/docs coverage proving extra ownerless rows do not contaminate non-ownerless counts under mixed-source churn."
+    },
+    {
       "name": "human_task_assignment_source_queue_filters",
       "status": "tested",
       "scope": [
