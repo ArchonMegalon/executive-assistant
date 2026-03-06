@@ -485,6 +485,63 @@ if [[ "${PRIORITY_SORT_MINE_FIELDS}" != "${PRIORITY_SORT_NEWER_URGENT_MINE_ID}|$
 fi
 echo "human task priority-desc-created-asc sort ok"
 
+echo "== smoke: human task priority filter =="
+PRIORITY_FILTER_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority filter seed"}')"
+PRIORITY_FILTER_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_FILTER_REWRITE_JSON}")"
+PRIORITY_FILTER_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_FILTER_SESSION_ID}" "${AUTH_ARGS[@]}")"
+PRIORITY_FILTER_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_FILTER_SESSION_JSON}")"
+PRIORITY_FILTER_ROLE="priority_filter_reviewer"
+PRIORITY_FILTER_OPERATOR="operator-priority-filter"
+if [[ -z "${PRIORITY_FILTER_STEP_ID}" ]]; then
+  fail 13 "missing priority filter step_id from session response"
+fi
+PRIORITY_FILTER_NORMAL_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_FILTER_SESSION_ID}\",\"step_id\":\"${PRIORITY_FILTER_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_FILTER_ROLE}\",\"brief\":\"Normal unassigned task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}")"
+PRIORITY_FILTER_NORMAL_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_FILTER_NORMAL_JSON}")"
+PRIORITY_FILTER_HIGH_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_FILTER_SESSION_ID}\",\"step_id\":\"${PRIORITY_FILTER_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_FILTER_ROLE}\",\"brief\":\"High assigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}")"
+PRIORITY_FILTER_HIGH_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_FILTER_HIGH_MINE_JSON}")"
+PRIORITY_FILTER_HIGH_UNASSIGNED_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_FILTER_SESSION_ID}\",\"step_id\":\"${PRIORITY_FILTER_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_FILTER_ROLE}\",\"brief\":\"High unassigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}")"
+PRIORITY_FILTER_HIGH_UNASSIGNED_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_FILTER_HIGH_UNASSIGNED_JSON}")"
+PRIORITY_FILTER_URGENT_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_FILTER_SESSION_ID}\",\"step_id\":\"${PRIORITY_FILTER_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"${PRIORITY_FILTER_ROLE}\",\"brief\":\"Urgent assigned task.\",\"priority\":\"urgent\",\"resume_session_on_return\":false}")"
+PRIORITY_FILTER_URGENT_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_FILTER_URGENT_MINE_JSON}")"
+if [[ -z "${PRIORITY_FILTER_NORMAL_ID}" || -z "${PRIORITY_FILTER_HIGH_MINE_ID}" || -z "${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}" || -z "${PRIORITY_FILTER_URGENT_MINE_ID}" ]]; then
+  fail 13 "missing human task ids from priority filter smoke setup"
+fi
+curl -fsS -X POST "${BASE}/v1/human/tasks/${PRIORITY_FILTER_HIGH_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"operator_id\":\"${PRIORITY_FILTER_OPERATOR}\"}" >/dev/null
+curl -fsS -X POST "${BASE}/v1/human/tasks/${PRIORITY_FILTER_URGENT_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"operator_id\":\"${PRIORITY_FILTER_OPERATOR}\"}" >/dev/null
+PRIORITY_FILTER_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?session_id=${PRIORITY_FILTER_SESSION_ID}&status=pending&role_required=${PRIORITY_FILTER_ROLE}&priority=high&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_FILTER_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); ids=[(row or {}).get('human_task_id','') for row in rows]; print('{}|{}|{}|{}'.format('|'.join([row for row in ids if row in ['${PRIORITY_FILTER_HIGH_MINE_ID}','${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}']]), '${PRIORITY_FILTER_NORMAL_ID}' in ids, '${PRIORITY_FILTER_URGENT_MINE_ID}' in ids, len(ids)))" <<<"${PRIORITY_FILTER_LIST_JSON}")"
+if [[ "${PRIORITY_FILTER_LIST_FIELDS}" != "${PRIORITY_FILTER_HIGH_MINE_ID}|${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}|False|False|2" ]]; then
+  echo "expected list priority filter to isolate only high-priority tasks in oldest-created order; got ${PRIORITY_FILTER_LIST_FIELDS}" >&2
+  echo "${PRIORITY_FILTER_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_FILTER_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?role_required=${PRIORITY_FILTER_ROLE}&priority=high&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_FILTER_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); ids=[(row or {}).get('human_task_id','') for row in rows]; print('{}|{}|{}|{}'.format('|'.join([row for row in ids if row in ['${PRIORITY_FILTER_HIGH_MINE_ID}','${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}']]), '${PRIORITY_FILTER_NORMAL_ID}' in ids, '${PRIORITY_FILTER_URGENT_MINE_ID}' in ids, len(ids)))" <<<"${PRIORITY_FILTER_BACKLOG_JSON}")"
+if [[ "${PRIORITY_FILTER_BACKLOG_FIELDS}" != "${PRIORITY_FILTER_HIGH_MINE_ID}|${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}|False|False|2" ]]; then
+  echo "expected backlog priority filter to isolate only high-priority tasks in oldest-created order; got ${PRIORITY_FILTER_BACKLOG_FIELDS}" >&2
+  echo "${PRIORITY_FILTER_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_FILTER_UNASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/unassigned?role_required=${PRIORITY_FILTER_ROLE}&priority=high&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_FILTER_UNASSIGNED_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); ids=[(row or {}).get('human_task_id','') for row in rows]; print('{}|{}|{}'.format('|'.join([row for row in ids if row == '${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}']), '${PRIORITY_FILTER_HIGH_MINE_ID}' in ids, len(ids)))" <<<"${PRIORITY_FILTER_UNASSIGNED_JSON}")"
+if [[ "${PRIORITY_FILTER_UNASSIGNED_FIELDS}" != "${PRIORITY_FILTER_HIGH_UNASSIGNED_ID}|False|1" ]]; then
+  echo "expected unassigned priority filter to isolate only unassigned high-priority work; got ${PRIORITY_FILTER_UNASSIGNED_FIELDS}" >&2
+  echo "${PRIORITY_FILTER_UNASSIGNED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_FILTER_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=${PRIORITY_FILTER_OPERATOR}&status=pending&priority=urgent&sort=created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_FILTER_MINE_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); ids=[(row or {}).get('human_task_id','') for row in rows]; print('{}|{}|{}'.format('|'.join([row for row in ids if row == '${PRIORITY_FILTER_URGENT_MINE_ID}']), '${PRIORITY_FILTER_HIGH_MINE_ID}' in ids, len(ids)))" <<<"${PRIORITY_FILTER_MINE_JSON}")"
+if [[ "${PRIORITY_FILTER_MINE_FIELDS}" != "${PRIORITY_FILTER_URGENT_MINE_ID}|False|1" ]]; then
+  echo "expected mine priority filter to isolate only urgent assigned work; got ${PRIORITY_FILTER_MINE_FIELDS}" >&2
+  echo "${PRIORITY_FILTER_MINE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human task priority filter ok"
+
 echo "== smoke: human task SLA sort =="
 SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
 SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"

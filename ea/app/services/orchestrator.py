@@ -329,6 +329,53 @@ class RewriteOrchestrator:
             return with_sla + without_sla
         return rows
 
+    def _filter_human_task_rows(
+        self,
+        rows: list[HumanTask],
+        *,
+        principal_id: str,
+        status: str | None = None,
+        role_required: str | None = None,
+        priority: str | None = None,
+        assigned_operator_id: str | None = None,
+        assignment_state: str | None = None,
+        overdue_only: bool = False,
+    ) -> list[HumanTask]:
+        principal = str(principal_id or "").strip()
+        status_filter = str(status or "").strip()
+        role_filter = str(role_required or "").strip()
+        priority_filter = str(priority or "").strip().lower()
+        operator_filter = str(assigned_operator_id or "").strip()
+        assignment_filter = str(assignment_state or "").strip().lower()
+        filtered = [row for row in rows if row.principal_id == principal]
+        if status_filter:
+            filtered = [row for row in filtered if row.status == status_filter]
+        if role_filter:
+            filtered = [row for row in filtered if row.role_required == role_filter]
+        if priority_filter:
+            filtered = [row for row in filtered if str(row.priority or "").strip().lower() == priority_filter]
+        if operator_filter:
+            filtered = [row for row in filtered if row.assigned_operator_id == operator_filter]
+        if assignment_filter:
+            filtered = [row for row in filtered if row.assignment_state == assignment_filter]
+        if overdue_only:
+            now = datetime.now(timezone.utc)
+            overdue_rows: list[HumanTask] = []
+            for row in filtered:
+                raw = str(row.sla_due_at or "").strip()
+                if not raw:
+                    continue
+                try:
+                    due = datetime.fromisoformat(raw)
+                except ValueError:
+                    continue
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                if due <= now:
+                    overdue_rows.append(row)
+            filtered = overdue_rows
+        return filtered
+
     def _fallback_rewrite_intent(self) -> IntentSpecV3:
         return IntentSpecV3(
             principal_id="local-user",
@@ -1062,6 +1109,7 @@ class RewriteOrchestrator:
         session_id: str | None = None,
         status: str | None = None,
         role_required: str | None = None,
+        priority: str | None = None,
         assigned_operator_id: str | None = None,
         assignment_state: str | None = None,
         operator_id: str | None = None,
@@ -1075,16 +1123,32 @@ class RewriteOrchestrator:
             if found is None:
                 return []
             rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
-            decorated = [
-                self._decorate_human_task(row)
-                for row in rows
-                if row.principal_id == str(principal_id or "")
-            ]
-            return self._sort_human_tasks(decorated, sort=sort)
+            rows = self._filter_human_task_rows(
+                rows,
+                principal_id=principal_id,
+                status=status,
+                role_required=role_required,
+                priority=priority,
+                assigned_operator_id=assigned_operator_id,
+                assignment_state=assignment_state,
+                overdue_only=overdue_only,
+            )
+            decorated = [self._decorate_human_task(row) for row in rows]
+            resolved_operator_id = str(operator_id or "").strip()
+            if not resolved_operator_id:
+                return self._sort_human_tasks(decorated, sort=sort)
+            profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+            if profile is None:
+                return []
+            return self._sort_human_tasks(
+                [row for row in decorated if self._operator_matches_human_task(profile, row)],
+                sort=sort,
+            )
         rows = self._human_tasks.list_for_principal(
             principal_id,
             status=status,
             role_required=role_required,
+            priority=priority,
             assigned_operator_id=assigned_operator_id,
             assignment_state=assignment_state,
             overdue_only=overdue_only,

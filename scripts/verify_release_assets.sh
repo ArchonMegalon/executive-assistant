@@ -1699,6 +1699,36 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_filters")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "accept \`priority=<level>\` filters" "README.md" && \
+     grep -Fq "supports \`priority\`" "RUNBOOK.md" && \
+     grep -Fq "priority=urgent|high|normal|low" "RUNBOOK.md" && \
+     grep -Fq "human task priority filter ok" "scripts/smoke_api.sh" && \
+     grep -Fq "PRIORITY_FILTER_LIST_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "PRIORITY_FILTER_MINE_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq 'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"priority": "high", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20" "HTTP_EXAMPLES.http" && \
+     grep -Fq "priority: str | None = None" "ea/app/api/routes/human.py"; then
+    echo "ok: human task priority filters docs"
+  else
+    echo "missing: human task priority filters docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task priority filters milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

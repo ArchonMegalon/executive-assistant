@@ -224,6 +224,7 @@ def list_human_tasks(
     session_id: str | None = None,
     status: str | None = None,
     role_required: str | None = None,
+    priority: str | None = None,
     assigned_operator_id: str | None = None,
     assignment_state: str | None = None,
     overdue_only: bool = False,
@@ -241,6 +242,7 @@ def list_human_tasks(
         session_id=session_id,
         status=status,
         role_required=role_required,
+        priority=priority,
         assigned_operator_id=assigned_operator_id,
         assignment_state=assignment_state,
         overdue_only=overdue_only,
@@ -253,6 +255,7 @@ def list_human_tasks(
 @router.get("/backlog")
 def list_human_task_backlog(
     role_required: str | None = None,
+    priority: str | None = None,
     operator_id: str | None = None,
     assignment_state: str | None = None,
     overdue_only: bool = False,
@@ -268,6 +271,7 @@ def list_human_task_backlog(
         principal_id=context.principal_id,
         status="pending",
         role_required=role_required,
+        priority=priority,
         assignment_state=assignment_state,
         operator_id=operator_id,
         overdue_only=overdue_only,
@@ -280,6 +284,7 @@ def list_human_task_backlog(
 @router.get("/unassigned")
 def list_unassigned_human_tasks(
     role_required: str | None = None,
+    priority: str | None = None,
     overdue_only: bool = False,
     sort: str | None = Query(
         default=None,
@@ -293,6 +298,7 @@ def list_unassigned_human_tasks(
         principal_id=context.principal_id,
         status="pending",
         role_required=role_required,
+        priority=priority,
         assignment_state="unassigned",
         overdue_only=overdue_only,
         limit=limit,
@@ -305,6 +311,7 @@ def list_unassigned_human_tasks(
 def list_my_human_tasks(
     operator_id: str,
     status: str = "",
+    priority: str | None = None,
     sort: str | None = Query(
         default=None,
         pattern="^(created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
@@ -316,6 +323,7 @@ def list_my_human_tasks(
     rows = container.orchestrator.list_human_tasks(
         principal_id=context.principal_id,
         status=status,
+        priority=priority,
         assigned_operator_id=operator_id,
         limit=limit,
         sort=sort,

@@ -38,6 +38,7 @@ class HumanTaskRepository(Protocol):
         *,
         status: str | None = None,
         role_required: str | None = None,
+        priority: str | None = None,
         assigned_operator_id: str | None = None,
         assignment_state: str | None = None,
         overdue_only: bool = False,
@@ -144,6 +145,7 @@ class InMemoryHumanTaskRepository:
         *,
         status: str | None = None,
         role_required: str | None = None,
+        priority: str | None = None,
         assigned_operator_id: str | None = None,
         assignment_state: str | None = None,
         overdue_only: bool = False,
@@ -152,6 +154,7 @@ class InMemoryHumanTaskRepository:
         principal = str(principal_id or "")
         status_filter = str(status or "").strip()
         role_filter = str(role_required or "").strip()
+        priority_filter = str(priority or "").strip().lower()
         operator_filter = str(assigned_operator_id or "").strip()
         assignment_filter = str(assignment_state or "").strip().lower()
         n = max(1, min(500, int(limit or 50)))
@@ -161,6 +164,8 @@ class InMemoryHumanTaskRepository:
             rows = [row for row in rows if row.status == status_filter]
         if role_filter:
             rows = [row for row in rows if row.role_required == role_filter]
+        if priority_filter:
+            rows = [row for row in rows if str(row.priority or "").strip().lower() == priority_filter]
         if operator_filter:
             rows = [row for row in rows if row.assigned_operator_id == operator_filter]
         if assignment_filter:

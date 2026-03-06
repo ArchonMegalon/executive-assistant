@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.71.0",
+  "version": "0.72.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -585,6 +585,16 @@
         "priority_band_fifo_queue_ordering"
       ],
       "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=priority_desc_created_asc` so urgent and high packets stay ahead of normal work while each priority band preserves oldest-created FIFO ordering."
+    },
+    {
+      "name": "human_task_priority_filters",
+      "status": "tested",
+      "scope": [
+        "human_task_list_priority_filter",
+        "human_task_backlog_priority_filter",
+        "human_task_operator_priority_band_views"
+      ],
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept exact `priority` filters so operators can isolate one priority band before applying backlog sort order."
     }
   ],
   "migrations": [

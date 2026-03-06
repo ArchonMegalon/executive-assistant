@@ -701,6 +701,30 @@ def test_human_task_priority_created_sorting_is_documented_and_smoked() -> None:
     assert "priority_band_fifo_queue_ordering" in capability["scope"]
 
 
+def test_human_task_priority_filters_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "accept `priority=<level>` filters" in readme
+    assert "supports `priority`" in runbook
+    assert "priority=urgent|high|normal|low" in runbook
+    assert "human task priority filter ok" in smoke_api
+    assert "PRIORITY_FILTER_LIST_JSON" in smoke_api
+    assert "PRIORITY_FILTER_MINE_JSON" in smoke_api
+    assert 'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"priority": "high", "sort": "created_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}' in smoke_runtime
+    assert "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20" in http_examples
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_filters")
+    assert capability["status"] == "tested"
+    assert "human_task_operator_priority_band_views" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

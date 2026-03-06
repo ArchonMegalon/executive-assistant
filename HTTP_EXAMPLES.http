@@ -156,6 +156,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> direct pending backlog filtered to high-priority work
+GET {{host}}/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> direct pending backlog sorted by earliest SLA
 GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20
 X-EA-Principal-ID: {{principal_id}}

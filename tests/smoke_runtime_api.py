@@ -913,6 +913,124 @@ def test_human_task_sort_by_priority_then_created_asc_across_queue_views() -> No
     assert [row["human_task_id"] for row in mine_rows[:2]] == [newer_urgent_mine_id, older_high_mine_id]
 
 
+def test_human_task_priority_filter_across_queue_views() -> None:
+    client = _client(storage_backend="memory")
+    create = client.post("/v1/rewrite/artifact", json={"text": "priority filter seed"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    step_id = session.json()["steps"][-1]["step_id"]
+
+    normal_unassigned = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Normal unassigned task.",
+            "priority": "normal",
+            "resume_session_on_return": False,
+        },
+    )
+    assert normal_unassigned.status_code == 200
+    normal_unassigned_id = normal_unassigned.json()["human_task_id"]
+
+    high_mine = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "High assigned task.",
+            "priority": "high",
+            "resume_session_on_return": False,
+        },
+    )
+    assert high_mine.status_code == 200
+    high_mine_id = high_mine.json()["human_task_id"]
+
+    high_unassigned = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "High unassigned task.",
+            "priority": "high",
+            "resume_session_on_return": False,
+        },
+    )
+    assert high_unassigned.status_code == 200
+    high_unassigned_id = high_unassigned.json()["human_task_id"]
+
+    urgent_mine = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Urgent assigned task.",
+            "priority": "urgent",
+            "resume_session_on_return": False,
+        },
+    )
+    assert urgent_mine.status_code == 200
+    urgent_mine_id = urgent_mine.json()["human_task_id"]
+
+    assert client.post(f"/v1/human/tasks/{high_mine_id}/assign", json={"operator_id": "operator-sorter"}).status_code == 200
+    assert client.post(f"/v1/human/tasks/{urgent_mine_id}/assign", json={"operator_id": "operator-sorter"}).status_code == 200
+
+    listed = client.get(
+        "/v1/human/tasks",
+        params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10},
+    )
+    assert listed.status_code == 200
+    listed_rows = [row for row in listed.json() if row["human_task_id"] in {high_mine_id, high_unassigned_id}]
+    assert [row["human_task_id"] for row in listed_rows[:2]] == [high_mine_id, high_unassigned_id]
+
+    backlog = client.get(
+        "/v1/human/tasks/backlog",
+        params={"priority": "high", "sort": "created_asc", "limit": 10},
+    )
+    assert backlog.status_code == 200
+    backlog_rows = [row for row in backlog.json() if row["human_task_id"] in {high_mine_id, high_unassigned_id}]
+    assert [row["human_task_id"] for row in backlog_rows[:2]] == [high_mine_id, high_unassigned_id]
+
+    unassigned = client.get(
+        "/v1/human/tasks/unassigned",
+        params={"priority": "high", "sort": "created_asc", "limit": 10},
+    )
+    assert unassigned.status_code == 200
+    unassigned_rows = [row for row in unassigned.json() if row["human_task_id"] == high_unassigned_id]
+    assert [row["human_task_id"] for row in unassigned_rows[:1]] == [high_unassigned_id]
+
+    mine = client.get(
+        "/v1/human/tasks/mine",
+        params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10},
+    )
+    assert mine.status_code == 200
+    mine_rows = [row for row in mine.json() if row["human_task_id"] == urgent_mine_id]
+    assert [row["human_task_id"] for row in mine_rows[:1]] == [urgent_mine_id]
+
+    listed_ids = {row["human_task_id"] for row in listed.json()}
+    backlog_ids = {row["human_task_id"] for row in backlog.json()}
+    unassigned_ids = {row["human_task_id"] for row in unassigned.json()}
+    mine_ids = {row["human_task_id"] for row in mine.json()}
+    assert normal_unassigned_id not in listed_ids
+    assert urgent_mine_id not in listed_ids
+    assert normal_unassigned_id not in backlog_ids
+    assert urgent_mine_id not in backlog_ids
+    assert high_mine_id not in unassigned_ids
+    assert normal_unassigned_id not in unassigned_ids
+    assert high_mine_id not in mine_ids
+
+
 def test_human_task_sort_by_sla_due_at_asc() -> None:
     client = _client(storage_backend="memory")
     create = client.post("/v1/rewrite/artifact", json={"text": "sla sort seed"})
