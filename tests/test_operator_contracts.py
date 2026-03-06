@@ -95,10 +95,15 @@ def test_session_step_dependency_projection_is_covered_by_contract_tests() -> No
     contract_test = (ROOT / "tests/test_rewrite_dependency_projection_contracts.py").read_text(encoding="utf-8")
 
     assert "dependency_keys: list[str]" in rewrite_route
-    assert 's.input_json.get("depends_on")' in rewrite_route
+    assert "dependency_states: dict[str, str]" in rewrite_route
+    assert "dependency_step_ids: dict[str, str]" in rewrite_route
+    assert "blocked_dependency_keys: list[str]" in rewrite_route
+    assert "dependencies_satisfied: bool" in rewrite_route
+    assert "_step_dependency_projection(" in rewrite_route
     assert "step_policy_evaluate" in contract_test
     assert '["step_input_prepare"]' in contract_test
     assert '["step_policy_evaluate"]' in contract_test
+    assert '"dependency_states"] == {"step_policy_evaluate": "completed"}' in contract_test
 
 
 def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:

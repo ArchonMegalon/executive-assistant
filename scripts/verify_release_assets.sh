@@ -799,9 +799,14 @@ else
 fi
 
 if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
-   grep -Fq 's.input_json.get("depends_on")' "ea/app/api/routes/rewrite.py" && \
+   grep -Fq "dependency_states: dict[str, str]" "ea/app/api/routes/rewrite.py" && \
+   grep -Fq "dependency_step_ids: dict[str, str]" "ea/app/api/routes/rewrite.py" && \
+   grep -Fq "blocked_dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
+   grep -Fq "dependencies_satisfied: bool" "ea/app/api/routes/rewrite.py" && \
+   grep -Fq "_step_dependency_projection(" "ea/app/api/routes/rewrite.py" && \
    grep -Fq "step_policy_evaluate" "tests/test_rewrite_dependency_projection_contracts.py" && \
-   grep -Fq '["step_policy_evaluate"]' "tests/test_rewrite_dependency_projection_contracts.py"; then
+   grep -Fq '["step_policy_evaluate"]' "tests/test_rewrite_dependency_projection_contracts.py" && \
+   grep -Fq '"dependency_states"] == {"step_policy_evaluate": "completed"}' "tests/test_rewrite_dependency_projection_contracts.py"; then
   echo "ok: session step dependency projection contract coverage"
 else
   echo "missing: session step dependency projection contract coverage" >&2

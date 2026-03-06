@@ -32,5 +32,17 @@ def test_session_steps_project_dependency_keys_alongside_parent_links() -> None:
         for step in session.json()["steps"]
     }
     assert steps["step_input_prepare"]["dependency_keys"] == []
+    assert steps["step_input_prepare"]["dependency_states"] == {}
+    assert steps["step_input_prepare"]["dependency_step_ids"] == {}
+    assert steps["step_input_prepare"]["blocked_dependency_keys"] == []
+    assert steps["step_input_prepare"]["dependencies_satisfied"] is True
     assert steps["step_policy_evaluate"]["dependency_keys"] == ["step_input_prepare"]
+    assert steps["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}
+    assert steps["step_policy_evaluate"]["dependency_step_ids"]["step_input_prepare"] == steps["step_input_prepare"]["step_id"]
+    assert steps["step_policy_evaluate"]["blocked_dependency_keys"] == []
+    assert steps["step_policy_evaluate"]["dependencies_satisfied"] is True
     assert steps["step_artifact_save"]["dependency_keys"] == ["step_policy_evaluate"]
+    assert steps["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}
+    assert steps["step_artifact_save"]["dependency_step_ids"]["step_policy_evaluate"] == steps["step_policy_evaluate"]["step_id"]
+    assert steps["step_artifact_save"]["blocked_dependency_keys"] == []
+    assert steps["step_artifact_save"]["dependencies_satisfied"] is True

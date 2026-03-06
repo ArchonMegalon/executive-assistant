@@ -50,6 +50,10 @@ class SessionStepOut(BaseModel):
     step_id: str
     parent_step_id: str | None
     dependency_keys: list[str]
+    dependency_states: dict[str, str]
+    dependency_step_ids: dict[str, str]
+    blocked_dependency_keys: list[str]
+    dependencies_satisfied: bool
     step_kind: str
     state: str
     attempt_count: int
@@ -194,6 +198,32 @@ def _artifact_storage_handle(artifact_id: str) -> str:
     return f"artifact://{artifact_id}"
 
 
+def _step_dependency_projection(step, steps) -> tuple[list[str], dict[str, str], dict[str, str], list[str], bool]:  # type: ignore[no-untyped-def]
+    dependency_keys = [str(value) for value in (step.input_json.get("depends_on") or []) if str(value)]
+    lookup: dict[str, object] = {}
+    for row in steps:
+        step_key = str((row.input_json or {}).get("plan_step_key") or "").strip()
+        if step_key:
+            lookup[step_key] = row
+    dependency_states: dict[str, str] = {}
+    dependency_step_ids: dict[str, str] = {}
+    blocked_dependency_keys: list[str] = []
+    for key in dependency_keys:
+        row = lookup.get(key)
+        state = str(getattr(row, "state", "") or "")
+        dependency_states[key] = state
+        dependency_step_ids[key] = str(getattr(row, "step_id", "") or "")
+        if state != "completed":
+            blocked_dependency_keys.append(key)
+    return (
+        dependency_keys,
+        dependency_states,
+        dependency_step_ids,
+        blocked_dependency_keys,
+        not blocked_dependency_keys,
+    )
+
+
 def _to_assignment_history_out(
     event,
     *,
@@ -287,6 +317,10 @@ def get_session(
         raise HTTPException(status_code=404, detail="session not found")
     session = found.session
     events = found.events
+    step_dependency_projection = {
+        row.step_id: _step_dependency_projection(row, found.steps)
+        for row in found.steps
+    }
     has_source_filter, source_filter = _parse_assignment_source_filter(human_task_assignment_source)
     human_tasks = found.human_tasks
     if has_source_filter:
@@ -325,7 +359,11 @@ def get_session(
             SessionStepOut(
                 step_id=s.step_id,
                 parent_step_id=s.parent_step_id,
-                dependency_keys=[str(value) for value in (s.input_json.get("depends_on") or []) if str(value)],
+                dependency_keys=step_dependency_projection[s.step_id][0],
+                dependency_states=step_dependency_projection[s.step_id][1],
+                dependency_step_ids=step_dependency_projection[s.step_id][2],
+                blocked_dependency_keys=step_dependency_projection[s.step_id][3],
+                dependencies_satisfied=step_dependency_projection[s.step_id][4],
                 step_kind=s.step_kind,
                 state=s.state,
                 attempt_count=s.attempt_count,
