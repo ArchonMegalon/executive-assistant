@@ -30,6 +30,10 @@ class HumanTaskClaimIn(BaseModel):
     operator_id: str
 
 
+class HumanTaskAssignIn(BaseModel):
+    operator_id: str = ""
+
+
 class HumanTaskReturnIn(BaseModel):
     operator_id: str
     resolution: str
@@ -300,17 +304,22 @@ def get_operator_profile(
 @router.post("/{human_task_id}/assign")
 def assign_human_task(
     human_task_id: str,
-    payload: HumanTaskClaimIn,
+    payload: HumanTaskAssignIn,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HumanTaskOut:
     found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if found is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
+    operator_id = str(payload.operator_id or "").strip()
+    if not operator_id:
+        operator_id = str((found.routing_hints_json or {}).get("auto_assign_operator_id") or "").strip()
+        if not operator_id:
+            raise HTTPException(status_code=409, detail="human_task_no_auto_assign_candidate")
     row = container.orchestrator.assign_human_task(
         human_task_id,
         principal_id=context.principal_id,
-        operator_id=payload.operator_id,
+        operator_id=operator_id,
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_assignable")

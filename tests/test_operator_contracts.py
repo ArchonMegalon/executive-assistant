@@ -347,6 +347,31 @@ def test_human_task_operator_assignment_hints_are_documented_and_smoked() -> Non
     assert "auto_assign_operator_id" in capability["scope"]
 
 
+def test_human_task_recommended_assignment_action_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/human/tasks/{human_task_id}/assign" in readme
+    assert "omits `operator_id`" in readme
+    assert "auto_assign_operator_id" in runbook
+    assert "omits `operator_id`" in runbook
+    assert "-d '{}'" in smoke_api
+    assert "pending|assigned|operator-specialist" in smoke_api
+    assert 'json={}' in smoke_runtime
+    assert 'assigned.json()["assigned_operator_id"] == "operator-specialist"' in smoke_runtime
+    assert "human_task_no_auto_assign_candidate" in human_route
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_recommended_assignment_action"
+    )
+    assert capability["status"] == "tested"
+    assert "auto_assign_operator_id_consumption" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

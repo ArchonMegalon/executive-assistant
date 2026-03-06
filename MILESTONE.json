@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.57.0",
+  "version": "0.58.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -334,6 +334,16 @@
         "auto_assign_operator_id"
       ],
       "notes": "Human task payloads now compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so specialized operators can be suggested or preselected directly on each packet without a separate backlog scan."
+    },
+    {
+      "name": "human_task_recommended_assignment_action",
+      "status": "tested",
+      "scope": [
+        "assign_route_optional_operator_id",
+        "auto_assign_operator_id_consumption",
+        "recommended_reviewer_preassignment"
+      ],
+      "notes": "Human task assignment now accepts an omitted `operator_id` and consumes `routing_hints_json.auto_assign_operator_id` when a single exact reviewer match exists, so clients can apply the server-selected reviewer without resubmitting the same operator choice."
     },
     {
       "name": "registry_backed_tool_execution_service",

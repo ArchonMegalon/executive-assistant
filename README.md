@@ -23,7 +23,7 @@ Removed:
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
-- `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work
+- `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work, and can consume a computed `auto_assign_operator_id` when the caller omits `operator_id`
 - `/v1/human/tasks/unassigned` and `assignment_state=unassigned|assigned|claimed|returned` expose the difference between ownerless pending work, pre-assigned pending work, active claims, and returned packets
 - human task payloads and session-linked `human_tasks` now project `routing_hints_json` with `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` so specialized reviewers can be suggested or preselected without a separate profile-filtered backlog scan
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake

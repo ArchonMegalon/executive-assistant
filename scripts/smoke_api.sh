@@ -168,9 +168,9 @@ if [[ "${HUMAN_ROUTING_HINT_FIELDS}" != "accuracy|senior|operator-specialist|ope
   echo "${HUMAN_ROUTING_HINT_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_ASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
+HUMAN_ASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{}')"
 HUMAN_ASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id","")))' <<<"${HUMAN_ASSIGN_JSON}")"
-if [[ "${HUMAN_ASSIGN_FIELDS}" != "pending|assigned|smoke-operator" ]]; then
+if [[ "${HUMAN_ASSIGN_FIELDS}" != "pending|assigned|operator-specialist" ]]; then
   echo "expected assigned human task to stay pending with explicit assigned state and operator ownership; got ${HUMAN_ASSIGN_FIELDS}" >&2
   echo "${HUMAN_ASSIGN_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -203,28 +203,28 @@ if [[ "${HUMAN_OPERATOR_BACKLOG_LOW_MATCH}" != "True" ]]; then
   echo "${HUMAN_OPERATOR_BACKLOG_LOW_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_MINE_ASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=smoke-operator&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_MINE_ASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-specialist&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_MINE_ASSIGNED_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_MINE_ASSIGNED_JSON}")"
 if [[ "${HUMAN_MINE_ASSIGNED_MATCH}" != "True" ]]; then
   echo "expected human task mine endpoint to include pre-assigned task ${HUMAN_TASK_ID}" >&2
   echo "${HUMAN_MINE_ASSIGNED_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
+HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-specialist"}')"
 HUMAN_CLAIM_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}".format(body.get("status",""), body.get("assignment_state","")))' <<<"${HUMAN_CLAIM_JSON}")"
 if [[ "${HUMAN_CLAIM_FIELDS}" != "claimed|claimed" ]]; then
   echo "expected claimed human task after claim; got ${HUMAN_CLAIM_FIELDS}" >&2
   echo "${HUMAN_CLAIM_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_OPERATOR_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?assigned_operator_id=smoke-operator&status=claimed&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_OPERATOR_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?assigned_operator_id=operator-specialist&status=claimed&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_OPERATOR_FILTER_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_OPERATOR_FILTER_JSON}")"
 if [[ "${HUMAN_OPERATOR_FILTER_MATCH}" != "True" ]]; then
   echo "expected assigned-operator human task queue filter to include ${HUMAN_TASK_ID}" >&2
   echo "${HUMAN_OPERATOR_FILTER_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=smoke-operator&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-specialist&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_MINE_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_MINE_JSON}")"
 if [[ "${HUMAN_MINE_MATCH}" != "True" ]]; then
   echo "expected human task mine endpoint to include ${HUMAN_TASK_ID}" >&2
@@ -232,7 +232,7 @@ if [[ "${HUMAN_MINE_MATCH}" != "True" ]]; then
   fail 12 "policy contract mismatch"
 fi
 HUMAN_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"operator_id":"smoke-operator","resolution":"ready_for_send","returned_payload_json":{"summary":"Reviewed and ready."},"provenance_json":{"review_mode":"human"}}')"
+  -d '{"operator_id":"operator-specialist","resolution":"ready_for_send","returned_payload_json":{"summary":"Reviewed and ready."},"provenance_json":{"review_mode":"human"}}')"
 HUMAN_RETURN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("resolution","")))' <<<"${HUMAN_RETURN_JSON}")"
 if [[ "${HUMAN_RETURN_FIELDS}" != "returned|returned|ready_for_send" ]]; then
   echo "expected returned human task after return; got ${HUMAN_RETURN_FIELDS}" >&2

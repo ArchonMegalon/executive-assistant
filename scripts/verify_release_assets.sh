@@ -1293,6 +1293,35 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_recommended_assignment_action")
+assert capability["status"] == "tested"
+assert "auto_assign_operator_id_consumption" in capability["scope"]
+PY
+then
+  if grep -Fq "/v1/human/tasks/{human_task_id}/assign" "README.md" && \
+     grep -Fq 'omits `operator_id`' "README.md" && \
+     grep -Fq "auto_assign_operator_id" "RUNBOOK.md" && \
+     grep -Fq 'omits `operator_id`' "RUNBOOK.md" && \
+     grep -Fq -- "-d '{}'" "scripts/smoke_api.sh" && \
+     grep -Fq "pending|assigned|operator-specialist" "scripts/smoke_api.sh" && \
+     grep -Fq 'json={}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'assigned.json()["assigned_operator_id"] == "operator-specialist"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "human_task_no_auto_assign_candidate" "ea/app/api/routes/human.py"; then
+    echo "ok: human task recommended assignment action docs"
+  else
+    echo "missing: human task recommended assignment action docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task recommended assignment action milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

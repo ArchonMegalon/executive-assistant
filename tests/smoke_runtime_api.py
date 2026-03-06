@@ -342,11 +342,11 @@ def test_human_task_flow_and_session_projection() -> None:
     assert unassigned.status_code == 200
     assert any(row["human_task_id"] == task_id for row in unassigned.json())
 
-    assigned = client.post(f"/v1/human/tasks/{task_id}/assign", json={"operator_id": "operator-1"})
+    assigned = client.post(f"/v1/human/tasks/{task_id}/assign", json={})
     assert assigned.status_code == 200
     assert assigned.json()["status"] == "pending"
     assert assigned.json()["assignment_state"] == "assigned"
-    assert assigned.json()["assigned_operator_id"] == "operator-1"
+    assert assigned.json()["assigned_operator_id"] == "operator-specialist"
 
     assigned_backlog = client.get(
         "/v1/human/tasks/backlog",
@@ -385,30 +385,30 @@ def test_human_task_flow_and_session_projection() -> None:
     assert operator_backlog_low.status_code == 200
     assert all(row["human_task_id"] != task_id for row in operator_backlog_low.json())
 
-    mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-1"})
+    mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-specialist"})
     assert mine_assigned.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine_assigned.json())
 
-    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-1"})
+    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-specialist"})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
     assert claimed.json()["assignment_state"] == "claimed"
 
     operator_filtered = client.get(
         "/v1/human/tasks",
-        params={"limit": 10, "assigned_operator_id": "operator-1", "status": "claimed"},
+        params={"limit": 10, "assigned_operator_id": "operator-specialist", "status": "claimed"},
     )
     assert operator_filtered.status_code == 200
     assert any(row["human_task_id"] == task_id for row in operator_filtered.json())
 
-    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-1"})
+    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-specialist"})
     assert mine.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine.json())
 
     returned = client.post(
         f"/v1/human/tasks/{task_id}/return",
         json={
-            "operator_id": "operator-1",
+            "operator_id": "operator-specialist",
             "resolution": "ready_for_send",
             "returned_payload_json": {"summary": "Reviewed and ready."},
             "provenance_json": {"review_mode": "human"},
