@@ -420,6 +420,71 @@ if [[ "${CREATED_ASC_MINE_FIELDS}" != "${CREATED_ASC_OLDER_MINE_ID}|${CREATED_AS
 fi
 echo "human task created-asc sort ok"
 
+echo "== smoke: human task priority-desc-created-asc sort =="
+PRIORITY_SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority sort seed"}')"
+PRIORITY_SORT_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_SORT_REWRITE_JSON}")"
+PRIORITY_SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SORT_SESSION_ID}" "${AUTH_ARGS[@]}")"
+PRIORITY_SORT_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_SORT_SESSION_JSON}")"
+if [[ -z "${PRIORITY_SORT_STEP_ID}" ]]; then
+  fail 13 "missing priority sort step_id from session response"
+fi
+PRIORITY_SORT_OLDEST_NORMAL_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SORT_SESSION_ID}\",\"step_id\":\"${PRIORITY_SORT_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Oldest normal task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}")"
+PRIORITY_SORT_OLDEST_NORMAL_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SORT_OLDEST_NORMAL_JSON}")"
+PRIORITY_SORT_OLDER_HIGH_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SORT_SESSION_ID}\",\"step_id\":\"${PRIORITY_SORT_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Older high-priority assigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}")"
+PRIORITY_SORT_OLDER_HIGH_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SORT_OLDER_HIGH_MINE_JSON}")"
+PRIORITY_SORT_MIDDLE_HIGH_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SORT_SESSION_ID}\",\"step_id\":\"${PRIORITY_SORT_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Middle high-priority unassigned task.\",\"priority\":\"high\",\"resume_session_on_return\":false}")"
+PRIORITY_SORT_MIDDLE_HIGH_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SORT_MIDDLE_HIGH_JSON}")"
+PRIORITY_SORT_NEWER_URGENT_MINE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SORT_SESSION_ID}\",\"step_id\":\"${PRIORITY_SORT_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Newer urgent assigned task.\",\"priority\":\"urgent\",\"resume_session_on_return\":false}")"
+PRIORITY_SORT_NEWER_URGENT_MINE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SORT_NEWER_URGENT_MINE_JSON}")"
+PRIORITY_SORT_NEWEST_NORMAL_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${PRIORITY_SORT_SESSION_ID}\",\"step_id\":\"${PRIORITY_SORT_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Newest normal task.\",\"priority\":\"normal\",\"resume_session_on_return\":false}")"
+PRIORITY_SORT_NEWEST_NORMAL_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${PRIORITY_SORT_NEWEST_NORMAL_JSON}")"
+if [[ -z "${PRIORITY_SORT_OLDEST_NORMAL_ID}" || -z "${PRIORITY_SORT_OLDER_HIGH_MINE_ID}" || -z "${PRIORITY_SORT_MIDDLE_HIGH_ID}" || -z "${PRIORITY_SORT_NEWER_URGENT_MINE_ID}" || -z "${PRIORITY_SORT_NEWEST_NORMAL_ID}" ]]; then
+  fail 13 "missing human task ids from priority sort smoke setup"
+fi
+PRIORITY_SORT_ASSIGN_OLDER_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${PRIORITY_SORT_OLDER_HIGH_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-sorter"}')"
+PRIORITY_SORT_ASSIGN_URGENT_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${PRIORITY_SORT_NEWER_URGENT_MINE_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-sorter"}')"
+PRIORITY_SORT_ASSIGN_FIELDS="$(python3 -c "import json,sys; first=json.loads(sys.argv[1] or '{}'); second=json.loads(sys.argv[2] or '{}'); print('{}|{}|{}|{}'.format(first.get('human_task_id',''), first.get('last_transition_event_name',''), second.get('human_task_id',''), second.get('last_transition_event_name','')))" "${PRIORITY_SORT_ASSIGN_OLDER_JSON}" "${PRIORITY_SORT_ASSIGN_URGENT_JSON}")"
+if [[ "${PRIORITY_SORT_ASSIGN_FIELDS}" != "${PRIORITY_SORT_OLDER_HIGH_MINE_ID}|human_task_assigned|${PRIORITY_SORT_NEWER_URGENT_MINE_ID}|human_task_assigned" ]]; then
+  echo "expected priority-sort setup assignments to preserve assigned task ownership metadata; got ${PRIORITY_SORT_ASSIGN_FIELDS}" >&2
+  echo "${PRIORITY_SORT_ASSIGN_OLDER_JSON}" >&2
+  echo "${PRIORITY_SORT_ASSIGN_URGENT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SORT_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?status=pending&sort=priority_desc_created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SORT_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${PRIORITY_SORT_OLDEST_NORMAL_ID}','${PRIORITY_SORT_OLDER_HIGH_MINE_ID}','${PRIORITY_SORT_MIDDLE_HIGH_ID}','${PRIORITY_SORT_NEWER_URGENT_MINE_ID}','${PRIORITY_SORT_NEWEST_NORMAL_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:5]]; print('|'.join(ids))" <<<"${PRIORITY_SORT_LIST_JSON}")"
+if [[ "${PRIORITY_SORT_LIST_FIELDS}" != "${PRIORITY_SORT_NEWER_URGENT_MINE_ID}|${PRIORITY_SORT_OLDER_HIGH_MINE_ID}|${PRIORITY_SORT_MIDDLE_HIGH_ID}|${PRIORITY_SORT_OLDEST_NORMAL_ID}|${PRIORITY_SORT_NEWEST_NORMAL_ID}" ]]; then
+  echo "expected sort=priority_desc_created_asc to order pending work by priority first and oldest-created within each band; got ${PRIORITY_SORT_LIST_FIELDS}" >&2
+  echo "${PRIORITY_SORT_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SORT_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SORT_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${PRIORITY_SORT_OLDEST_NORMAL_ID}','${PRIORITY_SORT_OLDER_HIGH_MINE_ID}','${PRIORITY_SORT_MIDDLE_HIGH_ID}','${PRIORITY_SORT_NEWER_URGENT_MINE_ID}','${PRIORITY_SORT_NEWEST_NORMAL_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:5]]; print('|'.join(ids))" <<<"${PRIORITY_SORT_BACKLOG_JSON}")"
+if [[ "${PRIORITY_SORT_BACKLOG_FIELDS}" != "${PRIORITY_SORT_NEWER_URGENT_MINE_ID}|${PRIORITY_SORT_OLDER_HIGH_MINE_ID}|${PRIORITY_SORT_MIDDLE_HIGH_ID}|${PRIORITY_SORT_OLDEST_NORMAL_ID}|${PRIORITY_SORT_NEWEST_NORMAL_ID}" ]]; then
+  echo "expected backlog sort=priority_desc_created_asc to order pending work by priority first and oldest-created within each band; got ${PRIORITY_SORT_BACKLOG_FIELDS}" >&2
+  echo "${PRIORITY_SORT_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SORT_UNASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/unassigned?sort=priority_desc_created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SORT_UNASSIGNED_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${PRIORITY_SORT_MIDDLE_HIGH_ID}','${PRIORITY_SORT_OLDEST_NORMAL_ID}','${PRIORITY_SORT_NEWEST_NORMAL_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:3]]; print('|'.join(ids))" <<<"${PRIORITY_SORT_UNASSIGNED_JSON}")"
+if [[ "${PRIORITY_SORT_UNASSIGNED_FIELDS}" != "${PRIORITY_SORT_MIDDLE_HIGH_ID}|${PRIORITY_SORT_OLDEST_NORMAL_ID}|${PRIORITY_SORT_NEWEST_NORMAL_ID}" ]]; then
+  echo "expected unassigned sort=priority_desc_created_asc to keep higher-priority work ahead of older normal tasks; got ${PRIORITY_SORT_UNASSIGNED_FIELDS}" >&2
+  echo "${PRIORITY_SORT_UNASSIGNED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+PRIORITY_SORT_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-sorter&status=pending&sort=priority_desc_created_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PRIORITY_SORT_MINE_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${PRIORITY_SORT_OLDER_HIGH_MINE_ID}','${PRIORITY_SORT_NEWER_URGENT_MINE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:2]]; print('|'.join(ids))" <<<"${PRIORITY_SORT_MINE_JSON}")"
+if [[ "${PRIORITY_SORT_MINE_FIELDS}" != "${PRIORITY_SORT_NEWER_URGENT_MINE_ID}|${PRIORITY_SORT_OLDER_HIGH_MINE_ID}" ]]; then
+  echo "expected mine sort=priority_desc_created_asc to keep urgent assigned work ahead of older high-priority work; got ${PRIORITY_SORT_MINE_FIELDS}" >&2
+  echo "${PRIORITY_SORT_MINE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human task priority-desc-created-asc sort ok"
+
 echo "== smoke: human task SLA sort =="
 SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
 SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"

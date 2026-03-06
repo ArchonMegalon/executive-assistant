@@ -91,6 +91,13 @@ class RewriteOrchestrator:
         2: "senior",
         3: "principal_delegate",
     }
+    _HUMAN_TASK_PRIORITY_RANK = {
+        "urgent": 3,
+        "high": 2,
+        "normal": 1,
+        "medium": 1,
+        "low": 0,
+    }
 
     def __init__(
         self,
@@ -260,6 +267,15 @@ class RewriteOrchestrator:
 
     def _sort_human_tasks(self, rows: list[HumanTask], *, sort: str | None = None) -> list[HumanTask]:
         sort_key = str(sort or "").strip().lower()
+        if sort_key == "priority_desc_created_asc":
+            return sorted(
+                rows,
+                key=lambda row: (
+                    -self._HUMAN_TASK_PRIORITY_RANK.get(str(row.priority or "").strip().lower(), 1),
+                    str(row.created_at or ""),
+                    str(row.human_task_id or ""),
+                ),
+            )
         if sort_key == "created_asc":
             return sorted(
                 rows,

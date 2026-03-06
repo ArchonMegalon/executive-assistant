@@ -229,7 +229,7 @@ def list_human_tasks(
     overdue_only: bool = False,
     sort: str | None = Query(
         default=None,
-        pattern="^(created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
+        pattern="^(created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
     ),
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
@@ -258,7 +258,7 @@ def list_human_task_backlog(
     overdue_only: bool = False,
     sort: str | None = Query(
         default=None,
-        pattern="^(created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
+        pattern="^(created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
     ),
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
@@ -283,7 +283,7 @@ def list_unassigned_human_tasks(
     overdue_only: bool = False,
     sort: str | None = Query(
         default=None,
-        pattern="^(created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
+        pattern="^(created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
     ),
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
@@ -307,7 +307,7 @@ def list_my_human_tasks(
     status: str = "",
     sort: str | None = Query(
         default=None,
-        pattern="^(created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
+        pattern="^(created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc)$",
     ),
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),

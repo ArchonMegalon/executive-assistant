@@ -224,6 +224,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Operator summary output now also includes task-archive shortcuts (`make tasks-archive`, `make tasks-archive-dry-run`, `make tasks-archive-prune`).
 - `EA_STORAGE_BACKEND` is now documented as the canonical backend env var, with `EA_LEDGER_BACKEND` kept only as a deprecated compatibility alias.
 - Human task queue views now accept `sort=created_asc`, giving operators an explicit oldest-created FIFO mode across list, backlog, unassigned, and assigned-my-queue views without relying on SLA fields.
+- Human task queue views now accept `sort=priority_desc_created_asc`, keeping urgent and high packets ahead of normal work while preserving oldest-created order within each priority band across list, backlog, unassigned, and assigned-my-queue views.
 
 ### Removed
 - Legacy assistant runtime modules, legacy docs, and historical test packs from pre-rewrite codebase.

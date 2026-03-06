@@ -1540,7 +1540,7 @@ assert capability["status"] == "tested"
 PY
 then
   if grep -Fq "sort=last_transition_desc" "README.md" && \
-     grep -Fq "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "human task last-transition sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_BACKLOG_JSON" "scripts/smoke_api.sh" && \
@@ -1568,7 +1568,7 @@ assert capability["status"] == "tested"
 PY
 then
   if grep -Fq "sort=sla_due_at_asc" "README.md" && \
-     grep -Fq "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "human task SLA sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "SLA_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SLA_BACKLOG_JSON" "scripts/smoke_api.sh" && \
@@ -1596,7 +1596,7 @@ assert capability["status"] == "tested"
 PY
 then
   if grep -Fq "sort=sla_due_at_asc_last_transition_desc" "README.md" && \
-     grep -Fq "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "human task combined sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "COMBINED_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "COMBINED_BACKLOG_JSON" "scripts/smoke_api.sh" && \
@@ -1651,7 +1651,7 @@ assert capability["status"] == "tested"
 PY
 then
   if grep -Fq "sort=created_asc" "README.md" && \
-     grep -Fq "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "human task created-asc sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "CREATED_ASC_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "CREATED_ASC_MINE_JSON" "scripts/smoke_api.sh" && \
@@ -1667,6 +1667,35 @@ then
   fi
 else
   echo "missing: human task created asc sorting milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_created_sorting")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "sort=priority_desc_created_asc" "README.md" && \
+     grep -Fq "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "human task priority-desc-created-asc sort ok" "scripts/smoke_api.sh" && \
+     grep -Fq "PRIORITY_SORT_LIST_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "PRIORITY_SORT_MINE_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq 'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20" "HTTP_EXAMPLES.http" && \
+     grep -Fq "priority_desc_created_asc" "ea/app/api/routes/human.py"; then
+    echo "ok: human task priority created sorting docs"
+  else
+    echo "missing: human task priority created sorting docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task priority created sorting milestone" >&2
   missing=1
 fi
 

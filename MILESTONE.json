@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.70.0",
+  "version": "0.71.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -575,6 +575,16 @@
         "human_task_operator_fifo_queue_ordering"
       ],
       "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=created_asc` so operators can request an explicit oldest-created FIFO queue order without relying on SLA fields or repository defaults."
+    },
+    {
+      "name": "human_task_priority_created_sorting",
+      "status": "tested",
+      "scope": [
+        "human_task_list_priority_sort_param",
+        "human_task_backlog_priority_sort_param",
+        "priority_band_fifo_queue_ordering"
+      ],
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=priority_desc_created_asc` so urgent and high packets stay ahead of normal work while each priority band preserves oldest-created FIFO ordering."
     }
   ],
   "migrations": [

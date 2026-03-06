@@ -561,7 +561,7 @@ def test_human_task_last_transition_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=last_transition_desc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
     assert "human task last-transition sort ok" in smoke_api
     assert "SORT_LIST_JSON" in smoke_api
     assert "SORT_BACKLOG_JSON" in smoke_api
@@ -585,7 +585,7 @@ def test_human_task_sla_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=sla_due_at_asc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
     assert "human task SLA sort ok" in smoke_api
     assert "SLA_LIST_JSON" in smoke_api
     assert "SLA_BACKLOG_JSON" in smoke_api
@@ -609,7 +609,7 @@ def test_human_task_combined_sla_transition_sorting_is_documented_and_smoked() -
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=sla_due_at_asc_last_transition_desc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
     assert "human task combined sort ok" in smoke_api
     assert "COMBINED_LIST_JSON" in smoke_api
     assert "COMBINED_BACKLOG_JSON" in smoke_api
@@ -659,7 +659,7 @@ def test_human_task_created_asc_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=created_asc" in readme
-    assert "sort=created_asc|created_desc|last_transition_desc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
     assert "human task created-asc sort ok" in smoke_api
     assert "CREATED_ASC_LIST_JSON" in smoke_api
     assert "CREATED_ASC_MINE_JSON" in smoke_api
@@ -672,6 +672,33 @@ def test_human_task_created_asc_sorting_is_documented_and_smoked() -> None:
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_created_asc_sorting")
     assert capability["status"] == "tested"
     assert "human_task_operator_fifo_queue_ordering" in capability["scope"]
+
+
+def test_human_task_priority_created_sorting_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "sort=priority_desc_created_asc" in readme
+    assert "sort=created_asc|created_desc|last_transition_desc|priority_desc_created_asc|sla_due_at_asc|sla_due_at_asc_last_transition_desc" in runbook
+    assert "human task priority-desc-created-asc sort ok" in smoke_api
+    assert "PRIORITY_SORT_LIST_JSON" in smoke_api
+    assert "PRIORITY_SORT_MINE_JSON" in smoke_api
+    assert 'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' in smoke_runtime
+    assert "/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20" in http_examples
+    assert "priority_desc_created_asc" in human_route
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_created_sorting"
+    )
+    assert capability["status"] == "tested"
+    assert "priority_band_fifo_queue_ordering" in capability["scope"]
 
 
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:

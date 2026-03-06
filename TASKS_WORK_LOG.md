@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-210 | P1 | Add priority-desc-created-asc sort mode for operator queues so urgent human work floats first while preserving FIFO within each priority band | codex | queued | Created-order sorting now exists, but operators still lack a documented way to keep `urgent` and `high` packets ahead of normal work without losing oldest-first triage inside each priority band |
+| Q-211 | P1 | Add priority filter support on operator human-task queues so reviewers can isolate urgent or high work before applying sort order | codex | queued | Priority-aware sorting now exists, but operators still cannot ask backlog, unassigned, or mine views for only `urgent` or `high` packets without client-side filtering |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-210 | P1 | Add priority-desc-created-asc sort mode for operator queues so urgent human work floats first while preserving FIFO within each priority band | codex | done | Human task list/backlog/unassigned/mine endpoints now accept `sort=priority_desc_created_asc`, and approved smoke coverage proves urgent/high packets sort ahead of normal work while each priority band stays oldest-created-first |
 | D-209 | P1 | Add explicit created-asc sort mode for operator queues so manual backlog triage can pin oldest untouched work first without relying on SLA fields | codex | done | Human task list/backlog/unassigned/mine endpoints now accept `sort=created_asc`, and approved smoke coverage proves FIFO oldest-created ordering survives assignment churn across operator queue views |
 | D-208 | P1 | Add oldest-created fallback ordering for unscheduled human tasks so no-SLA backlog can still remain stable under churn-heavy sorting | codex | done | SLA-oriented human task queue sorts now fall back to oldest-created ordering for rows without `sla_due_at`, and approved smoke coverage proves unscheduled backlog stays stable even after newer reassignment churn |
 | D-207 | P1 | Add combined backlog ordering that breaks SLA ties by the latest ownership churn so overdue work stays stable under heavy reassignment | codex | done | Human task list/backlog endpoints now accept `sort=sla_due_at_asc_last_transition_desc`, and approved smoke coverage proves same-SLA work orders by earliest SLA first and freshest ownership churn second |
