@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.60.0",
+  "version": "0.62.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -366,6 +366,27 @@
       "notes": "Human task packets now persist `assignment_source` so session/operator projections can distinguish manual assignment, route-level recommended assignment, and planner auto-preselection after later claim/return transitions."
     },
     {
+      "name": "human_task_assignment_provenance_fields",
+      "status": "tested",
+      "scope": [
+        "assigned_at_storage",
+        "assigned_by_actor_id_storage",
+        "assignment_provenance_api_projection",
+        "assignment_provenance_event_payloads"
+      ],
+      "notes": "Human task packets now persist `assigned_at` and `assigned_by_actor_id` so current reviewer ownership is timestamped and attributed across manual assignment, claim, return, and planner auto-preselection paths."
+    },
+    {
+      "name": "human_task_assignment_history_api",
+      "status": "tested",
+      "scope": [
+        "task_scoped_assignment_history_route",
+        "ledger_backed_reassignment_audit",
+        "recommended_manual_transition_sequence"
+      ],
+      "notes": "Human task ownership transitions are now queryable via `GET /v1/human/tasks/{human_task_id}/assignment-history`, which filters the linked execution ledger down to `created`, `assigned`, `claimed`, and `returned` events so reassignment provenance survives current-state overwrites."
+    },
+    {
       "name": "registry_backed_tool_execution_service",
       "status": "tested",
       "scope": [
@@ -502,7 +523,8 @@
     "ea/schema/20260305_v0_26_human_task_assignment_state.sql",
     "ea/schema/20260305_v0_27_human_task_review_contract.sql",
     "ea/schema/20260305_v0_28_operator_profiles_kernel.sql",
-    "ea/schema/20260305_v0_29_human_task_assignment_source.sql"
+    "ea/schema/20260305_v0_29_human_task_assignment_source.sql",
+    "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

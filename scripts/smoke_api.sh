@@ -115,11 +115,11 @@ fi
 HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"authority_required\":\"send_on_behalf_review\",\"why_human\":\"External executive communication needs human tone review.\",\"quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]},\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\",\"sla_due_at\":\"2000-01-01T00:00:00+00:00\",\"resume_session_on_return\":true}")"
 HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HUMAN_CREATE_JSON}")"
-HUMAN_CREATE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); checks=(body.get("quality_rubric_json") or {}).get("checks") or []; print("{}|{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source",""), body.get("resume_session_on_return", False), body.get("authority_required",""), body.get("why_human",""), checks[0] if checks else ""))' <<<"${HUMAN_CREATE_JSON}")"
+HUMAN_CREATE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); checks=(body.get("quality_rubric_json") or {}).get("checks") or []; print("{}|{}|{}|{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source",""), body.get("assigned_at") is None, body.get("assigned_by_actor_id",""), body.get("resume_session_on_return", False), body.get("authority_required",""), body.get("why_human",""), checks[0] if checks else ""))' <<<"${HUMAN_CREATE_JSON}")"
 if [[ -z "${HUMAN_TASK_ID}" ]]; then
   fail 13 "missing human_task_id from human task create response"
 fi
-if [[ "${HUMAN_CREATE_FIELDS}" != "pending|unassigned||True|send_on_behalf_review|External executive communication needs human tone review.|tone" ]]; then
+if [[ "${HUMAN_CREATE_FIELDS}" != "pending|unassigned||True||True|send_on_behalf_review|External executive communication needs human tone review.|tone" ]]; then
   echo "expected pending human task with explicit review-contract metadata after creation; got ${HUMAN_CREATE_FIELDS}" >&2
   echo "${HUMAN_CREATE_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -169,8 +169,8 @@ if [[ "${HUMAN_ROUTING_HINT_FIELDS}" != "accuracy|senior|operator-specialist|ope
   fail 12 "policy contract mismatch"
 fi
 HUMAN_ASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{}')"
-HUMAN_ASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id",""), body.get("assignment_source","")))' <<<"${HUMAN_ASSIGN_JSON}")"
-if [[ "${HUMAN_ASSIGN_FIELDS}" != "pending|assigned|operator-specialist|recommended" ]]; then
+HUMAN_ASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id",""), body.get("assignment_source",""), bool(body.get("assigned_at","")), body.get("assigned_by_actor_id","")))' <<<"${HUMAN_ASSIGN_JSON}")"
+if [[ "${HUMAN_ASSIGN_FIELDS}" != "pending|assigned|operator-specialist|recommended|True|exec-1" ]]; then
   echo "expected assigned human task to stay pending with explicit assigned state and operator ownership; got ${HUMAN_ASSIGN_FIELDS}" >&2
   echo "${HUMAN_ASSIGN_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -210,21 +210,28 @@ if [[ "${HUMAN_MINE_ASSIGNED_MATCH}" != "True" ]]; then
   echo "${HUMAN_MINE_ASSIGNED_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-specialist"}')"
-HUMAN_CLAIM_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source","")))' <<<"${HUMAN_CLAIM_JSON}")"
-if [[ "${HUMAN_CLAIM_FIELDS}" != "claimed|claimed|recommended" ]]; then
+HUMAN_REASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-junior"}')"
+HUMAN_REASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id",""), body.get("assignment_source",""), bool(body.get("assigned_at","")), body.get("assigned_by_actor_id","")))' <<<"${HUMAN_REASSIGN_JSON}")"
+if [[ "${HUMAN_REASSIGN_FIELDS}" != "pending|assigned|operator-junior|manual|True|exec-1" ]]; then
+  echo "expected manual reassignment to overwrite current owner but preserve explicit provenance fields; got ${HUMAN_REASSIGN_FIELDS}" >&2
+  echo "${HUMAN_REASSIGN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-junior"}')"
+HUMAN_CLAIM_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source",""), bool(body.get("assigned_at","")), body.get("assigned_by_actor_id","")))' <<<"${HUMAN_CLAIM_JSON}")"
+if [[ "${HUMAN_CLAIM_FIELDS}" != "claimed|claimed|manual|True|operator-junior" ]]; then
   echo "expected claimed human task after claim; got ${HUMAN_CLAIM_FIELDS}" >&2
   echo "${HUMAN_CLAIM_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_OPERATOR_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?assigned_operator_id=operator-specialist&status=claimed&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_OPERATOR_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?assigned_operator_id=operator-junior&status=claimed&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_OPERATOR_FILTER_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_OPERATOR_FILTER_JSON}")"
 if [[ "${HUMAN_OPERATOR_FILTER_MATCH}" != "True" ]]; then
   echo "expected assigned-operator human task queue filter to include ${HUMAN_TASK_ID}" >&2
   echo "${HUMAN_OPERATOR_FILTER_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-specialist&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_MINE_JSON="$(curl -fsS "${BASE}/v1/human/tasks/mine?operator_id=operator-junior&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_MINE_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_MINE_JSON}")"
 if [[ "${HUMAN_MINE_MATCH}" != "True" ]]; then
   echo "expected human task mine endpoint to include ${HUMAN_TASK_ID}" >&2
@@ -232,16 +239,23 @@ if [[ "${HUMAN_MINE_MATCH}" != "True" ]]; then
   fail 12 "policy contract mismatch"
 fi
 HUMAN_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"operator_id":"operator-specialist","resolution":"ready_for_send","returned_payload_json":{"summary":"Reviewed and ready."},"provenance_json":{"review_mode":"human"}}')"
-HUMAN_RETURN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source",""), body.get("resolution","")))' <<<"${HUMAN_RETURN_JSON}")"
-if [[ "${HUMAN_RETURN_FIELDS}" != "returned|returned|recommended|ready_for_send" ]]; then
+  -d '{"operator_id":"operator-junior","resolution":"ready_for_send","returned_payload_json":{"summary":"Reviewed and ready."},"provenance_json":{"review_mode":"human"}}')"
+HUMAN_RETURN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assignment_source",""), body.get("resolution",""), bool(body.get("assigned_at","")), body.get("assigned_by_actor_id","")))' <<<"${HUMAN_RETURN_JSON}")"
+if [[ "${HUMAN_RETURN_FIELDS}" != "returned|returned|manual|ready_for_send|True|operator-junior" ]]; then
   echo "expected returned human task after return; got ${HUMAN_RETURN_FIELDS}" >&2
   echo "${HUMAN_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+HUMAN_HISTORY_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history?limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_HISTORY_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names=[(row or {}).get('event_name','') for row in rows]; operators=[(row or {}).get('assigned_operator_id','') for row in rows]; sources=[(row or {}).get('assignment_source','') for row in rows]; actors=[(row or {}).get('assigned_by_actor_id','') for row in rows]; print('{}|{}|{}|{}'.format(','.join(names), ','.join(operators), ','.join(sources), ','.join(actors)))" <<<"${HUMAN_HISTORY_JSON}")"
+if [[ "${HUMAN_HISTORY_FIELDS}" != "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned|,operator-specialist,operator-junior,operator-junior,operator-junior|,recommended,manual,manual,manual|,exec-1,exec-1,operator-junior,operator-junior" ]]; then
+  echo "expected task-scoped assignment-history endpoint to preserve both recommended and later manual owner transitions; got ${HUMAN_HISTORY_FIELDS}" >&2
+  echo "${HUMAN_HISTORY_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
-SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; steps=body.get('steps') or []; task_id='${HUMAN_TASK_ID}'; step_id='${SESSION_STEP_ID}'; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), 'human_task_created' in events and 'human_task_assigned' in events, 'human_task_claimed' in events, 'human_task_returned' in events and 'session_resumed_from_human_task' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' and (row or {}).get('assignment_state') == 'returned' and (row or {}).get('assignment_source') == 'recommended' for row in tasks), any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'completed' and ((row or {}).get('output_json') or {}).get('human_task_id') == task_id for row in steps), any((row or {}).get('assignment_source') == 'recommended' for row in tasks if (row or {}).get('human_task_id') == task_id)))" <<<"${SESSION_HUMAN_JSON}")"
-if [[ "${SESSION_HUMAN_FIELDS}" != "completed|True|True|True|True|True|True" ]]; then
+SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; steps=body.get('steps') or []; task_id='${HUMAN_TASK_ID}'; step_id='${SESSION_STEP_ID}'; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), 'human_task_created' in events and 'human_task_assigned' in events, 'human_task_claimed' in events, 'human_task_returned' in events and 'session_resumed_from_human_task' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' and (row or {}).get('assignment_state') == 'returned' and (row or {}).get('assignment_source') == 'manual' and bool((row or {}).get('assigned_at','')) and (row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks), any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'completed' and ((row or {}).get('output_json') or {}).get('human_task_id') == task_id for row in steps), any((row or {}).get('assignment_source') == 'manual' for row in tasks if (row or {}).get('human_task_id') == task_id), any((row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks if (row or {}).get('human_task_id') == task_id)))" <<<"${SESSION_HUMAN_JSON}")"
+if [[ "${SESSION_HUMAN_FIELDS}" != "completed|True|True|True|True|True|True|True" ]]; then
   echo "expected resumed session projection to expose human task events, returned row, and completed resumed step; got ${SESSION_HUMAN_FIELDS}" >&2
   echo "${SESSION_HUMAN_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -559,8 +573,8 @@ fi
 HUMAN_REWRITE_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
 HUMAN_REWRITE_TASK_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
 HUMAN_REWRITE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}")"
-HUMAN_REWRITE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; queues=body.get('queue_items') or []; steps=body.get('steps') or []; review=next((row for row in tasks if (row or {}).get('human_task_id') == '${HUMAN_REWRITE_TASK_ID}'), {}); checks=(review.get('quality_rubric_json') or {}).get('checks') or []; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) == 4, len(queues) == 3 and all((q or {}).get('state','') == 'done' for q in queues), bool(review.get('human_task_id','')) and review.get('status') == 'pending', any((row or {}).get('step_id') and (row or {}).get('input_json',{}).get('plan_step_key') == 'step_human_review' and (row or {}).get('state') == 'waiting_human' for row in steps), review.get('priority',''), bool(review.get('sla_due_at','')), (review.get('desired_output_json') or {}).get('escalation_policy',''), review.get('authority_required',''), review.get('why_human',''), checks[0] if checks else '', review.get('assignment_state',''), review.get('assigned_operator_id',''), review.get('assignment_source','')))" <<<"${HUMAN_REWRITE_SESSION_JSON}")"
-if [[ "${HUMAN_REWRITE_SESSION_FIELDS}" != "awaiting_human|True|True|True|True|high|True|manager_review|send_on_behalf_review|Executive-facing rewrite needs human judgment before finalization.|tone|assigned|operator-specialist|auto_preselected" ]]; then
+HUMAN_REWRITE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; queues=body.get('queue_items') or []; steps=body.get('steps') or []; review=next((row for row in tasks if (row or {}).get('human_task_id') == '${HUMAN_REWRITE_TASK_ID}'), {}); checks=(review.get('quality_rubric_json') or {}).get('checks') or []; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) == 4, len(queues) == 3 and all((q or {}).get('state','') == 'done' for q in queues), bool(review.get('human_task_id','')) and review.get('status') == 'pending', any((row or {}).get('step_id') and (row or {}).get('input_json',{}).get('plan_step_key') == 'step_human_review' and (row or {}).get('state') == 'waiting_human' for row in steps), review.get('priority',''), bool(review.get('sla_due_at','')), (review.get('desired_output_json') or {}).get('escalation_policy',''), review.get('authority_required',''), review.get('why_human',''), checks[0] if checks else '', review.get('assignment_state',''), review.get('assigned_operator_id',''), review.get('assignment_source',''), bool(review.get('assigned_at','')), review.get('assigned_by_actor_id','')))" <<<"${HUMAN_REWRITE_SESSION_JSON}")"
+if [[ "${HUMAN_REWRITE_SESSION_FIELDS}" != "awaiting_human|True|True|True|True|high|True|manager_review|send_on_behalf_review|Executive-facing rewrite needs human judgment before finalization.|tone|assigned|operator-specialist|auto_preselected|True|orchestrator:auto_preselected" ]]; then
   echo "expected awaiting_human session with queued human review step; got ${HUMAN_REWRITE_SESSION_FIELDS}" >&2
   echo "${HUMAN_REWRITE_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"

@@ -24,6 +24,8 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - `POST /v1/human/tasks/{human_task_id}/assign` can now consume `auto_assign_operator_id` directly when the caller omits `operator_id`, so a preselected reviewer can be assigned without re-sending the same operator choice from the client.
 - Planner-native `step_human_review` branches can now opt into `human_review_auto_assign_if_unique`, and the queue runtime pre-assigns a single exact reviewer match before the packet lands in the human backlog.
 - Human task storage and projections now persist `assignment_source`, distinguishing manual assignment, route-level recommended assignment, and planner auto-preselection across session, backlog, and returned-packet views.
+- Human task storage and projections now also persist `assigned_at` and `assigned_by_actor_id`, so current reviewer ownership is timestamped and attributed across manual assignment, claim, return, and planner auto-preselection flows.
+- Added `GET /v1/human/tasks/{human_task_id}/assignment-history`, which exposes task-scoped ownership transitions from the execution ledger so recommended assignment, later manual reassignment, claim, and return provenance remain queryable after the packet state advances.
 - Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters for operator-targeted backlogs.
 - Added direct `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` endpoints so operators can pull pending and assigned queues without reconstructing filter sets manually.
 - Added `POST /v1/human/tasks/{human_task_id}/assign` so operator ownership can be set while a task remains pending, before `claim` transitions it into active work.

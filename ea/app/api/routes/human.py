@@ -60,6 +60,8 @@ class HumanTaskOut(BaseModel):
     assignment_state: str
     assigned_operator_id: str
     assignment_source: str
+    assigned_at: str | None
+    assigned_by_actor_id: str
     resolution: str
     resume_session_on_return: bool
     returned_payload_json: dict[str, object]
@@ -67,6 +69,21 @@ class HumanTaskOut(BaseModel):
     routing_hints_json: dict[str, object]
     created_at: str
     updated_at: str
+
+
+class HumanTaskAssignmentHistoryOut(BaseModel):
+    event_id: str
+    session_id: str
+    human_task_id: str
+    step_id: str | None
+    event_name: str
+    assignment_state: str
+    assigned_operator_id: str
+    assignment_source: str
+    assigned_at: str | None
+    assigned_by_actor_id: str
+    resolution: str
+    created_at: str
 
 
 class OperatorProfileIn(BaseModel):
@@ -113,6 +130,8 @@ def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
         assignment_state=row.assignment_state,
         assigned_operator_id=row.assigned_operator_id,
         assignment_source=row.assignment_source,
+        assigned_at=row.assigned_at,
+        assigned_by_actor_id=row.assigned_by_actor_id,
         resolution=row.resolution,
         resume_session_on_return=row.resume_session_on_return,
         returned_payload_json=row.returned_payload_json,
@@ -135,6 +154,24 @@ def _to_operator_out(row) -> OperatorProfileOut:  # type: ignore[no-untyped-def]
         notes=row.notes,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _to_assignment_history_out(event) -> HumanTaskAssignmentHistoryOut:  # type: ignore[no-untyped-def]
+    payload = dict(getattr(event, "payload", {}) or {})
+    return HumanTaskAssignmentHistoryOut(
+        event_id=event.event_id,
+        session_id=event.session_id,
+        human_task_id=str(payload.get("human_task_id") or ""),
+        step_id=str(payload.get("step_id") or "") or None,
+        event_name=event.name,
+        assignment_state=str(payload.get("assignment_state") or ""),
+        assigned_operator_id=str(payload.get("assigned_operator_id") or payload.get("operator_id") or ""),
+        assignment_source=str(payload.get("assignment_source") or ""),
+        assigned_at=str(payload.get("assigned_at") or "") or None,
+        assigned_by_actor_id=str(payload.get("assigned_by_actor_id") or ""),
+        resolution=str(payload.get("resolution") or ""),
+        created_at=event.created_at,
     )
 
 
@@ -325,10 +362,29 @@ def assign_human_task(
         principal_id=context.principal_id,
         operator_id=operator_id,
         assignment_source=assignment_source,
+        assigned_by_actor_id=context.principal_id,
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_assignable")
     return _to_out(row)
+
+
+@router.get("/{human_task_id}/assignment-history")
+def get_human_task_assignment_history(
+    human_task_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[HumanTaskAssignmentHistoryOut]:
+    found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="human_task_not_found")
+    rows = container.orchestrator.list_human_task_assignment_history(
+        human_task_id,
+        principal_id=context.principal_id,
+        limit=limit,
+    )
+    return [_to_assignment_history_out(row) for row in rows]
 
 
 @router.get("/{human_task_id}")
@@ -357,6 +413,7 @@ def claim_human_task(
         human_task_id,
         principal_id=context.principal_id,
         operator_id=payload.operator_id,
+        assigned_by_actor_id=payload.operator_id,
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_claimable")

@@ -24,6 +24,7 @@ Removed:
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
 - `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work, and can consume a computed `auto_assign_operator_id` when the caller omits `operator_id`
+- `/v1/human/tasks/{human_task_id}/assignment-history` exposes task-scoped ownership transitions without requiring callers to diff the full session event stream
 - `/v1/human/tasks/unassigned` and `assignment_state=unassigned|assigned|claimed|returned` expose the difference between ownerless pending work, pre-assigned pending work, active claims, and returned packets
 - human task payloads and session-linked `human_tasks` now project `routing_hints_json` with `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` so specialized reviewers can be suggested or preselected without a separate profile-filtered backlog scan
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
@@ -67,6 +68,8 @@ Removed:
 - human task queue listings now support operator-facing `role_required`, `assigned_operator_id`, and `overdue_only` filters for targeted reviewer backlogs
 - human task payloads now include explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) so pre-assigned pending work is first-class in session and queue projections
 - human task payloads now also persist `assignment_source` so manual assignment, route-level recommended assignment, and planner auto-preselection remain distinguishable in session/operator views after later claim and return transitions
+- human task payloads now also persist `assigned_at` and `assigned_by_actor_id` so current reviewer ownership includes timestamped actor provenance across manual assignment, claim, and planner auto-preselection paths
+- `GET /v1/human/tasks/{human_task_id}/assignment-history` now filters the linked execution ledger down to ownership transitions so recommended assignment, later manual reassignment, claim, and return provenance remain queryable after the packet state has advanced
 - human task payloads now also compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so the best reviewer candidate can be surfaced directly on each packet
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial
@@ -116,6 +119,7 @@ Removed:
 - human task review-contract kernel migration: `ea/schema/20260305_v0_27_human_task_review_contract.sql`
 - operator profiles kernel migration: `ea/schema/20260305_v0_28_operator_profiles_kernel.sql`
 - human task assignment-source kernel migration: `ea/schema/20260305_v0_29_human_task_assignment_source.sql`
+- human task assignment provenance kernel migration: `ea/schema/20260305_v0_30_human_task_assignment_provenance.sql`
 
 ## Auth
 

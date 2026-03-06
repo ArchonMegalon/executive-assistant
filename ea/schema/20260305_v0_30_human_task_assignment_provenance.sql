@@ -1,0 +1,5 @@
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ NULL;
+
+ALTER TABLE human_tasks
+ADD COLUMN IF NOT EXISTS assigned_by_actor_id TEXT NOT NULL DEFAULT '';

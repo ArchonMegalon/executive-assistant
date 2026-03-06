@@ -48,7 +48,13 @@ class HumanTaskRepository(Protocol):
     def list_for_session(self, session_id: str, *, limit: int = 200) -> list[HumanTask]:
         ...
 
-    def claim(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
+    def claim(
+        self,
+        human_task_id: str,
+        *,
+        operator_id: str,
+        assigned_by_actor_id: str | None = None,
+    ) -> HumanTask | None:
         ...
 
     def assign(
@@ -57,6 +63,7 @@ class HumanTaskRepository(Protocol):
         *,
         operator_id: str,
         assignment_source: str = "manual",
+        assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
         ...
 
@@ -115,6 +122,8 @@ class InMemoryHumanTaskRepository:
             assignment_state="unassigned",
             assigned_operator_id="",
             assignment_source="",
+            assigned_at=None,
+            assigned_by_actor_id="",
             resolution="",
             created_at=ts,
             updated_at=ts,
@@ -181,7 +190,13 @@ class InMemoryHumanTaskRepository:
         rows = [row for row in rows if row.session_id == session]
         return rows[:n]
 
-    def claim(self, human_task_id: str, *, operator_id: str) -> HumanTask | None:
+    def claim(
+        self,
+        human_task_id: str,
+        *,
+        operator_id: str,
+        assigned_by_actor_id: str | None = None,
+    ) -> HumanTask | None:
         found = self._rows.get(str(human_task_id or ""))
         if not found or found.status != "pending":
             return None
@@ -191,6 +206,8 @@ class InMemoryHumanTaskRepository:
             assignment_state="claimed",
             assigned_operator_id=str(operator_id or ""),
             assignment_source=found.assignment_source,
+            assigned_at=now_utc_iso(),
+            assigned_by_actor_id=str(assigned_by_actor_id or operator_id or ""),
             updated_at=now_utc_iso(),
         )
         self._rows[updated.human_task_id] = updated
@@ -202,6 +219,7 @@ class InMemoryHumanTaskRepository:
         *,
         operator_id: str,
         assignment_source: str = "manual",
+        assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
         found = self._rows.get(str(human_task_id or ""))
         if not found or found.status != "pending":
@@ -211,6 +229,8 @@ class InMemoryHumanTaskRepository:
             assignment_state="assigned",
             assigned_operator_id=str(operator_id or ""),
             assignment_source=str(assignment_source or "manual"),
+            assigned_at=now_utc_iso(),
+            assigned_by_actor_id=str(assigned_by_actor_id or operator_id or ""),
             updated_at=now_utc_iso(),
         )
         self._rows[updated.human_task_id] = updated
@@ -234,6 +254,8 @@ class InMemoryHumanTaskRepository:
             assignment_state="returned",
             assigned_operator_id=str(operator_id or found.assigned_operator_id or ""),
             assignment_source=found.assignment_source,
+            assigned_at=found.assigned_at,
+            assigned_by_actor_id=found.assigned_by_actor_id,
             resolution=str(resolution or ""),
             returned_payload_json=dict(returned_payload_json or {}),
             provenance_json=dict(provenance_json or {}),

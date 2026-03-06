@@ -478,6 +478,8 @@ class HumanTask:
     assignment_state: str
     assigned_operator_id: str
     assignment_source: str
+    assigned_at: str | None
+    assigned_by_actor_id: str
     resolution: str
     created_at: str
     updated_at: str

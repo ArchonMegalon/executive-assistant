@@ -71,6 +71,12 @@ class RewriteOrchestrator:
         "exec_delegate": 3,
         "principal_delegate": 3,
     }
+    _HUMAN_TASK_ASSIGNMENT_EVENT_NAMES = {
+        "human_task_created",
+        "human_task_assigned",
+        "human_task_claimed",
+        "human_task_returned",
+    }
     _AUTHORITY_RANK = {
         "": 0,
         "review": 0,
@@ -402,6 +408,7 @@ class RewriteOrchestrator:
                     principal_id=session.intent.principal_id,
                     operator_id=auto_assign_operator_id,
                     assignment_source="auto_preselected",
+                    assigned_by_actor_id="orchestrator:auto_preselected",
                 )
                 if updated is not None:
                     row = updated
@@ -419,6 +426,8 @@ class RewriteOrchestrator:
                 "assignment_state": row.assignment_state,
                 "assigned_operator_id": row.assigned_operator_id,
                 "assignment_source": row.assignment_source,
+                "assigned_at": row.assigned_at or "",
+                "assigned_by_actor_id": row.assigned_by_actor_id,
             },
         )
         return self._decorate_human_task(row)
@@ -924,7 +933,10 @@ class RewriteOrchestrator:
                 "sla_due_at": row.sla_due_at or "",
                 "desired_output_json": row.desired_output_json,
                 "assignment_state": row.assignment_state,
+                "assigned_operator_id": row.assigned_operator_id,
                 "assignment_source": row.assignment_source,
+                "assigned_at": row.assigned_at or "",
+                "assigned_by_actor_id": row.assigned_by_actor_id,
                 "resume_session_on_return": row.resume_session_on_return,
             },
         )
@@ -977,6 +989,27 @@ class RewriteOrchestrator:
             return []
         return [self._decorate_human_task(row) for row in rows if self._operator_matches_human_task(profile, row)]
 
+    def list_human_task_assignment_history(
+        self,
+        human_task_id: str,
+        *,
+        principal_id: str,
+        limit: int = 100,
+    ) -> list[ExecutionEvent]:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return []
+        n = max(1, min(500, int(limit or 100)))
+        rows = [
+            event
+            for event in self._ledger.events_for(found.session_id)
+            if event.name in self._HUMAN_TASK_ASSIGNMENT_EVENT_NAMES
+            and str((event.payload or {}).get("human_task_id") or "") == found.human_task_id
+        ]
+        if len(rows) <= n:
+            return rows
+        return rows[-n:]
+
     def _operator_matches_human_task(self, profile: OperatorProfile, row: HumanTask) -> bool:
         details = self._operator_match_details(profile, row)
         return bool(details["exact_match"])
@@ -1024,11 +1057,22 @@ class RewriteOrchestrator:
             limit=limit,
         )
 
-    def claim_human_task(self, human_task_id: str, *, principal_id: str, operator_id: str) -> HumanTask | None:
+    def claim_human_task(
+        self,
+        human_task_id: str,
+        *,
+        principal_id: str,
+        operator_id: str,
+        assigned_by_actor_id: str | None = None,
+    ) -> HumanTask | None:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._human_tasks.claim(human_task_id, operator_id=operator_id)
+        updated = self._human_tasks.claim(
+            human_task_id,
+            operator_id=operator_id,
+            assigned_by_actor_id=assigned_by_actor_id,
+        )
         if updated is None:
             return None
         self._ledger.append_event(
@@ -1037,8 +1081,11 @@ class RewriteOrchestrator:
             {
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
+                "assigned_operator_id": updated.assigned_operator_id,
                 "assignment_state": updated.assignment_state,
                 "assignment_source": updated.assignment_source,
+                "assigned_at": updated.assigned_at or "",
+                "assigned_by_actor_id": updated.assigned_by_actor_id,
                 "step_id": updated.step_id or "",
             },
         )
@@ -1051,6 +1098,7 @@ class RewriteOrchestrator:
         principal_id: str,
         operator_id: str,
         assignment_source: str = "manual",
+        assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
@@ -1059,6 +1107,7 @@ class RewriteOrchestrator:
             human_task_id,
             operator_id=operator_id,
             assignment_source=assignment_source,
+            assigned_by_actor_id=assigned_by_actor_id,
         )
         if updated is None:
             return None
@@ -1068,8 +1117,11 @@ class RewriteOrchestrator:
             {
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
+                "assigned_operator_id": updated.assigned_operator_id,
                 "assignment_state": updated.assignment_state,
                 "assignment_source": updated.assignment_source,
+                "assigned_at": updated.assigned_at or "",
+                "assigned_by_actor_id": updated.assigned_by_actor_id,
                 "step_id": updated.step_id or "",
             },
         )
@@ -1103,9 +1155,12 @@ class RewriteOrchestrator:
             {
                 "human_task_id": updated.human_task_id,
                 "operator_id": updated.assigned_operator_id,
+                "assigned_operator_id": updated.assigned_operator_id,
                 "resolution": updated.resolution,
                 "assignment_state": updated.assignment_state,
                 "assignment_source": updated.assignment_source,
+                "assigned_at": updated.assigned_at or "",
+                "assigned_by_actor_id": updated.assigned_by_actor_id,
                 "step_id": updated.step_id or "",
             },
         )

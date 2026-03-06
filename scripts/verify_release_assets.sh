@@ -72,6 +72,7 @@ required_files=(
   "ea/schema/20260305_v0_27_human_task_review_contract.sql"
   "ea/schema/20260305_v0_28_operator_profiles_kernel.sql"
   "ea/schema/20260305_v0_29_human_task_assignment_source.sql"
+  "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql"
 )
 
 echo "== verify release assets =="
@@ -1367,7 +1368,8 @@ then
   if grep -Fq "assignment_source" "README.md" && \
      grep -Fq "assignment_source" "RUNBOOK.md" && \
      grep -Fq "assignment_source" "scripts/smoke_api.sh" && \
-     grep -Fq "recommended|ready_for_send" "scripts/smoke_api.sh" && \
+     grep -Fq "operator-specialist|recommended" "scripts/smoke_api.sh" && \
+     grep -Fq "operator-junior|manual" "scripts/smoke_api.sh" && \
      grep -Fq "auto_preselected" "scripts/smoke_api.sh" && \
      grep -Fq 'task["assignment_source"] == ""' "tests/smoke_runtime_api.py" && \
      grep -Fq 'assigned.json()["assignment_source"] == "recommended"' "tests/smoke_runtime_api.py" && \
@@ -1381,6 +1383,63 @@ then
   fi
 else
   echo "missing: human task assignment source visibility milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_provenance_fields")
+assert capability["status"] == "tested"
+assert "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql" in milestone["migrations"]
+PY
+then
+  if grep -Fq "assigned_at" "README.md" && \
+     grep -Fq "assigned_by_actor_id" "README.md" && \
+     grep -Fq "assigned_at" "RUNBOOK.md" && \
+     grep -Fq "assigned_by_actor_id" "RUNBOOK.md" && \
+     grep -Fq "assigned_by_actor_id" "scripts/smoke_api.sh" && \
+     grep -Fq "orchestrator:auto_preselected" "scripts/smoke_api.sh" && \
+     grep -Fq 'task["assigned_by_actor_id"] == ""' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'assigned.json()["assigned_by_actor_id"] == "exec-1"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'assigned_by_actor_id="principal-1"' "tests/test_postgres_contract_matrix_integration.py" && \
+     grep -Fq 'assigned_by_actor_id == "operator-1"' "tests/test_postgres_contract_matrix_integration.py" && \
+     grep -Fq "v0_30 human task assignment provenance kernel" "scripts/db_bootstrap.sh"; then
+    echo "ok: human task assignment provenance docs"
+  else
+    echo "missing: human task assignment provenance docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task assignment provenance milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_api")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "/v1/human/tasks/{human_task_id}/assignment-history" "README.md" && \
+     grep -Fq "/v1/human/tasks/{human_task_id}/assignment-history" "RUNBOOK.md" && \
+     grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history" "HTTP_EXAMPLES.http" && \
+     grep -Fq "/v1/human/tasks/\${HUMAN_TASK_ID}/assignment-history" "scripts/smoke_api.sh" && \
+     grep -Fq "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned" "scripts/smoke_api.sh" && \
+     grep -Fq '/assignment-history", params={"limit": 10}' "tests/smoke_runtime_api.py"; then
+    echo "ok: human task assignment history docs"
+  else
+    echo "missing: human task assignment history docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task assignment history milestone" >&2
   missing=1
 fi
 

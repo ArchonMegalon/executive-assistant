@@ -297,6 +297,8 @@ def test_human_task_flow_and_session_projection() -> None:
     assert task["status"] == "pending"
     assert task["assignment_state"] == "unassigned"
     assert task["assignment_source"] == ""
+    assert task["assigned_at"] is None
+    assert task["assigned_by_actor_id"] == ""
     assert task["step_id"] == step_id
     assert task["resume_session_on_return"] is True
     assert task["authority_required"] == "send_on_behalf_review"
@@ -349,6 +351,8 @@ def test_human_task_flow_and_session_projection() -> None:
     assert assigned.json()["assignment_state"] == "assigned"
     assert assigned.json()["assigned_operator_id"] == "operator-specialist"
     assert assigned.json()["assignment_source"] == "recommended"
+    assert assigned.json()["assigned_at"]
+    assert assigned.json()["assigned_by_actor_id"] == "exec-1"
 
     assigned_backlog = client.get(
         "/v1/human/tasks/backlog",
@@ -391,27 +395,41 @@ def test_human_task_flow_and_session_projection() -> None:
     assert mine_assigned.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine_assigned.json())
 
-    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-specialist"})
+    reassigned = client.post(
+        f"/v1/human/tasks/{task_id}/assign",
+        json={"operator_id": "operator-junior"},
+    )
+    assert reassigned.status_code == 200
+    assert reassigned.json()["status"] == "pending"
+    assert reassigned.json()["assignment_state"] == "assigned"
+    assert reassigned.json()["assigned_operator_id"] == "operator-junior"
+    assert reassigned.json()["assignment_source"] == "manual"
+    assert reassigned.json()["assigned_at"]
+    assert reassigned.json()["assigned_by_actor_id"] == "exec-1"
+
+    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-junior"})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
     assert claimed.json()["assignment_state"] == "claimed"
-    assert claimed.json()["assignment_source"] == "recommended"
+    assert claimed.json()["assignment_source"] == "manual"
+    assert claimed.json()["assigned_at"]
+    assert claimed.json()["assigned_by_actor_id"] == "operator-junior"
 
     operator_filtered = client.get(
         "/v1/human/tasks",
-        params={"limit": 10, "assigned_operator_id": "operator-specialist", "status": "claimed"},
+        params={"limit": 10, "assigned_operator_id": "operator-junior", "status": "claimed"},
     )
     assert operator_filtered.status_code == 200
     assert any(row["human_task_id"] == task_id for row in operator_filtered.json())
 
-    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-specialist"})
+    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-junior"})
     assert mine.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine.json())
 
     returned = client.post(
         f"/v1/human/tasks/{task_id}/return",
         json={
-            "operator_id": "operator-specialist",
+            "operator_id": "operator-junior",
             "resolution": "ready_for_send",
             "returned_payload_json": {"summary": "Reviewed and ready."},
             "provenance_json": {"review_mode": "human"},
@@ -420,12 +438,38 @@ def test_human_task_flow_and_session_projection() -> None:
     assert returned.status_code == 200
     assert returned.json()["status"] == "returned"
     assert returned.json()["assignment_state"] == "returned"
-    assert returned.json()["assignment_source"] == "recommended"
+    assert returned.json()["assignment_source"] == "manual"
+    assert returned.json()["assigned_at"]
+    assert returned.json()["assigned_by_actor_id"] == "operator-junior"
     assert returned.json()["resolution"] == "ready_for_send"
 
     fetched = client.get(f"/v1/human/tasks/{task_id}")
     assert fetched.status_code == 200
     assert fetched.json()["returned_payload_json"]["summary"] == "Reviewed and ready."
+
+    history = client.get(f"/v1/human/tasks/{task_id}/assignment-history", params={"limit": 10})
+    assert history.status_code == 200
+    history_rows = history.json()
+    assert [row["event_name"] for row in history_rows] == [
+        "human_task_created",
+        "human_task_assigned",
+        "human_task_assigned",
+        "human_task_claimed",
+        "human_task_returned",
+    ]
+    assert [row["assigned_operator_id"] for row in history_rows] == [
+        "",
+        "operator-specialist",
+        "operator-junior",
+        "operator-junior",
+        "operator-junior",
+    ]
+    assert history_rows[1]["assignment_source"] == "recommended"
+    assert history_rows[1]["assigned_by_actor_id"] == "exec-1"
+    assert history_rows[2]["assignment_source"] == "manual"
+    assert history_rows[2]["assigned_by_actor_id"] == "exec-1"
+    assert history_rows[3]["assigned_by_actor_id"] == "operator-junior"
+    assert history_rows[4]["assigned_by_actor_id"] == "operator-junior"
 
     session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session_after.status_code == 200
@@ -438,7 +482,11 @@ def test_human_task_flow_and_session_projection() -> None:
     assert "human_task_returned" in event_names
     assert "session_resumed_from_human_task" in event_names
     assert any(
-        row["human_task_id"] == task_id and row["status"] == "returned" and row["assignment_state"] == "returned"
+        row["human_task_id"] == task_id
+        and row["status"] == "returned"
+        and row["assignment_state"] == "returned"
+        and row["assignment_source"] == "manual"
+        and row["assigned_by_actor_id"] == "operator-junior"
         for row in session_body["human_tasks"]
     )
     resumed_step = next(step for step in session_body["steps"] if step["step_id"] == step_id)
@@ -855,6 +903,8 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert review_task["assignment_state"] == "assigned"
     assert review_task["assigned_operator_id"] == "operator-specialist"
     assert review_task["assignment_source"] == "auto_preselected"
+    assert review_task["assigned_at"]
+    assert review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"
     assert review_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
     assert review_task["routing_hints_json"]["auto_assign_operator_id"] == ""
     assert review_task["routing_hints_json"]["candidate_count"] == 1

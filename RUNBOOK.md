@@ -27,6 +27,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/human/tasks/operators` | `200` | validation `422`, `403 principal_scope_mismatch` |
 | GET | `/v1/human/tasks/operators/{operator_id}` | `200` | `404 operator_profile_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/assign` | `200` | `404 human_task_not_found`, `409 human_task_not_assignable` |
+| GET | `/v1/human/tasks/{human_task_id}/assignment-history` | `200` | `404 human_task_not_found`, validation `422` |
 | GET | `/v1/human/tasks/{human_task_id}` | `200` | `404 human_task_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/claim` | `200` | `404 human_task_not_found`, `409 human_task_not_claimable` |
 | POST | `/v1/human/tasks/{human_task_id}/return` | `200` | `404 human_task_not_found`, `409 human_task_not_returnable` |
@@ -130,9 +131,11 @@ Policy notes:
 - Human task/session payloads now compute `routing_hints_json` from active operator profiles, rubric-derived skill tags, and trust-tier requirements, including `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` when a single exact reviewer match is available.
 - `GET /v1/human/tasks/backlog` is the direct pending-queue view, while `GET /v1/human/tasks/mine?operator_id=<id>` exposes the current operator assignment queue without rebuilding filters manually.
 - `POST /v1/human/tasks/{human_task_id}/assign` sets `assigned_operator_id` while the task remains `pending`, emits `human_task_assigned`, and lets operators be pre-assigned before `claim` moves the packet into active work; if the caller omits `operator_id`, the route now uses `routing_hints_json.auto_assign_operator_id` when a single exact reviewer match is available.
+- `GET /v1/human/tasks/{human_task_id}/assignment-history` filters the linked execution ledger down to `human_task_created`, `human_task_assigned`, `human_task_claimed`, and `human_task_returned` transitions so reassignment provenance is queryable without scanning the entire session event list.
 - `GET /v1/human/tasks/unassigned` and `assignment_state=assigned|unassigned` make pre-assigned pending work distinct from ownerless pending work in the backlog view.
 - Human task payloads now expose `assignment_state` directly (`unassigned`, `assigned`, `claimed`, `returned`) so session projections and operator queues do not have to infer assignment from `status` plus `assigned_operator_id`.
 - Human task payloads now also persist `assignment_source` so operators can tell whether ownership came from a manual choice, a route-level recommended assignment, or planner-time auto-preselection even after later claim/return transitions.
+- Human task payloads now also persist `assigned_at` and `assigned_by_actor_id` so current reviewer ownership is timestamped and the last assigning actor remains visible across assignment, claim, return, and planner auto-preselection.
 
 ## Operator Script Help Index
 
@@ -273,6 +276,7 @@ Applies:
 - `ea/schema/20260305_v0_27_human_task_review_contract.sql`
 - `ea/schema/20260305_v0_28_operator_profiles_kernel.sql`
 - `ea/schema/20260305_v0_29_human_task_assignment_source.sql`
+- `ea/schema/20260305_v0_30_human_task_assignment_provenance.sql`
 
 Check table presence/counts:
 

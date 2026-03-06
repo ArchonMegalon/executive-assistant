@@ -268,16 +268,29 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     )
     assert any(row.human_task_id == created.human_task_id for row in listed_role)
 
-    assigned = repo.assign(created.human_task_id, operator_id="operator-1", assignment_source="manual")
+    assigned = repo.assign(
+        created.human_task_id,
+        operator_id="operator-1",
+        assignment_source="manual",
+        assigned_by_actor_id="principal-1",
+    )
     assert assigned is not None
     assert assigned.assignment_state == "assigned"
     assert assigned.assignment_source == "manual"
+    assert assigned.assigned_at
+    assert assigned.assigned_by_actor_id == "principal-1"
 
-    claimed = repo.claim(created.human_task_id, operator_id="operator-1")
+    claimed = repo.claim(
+        created.human_task_id,
+        operator_id="operator-1",
+        assigned_by_actor_id="operator-1",
+    )
     assert claimed is not None
     assert claimed.status == "claimed"
     assert claimed.assignment_state == "claimed"
     assert claimed.assignment_source == "manual"
+    assert claimed.assigned_at
+    assert claimed.assigned_by_actor_id == "operator-1"
     assert claimed.assigned_operator_id == "operator-1"
 
     listed_operator = repo.list_for_principal(
@@ -299,6 +312,8 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     assert returned.status == "returned"
     assert returned.assignment_state == "returned"
     assert returned.assignment_source == "manual"
+    assert returned.assigned_at
+    assert returned.assigned_by_actor_id == "operator-1"
     assert returned.resolution == "ready_for_send"
     assert returned.returned_payload_json["summary"] == "Reviewed and tightened tone."
     assert returned.resume_session_on_return is True

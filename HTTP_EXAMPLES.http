@@ -165,6 +165,10 @@ X-EA-Principal-ID: {{principal_id}}
   "operator_id": "operator"
 }
 
+### Human tasks -> assignment history
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> assigned-only pending backlog
 GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&assignment_state=assigned&limit=20
 X-EA-Principal-ID: {{principal_id}}

@@ -408,7 +408,8 @@ def test_human_task_assignment_source_visibility_is_documented_and_smoked() -> N
     assert "assignment_source" in readme
     assert "assignment_source" in runbook
     assert "assignment_source" in smoke_api
-    assert "recommended|ready_for_send" in smoke_api
+    assert "operator-specialist|recommended" in smoke_api
+    assert "operator-junior|manual" in smoke_api
     assert "auto_preselected" in smoke_api
     assert 'task["assignment_source"] == ""' in smoke_runtime
     assert 'assigned.json()["assignment_source"] == "recommended"' in smoke_runtime
@@ -422,6 +423,56 @@ def test_human_task_assignment_source_visibility_is_documented_and_smoked() -> N
     assert capability["status"] == "tested"
     assert "manual_recommended_auto_preselected_labels" in capability["scope"]
     assert "ea/schema/20260305_v0_29_human_task_assignment_source.sql" in milestone["migrations"]
+
+
+def test_human_task_assignment_provenance_fields_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "assigned_at" in readme
+    assert "assigned_by_actor_id" in readme
+    assert "assigned_at" in runbook
+    assert "assigned_by_actor_id" in runbook
+    assert "assigned_by_actor_id" in smoke_api
+    assert "orchestrator:auto_preselected" in smoke_api
+    assert 'task["assigned_by_actor_id"] == ""' in smoke_runtime
+    assert 'assigned.json()["assigned_by_actor_id"] == "exec-1"' in smoke_runtime
+    assert 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' in smoke_runtime
+    assert 'assigned_by_actor_id="principal-1"' in postgres_matrix
+    assert 'assigned_by_actor_id == "operator-1"' in postgres_matrix
+    assert "v0_30 human task assignment provenance kernel" in db_bootstrap
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_provenance_fields"
+    )
+    assert capability["status"] == "tested"
+    assert "assignment_provenance_event_payloads" in capability["scope"]
+    assert "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql" in milestone["migrations"]
+
+
+def test_human_task_assignment_history_api_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/human/tasks/{human_task_id}/assignment-history" in readme
+    assert "/v1/human/tasks/{human_task_id}/assignment-history" in runbook
+    assert "/v1/human/tasks/{{human_task_id}}/assignment-history" in http_examples
+    assert "/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history" in smoke_api
+    assert "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned" in smoke_api
+    assert '/assignment-history", params={"limit": 10}' in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_api")
+    assert capability["status"] == "tested"
+    assert "ledger_backed_reassignment_audit" in capability["scope"]
 
 
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
