@@ -66,6 +66,14 @@ curl -fsS "${BASE}/health/ready" >/dev/null
 curl -fsS "${BASE}/version" >/dev/null
 echo "health/version ok"
 
+echo "== smoke: openapi =="
+OPENAPI_FIELDS="$(curl -fsS "${BASE}/openapi.json" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); schema=((body.get('components') or {}).get('schemas') or {}).get('SessionStepOut') or {}; examples=schema.get('examples') or []; waiting=next((row for row in examples if row.get('step_id') == 'step-artifact-save-waiting-approval'), {}); blocked=next((row for row in examples if row.get('step_id') == 'step-artifact-save-blocked-human'), {}); print('{}|{}|{}|{}|{}|{}|{}'.format(waiting.get('state',''), waiting.get('dependency_states') == {'step_policy_evaluate': 'completed'}, waiting.get('blocked_dependency_keys') == [], waiting.get('dependencies_satisfied') is True, blocked.get('state',''), blocked.get('blocked_dependency_keys') == ['step_human_review'], blocked.get('dependencies_satisfied') is False))")"
+if [[ "${OPENAPI_FIELDS}" != "waiting_approval|True|True|True|queued|True|True" ]]; then
+  echo "expected live OpenAPI session-step examples for waiting_approval and blocked human dependencies; got ${OPENAPI_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "openapi ok"
+
 echo "== smoke: rewrite =="
 REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"

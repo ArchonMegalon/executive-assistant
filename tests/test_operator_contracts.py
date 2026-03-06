@@ -86,9 +86,20 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "tests/test_postgres_contract_matrix_integration.py" in script
     assert "tests/test_generic_async_dependency_projection_contracts.py" in script
     assert "tests/test_memory_router_contracts.py" in script
+    assert "tests/test_openapi_dependency_examples_contracts.py" in script
     assert "tests/test_rewrite_scope_contracts.py" in script
     assert "tests/test_rewrite_api_scope_contracts.py" in script
     assert "tests/test_rewrite_dependency_projection_contracts.py" in script
+
+
+def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
+    smoke = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
+
+    assert "exports OpenAPI and verifies paused session-step dependency examples" in smoke
+    assert "bash scripts/export_openapi.sh" in smoke
+    assert "step-artifact-save-waiting-approval" in smoke
+    assert "step-artifact-save-blocked-human" in smoke
+    assert "openapi export ok" in smoke
 
 
 def test_session_step_dependency_projection_is_covered_by_contract_tests() -> None:
@@ -130,6 +141,19 @@ def test_session_step_dependency_projection_is_covered_by_smoke_runtime() -> Non
     assert "save_step.get('blocked_dependency_keys') == ['step_human_review']" in smoke_script
     assert "decision_brief_approval|awaiting_approval|waiting_approval|True|True|True|True|True" in smoke_script
     assert "stakeholder_briefing_review|awaiting_human|waiting_human|True|True|True|True|queued|True|True|True" in smoke_script
+
+
+def test_openapi_dependency_examples_are_guarded() -> None:
+    openapi_test = (ROOT / "tests/test_openapi_dependency_examples_contracts.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+
+    assert 'step-artifact-save-waiting-approval' in openapi_test
+    assert 'step-artifact-save-blocked-human' in openapi_test
+    assert 'waiting_approval["dependency_states"] == {"step_policy_evaluate": "completed"}' in openapi_test
+    assert 'blocked_human["blocked_dependency_keys"] == ["step_human_review"]' in openapi_test
+    assert 'curl -fsS "${BASE}/openapi.json"' in smoke_script
+    assert "waiting.get('state','')" in smoke_script
+    assert "blocked.get('blocked_dependency_keys') == ['step_human_review']" in smoke_script
 
 
 def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:

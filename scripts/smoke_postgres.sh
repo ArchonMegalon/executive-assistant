@@ -21,8 +21,9 @@ Runs a Postgres-backed smoke path against an isolated smoke database:
   4) starts ea-api pinned to isolated DB
   5) verifies /health/ready reason is postgres_ready
   6) runs scripts/smoke_api.sh
-  7) verifies DB row growth for core runtime tables
-  8) verifies `EA_RUNTIME_MODE=prod` fails fast instead of falling back to memory
+  7) exports OpenAPI and verifies paused session-step dependency examples
+  8) verifies DB row growth for core runtime tables
+  9) verifies `EA_RUNTIME_MODE=prod` fails fast instead of falling back to memory
 
 Options:
   --legacy-fixture          Seed a legacy UUID/approval schema fixture before
@@ -290,6 +291,17 @@ fi
 
 echo "== smoke-postgres: api smoke =="
 bash scripts/smoke_api.sh
+
+echo "== smoke-postgres: openapi export verification =="
+bash scripts/export_openapi.sh >/dev/null
+openapi_latest="${EA_ROOT}/artifacts/openapi_latest.json"
+openapi_export_fields="$(python3 -c "import json,sys; from pathlib import Path; body=json.loads(Path(sys.argv[1]).read_text() or '{}'); schema=((body.get('components') or {}).get('schemas') or {}).get('SessionStepOut') or {}; examples=schema.get('examples') or []; waiting=next((row for row in examples if row.get('step_id') == 'step-artifact-save-waiting-approval'), {}); blocked=next((row for row in examples if row.get('step_id') == 'step-artifact-save-blocked-human'), {}); print('{}|{}|{}|{}|{}|{}'.format(waiting.get('state',''), waiting.get('dependency_states') == {'step_policy_evaluate': 'completed'}, waiting.get('dependencies_satisfied') is True, blocked.get('state',''), blocked.get('blocked_dependency_keys') == ['step_human_review'], blocked.get('dependencies_satisfied') is False))" "${openapi_latest}")"
+if [[ "${openapi_export_fields}" != "waiting_approval|True|True|queued|True|True" ]]; then
+  echo "expected exported OpenAPI snapshot to retain paused session-step dependency examples; got ${openapi_export_fields}" >&2
+  cat "${openapi_latest}" >&2
+  exit 38
+fi
+echo "openapi export ok"
 
 echo "== smoke-postgres: db status verification =="
 status_out="$(POSTGRES_DB="${SMOKE_DB}" bash scripts/db_status.sh)"
