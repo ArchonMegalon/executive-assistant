@@ -39,8 +39,8 @@ for arg in "$@"; do
 done
 
 if [[ ! -f "${LOG_FILE}" ]]; then
-  echo "missing ${LOG_FILE}" >&2
-  exit 1
+  echo "no local task log present at ${LOG_FILE}"
+  exit 0
 fi
 
 python3 - "${LOG_FILE}" "${ARCHIVE_FILE}" "${PRUNE_DONE}" "${DRY_RUN}" <<'PY'

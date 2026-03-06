@@ -147,6 +147,8 @@ class SessionHumanTaskAssignmentHistoryOut(BaseModel):
     event_id: str
     human_task_id: str
     step_id: str | None
+    task_key: str = ""
+    deliverable_type: str = ""
     event_name: str
     assignment_state: str
     assigned_operator_id: str
@@ -174,12 +176,19 @@ class SessionOut(BaseModel):
     human_task_assignment_history: list[SessionHumanTaskAssignmentHistoryOut]
 
 
-def _to_assignment_history_out(event) -> SessionHumanTaskAssignmentHistoryOut:  # type: ignore[no-untyped-def]
+def _to_assignment_history_out(
+    event,
+    *,
+    task_key: str = "",
+    deliverable_type: str = "",
+) -> SessionHumanTaskAssignmentHistoryOut:  # type: ignore[no-untyped-def]
     payload = dict(getattr(event, "payload", {}) or {})
     return SessionHumanTaskAssignmentHistoryOut(
         event_id=event.event_id,
         human_task_id=str(payload.get("human_task_id") or ""),
         step_id=str(payload.get("step_id") or "") or None,
+        task_key=task_key,
+        deliverable_type=deliverable_type,
         event_name=event.name,
         assignment_state=str(payload.get("assignment_state") or ""),
         assigned_operator_id=str(payload.get("assigned_operator_id") or payload.get("operator_id") or ""),
@@ -261,7 +270,11 @@ def get_session(
     if has_source_filter:
         human_tasks = [task for task in human_tasks if str(task.assignment_source or "") == source_filter]
     human_task_assignment_history = [
-        _to_assignment_history_out(event)
+        _to_assignment_history_out(
+            event,
+            task_key=session.intent.task_type,
+            deliverable_type=session.intent.deliverable_type,
+        )
         for event in events
         if event.name in {"human_task_created", "human_task_assigned", "human_task_claimed", "human_task_returned"}
         and str((event.payload or {}).get("human_task_id") or "").strip()

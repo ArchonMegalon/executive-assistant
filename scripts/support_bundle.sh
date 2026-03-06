@@ -116,7 +116,11 @@ redact() {
 
   if [[ "${INCLUDE_QUEUE}" == "1" ]]; then
     echo "-- queued task snapshot --"
-    awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md || true
+    if [[ -f TASKS_WORK_LOG.md ]]; then
+      awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md || true
+    else
+      echo "local task log not present"
+    fi
   else
     echo "-- queued task snapshot --"
     echo "skipped (SUPPORT_INCLUDE_QUEUE=${INCLUDE_QUEUE})"

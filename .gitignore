@@ -25,3 +25,8 @@ artifacts/
 .idea/
 .vscode/
 .codex/
+
+# Agent-local memory and work queue
+.codex/memories/
+TASKS_WORK_LOG.md
+TASKS_ARCHIVE.md

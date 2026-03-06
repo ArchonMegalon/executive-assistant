@@ -20,6 +20,7 @@ Removed:
 - `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store, including the originating task key and deliverable type for non-rewrite runs
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion, including originating task identity for non-rewrite runs
 - `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets, and human task assignment history), and inline artifact/proof rows now carry originating task identity for non-rewrite runs
+- `/v1/rewrite/sessions/{session_id}` inline human-task assignment-history rows now carry originating task identity too, so one-fetch operator views keep non-rewrite task context in the embedded transition log
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
@@ -227,7 +228,7 @@ Set `SUPPORT_INCLUDE_QUEUE=0` to skip queued-task snapshot in support bundles.
 Set `SUPPORT_BUNDLE_PREFIX=<tag>` to customize support bundle filenames.
 Set `SUPPORT_BUNDLE_TIMESTAMP_FMT=<date format>` to customize bundle timestamp formatting.
 HTTP script host-port resolution details are documented at the top of `RUNBOOK.md`.
-Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`.
+Task archive rotation is available via `scripts/archive_tasks.sh` or `make tasks-archive`; it now operates on the local ignored `TASKS_WORK_LOG.md` / `TASKS_ARCHIVE.md` files when present.
 Retention pruning dry-runs are available via `scripts/db_retention.sh` or `make db-retention` (`EA_RETENTION_PROFILE=aggressive|standard|conservative`, optional `EA_RETENTION_TABLES`/`EA_RETENTION_SKIP_TABLES` filters).
 DB size inspection supports optional schema/sort/prefix/size scoping via `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.
 The Compose Postgres volume is `ea_pgdata`, mounted at `/var/lib/postgresql/data` in `ea-db`; large host paths under `/var/lib/docker/volumes/.../ea_pgdata` are on-disk Postgres state, not RAM.

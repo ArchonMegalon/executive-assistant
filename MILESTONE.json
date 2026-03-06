@@ -990,6 +990,16 @@
         "generic_assignment_history_identity_before_completion"
       ],
       "notes": "Direct human-task assignment-history rows now return the originating task key and deliverable type too, so operator transition logs stay self-describing for generic paused task runs."
+    },
+    {
+      "name": "session_human_task_assignment_history_task_identity_projection",
+      "status": "tested",
+      "scope": [
+        "session_assignment_history_task_key",
+        "session_assignment_history_deliverable_type",
+        "generic_session_assignment_history_identity"
+      ],
+      "notes": "Inline session human-task assignment-history rows now return the originating task key and deliverable type too, so one-fetch operator session views keep non-rewrite task context in the embedded transition log."
     }
   ],
   "migrations": [

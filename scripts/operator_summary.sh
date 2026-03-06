@@ -63,4 +63,8 @@ echo "release checklist: RELEASE_CHECKLIST.md"
 echo
 
 echo "-- queued task --"
-awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md | sed -n '1,8p'
+if [[ -f TASKS_WORK_LOG.md ]]; then
+  awk '/^## Queue/{flag=1;next}/^## In Progress/{flag=0}flag' TASKS_WORK_LOG.md | sed -n '1,8p'
+else
+  echo "local task log not present"
+fi

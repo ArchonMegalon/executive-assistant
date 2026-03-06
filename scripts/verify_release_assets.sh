@@ -26,7 +26,6 @@ required_files=(
   "ENVIRONMENT_MATRIX.md"
   "MILESTONE.json"
   "RELEASE_CHECKLIST.md"
-  "TASKS_WORK_LOG.md"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
@@ -1070,6 +1069,30 @@ then
   fi
 else
   echo "missing: human task assignment-history task identity milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_history_task_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'inline human-task assignment-history rows now carry originating task identity' "README.md" && \
+     grep -Fq 'assignment-history rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
+     grep -Fq 'human-task assignment-history rows include originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'GENERIC_HUMAN_SESSION_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py"; then
+    echo "ok: session human task assignment-history task identity docs"
+  else
+    echo "missing: session human task assignment-history task identity docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: session human task assignment-history task identity milestone status" >&2
   missing=1
 fi
 

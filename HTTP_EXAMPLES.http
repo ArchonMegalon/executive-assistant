@@ -70,6 +70,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/rewrite/run-costs/{{cost_id}}
 X-EA-Principal-ID: {{principal_id}}
 
+### Rewrite -> fetch session (inline artifact/proof and human-task assignment-history rows include originating task_key and deliverable_type)
+GET {{host}}/v1/rewrite/sessions/{{session_id}}
+X-EA-Principal-ID: {{principal_id}}
+
 ### Rewrite -> body principal mismatch (expected 403 principal_scope_mismatch)
 POST {{host}}/v1/rewrite/artifact
 Content-Type: application/json
@@ -293,7 +297,6 @@ X-EA-Principal-ID: {{principal_id}}
   "operator_id": "operator"
 }
 
-### Human tasks -> assignment history
 ### Human tasks -> assignment history (includes originating task_key and deliverable_type)
 GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20
 X-EA-Principal-ID: {{principal_id}}
