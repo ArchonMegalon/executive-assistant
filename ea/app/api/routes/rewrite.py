@@ -49,6 +49,7 @@ class SessionEventOut(BaseModel):
 class SessionStepOut(BaseModel):
     step_id: str
     parent_step_id: str | None
+    dependency_keys: list[str]
     step_kind: str
     state: str
     attempt_count: int
@@ -324,6 +325,7 @@ def get_session(
             SessionStepOut(
                 step_id=s.step_id,
                 parent_step_id=s.parent_step_id,
+                dependency_keys=[str(value) for value in (s.input_json.get("depends_on") or []) if str(value)],
                 step_kind=s.step_kind,
                 state=s.state,
                 attempt_count=s.attempt_count,

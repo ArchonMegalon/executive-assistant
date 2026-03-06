@@ -74,7 +74,7 @@ if [[ -z "${PYTHON_BIN}" ]]; then
     PYTHON_BIN="python3"
   fi
 fi
-TEST_FILES="${EA_TEST_FILES:-tests/test_artifacts_postgres_integration.py tests/test_channel_runtime_postgres_integration.py tests/test_memory_router_contracts.py tests/test_postgres_contract_matrix_integration.py tests/test_rewrite_scope_contracts.py tests/test_rewrite_api_scope_contracts.py}"
+TEST_FILES="${EA_TEST_FILES:-tests/test_artifacts_postgres_integration.py tests/test_channel_runtime_postgres_integration.py tests/test_memory_router_contracts.py tests/test_postgres_contract_matrix_integration.py tests/test_rewrite_scope_contracts.py tests/test_rewrite_api_scope_contracts.py tests/test_rewrite_dependency_projection_contracts.py}"
 
 if [[ -z "${DB_PASSWORD}" ]]; then
   echo "POSTGRES_PASSWORD is required (or set it in .env)" >&2
