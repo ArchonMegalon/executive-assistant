@@ -63,6 +63,30 @@ class HumanTaskOut(BaseModel):
     updated_at: str
 
 
+class OperatorProfileIn(BaseModel):
+    operator_id: str
+    principal_id: str | None = None
+    display_name: str
+    roles: list[str] = Field(default_factory=list)
+    skill_tags: list[str] = Field(default_factory=list)
+    trust_tier: str = "standard"
+    status: str = "active"
+    notes: str = ""
+
+
+class OperatorProfileOut(BaseModel):
+    operator_id: str
+    principal_id: str
+    display_name: str
+    roles: list[str]
+    skill_tags: list[str]
+    trust_tier: str
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
 def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
     return HumanTaskOut(
         human_task_id=row.human_task_id,
@@ -86,6 +110,21 @@ def _to_out(row) -> HumanTaskOut:  # type: ignore[no-untyped-def]
         resume_session_on_return=row.resume_session_on_return,
         returned_payload_json=row.returned_payload_json,
         provenance_json=row.provenance_json,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _to_operator_out(row) -> OperatorProfileOut:  # type: ignore[no-untyped-def]
+    return OperatorProfileOut(
+        operator_id=row.operator_id,
+        principal_id=row.principal_id,
+        display_name=row.display_name,
+        roles=list(row.roles),
+        skill_tags=list(row.skill_tags),
+        trust_tier=row.trust_tier,
+        status=row.status,
+        notes=row.notes,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -152,6 +191,7 @@ def list_human_tasks(
 @router.get("/backlog")
 def list_human_task_backlog(
     role_required: str | None = None,
+    operator_id: str | None = None,
     assignment_state: str | None = None,
     overdue_only: bool = False,
     limit: int = Query(default=50, ge=1, le=500),
@@ -163,6 +203,7 @@ def list_human_task_backlog(
         status="pending",
         role_required=role_required,
         assignment_state=assignment_state,
+        operator_id=operator_id,
         overdue_only=overdue_only,
         limit=limit,
     )
@@ -203,6 +244,55 @@ def list_my_human_tasks(
         limit=limit,
     )
     return [_to_out(row) for row in rows]
+
+
+@router.post("/operators")
+def upsert_operator_profile(
+    payload: OperatorProfileIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OperatorProfileOut:
+    principal_id = resolve_principal_id(payload.principal_id, context)
+    row = container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id=payload.operator_id,
+        display_name=payload.display_name,
+        roles=tuple(payload.roles),
+        skill_tags=tuple(payload.skill_tags),
+        trust_tier=payload.trust_tier,
+        status=payload.status,
+        notes=payload.notes,
+    )
+    return _to_operator_out(row)
+
+
+@router.get("/operators")
+def list_operator_profiles(
+    principal_id: str | None = None,
+    status: str | None = None,
+    limit: int = Query(default=50, ge=1, le=500),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[OperatorProfileOut]:
+    resolved_principal = resolve_principal_id(principal_id, context)
+    rows = container.orchestrator.list_operator_profiles(
+        principal_id=resolved_principal,
+        status=status,
+        limit=limit,
+    )
+    return [_to_operator_out(row) for row in rows]
+
+
+@router.get("/operators/{operator_id}")
+def get_operator_profile(
+    operator_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OperatorProfileOut:
+    row = container.orchestrator.fetch_operator_profile(operator_id, principal_id=context.principal_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="operator_profile_not_found")
+    return _to_operator_out(row)
 
 
 @router.post("/{human_task_id}/assign")

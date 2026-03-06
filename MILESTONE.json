@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -314,6 +314,17 @@
       "notes": "Compiled `step_human_review` nodes and direct human task packets now carry explicit `authority_required`, `why_human`, and `quality_rubric_json` metadata, backed by durable storage and exposed in plan/session/operator projections."
     },
     {
+      "name": "operator_profile_specialized_backlog_routing",
+      "status": "tested",
+      "scope": [
+        "operator_profile_storage",
+        "operator_role_skill_metadata",
+        "backlog_operator_match_filter",
+        "trust_tier_routing_gate"
+      ],
+      "notes": "Principal-scoped operator profiles now persist `roles`, `skill_tags`, and `trust_tier`, and backlog views can filter pending human tasks to only the work a given reviewer profile is specialized and trusted to handle."
+    },
+    {
       "name": "registry_backed_tool_execution_service",
       "status": "tested",
       "scope": [
@@ -448,7 +459,8 @@
     "ea/schema/20260305_v0_24_human_tasks_kernel.sql",
     "ea/schema/20260305_v0_25_human_task_resume_kernel.sql",
     "ea/schema/20260305_v0_26_human_task_assignment_state.sql",
-    "ea/schema/20260305_v0_27_human_task_review_contract.sql"
+    "ea/schema/20260305_v0_27_human_task_review_contract.sql",
+    "ea/schema/20260305_v0_28_operator_profiles_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

@@ -23,6 +23,9 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/human/tasks/backlog` | `200` | validation `422` (supports `assignment_state`) |
 | GET | `/v1/human/tasks/unassigned` | `200` | validation `422` |
 | GET | `/v1/human/tasks/mine` | `200` | validation `422` |
+| POST | `/v1/human/tasks/operators` | `200` | validation `422`, `403 principal_scope_mismatch` |
+| GET | `/v1/human/tasks/operators` | `200` | validation `422`, `403 principal_scope_mismatch` |
+| GET | `/v1/human/tasks/operators/{operator_id}` | `200` | `404 operator_profile_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/assign` | `200` | `404 human_task_not_found`, `409 human_task_not_assignable` |
 | GET | `/v1/human/tasks/{human_task_id}` | `200` | `404 human_task_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/claim` | `200` | `404 human_task_not_found`, `409 human_task_not_claimable` |
@@ -123,6 +126,7 @@ Policy notes:
 - Human review/work packets can now be attached to a session with `POST /v1/human/tasks`, claimed by an operator, and returned with structured payload/provenance while emitting `human_task_created`, `human_task_claimed`, and `human_task_returned` ledger events.
 - If `resume_session_on_return=true` is set on human task creation, the linked step reopens into `waiting_human`, the session becomes `awaiting_human`, and returning the packet resumes the step back to `completed`.
 - Operator queue views can filter pending human tasks by `role_required`, `assigned_operator_id`, and `overdue_only=true` so reviewers can work from targeted SLA backlogs.
+- `POST /v1/human/tasks/operators` now persists reviewer specialization profiles (`roles`, `skill_tags`, `trust_tier`), and `GET /v1/human/tasks/backlog?operator_id=<id>` filters pending work against that metadata plus human-task review contracts.
 - `GET /v1/human/tasks/backlog` is the direct pending-queue view, while `GET /v1/human/tasks/mine?operator_id=<id>` exposes the current operator assignment queue without rebuilding filters manually.
 - `POST /v1/human/tasks/{human_task_id}/assign` sets `assigned_operator_id` while the task remains `pending`, emits `human_task_assigned`, and lets operators be pre-assigned before `claim` moves the packet into active work.
 - `GET /v1/human/tasks/unassigned` and `assignment_state=assigned|unassigned` make pre-assigned pending work distinct from ownerless pending work in the backlog view.
@@ -265,6 +269,7 @@ Applies:
 - `ea/schema/20260305_v0_25_human_task_resume_kernel.sql`
 - `ea/schema/20260305_v0_26_human_task_assignment_state.sql`
 - `ea/schema/20260305_v0_27_human_task_review_contract.sql`
+- `ea/schema/20260305_v0_28_operator_profiles_kernel.sql`
 
 Check table presence/counts:
 

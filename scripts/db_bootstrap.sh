@@ -35,6 +35,7 @@ Applies kernel migrations in order:
   - v0_25 human task resume kernel
   - v0_26 human task assignment-state kernel
   - v0_27 human task review contract kernel
+  - v0_28 operator profiles kernel
 EOF
   exit 0
 fi
@@ -76,6 +77,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_25_human_task_resume_kernel.sql"
   "ea/schema/20260305_v0_26_human_task_assignment_state.sql"
   "ea/schema/20260305_v0_27_human_task_review_contract.sql"
+  "ea/schema/20260305_v0_28_operator_profiles_kernel.sql"
 )
 
 echo "== EA DB bootstrap =="

@@ -1143,6 +1143,9 @@ assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["
 review_contract_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_review_contract_metadata")
 assert review_contract_capability["status"] == "tested"
 assert "ea/schema/20260305_v0_27_human_task_review_contract.sql" in milestone["migrations"]
+operator_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "operator_profile_specialized_backlog_routing")
+assert operator_capability["status"] == "tested"
+assert "ea/schema/20260305_v0_28_operator_profiles_kernel.sql" in milestone["migrations"]
 PY
 then
   if grep -Fq "/v1/human/tasks" "README.md" && \
@@ -1172,6 +1175,7 @@ then
      grep -Fq "v0_25 human task resume kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "v0_26 human task assignment-state kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "v0_27 human task review contract kernel" "scripts/db_bootstrap.sh" && \
+     grep -Fq "v0_28 operator profiles kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "human_tasks" "scripts/db_status.sh" && \
      grep -Fq "human tasks ok" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_human|True|True" "scripts/smoke_api.sh" && \
@@ -1225,6 +1229,37 @@ then
   fi
 else
   echo "missing: human task review-contract metadata milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "operator_profile_specialized_backlog_routing")
+assert capability["status"] == "tested"
+assert "ea/schema/20260305_v0_28_operator_profiles_kernel.sql" in milestone["migrations"]
+PY
+then
+  if grep -Fq "/v1/human/tasks/operators" "README.md" && \
+     grep -Fq "skill-tag" "README.md" && \
+     grep -Fq "/v1/human/tasks/operators" "RUNBOOK.md" && \
+     grep -Fq "operator_id=<id>" "RUNBOOK.md" && \
+     grep -Fq "operator-specialist" "scripts/smoke_api.sh" && \
+     grep -Fq "operator-specialized backlog endpoint" "scripts/smoke_api.sh" && \
+     grep -Fq "operator-specialized backlog endpoint to exclude" "scripts/smoke_api.sh" && \
+     grep -Fq '"/v1/human/tasks/operators"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "operator-specialist" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_postgres_operator_profiles_upsert_get_and_list" "tests/test_postgres_contract_matrix_integration.py" && \
+     grep -Fq "v0_28 operator profiles kernel" "scripts/db_bootstrap.sh"; then
+    echo "ok: operator-profile specialized backlog routing docs"
+  else
+    echo "missing: operator-profile specialized backlog routing docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: operator-profile specialized backlog routing milestone" >&2
   missing=1
 fi
 

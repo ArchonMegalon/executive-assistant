@@ -15,6 +15,7 @@ from app.domain.models import (
     ExecutionStep,
     HumanTask,
     IntentSpecV3,
+    OperatorProfile,
     PlanSpec,
     PlanStepSpec,
     RewriteRequest,
@@ -31,6 +32,8 @@ from app.repositories.human_tasks import HumanTaskRepository, InMemoryHumanTaskR
 from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
+from app.repositories.operator_profiles import InMemoryOperatorProfileRepository, OperatorProfileRepository
+from app.repositories.operator_profiles_postgres import PostgresOperatorProfileRepository
 from app.repositories.policy_decisions import InMemoryPolicyDecisionRepository, PolicyDecisionRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
@@ -68,6 +71,7 @@ class RewriteOrchestrator:
         policy_repo: PolicyDecisionRepository | None = None,
         approvals: ApprovalRepository | None = None,
         human_tasks: HumanTaskRepository | None = None,
+        operator_profiles: OperatorProfileRepository | None = None,
         policy: PolicyDecisionService | None = None,
         task_contracts: TaskContractService | None = None,
         planner: PlannerService | None = None,
@@ -78,6 +82,7 @@ class RewriteOrchestrator:
         self._policy_repo = policy_repo or InMemoryPolicyDecisionRepository()
         self._approvals = approvals or InMemoryApprovalRepository()
         self._human_tasks = human_tasks or InMemoryHumanTaskRepository()
+        self._operator_profiles = operator_profiles or InMemoryOperatorProfileRepository()
         self._policy = policy or PolicyDecisionService()
         self._task_contracts = task_contracts
         self._planner = planner
@@ -796,6 +801,7 @@ class RewriteOrchestrator:
         role_required: str | None = None,
         assigned_operator_id: str | None = None,
         assignment_state: str | None = None,
+        operator_id: str | None = None,
         overdue_only: bool = False,
         limit: int = 50,
     ) -> list[HumanTask]:
@@ -806,13 +812,94 @@ class RewriteOrchestrator:
                 return []
             rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
             return [row for row in rows if row.principal_id == str(principal_id or "")]
-        return self._human_tasks.list_for_principal(
+        rows = self._human_tasks.list_for_principal(
             principal_id,
             status=status,
             role_required=role_required,
             assigned_operator_id=assigned_operator_id,
             assignment_state=assignment_state,
             overdue_only=overdue_only,
+            limit=limit,
+        )
+        resolved_operator_id = str(operator_id or "").strip()
+        if not resolved_operator_id:
+            return rows
+        profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+        if profile is None:
+            return []
+        return [row for row in rows if self._operator_matches_human_task(profile, row)]
+
+    def _operator_matches_human_task(self, profile: OperatorProfile, row: HumanTask) -> bool:
+        roles = {str(v).strip() for v in profile.roles if str(v).strip()}
+        if row.role_required and roles and row.role_required not in roles:
+            return False
+        skills = {str(v).strip().lower() for v in profile.skill_tags if str(v).strip()}
+        required_checks = {
+            str(v).strip().lower()
+            for v in ((row.quality_rubric_json or {}).get("checks") or [])
+            if str(v).strip()
+        }
+        if required_checks and not required_checks.issubset(skills):
+            return False
+        trust_rank = {
+            "junior": 0,
+            "standard": 1,
+            "senior": 2,
+            "exec_delegate": 3,
+            "principal_delegate": 3,
+        }
+        required_rank = {
+            "": 0,
+            "review": 0,
+            "draft_review": 0,
+            "send_on_behalf_review": 2,
+            "principal_sensitive_review": 3,
+            "principal_review": 3,
+        }
+        profile_rank = trust_rank.get(str(profile.trust_tier or "").strip().lower(), 1)
+        needed_rank = required_rank.get(str(row.authority_required or "").strip().lower(), 0)
+        return profile_rank >= needed_rank
+
+    def upsert_operator_profile(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str | None = None,
+        display_name: str,
+        roles: tuple[str, ...] = (),
+        skill_tags: tuple[str, ...] = (),
+        trust_tier: str = "standard",
+        status: str = "active",
+        notes: str = "",
+    ) -> OperatorProfile:
+        row = self._operator_profiles.upsert_profile(
+            principal_id=principal_id,
+            operator_id=operator_id,
+            display_name=display_name,
+            roles=roles,
+            skill_tags=skill_tags,
+            trust_tier=trust_tier,
+            status=status,
+            notes=notes,
+        )
+        return row
+
+    def fetch_operator_profile(self, operator_id: str, *, principal_id: str) -> OperatorProfile | None:
+        row = self._operator_profiles.get(operator_id)
+        if row is None or row.principal_id != str(principal_id or ""):
+            return None
+        return row
+
+    def list_operator_profiles(
+        self,
+        *,
+        principal_id: str,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[OperatorProfile]:
+        return self._operator_profiles.list_for_principal(
+            principal_id=principal_id,
+            status=status,
             limit=limit,
         )
 
@@ -1112,6 +1199,26 @@ def build_human_task_repo(settings: Settings) -> HumanTaskRepository:
     return InMemoryHumanTaskRepository()
 
 
+def build_operator_profile_repo(settings: Settings) -> OperatorProfileRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.operator_profiles")
+    if backend == "memory":
+        ensure_storage_fallback_allowed(settings, "operator profiles configured for memory")
+        return InMemoryOperatorProfileRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresOperatorProfileRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresOperatorProfileRepository(settings.database_url)
+        except Exception as exc:
+            ensure_storage_fallback_allowed(settings, "operator profiles auto fallback", exc)
+            log.warning("postgres operator-profile backend unavailable in auto mode; falling back to memory: %s", exc)
+    ensure_storage_fallback_allowed(settings, "operator profiles auto backend without DATABASE_URL")
+    return InMemoryOperatorProfileRepository()
+
+
 def build_artifact_repo(settings: Settings) -> ArtifactRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.artifacts")
@@ -1153,6 +1260,7 @@ def build_default_orchestrator(
     policy_repo = build_policy_repo(resolved)
     approvals = build_approval_repo(resolved)
     human_tasks = build_human_task_repo(resolved)
+    operator_profiles = build_operator_profile_repo(resolved)
     artifact_repo = artifacts or build_artifact_repo(resolved)
     task_contract_service = task_contracts or build_task_contract_service(resolved)
     planner_service = planner or PlannerService(task_contract_service)
@@ -1166,6 +1274,7 @@ def build_default_orchestrator(
         policy_repo=policy_repo,
         approvals=approvals,
         human_tasks=human_tasks,
+        operator_profiles=operator_profiles,
         policy=policy,
         task_contracts=task_contract_service,
         planner=planner_service,

@@ -332,6 +332,52 @@ def test_human_task_flow_and_session_projection() -> None:
     assert unassigned_after.status_code == 200
     assert all(row["human_task_id"] != task_id for row in unassigned_after.json())
 
+    operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-specialist",
+            "display_name": "Senior Comms Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
+            "trust_tier": "senior",
+            "status": "active",
+            "notes": "Specialist in external executive communication.",
+        },
+    )
+    assert operator_profile.status_code == 200
+    assert operator_profile.json()["trust_tier"] == "senior"
+
+    operator_low = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-junior",
+            "display_name": "Junior Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert operator_low.status_code == 200
+
+    operators = client.get("/v1/human/tasks/operators", params={"limit": 10})
+    assert operators.status_code == 200
+    assert any(row["operator_id"] == "operator-specialist" for row in operators.json())
+
+    operator_backlog = client.get(
+        "/v1/human/tasks/backlog",
+        params={"limit": 10, "operator_id": "operator-specialist", "overdue_only": True},
+    )
+    assert operator_backlog.status_code == 200
+    assert any(row["human_task_id"] == task_id for row in operator_backlog.json())
+
+    operator_backlog_low = client.get(
+        "/v1/human/tasks/backlog",
+        params={"limit": 10, "operator_id": "operator-junior", "overdue_only": True},
+    )
+    assert operator_backlog_low.status_code == 200
+    assert all(row["human_task_id"] != task_id for row in operator_backlog_low.json())
+
     mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-1"})
     assert mine_assigned.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine_assigned.json())

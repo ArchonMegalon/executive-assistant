@@ -485,6 +485,20 @@ class HumanTask:
 
 
 @dataclass(frozen=True)
+class OperatorProfile:
+    operator_id: str
+    principal_id: str
+    display_name: str
+    roles: tuple[str, ...]
+    skill_tags: tuple[str, ...]
+    trust_tier: str
+    status: str
+    notes: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class PolicyDecision:
     allow: bool
     requires_approval: bool

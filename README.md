@@ -21,6 +21,7 @@ Removed:
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion
 - `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets)
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
+- `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
 - `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work
 - `/v1/human/tasks/unassigned` and `assignment_state=unassigned|assigned|claimed|returned` expose the difference between ownerless pending work, pre-assigned pending work, active claims, and returned packets
@@ -110,6 +111,7 @@ Removed:
 - human task resume kernel migration: `ea/schema/20260305_v0_25_human_task_resume_kernel.sql`
 - human task assignment-state kernel migration: `ea/schema/20260305_v0_26_human_task_assignment_state.sql`
 - human task review-contract kernel migration: `ea/schema/20260305_v0_27_human_task_review_contract.sql`
+- operator profiles kernel migration: `ea/schema/20260305_v0_28_operator_profiles_kernel.sql`
 
 ## Auth
 

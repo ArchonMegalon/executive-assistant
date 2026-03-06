@@ -270,6 +270,33 @@ def test_human_task_review_contract_metadata_is_documented_and_smoked() -> None:
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_review_contract_metadata")
     assert capability["status"] == "tested"
+
+
+def test_operator_profile_specialized_backlog_routing_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/human/tasks/operators" in readme
+    assert "skill-tag" in readme
+    assert "/v1/human/tasks/operators" in runbook
+    assert "operator_id=<id>" in runbook
+    assert "operator-specialist" in smoke_api
+    assert "operator-specialized backlog endpoint" in smoke_api
+    assert "operator-specialized backlog endpoint to exclude" in smoke_api
+    assert '"/v1/human/tasks/operators"' in smoke_runtime
+    assert "operator-specialist" in smoke_runtime
+    assert "test_postgres_operator_profiles_upsert_get_and_list" in postgres_matrix
+    assert "v0_28 operator profiles kernel" in db_bootstrap
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "operator_profile_specialized_backlog_routing"
+    )
+    assert capability["status"] == "tested"
     resume_capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_pause_resume_session_flow"
     )

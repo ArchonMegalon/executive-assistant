@@ -9,6 +9,7 @@ from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, now_ut
 from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
+from app.repositories.operator_profiles_postgres import PostgresOperatorProfileRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 
@@ -295,3 +296,29 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
 
     listed_session = repo.list_for_session(session.session_id, limit=10)
     assert any(row.human_task_id == created.human_task_id and row.status == "returned" for row in listed_session)
+
+
+def test_postgres_operator_profiles_upsert_get_and_list() -> None:
+    repo = PostgresOperatorProfileRepository(_db_url())
+    operator_id = f"operator-{uuid.uuid4().hex}"
+
+    created = repo.upsert_profile(
+        principal_id="exec-1",
+        operator_id=operator_id,
+        display_name="Senior Reviewer",
+        roles=("communications_reviewer",),
+        skill_tags=("tone", "accuracy", "stakeholder_sensitivity"),
+        trust_tier="senior",
+        status="active",
+        notes="Primary reviewer for outbound executive comms.",
+    )
+    assert created.operator_id == operator_id
+    assert created.skill_tags[0] == "tone"
+
+    found = repo.get(operator_id)
+    assert found is not None
+    assert found.trust_tier == "senior"
+    assert found.roles == ("communications_reviewer",)
+
+    listed = repo.list_for_principal(principal_id="exec-1", status="active", limit=10)
+    assert any(row.operator_id == operator_id for row in listed)
