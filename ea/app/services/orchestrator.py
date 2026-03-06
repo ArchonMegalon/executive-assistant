@@ -395,11 +395,18 @@ class RewriteOrchestrator:
             return "rewrite supplied text into an artifact"
         return f"execute {key} into an artifact"
 
+    def _require_effective_principal(self, principal_id: str) -> str:
+        resolved = str(principal_id or "").strip()
+        if resolved:
+            return resolved
+        raise ValueError("principal_id_required")
+
     def _fallback_intent(self, *, task_key: str, principal_id: str, goal: str) -> IntentSpecV3:
         key = str(task_key or "").strip() or "rewrite_text"
+        resolved_principal = self._require_effective_principal(principal_id)
         if key == "rewrite_text":
             return IntentSpecV3(
-                principal_id=str(principal_id or "local-user"),
+                principal_id=resolved_principal,
                 goal=str(goal or self._default_goal_for_task(key)),
                 task_type="rewrite_text",
                 deliverable_type="rewrite_note",
@@ -423,7 +430,7 @@ class RewriteOrchestrator:
         evidence_requirements = tuple(str(value) for value in (contract.evidence_requirements if contract is not None else ()))
         memory_write_policy = str(contract.memory_write_policy if contract is not None else "reviewed_only") or "reviewed_only"
         return IntentSpecV3(
-            principal_id=str(principal_id or "local-user"),
+            principal_id=resolved_principal,
             goal=str(goal or self._default_goal_for_task(key)),
             task_type=key,
             deliverable_type=deliverable_type,
@@ -1071,7 +1078,7 @@ class RewriteOrchestrator:
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
-        principal_id = str(req.principal_id or "").strip() or "local-user"
+        principal_id = self._require_effective_principal(req.principal_id)
         goal = str(req.goal or "").strip() or self._default_goal_for_task(task_key)
         if self._planner:
             intent, plan = self._planner.build_plan(
@@ -1337,8 +1344,8 @@ class RewriteOrchestrator:
         return run_cost, session
 
     def _require_session_principal_alignment(self, session: ExecutionSession, *, principal_id: str) -> None:
-        session_principal = str(session.intent.principal_id or "").strip() or "local-user"
-        requested_principal = str(principal_id or "").strip() or "local-user"
+        session_principal = self._require_effective_principal(session.intent.principal_id)
+        requested_principal = self._require_effective_principal(principal_id)
         if session_principal != requested_principal:
             raise PermissionError("principal_scope_mismatch")
 

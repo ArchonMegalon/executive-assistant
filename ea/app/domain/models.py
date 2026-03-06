@@ -8,7 +8,7 @@ from typing import Any
 @dataclass(frozen=True)
 class RewriteRequest:
     text: str
-    principal_id: str = "local-user"
+    principal_id: str = ""
     goal: str = ""
 
 
@@ -16,7 +16,7 @@ class RewriteRequest:
 class TaskExecutionRequest:
     task_key: str
     text: str
-    principal_id: str = "local-user"
+    principal_id: str = ""
     goal: str = ""
 
 

@@ -89,6 +89,7 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "tests/test_openapi_async_acceptance_examples_contracts.py" in script
     assert "tests/test_openapi_dependency_examples_contracts.py" in script
     assert "tests/test_plan_scope_contracts.py" in script
+    assert "tests/test_principal_fallback_contracts.py" in script
     assert "tests/test_rewrite_scope_contracts.py" in script
     assert "tests/test_rewrite_api_scope_contracts.py" in script
     assert "tests/test_rewrite_dependency_projection_contracts.py" in script
@@ -183,6 +184,18 @@ def test_plan_scope_contracts_are_wired_into_focused_contract_bundle() -> None:
     assert "/v1/rewrite/receipts/" in plan_scope_test
     assert "/v1/rewrite/run-costs/" in plan_scope_test
     assert 'denied.json()["error"]["code"] == "principal_scope_mismatch"' in plan_scope_test
+
+
+def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
+    script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")
+
+    assert "tests/test_principal_fallback_contracts.py" in script
+    assert "principal_id_required" in fallback_test
+    assert "planner.build_plan" in fallback_test
+    assert "orchestrator.build_artifact" in fallback_test
+    assert "orchestrator.execute_task_artifact" in fallback_test
+    assert "service.compile_rewrite_intent" in fallback_test
 
 
 def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:

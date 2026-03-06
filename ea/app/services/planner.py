@@ -38,6 +38,12 @@ class PlannerService:
     def __init__(self, task_contracts: TaskContractService) -> None:
         self._task_contracts = task_contracts
 
+    def _require_principal_id(self, principal_id: str) -> str:
+        resolved = str(principal_id or "").strip()
+        if resolved:
+            return resolved
+        raise ValueError("principal_id_required")
+
     def _build_rewrite_steps(self, intent: IntentSpecV3, *, contract: TaskContract) -> tuple[PlanStepSpec, ...]:
         approval_required = intent.approval_class not in {"", "none"}
         human_review_role = str(contract.budget_policy_json.get("human_review_role") or "").strip()
@@ -183,7 +189,7 @@ class PlannerService:
         contract = self._task_contracts.contract_or_default(task_key)
         budget_class = str(contract.budget_policy_json.get("class") or "low")
         return IntentSpecV3(
-            principal_id=str(principal_id or "local-user"),
+            principal_id=self._require_principal_id(principal_id),
             goal=str(goal or ""),
             task_type=contract.task_key,
             deliverable_type=contract.deliverable_type,

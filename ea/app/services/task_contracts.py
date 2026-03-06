@@ -12,6 +12,12 @@ class TaskContractService:
     def __init__(self, repo: TaskContractRepository) -> None:
         self._repo = repo
 
+    def _require_principal_id(self, principal_id: str) -> str:
+        resolved = str(principal_id or "").strip()
+        if resolved:
+            return resolved
+        raise ValueError("principal_id_required")
+
     def upsert_contract(
         self,
         *,
@@ -73,14 +79,14 @@ class TaskContractService:
 
     def compile_rewrite_intent(
         self,
-        principal_id: str = "local-user",
+        principal_id: str,
         *,
         goal: str = "rewrite supplied text into an artifact",
     ) -> IntentSpecV3:
         contract = self.contract_or_default("rewrite_text")
         budget_class = str(contract.budget_policy_json.get("class") or "low")
         return IntentSpecV3(
-            principal_id=str(principal_id or "local-user"),
+            principal_id=self._require_principal_id(principal_id),
             goal=str(goal or "rewrite supplied text into an artifact"),
             task_type=contract.task_key,
             deliverable_type=contract.deliverable_type,
