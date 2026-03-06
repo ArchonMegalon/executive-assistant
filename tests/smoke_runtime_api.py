@@ -1828,6 +1828,10 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
     )
     assert ownerless_session_projection.status_code == 200
     ownerless_session_projection_body = ownerless_session_projection.json()
+    assert len(ownerless_session_projection_body["human_tasks"]) == 2
+    assert len(ownerless_session_projection_body["human_task_assignment_history"]) > len(
+        ownerless_session_projection_body["human_tasks"]
+    )
     ownerless_session_projection_ids = [
         row["human_task_id"]
         for row in ownerless_session_projection_body["human_tasks"]

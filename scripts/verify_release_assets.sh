@@ -2361,6 +2361,35 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(
+    entry
+    for entry in milestone["capabilities"]
+    if entry["name"] == "session_ownerless_projection_mixed_source_counts"
+)
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "mixed-source session-detail ownerless slice is now also explicitly count-checked" "README.md" && \
+     grep -Fq "mixed-source session-detail ownerless projection is now also count-checked" "RUNBOOK.md" && \
+     grep -Fq "SESSION_HUMAN_NONE_PROJECTION_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "longer empty-source history trail" "scripts/smoke_api.sh" && \
+     grep -Fq 'len(ownerless_session_projection_body["human_tasks"]) == 2' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'len(ownerless_session_projection_body["human_task_assignment_history"]) > len(' "tests/smoke_runtime_api.py"; then
+    echo "ok: session ownerless projection mixed-source counts docs"
+  else
+    echo "missing: session ownerless projection mixed-source counts docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: session ownerless projection mixed-source counts milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(
     entry for entry in milestone["capabilities"] if entry["name"] == "session_ownerless_projection_created_order"
 )
 assert capability["status"] == "tested"
@@ -2399,7 +2428,7 @@ then
   if grep -Fq "manual and auto-preselected work" "README.md" && \
      grep -Fq "manual and auto-preselected neighbors" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_PROJECTION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq "current ownerless rows isolated" "scripts/smoke_api.sh" && \
+     grep -Fq "two-row current ownerless slice" "scripts/smoke_api.sh" && \
      grep -Fq 'row["human_task_id"] not in {manual_task_id, auto_task_id}' "tests/smoke_runtime_api.py" && \
      grep -Fq "ownerless_session_projection_history_all_ids[:4]" "tests/smoke_runtime_api.py"; then
     echo "ok: session ownerless projection mixed-source isolation docs"

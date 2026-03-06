@@ -1240,6 +1240,29 @@ def test_human_task_session_ownerless_unsorted_mixed_source_isolation_is_documen
     assert "session_ownerless_unsorted_excludes_non_ownerless_after_churn" in capability["scope"]
 
 
+def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "mixed-source session-detail ownerless slice is now also explicitly count-checked" in readme
+    assert "mixed-source session-detail ownerless projection is now also count-checked" in runbook
+    assert "SESSION_HUMAN_NONE_PROJECTION_JSON" in smoke_api
+    assert "longer empty-source history trail" in smoke_api
+    assert 'len(ownerless_session_projection_body["human_tasks"]) == 2' in smoke_runtime
+    assert 'len(ownerless_session_projection_body["human_task_assignment_history"]) > len(' in smoke_runtime
+
+    capability = next(
+        entry
+        for entry in milestone["capabilities"]
+        if entry["name"] == "session_ownerless_projection_mixed_source_counts"
+    )
+    assert capability["status"] == "tested"
+    assert "session_ownerless_projection_current_count_after_churn" in capability["scope"]
+
+
 def test_session_ownerless_projection_created_order_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1273,7 +1296,7 @@ def test_session_ownerless_projection_mixed_source_isolation_is_documented_and_s
     assert "manual and auto-preselected work" in readme
     assert "manual and auto-preselected neighbors" in runbook
     assert "SESSION_HUMAN_NONE_PROJECTION_JSON" in smoke_api
-    assert "current ownerless rows isolated" in smoke_api or "current ownerless rows isolated" in smoke_api.replace("ownerless-only", "ownerless rows isolated")
+    assert "two-row current ownerless slice" in smoke_api
     assert 'row["human_task_id"] not in {manual_task_id, auto_task_id}' in smoke_runtime
     assert "ownerless_session_projection_history_all_ids[:4]" in smoke_runtime
 

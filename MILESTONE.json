@@ -821,6 +821,15 @@
       "notes": "The unsorted session-scoped `session_id=<id>&assignment_source=none` slice now has explicit smoke/docs coverage proving multi-row per-session fetches stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors."
     },
     {
+      "name": "session_ownerless_projection_mixed_source_counts",
+      "status": "tested",
+      "scope": [
+        "session_ownerless_projection_current_count_after_churn",
+        "session_ownerless_projection_history_longer_than_current_after_churn"
+      ],
+      "notes": "The mixed-source `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving the current `human_tasks` slice stays at two ownerless rows while inline empty-source history remains longer than the current ownerless slice."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [
