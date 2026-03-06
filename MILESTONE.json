@@ -766,6 +766,15 @@
       "notes": "Rewrite session detail now has explicit smoke/docs coverage for `human_task_assignment_source=none`, keeping both filtered ownerless `human_tasks` rows and inline assignment-history rows in oldest-first order when multiple ownerless packets exist."
     },
     {
+      "name": "session_ownerless_projection_mixed_source_isolation",
+      "status": "tested",
+      "scope": [
+        "session_ownerless_projection_current_rows_exclude_non_ownerless",
+        "session_ownerless_projection_history_keeps_empty_source_prefix"
+      ],
+      "notes": "The filtered `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving current `human_tasks` stay ownerless-only while inline empty-source creation history remains oldest-first even after manual and auto-preselected neighbors coexist."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [

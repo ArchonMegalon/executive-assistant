@@ -1774,6 +1774,19 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
         if row["human_task_id"] in {ownerless_task_id, ownerless_newer_task_id}
     ]
     assert ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]
+    assert all(
+        row["human_task_id"] not in {manual_task_id, auto_task_id}
+        for row in ownerless_session_projection_body["human_tasks"]
+    )
+    ownerless_session_projection_history_all_ids = [
+        row["human_task_id"] for row in ownerless_session_projection_body["human_task_assignment_history"]
+    ]
+    assert ownerless_session_projection_history_all_ids[:4] == [
+        auto_task_id,
+        manual_task_id,
+        ownerless_task_id,
+        ownerless_newer_task_id,
+    ]
 
     auto_summary = client.get(
         "/v1/human/tasks/priority-summary",
