@@ -1818,10 +1818,10 @@ def test_plan_step_operational_semantics_are_documented_and_smoked() -> None:
     assert 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' in smoke_runtime
     assert 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' in smoke_runtime
     assert 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' in smoke_runtime
-    assert 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 2700' in smoke_runtime
+    assert 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600' in smoke_runtime
     assert 'plan.steps[2].authority_class == "draft"' in planner_test
     assert 'plan.steps[2].owner == "human"' in planner_test
-    assert 'plan.steps[2].timeout_budget_seconds == 2700' in planner_test
+    assert 'plan.steps[2].timeout_budget_seconds == 3600' in planner_test
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_step_operational_semantics_projection")
     assert capability["status"] == "tested"
@@ -1905,11 +1905,11 @@ def test_planner_human_review_operational_metadata_is_documented_and_smoked() ->
     assert "human_review_sla_minutes" in runbook
     assert "human_review_desired_output_json" in runbook
     assert "manager_review" in smoke_api
-    assert "high|45|2700|1|0|True|manager_review" in smoke_api
+    assert "high|45|3600|1|0|True|manager_review" in smoke_api
     assert 'review_task["priority"] == "high"' in smoke_runtime
     assert 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' in smoke_runtime
     assert "human_review_sla_minutes" in planner_test
-    assert 'timeout_budget_seconds == 2700' in planner_test
+    assert 'timeout_budget_seconds == 3600' in planner_test
     assert 'desired_output_json["escalation_policy"] == "manager_review"' in planner_test
 
     capability = next(

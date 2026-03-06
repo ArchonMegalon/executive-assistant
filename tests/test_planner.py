@@ -88,7 +88,7 @@ def test_planner_can_compile_human_review_branch_from_task_contract_metadata() -
     assert plan.steps[2].authority_class == "draft"
     assert plan.steps[2].review_class == "operator"
     assert plan.steps[2].failure_strategy == "fail"
-    assert plan.steps[2].timeout_budget_seconds == 2700
+    assert plan.steps[2].timeout_budget_seconds == 3600
     assert plan.steps[2].max_attempts == 1
     assert plan.steps[2].retry_backoff_seconds == 0
     assert plan.steps[2].task_type == "communications_review"

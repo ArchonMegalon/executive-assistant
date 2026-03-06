@@ -2600,7 +2600,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     assert compiled_review.json()["plan"]["steps"][2]["authority_class"] == "draft"
     assert compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"
     assert compiled_review.json()["plan"]["steps"][2]["failure_strategy"] == "fail"
-    assert compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 2700
+    assert compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600
     assert compiled_review.json()["plan"]["steps"][2]["max_attempts"] == 1
     assert compiled_review.json()["plan"]["steps"][2]["retry_backoff_seconds"] == 0
     assert compiled_review.json()["plan"]["steps"][2]["task_type"] == "communications_review"
@@ -2961,7 +2961,7 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert body["steps"][2]["input_json"]["authority_class"] == "draft"
     assert body["steps"][2]["input_json"]["review_class"] == "operator"
     assert body["steps"][2]["input_json"]["failure_strategy"] == "fail"
-    assert body["steps"][2]["input_json"]["timeout_budget_seconds"] == 2700
+    assert body["steps"][2]["input_json"]["timeout_budget_seconds"] == 3600
     assert body["steps"][2]["state"] == "waiting_human"
     assert body["steps"][3]["state"] == "queued"
     assert len(body["queue_items"]) == 3
