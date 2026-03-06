@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.63.0",
+  "version": "0.64.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -395,6 +395,16 @@
         "auto_preselected_history_projection"
       ],
       "notes": "Session detail responses now include `human_task_assignment_history`, exposing the same ownership transition chain used by the task-scoped history route so operator UIs can audit assignment changes without a second fetch."
+    },
+    {
+      "name": "human_task_assignment_history_filters",
+      "status": "tested",
+      "scope": [
+        "event_name_history_filter",
+        "assigned_operator_history_filter",
+        "assigned_by_actor_history_filter"
+      ],
+      "notes": "The task-scoped assignment-history route now accepts `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` so operator tooling can isolate specific reassignment, claim, or return transitions without scanning the full chain."
     },
     {
       "name": "registry_backed_tool_execution_service",

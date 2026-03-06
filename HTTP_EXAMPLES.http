@@ -169,6 +169,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> filtered assignment history
+GET {{host}}/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> assigned-only pending backlog
 GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&assignment_state=assigned&limit=20
 X-EA-Principal-ID: {{principal_id}}

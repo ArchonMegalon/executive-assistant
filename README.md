@@ -24,7 +24,7 @@ Removed:
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing
 - `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` expose direct operator backlog views on top of the human task queue
 - `/v1/human/tasks/{human_task_id}/assign` allows pre-assigning operator ownership before the task is claimed into active work, and can consume a computed `auto_assign_operator_id` when the caller omits `operator_id`
-- `/v1/human/tasks/{human_task_id}/assignment-history` exposes task-scoped ownership transitions without requiring callers to diff the full session event stream
+- `/v1/human/tasks/{human_task_id}/assignment-history` exposes task-scoped ownership transitions and supports filtering by transition name, assigned operator, or assigning actor without requiring callers to diff the full session event stream
 - `/v1/human/tasks/unassigned` and `assignment_state=unassigned|assigned|claimed|returned` expose the difference between ownerless pending work, pre-assigned pending work, active claims, and returned packets
 - human task payloads and session-linked `human_tasks` now project `routing_hints_json` with `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` so specialized reviewers can be suggested or preselected without a separate profile-filtered backlog scan
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
@@ -70,6 +70,7 @@ Removed:
 - human task payloads now also persist `assignment_source` so manual assignment, route-level recommended assignment, and planner auto-preselection remain distinguishable in session/operator views after later claim and return transitions
 - human task payloads now also persist `assigned_at` and `assigned_by_actor_id` so current reviewer ownership includes timestamped actor provenance across manual assignment, claim, and planner auto-preselection paths
 - `GET /v1/human/tasks/{human_task_id}/assignment-history` now filters the linked execution ledger down to ownership transitions so recommended assignment, later manual reassignment, claim, and return provenance remain queryable after the packet state has advanced
+- `GET /v1/human/tasks/{human_task_id}/assignment-history` also accepts `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` so operator tooling can isolate just reassignments, claims, or returns for a specific reviewer without scanning the whole transition chain
 - `/v1/rewrite/sessions/{session_id}` now also projects `human_task_assignment_history`, so operator UIs can render the same ownership transition chain inline with session events, steps, and linked human task packets without making a second history fetch
 - human task payloads now also compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so the best reviewer candidate can be surfaced directly on each packet
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status

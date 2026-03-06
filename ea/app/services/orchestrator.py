@@ -994,18 +994,39 @@ class RewriteOrchestrator:
         human_task_id: str,
         *,
         principal_id: str,
+        event_name: str | None = None,
+        assigned_operator_id: str | None = None,
+        assigned_by_actor_id: str | None = None,
         limit: int = 100,
     ) -> list[ExecutionEvent]:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return []
         n = max(1, min(500, int(limit or 100)))
+        event_filter = str(event_name or "").strip()
+        operator_filter = str(assigned_operator_id or "").strip()
+        actor_filter = str(assigned_by_actor_id or "").strip()
         rows = [
             event
             for event in self._ledger.events_for(found.session_id)
             if event.name in self._HUMAN_TASK_ASSIGNMENT_EVENT_NAMES
             and str((event.payload or {}).get("human_task_id") or "") == found.human_task_id
         ]
+        if event_filter:
+            rows = [event for event in rows if event.name == event_filter]
+        if operator_filter:
+            rows = [
+                event
+                for event in rows
+                if str((event.payload or {}).get("assigned_operator_id") or (event.payload or {}).get("operator_id") or "")
+                == operator_filter
+            ]
+        if actor_filter:
+            rows = [
+                event
+                for event in rows
+                if str((event.payload or {}).get("assigned_by_actor_id") or "") == actor_filter
+            ]
         if len(rows) <= n:
             return rows
         return rows[-n:]

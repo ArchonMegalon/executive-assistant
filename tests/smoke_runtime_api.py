@@ -474,6 +474,24 @@ def test_human_task_flow_and_session_projection() -> None:
     assert history_rows[3]["assigned_by_actor_id"] == "operator-junior"
     assert history_rows[4]["assigned_by_actor_id"] == "operator-junior"
 
+    assigned_history = client.get(
+        f"/v1/human/tasks/{task_id}/assignment-history",
+        params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"},
+    )
+    assert assigned_history.status_code == 200
+    assert [row["assigned_operator_id"] for row in assigned_history.json()] == [
+        "operator-specialist",
+        "operator-junior",
+    ]
+
+    returned_history = client.get(
+        f"/v1/human/tasks/{task_id}/assignment-history",
+        params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"},
+    )
+    assert returned_history.status_code == 200
+    assert len(returned_history.json()) == 1
+    assert returned_history.json()[0]["assigned_by_actor_id"] == "operator-junior"
+
     session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session_after.status_code == 200
     session_body = session_after.json()

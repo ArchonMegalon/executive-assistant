@@ -372,6 +372,9 @@ def assign_human_task(
 @router.get("/{human_task_id}/assignment-history")
 def get_human_task_assignment_history(
     human_task_id: str,
+    event_name: str | None = None,
+    assigned_operator_id: str | None = None,
+    assigned_by_actor_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
@@ -382,6 +385,9 @@ def get_human_task_assignment_history(
     rows = container.orchestrator.list_human_task_assignment_history(
         human_task_id,
         principal_id=context.principal_id,
+        event_name=event_name,
+        assigned_operator_id=assigned_operator_id,
+        assigned_by_actor_id=assigned_by_actor_id,
         limit=limit,
     )
     return [_to_assignment_history_out(row) for row in rows]

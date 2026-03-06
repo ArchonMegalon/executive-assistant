@@ -1468,6 +1468,34 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_filters")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "assigned_operator_id" "README.md" && \
+     grep -Fq "assigned_by_actor_id" "README.md" && \
+     grep -Fq "assigned_operator_id" "RUNBOOK.md" && \
+     grep -Fq "assigned_by_actor_id" "RUNBOOK.md" && \
+     grep -Fq "event_name=human_task_assigned&assigned_by_actor_id=exec-1" "scripts/smoke_api.sh" && \
+     grep -Fq "event_name=human_task_returned&assigned_operator_id=operator-junior" "scripts/smoke_api.sh" && \
+     grep -Fq 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}" "HTTP_EXAMPLES.http"; then
+    echo "ok: human task assignment history filters docs"
+  else
+    echo "missing: human task assignment history filters docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task assignment history filters milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

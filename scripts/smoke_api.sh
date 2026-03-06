@@ -253,6 +253,20 @@ if [[ "${HUMAN_HISTORY_FIELDS}" != "human_task_created,human_task_assigned,human
   echo "${HUMAN_HISTORY_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+HUMAN_HISTORY_ASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history?limit=10&event_name=human_task_assigned&assigned_by_actor_id=exec-1" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_HISTORY_ASSIGNED_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); print(','.join((row or {}).get('assigned_operator_id','') for row in rows))" <<<"${HUMAN_HISTORY_ASSIGNED_JSON}")"
+if [[ "${HUMAN_HISTORY_ASSIGNED_FIELDS}" != "operator-specialist,operator-junior" ]]; then
+  echo "expected filtered assignment-history route to isolate recommended and manual assignment transitions; got ${HUMAN_HISTORY_ASSIGNED_FIELDS}" >&2
+  echo "${HUMAN_HISTORY_ASSIGNED_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_HISTORY_RETURN_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history?limit=10&event_name=human_task_returned&assigned_operator_id=operator-junior" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_HISTORY_RETURN_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); first=(rows[0] if rows else {}); print('{}|{}'.format(len(rows), (first or {}).get('assigned_by_actor_id','')))" <<<"${HUMAN_HISTORY_RETURN_JSON}")"
+if [[ "${HUMAN_HISTORY_RETURN_FIELDS}" != "1|operator-junior" ]]; then
+  echo "expected filtered assignment-history route to isolate returned transitions for a specific operator; got ${HUMAN_HISTORY_RETURN_FIELDS}" >&2
+  echo "${HUMAN_HISTORY_RETURN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
 SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; steps=body.get('steps') or []; history=body.get('human_task_assignment_history') or []; task_id='${HUMAN_TASK_ID}'; step_id='${SESSION_STEP_ID}'; names=[(row or {}).get('event_name','') for row in history if (row or {}).get('human_task_id') == task_id]; operators=[(row or {}).get('assigned_operator_id','') for row in history if (row or {}).get('human_task_id') == task_id]; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), 'human_task_created' in events and 'human_task_assigned' in events, 'human_task_claimed' in events, 'human_task_returned' in events and 'session_resumed_from_human_task' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' and (row or {}).get('assignment_state') == 'returned' and (row or {}).get('assignment_source') == 'manual' and bool((row or {}).get('assigned_at','')) and (row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks), any((row or {}).get('step_id') == step_id and (row or {}).get('state') == 'completed' and ((row or {}).get('output_json') or {}).get('human_task_id') == task_id for row in steps), any((row or {}).get('assignment_source') == 'manual' for row in tasks if (row or {}).get('human_task_id') == task_id), any((row or {}).get('assigned_by_actor_id') == 'operator-junior' for row in tasks if (row or {}).get('human_task_id') == task_id), ','.join(names), ','.join(operators)))" <<<"${SESSION_HUMAN_JSON}")"
 if [[ "${SESSION_HUMAN_FIELDS}" != "completed|True|True|True|True|True|True|True|human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned|,operator-specialist,operator-junior,operator-junior,operator-junior" ]]; then
