@@ -707,6 +707,54 @@ class RewriteOrchestrator:
             return self._complete_tool_step(session_id, rewrite_step)
         raise RuntimeError(f"unsupported_step_handler:{plan_step_key or rewrite_step.step_kind}")
 
+    def _step_dependency_keys(self, row: ExecutionStep) -> tuple[str, ...]:
+        raw = (row.input_json or {}).get("depends_on") or ()
+        if isinstance(raw, (list, tuple)):
+            values = tuple(str(value or "").strip() for value in raw if str(value or "").strip())
+            if values:
+                return values
+        if row.parent_step_id:
+            return (f"step-id:{row.parent_step_id}",)
+        return ()
+
+    def _dependency_lookup(self, steps: list[ExecutionStep]) -> dict[str, ExecutionStep]:
+        lookup: dict[str, ExecutionStep] = {}
+        for row in steps:
+            step_key = str((row.input_json or {}).get("plan_step_key") or "").strip()
+            if step_key:
+                lookup[step_key] = row
+            lookup[f"step-id:{row.step_id}"] = row
+        return lookup
+
+    def _next_ready_step(
+        self,
+        session_id: str,
+        *,
+        stop_before_step_id: str | None = None,
+    ) -> ExecutionStep | None:
+        steps = self._ledger.steps_for(session_id)
+        if not steps:
+            return None
+        dependency_lookup = self._dependency_lookup(steps)
+        queued_step_ids = {row.step_id for row in self._ledger.queue_for_session(session_id)}
+        blocked_step_id = str(stop_before_step_id or "").strip()
+        for row in steps:
+            if row.state != "queued":
+                continue
+            if blocked_step_id and row.step_id == blocked_step_id:
+                continue
+            if row.step_id in queued_step_ids:
+                continue
+            dependency_keys = self._step_dependency_keys(row)
+            if not dependency_keys:
+                return row
+            if all(
+                (dependency_lookup.get(key) is not None and dependency_lookup[key].state == "completed")
+                for key in dependency_keys
+            ):
+                return row
+        return None
+
     def _queue_next_step_after(
         self,
         session_id: str,
@@ -716,25 +764,22 @@ class RewriteOrchestrator:
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
         steps = self._ledger.steps_for(session_id)
-        for index, row in enumerate(steps):
-            if row.step_id != step_id:
-                continue
-            if index + 1 >= len(steps):
+        if not any(row.step_id == step_id for row in steps):
+            raise RuntimeError(f"step missing from session order: {step_id}")
+        next_step = self._next_ready_step(session_id, stop_before_step_id=stop_before_step_id)
+        if next_step is None:
+            if steps and all(row.state == "completed" for row in steps):
                 self._ledger.complete_session(session_id, status="completed")
                 self._ledger.append_event(session_id, "session_completed", {"status": "completed"})
-                return None
-            next_step = steps[index + 1]
-            if stop_before_step_id and next_step.step_id == stop_before_step_id:
-                return None
-            queue_item = self._enqueue_rewrite_step(session_id, next_step.step_id)
-            if lease_owner == "inline":
-                return self.run_queue_item(
-                    queue_item.queue_id,
-                    lease_owner="inline",
-                    stop_before_step_id=stop_before_step_id,
-                )
             return None
-        raise RuntimeError(f"step missing from session order: {step_id}")
+        queue_item = self._enqueue_rewrite_step(session_id, next_step.step_id)
+        if lease_owner == "inline":
+            return self.run_queue_item(
+                queue_item.queue_id,
+                lease_owner="inline",
+                stop_before_step_id=stop_before_step_id,
+            )
+        return None
 
     def _execute_leased_queue_item(
         self,
@@ -980,7 +1025,10 @@ class RewriteOrchestrator:
             raise PolicyDeniedError(policy_decision.reason)
         if policy_decision.requires_approval:
             if approval_target_step.step_id != rewrite_step.step_id:
-                queue_item = self._enqueue_rewrite_step(session.session_id, rewrite_step.step_id)
+                next_step = self._next_ready_step(session.session_id, stop_before_step_id=approval_target_step.step_id)
+                if next_step is None:
+                    raise RuntimeError(f"approval prefix queue did not resolve a ready step: {session.session_id}")
+                queue_item = self._enqueue_rewrite_step(session.session_id, next_step.step_id)
                 _ = self.run_queue_item(
                     queue_item.queue_id,
                     lease_owner="inline",
@@ -1015,7 +1063,10 @@ class RewriteOrchestrator:
                 approval_id=approval_request.approval_id,
                 status="awaiting_approval",
             )
-        queue_item = self._enqueue_rewrite_step(session.session_id, rewrite_step.step_id)
+        next_step = self._next_ready_step(session.session_id)
+        if next_step is None:
+            raise RuntimeError(f"rewrite queue did not resolve a ready step: {session.session_id}")
+        queue_item = self._enqueue_rewrite_step(session.session_id, next_step.step_id)
         artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
         if artifact is None:
             snapshot = self.fetch_session(session.session_id)
@@ -1572,7 +1623,10 @@ class RewriteOrchestrator:
                 {"approval_id": request.approval_id, "step_id": request.step_id},
             )
             if updated_step is not None:
-                queue_item = self._enqueue_rewrite_step(request.session_id, updated_step.step_id)
+                next_step = self._next_ready_step(request.session_id)
+                if next_step is None:
+                    raise RuntimeError(f"approved queue item did not resolve a ready step: {request.session_id}")
+                queue_item = self._enqueue_rewrite_step(request.session_id, next_step.step_id)
                 artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
                 if artifact is None:
                     snapshot = self.fetch_session(request.session_id)

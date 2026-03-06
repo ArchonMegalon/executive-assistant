@@ -207,6 +207,78 @@ def test_postgres_execution_queue_enqueue_lease_complete_and_list() -> None:
     assert listed[0].state == "done"
 
 
+def test_postgres_orchestrator_dependency_scheduler_waits_for_all_dependencies() -> None:
+    ledger = PostgresExecutionLedgerRepository(_db_url())
+    orchestrator = RewriteOrchestrator(ledger=ledger)
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id="dependency-tester",
+            goal="verify dependency-aware queue advancement",
+            task_type="rewrite_text",
+            deliverable_type="rewrite_note",
+            risk_class="low",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    root = ledger.start_step(
+        session.session_id,
+        "system_task",
+        input_json={"plan_step_key": "step_root", "depends_on": [], "step_index": 0},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+    join = ledger.start_step(
+        session.session_id,
+        "tool_call",
+        parent_step_id=root.step_id,
+        input_json={"plan_step_key": "step_join", "depends_on": ["step_branch_a", "step_branch_b"], "step_index": 1},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+    branch_a = ledger.start_step(
+        session.session_id,
+        "system_task",
+        parent_step_id=join.step_id,
+        input_json={"plan_step_key": "step_branch_a", "depends_on": ["step_root"], "step_index": 2},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+    branch_b = ledger.start_step(
+        session.session_id,
+        "system_task",
+        parent_step_id=branch_a.step_id,
+        input_json={"plan_step_key": "step_branch_b", "depends_on": ["step_root"], "step_index": 3},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+
+    ledger.update_step(root.step_id, state="completed", output_json={"done": True}, error_json={})
+    orchestrator._queue_next_step_after(session.session_id, root.step_id, lease_owner="worker")
+    first_ready = ledger.queue_for_session(session.session_id)
+    assert [row.step_id for row in first_ready] == [branch_a.step_id]
+
+    ledger.update_step(branch_a.step_id, state="completed", output_json={"done": True}, error_json={})
+    orchestrator._queue_next_step_after(session.session_id, branch_a.step_id, lease_owner="worker")
+    second_ready = ledger.queue_for_session(session.session_id)
+    assert [row.step_id for row in second_ready] == [branch_a.step_id, branch_b.step_id]
+    assert all(row.step_id != join.step_id for row in second_ready)
+
+    ledger.update_step(branch_b.step_id, state="completed", output_json={"done": True}, error_json={})
+    orchestrator._queue_next_step_after(session.session_id, branch_b.step_id, lease_owner="worker")
+    final_ready = ledger.queue_for_session(session.session_id)
+    assert [row.step_id for row in final_ready] == [branch_a.step_id, branch_b.step_id, join.step_id]
+
+
 def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     ledger = PostgresExecutionLedgerRepository(_db_url())
     repo = PostgresHumanTaskRepository(_db_url())

@@ -283,6 +283,16 @@
       "notes": "Planner output now exposes dependency/input/output metadata for each rewrite step, and approval pauses on the actual approval-gated step after the non-side-effect prefix has already completed."
     },
     {
+      "name": "dependency_aware_execution_scheduler",
+      "status": "tested",
+      "scope": [
+        "ready_step_selection_from_depends_on",
+        "join_waits_for_all_dependencies",
+        "approval_resume_uses_ready_step_resolution"
+      ],
+      "notes": "Queue advancement now resolves the next runnable step from satisfied `depends_on` edges instead of parent-linked step order, so joins wait for all prerequisites and approval resume uses the same ready-step scheduler."
+    },
+    {
       "name": "planner_human_task_branch_projection",
       "status": "tested",
       "scope": [

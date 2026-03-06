@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-243 | P1 | Make queued step advancement dependency-aware so `depends_on` becomes executable scheduler behavior instead of descriptive plan metadata | codex | queued | Rewrite plans already project dependency edges and optional human-review branches, but the runtime still advances by parent-linked next-step chaining instead of selecting the ready set from dependency state |
+| Q-244 | P1 | Remove preflight-vs-step ambiguity by moving real policy/normalization work into queued execution or collapsing those records into explicit preflight events | codex | queued | The ledger still records `step_input_prepare` and `step_policy_evaluate` as runtime steps even though normalization and policy decisions are largely decided before the queue drains |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-243 | P1 | Make queued step advancement dependency-aware so `depends_on` becomes executable scheduler behavior instead of descriptive plan metadata | codex | done | Queue advancement now resolves the next runnable step from satisfied dependency edges instead of parent-linked step order, and Postgres contract coverage proves join steps wait for every prerequisite before they are enqueued |
 | D-242 | P1 | Enforce session principal alignment when attaching or listing session-scoped human tasks so one principal cannot stitch packets onto another principal's execution thread | codex | done | Session-bound human task creation and `GET /v1/human/tasks?session_id=...` now reject foreign-principal access with `403 principal_scope_mismatch`, and the approved host smoke path proves cross-principal attach/list attempts are blocked |
 | D-241 | P1 | Add approved host-smoke/docs parity proving manual and auto-preselected assignment-source summaries stay isolated after extra ownerless rows are added | codex | done | Approved host smoke plus docs now explicitly recheck both manual and planner auto-preselected priority-summary slices after extra ownerless rows are introduced, proving mixed-source churn does not contaminate non-ownerless counts |
 | D-240 | P1 | Scope rewrite/session/artifact/proof routes and plan compile to the request principal so foreign execution threads cannot be fetched across a shared token domain | codex | done | Rewrite creation plus session/artifact/receipt/run-cost fetches and `POST /v1/plans/compile` now derive the effective principal from request context, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and the approved host smoke path proves foreign-principal fetches are blocked |

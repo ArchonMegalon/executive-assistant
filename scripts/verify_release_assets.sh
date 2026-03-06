@@ -922,6 +922,29 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "dependency_aware_execution_scheduler")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "queue advancement now selects the next ready step from satisfied dependency edges" "README.md" && \
+     grep -Fq "queue advancement now chooses the next ready step from satisfied dependency edges" "RUNBOOK.md" && \
+     grep -Fq 'Queue advancement now resolves the next ready step from satisfied `depends_on` edges' "CHANGELOG.md" && \
+     grep -Fq "test_postgres_orchestrator_dependency_scheduler_waits_for_all_dependencies" "tests/test_postgres_contract_matrix_integration.py"; then
+    echo "ok: dependency-aware execution scheduler docs"
+  else
+    echo "missing: dependency-aware execution scheduler docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: dependency-aware execution scheduler milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
 assert capability["status"] == "tested"
 planner_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection")

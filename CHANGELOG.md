@@ -11,6 +11,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.
+- Queue advancement now resolves the next ready step from satisfied `depends_on` edges instead of parent-linked step order, so joins wait for every prerequisite even when steps were stored out of sequence.
 - Planner output can now project a first-class `human_task` review branch (`step_human_review`) from task-contract metadata via `budget_policy_json.human_review_role`.
 - Rewrite execution now auto-runs compiled `step_human_review` nodes into real human task packets, pauses with `202 awaiting_human`, and resumes the queue after the packet is returned.
 - Returned human-review packets can now override the downstream artifact content via `returned_payload_json.final_text`, so compiled review branches affect the final persisted artifact instead of only gating it.
