@@ -920,6 +920,16 @@
         "human_task_list_session_assignment_source_filter"
       ],
       "notes": "Human task list queries now have approved smoke/docs coverage for combining `session_id` and `assignment_source`, so one session-scoped queue fetch can isolate manual or planner auto-preselected packets without client-side filtering."
+    },
+    {
+      "name": "generic_task_execution_runtime",
+      "status": "tested",
+      "scope": [
+        "plan_execute_route",
+        "non_rewrite_task_contract_runtime",
+        "principal_scoped_task_execution"
+      ],
+      "notes": "POST /v1/plans/execute now runs non-rewrite task-contract keys through the same queue-backed graph runtime as rewrite execution, preserving task identity and deliverable type while enforcing the request principal contract."
     }
   ],
   "migrations": [

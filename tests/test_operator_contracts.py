@@ -1471,9 +1471,10 @@ def test_principal_scoped_rewrite_and_plan_routes_are_documented_and_smoked() ->
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert "rewrite/session/artifact/receipt/run-cost, plan-compile" in readme
+    assert "rewrite/session/artifact/receipt/run-cost, plan-compile/execute" in readme
     assert "/v1/rewrite/sessions/{session_id}" in runbook
     assert "/v1/plans/compile" in runbook
+    assert "/v1/plans/execute" in runbook
     assert "403 principal_scope_mismatch" in runbook
     assert '"principal_id": "exec-2"' in http_examples
     assert "REWRITE_SESSION_MISMATCH_CODE" in smoke_api
@@ -1499,6 +1500,29 @@ def test_session_principal_scoped_human_task_routes_are_documented_and_smoked() 
     assert "test_human_task_session_routes_enforce_session_principal_scope" in smoke_runtime
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
+    assert capability["status"] == "tested"
+
+
+def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/plans/execute" in readme
+    assert "non-`rewrite_text` artifact flows" in readme
+    assert "/v1/plans/execute" in runbook
+    assert "stakeholder briefings" in runbook
+    assert "POST {{host}}/v1/plans/execute" in http_examples
+    assert "TASK_EXECUTE_JSON" in smoke_api
+    assert "generic task execution ok" in smoke_api
+    assert "test_generic_task_execution_uses_compiled_contract_runtime" in smoke_runtime
+    assert "test_postgres_orchestrator_executes_non_rewrite_task_contract" in postgres_contracts
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_runtime")
     assert capability["status"] == "tested"
 
 

@@ -13,6 +13,14 @@ class RewriteRequest:
 
 
 @dataclass(frozen=True)
+class TaskExecutionRequest:
+    task_key: str
+    text: str
+    principal_id: str = "local-user"
+    goal: str = ""
+
+
+@dataclass(frozen=True)
 class Artifact:
     artifact_id: str
     kind: str

@@ -57,6 +57,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/tasks/contracts` | `200` | validation `422` |
 | GET | `/v1/tasks/contracts/{task_key}` | `200` | `404 task_contract_not_found` |
 | POST | `/v1/plans/compile` | `200` | validation `422`, `403 principal_scope_mismatch` |
+| POST | `/v1/plans/execute` | `200`, `202 awaiting_approval`, `202 awaiting_human` | validation `422`, `403 principal_scope_mismatch`, `403 policy_denied:*` |
 | POST | `/v1/memory/candidates` | `200` | validation `422` |
 | GET | `/v1/memory/candidates` | `200` | validation `422` |
 | POST | `/v1/memory/candidates/{candidate_id}/promote` | `200` | `404 memory_candidate_not_found` |
@@ -106,7 +107,7 @@ Error envelope for failures:
 Auth:
 - Set `EA_API_TOKEN=<token>` to require auth for all non-health routes.
 - Use `Authorization: Bearer <token>` or `X-API-Token: <token>`.
-- Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
+- Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
 
 Runtime mode:
@@ -122,6 +123,7 @@ Policy notes:
 - The current rewrite scaffold now executes as three explicit queued steps: `step_input_prepare`, `step_policy_evaluate`, and `step_artifact_save`.
 - `policy_decision` is now emitted from the queued `step_policy_evaluate` handler after `input_prepared`, so the ledger order matches runtime execution before approval or block transitions are recorded.
 - `POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`, and queue advancement now chooses the next ready step from satisfied dependency edges instead of parent-linked step order.
+- `POST /v1/plans/execute` now reuses that same compiled task-contract runtime for non-`rewrite_text` artifact flows, so stakeholder briefings and similar executive contracts can run through the queue-backed graph without a rewrite-only entrypoint.
 - Rewrite creation and session/artifact/receipt/run-cost fetches now enforce the same request principal contract as the rest of the scoped surface, so foreign-principal fetch attempts fail with `403 principal_scope_mismatch` instead of exposing another execution thread.
 - Session-bound `POST /v1/human/tasks` and `GET /v1/human/tasks?session_id=...` now enforce that the request principal matches the linked execution session principal too, so one principal cannot stitch packets onto or enumerate another principal's session thread via `session_id`.
 - Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; the rewrite runtime auto-creates the linked human task packet with those routing and review-contract fields when that step executes, auto-assigns a unique exact reviewer when the flag is enabled, and a returned `final_text` payload now overrides the downstream artifact-save input.

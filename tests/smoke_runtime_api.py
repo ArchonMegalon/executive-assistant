@@ -2589,6 +2589,60 @@ def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
 
+def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "stakeholder_briefing",
+            "deliverable_type": "stakeholder_briefing",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {"class": "low"},
+        },
+    )
+    assert contract.status_code == 200
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "stakeholder_briefing",
+            "text": "Board context and stakeholder sensitivities.",
+            "goal": "prepare a stakeholder briefing",
+        },
+    )
+    assert execute.status_code == 200
+    body = execute.json()
+    assert body["task_key"] == "stakeholder_briefing"
+    assert body["kind"] == "stakeholder_briefing"
+    assert body["content"] == "Board context and stakeholder sensitivities."
+    assert body["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_task_type"] == "stakeholder_briefing"
+    assert session_body["status"] == "completed"
+    assert session_body["artifacts"][0]["kind"] == "stakeholder_briefing"
+    assert session_body["steps"][2]["input_json"]["plan_step_key"] == "step_artifact_save"
+
+    mismatch = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "stakeholder_briefing",
+            "text": "Should stay in principal scope.",
+            "principal_id": "exec-2",
+            "goal": "prepare a stakeholder briefing",
+        },
+    )
+    assert mismatch.status_code == 403
+    assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+
 def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     client = _client(storage_backend="memory")
     contract = client.post(

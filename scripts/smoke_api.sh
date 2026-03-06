@@ -1338,6 +1338,39 @@ if [[ "${REVIEW_PLAN_FIELDS}" != "4|human_task|communications_reviewer|high|45|T
 fi
 echo "plans ok"
 
+echo "== smoke: generic task execution =="
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_briefing","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+TASK_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_briefing","text":"Board context and stakeholder sensitivities.","goal":"prepare a stakeholder briefing"}')"
+TASK_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('content',''), bool(body.get('artifact_id','')), bool(body.get('execution_session_id',''))))" <<<"${TASK_EXECUTE_JSON}")"
+if [[ "${TASK_EXECUTE_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|Board context and stakeholder sensitivities.|True|True" ]]; then
+  echo "expected generic task execution route to reuse the compiled contract runtime; got ${TASK_EXECUTE_FIELDS}" >&2
+  echo "${TASK_EXECUTE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+TASK_EXECUTE_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${TASK_EXECUTE_JSON}")"
+TASK_EXECUTE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${TASK_EXECUTE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+TASK_EXECUTE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), len(body.get('steps') or []), (artifacts[0] or {}).get('kind','') if artifacts else '', any((event or {}).get('name') == 'plan_compiled' for event in (body.get('events') or []))))" <<<"${TASK_EXECUTE_SESSION_JSON}")"
+if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stakeholder_briefing|True" ]]; then
+  echo "expected generic task execution session to retain the compiled task identity and persisted artifact kind; got ${TASK_EXECUTE_SESSION_FIELDS}" >&2
+  echo "${TASK_EXECUTE_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+TASK_EXECUTE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_task_execute_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
+if [[ "${TASK_EXECUTE_MISMATCH_CODE}" != "403" ]]; then
+  echo "expected generic task execution principal mismatch to return 403; got ${TASK_EXECUTE_MISMATCH_CODE}" >&2
+  cat /tmp/ea_task_execute_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+TASK_EXECUTE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /tmp/ea_task_execute_mismatch_resp.json)"
+if [[ "${TASK_EXECUTE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected generic task execution mismatch code principal_scope_mismatch; got ${TASK_EXECUTE_MISMATCH_REASON}" >&2
+  cat /tmp/ea_task_execute_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "generic task execution ok"
+
 echo "== smoke: compiled human review runtime =="
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it.","human_review_priority":"high","human_review_sla_minutes":45,"human_review_auto_assign_if_unique":true,"human_review_desired_output_json":{"format":"review_packet","escalation_policy":"manager_review"},"human_review_authority_required":"send_on_behalf_review","human_review_why_human":"Executive-facing rewrite needs human judgment before finalization.","human_review_quality_rubric_json":{"checks":["tone","accuracy","stakeholder_sensitivity"]}}}' >/dev/null

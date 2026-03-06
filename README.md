@@ -35,6 +35,7 @@ Removed:
 - `/v1/connectors/bindings*` manages external connector bindings and status transitions
 - `/v1/tasks/contracts*` manages typed task contracts used by intent compilation
 - `/v1/plans/compile` emits a typed plan DSL projection from task contracts
+- `/v1/plans/execute` runs task-contract keys through the same queue-backed graph runtime used by rewrite execution
 - `/v1/memory/candidates*` stages reviewable memory candidates from runtime signals
 - `/v1/memory/items*` lists promoted long-term memory items with provenance
 - `/v1/memory/entities*` upserts/list/gets semantic entities for people/projects/objects
@@ -50,12 +51,13 @@ Removed:
 - `/v1/memory/follow-up-rules*` upserts/list/gets principal-scoped follow-up automation rules
 - `/v1/memory/interruption-budgets*` upserts/list/gets principal-scoped interruption budgets
 - the principal-scoped memory seed surface is explicitly covered by both `tests/smoke_runtime_api.py` and the approved host smoke path (`scripts/smoke_api.sh` via `scripts/smoke_postgres.sh`)
-- principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes now derive their effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query IDs
+- principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes now derive their effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query IDs
 - caller-supplied `principal_id` on those rewrite and plan routes is now a compatibility field only; mismatches fail with `403 principal_scope_mismatch`, and foreign-principal session/artifact/receipt/run-cost fetches are blocked the same way
 - session-bound human task create/list requests now also enforce the linked execution session principal, so one principal cannot attach packets to or enumerate another principal's execution thread by reusing its `session_id`
 - rewrite execution now records `plan_compiled`, runs a typed three-step queue path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) through the execution ledger, and dispatches tool steps through a registry-backed `ToolExecutionService`
 - `policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`, so approval/block ledger records reflect actual runtime step order instead of preflight-only bookkeeping
 - `POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys, and queue advancement now selects the next ready step from satisfied dependency edges instead of parent-linked step order
+- `POST /v1/plans/execute` now reuses that same compiled task-contract runtime for non-`rewrite_text` artifact flows, so executive contracts like stakeholder briefings can run through the queue-backed graph without hardcoding the rewrite vertical
 - Task contracts can now project a first-class `human_task` branch (`step_human_review`) in plan output by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; rewrite execution now returns `202 awaiting_human` when that compiled review step pauses the queue runtime, creates the linked human task with those routing and review-contract semantics, can auto-preassign a unique exact reviewer when the policy flag is enabled, and downstream artifact persistence can consume `returned_payload_json.final_text` from the completed review packet
 - compiled human-review steps now merge dependency outputs into the created packet input too, so `normalized_text`, `text_length`, and reviewer overrides flow into human-task context without relying on parent-step-only ordering
 - rewrite tool receipts now carry a normalized `tool.v1` invocation contract for the built-in `artifact_repository` handler

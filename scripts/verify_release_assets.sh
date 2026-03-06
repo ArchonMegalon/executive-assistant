@@ -875,7 +875,7 @@ capability = next(entry for entry in milestone["capabilities"] if entry["name"] 
 assert capability["status"] == "tested"
 PY
 then
-  if grep -Fq "rewrite/session/artifact/receipt/run-cost, plan-compile" "README.md" && \
+  if grep -Fq "rewrite/session/artifact/receipt/run-cost, plan-compile/execute" "README.md" && \
      grep -Fq '/v1/rewrite/sessions/{session_id}' "RUNBOOK.md" && \
      grep -Fq '/v1/plans/compile' "RUNBOOK.md" && \
      grep -Fq '"principal_id": "exec-2"' "HTTP_EXAMPLES.http" && \
@@ -890,6 +890,33 @@ then
   fi
 else
   echo "missing: principal-scoped rewrite and plan routes milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_runtime")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq '/v1/plans/execute' "README.md" && \
+     grep -Fq 'non-`rewrite_text` artifact flows' "README.md" && \
+     grep -Fq '/v1/plans/execute' "RUNBOOK.md" && \
+     grep -Fq 'stakeholder briefings' "RUNBOOK.md" && \
+     grep -Fq 'POST {{host}}/v1/plans/execute' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'TASK_EXECUTE_JSON' "scripts/smoke_api.sh" && \
+     grep -Fq 'test_generic_task_execution_uses_compiled_contract_runtime' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'test_postgres_orchestrator_executes_non_rewrite_task_contract' "tests/test_postgres_contract_matrix_integration.py"; then
+    echo "ok: generic task execution runtime docs"
+  else
+    echo "missing: generic task execution runtime docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: generic task execution runtime milestone status" >&2
   missing=1
 fi
 

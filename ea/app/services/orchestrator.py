@@ -20,6 +20,7 @@ from app.domain.models import (
     PlanStepSpec,
     RewriteRequest,
     RunCost,
+    TaskExecutionRequest,
     ToolInvocationRequest,
     ToolReceipt,
     now_utc_iso,
@@ -388,18 +389,51 @@ class RewriteOrchestrator:
             filtered = overdue_rows
         return filtered
 
-    def _fallback_rewrite_intent(self, *, principal_id: str, goal: str) -> IntentSpecV3:
+    def _default_goal_for_task(self, task_key: str) -> str:
+        key = str(task_key or "").strip() or "rewrite_text"
+        if key == "rewrite_text":
+            return "rewrite supplied text into an artifact"
+        return f"execute {key} into an artifact"
+
+    def _fallback_intent(self, *, task_key: str, principal_id: str, goal: str) -> IntentSpecV3:
+        key = str(task_key or "").strip() or "rewrite_text"
+        if key == "rewrite_text":
+            return IntentSpecV3(
+                principal_id=str(principal_id or "local-user"),
+                goal=str(goal or self._default_goal_for_task(key)),
+                task_type="rewrite_text",
+                deliverable_type="rewrite_note",
+                risk_class="low",
+                approval_class="none",
+                budget_class="low",
+                allowed_tools=("artifact_repository",),
+                desired_artifact="rewrite_note",
+                memory_write_policy="reviewed_only",
+            )
+        contract = self._task_contracts.contract_or_default(key) if self._task_contracts else None
+        deliverable_type = str(contract.deliverable_type if contract is not None else "generic_artifact") or "generic_artifact"
+        default_risk_class = str(contract.default_risk_class if contract is not None else "low") or "low"
+        default_approval_class = str(contract.default_approval_class if contract is not None else "none") or "none"
+        budget_class = str((contract.budget_policy_json if contract is not None else {}).get("class") or "low")
+        allowed_tools = (
+            tuple(str(value) for value in contract.allowed_tools) if contract is not None else ("artifact_repository",)
+        )
+        if not allowed_tools:
+            allowed_tools = ("artifact_repository",)
+        evidence_requirements = tuple(str(value) for value in (contract.evidence_requirements if contract is not None else ()))
+        memory_write_policy = str(contract.memory_write_policy if contract is not None else "reviewed_only") or "reviewed_only"
         return IntentSpecV3(
             principal_id=str(principal_id or "local-user"),
-            goal=str(goal or "rewrite supplied text into an artifact"),
-            task_type="rewrite_text",
-            deliverable_type="rewrite_note",
-            risk_class="low",
-            approval_class="none",
-            budget_class="low",
-            allowed_tools=("artifact_repository",),
-            desired_artifact="rewrite_note",
-            memory_write_policy="reviewed_only",
+            goal=str(goal or self._default_goal_for_task(key)),
+            task_type=key,
+            deliverable_type=deliverable_type,
+            risk_class=default_risk_class,
+            approval_class=default_approval_class,
+            budget_class=budget_class,
+            allowed_tools=allowed_tools,
+            evidence_requirements=evidence_requirements,
+            desired_artifact=deliverable_type,
+            memory_write_policy=memory_write_policy,
         )
 
     def _fallback_plan(self, intent: IntentSpecV3) -> PlanSpec:
@@ -448,6 +482,16 @@ class RewriteOrchestrator:
             created_at=now_utc_iso(),
             steps=(prepare_step, policy_step, step),
         )
+
+    def _default_action_kind_for_step(self, plan_step: PlanStepSpec) -> str:
+        if plan_step.step_kind != "tool_call":
+            return ""
+        tool_name = str(plan_step.tool_name or "").strip()
+        if tool_name == "connector.dispatch":
+            return "delivery.send"
+        if tool_name == "artifact_repository":
+            return "artifact.save"
+        return tool_name or "artifact.save"
 
     def _queue_idempotency_key(self, session_id: str, step_id: str) -> str:
         return f"rewrite:{session_id}:{step_id}"
@@ -973,20 +1017,21 @@ class RewriteOrchestrator:
             return None
         return self._execute_leased_queue_item(queue_item)
 
-    def build_artifact(self, req: RewriteRequest) -> Artifact:
+    def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
+        task_key = str(req.task_key or "").strip() or "rewrite_text"
         principal_id = str(req.principal_id or "").strip() or "local-user"
-        goal = str(req.goal or "").strip() or "rewrite supplied text into an artifact"
+        goal = str(req.goal or "").strip() or self._default_goal_for_task(task_key)
         if self._planner:
             intent, plan = self._planner.build_plan(
-                task_key="rewrite_text",
+                task_key=task_key,
                 principal_id=principal_id,
                 goal=goal,
             )
         elif self._task_contracts:
-            intent = self._task_contracts.compile_rewrite_intent(principal_id=principal_id, goal=goal)
+            intent = self._fallback_intent(task_key=task_key, principal_id=principal_id, goal=goal)
             plan = self._fallback_plan(intent)
         else:
-            intent = self._fallback_rewrite_intent(principal_id=principal_id, goal=goal)
+            intent = self._fallback_intent(task_key=task_key, principal_id=principal_id, goal=goal)
             plan = self._fallback_plan(intent)
         session = self._ledger.start_session(intent)
         correlation_id = str(uuid.uuid4())
@@ -1066,7 +1111,7 @@ class RewriteOrchestrator:
                         "plan_step_key": plan_step.step_key,
                         "plan_step_kind": plan_step.step_kind,
                         "tool_name": plan_step.tool_name,
-                        "action_kind": "artifact.save" if plan_step.step_kind == "tool_call" else "",
+                        "action_kind": self._default_action_kind_for_step(plan_step),
                         "approval_required": plan_step.approval_required,
                         "expected_artifact": plan_step.expected_artifact,
                         "fallback": plan_step.fallback,
@@ -1095,7 +1140,7 @@ class RewriteOrchestrator:
             parent_step_id = created_steps[-1].step_id
         next_step = self._next_ready_step(session.session_id)
         if next_step is None:
-            raise RuntimeError(f"rewrite queue did not resolve a ready step: {session.session_id}")
+            raise RuntimeError(f"task queue did not resolve a ready step: {session.session_id}")
         queue_item = self._enqueue_rewrite_step(session.session_id, next_step.step_id)
         artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
         if artifact is None:
@@ -1122,8 +1167,18 @@ class RewriteOrchestrator:
                     decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=session.session_id)), None)
                     reason = str(decision.reason if decision is not None else "") or "policy_denied"
                     raise PolicyDeniedError(reason)
-            raise RuntimeError(f"queued rewrite did not execute: {queue_item.queue_id}")
+            raise RuntimeError(f"queued task did not execute: {queue_item.queue_id}")
         return artifact
+
+    def build_artifact(self, req: RewriteRequest) -> Artifact:
+        return self.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="rewrite_text",
+                text=req.text,
+                principal_id=req.principal_id,
+                goal=req.goal,
+            )
+        )
 
     def fetch_artifact(self, artifact_id: str) -> Artifact | None:
         return self._artifacts.get(artifact_id)

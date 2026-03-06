@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
+from app.domain.models import TaskExecutionRequest
+from app.services.orchestrator import HumanTaskRequiredError
+from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 
 router = APIRouter(prefix="/v1/plans", tags=["plans"])
 
@@ -69,6 +73,30 @@ class PlanCompileOut(BaseModel):
     plan: PlanOut
 
 
+class PlanExecuteIn(BaseModel):
+    task_key: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=20000)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    goal: str = Field(default="", max_length=2000)
+
+
+class PlanExecuteOut(BaseModel):
+    task_key: str
+    artifact_id: str
+    kind: str
+    content: str
+    execution_session_id: str
+
+
+class PlanExecuteAcceptedOut(BaseModel):
+    task_key: str
+    session_id: str
+    approval_id: str = ""
+    human_task_id: str = ""
+    status: str
+    next_action: str
+
+
 @router.post("/compile")
 def compile_plan(
     body: PlanCompileIn,
@@ -130,4 +158,54 @@ def compile_plan(
                 for s in plan.steps
             ],
         ),
+    )
+
+
+@router.post("/execute")
+def execute_plan(
+    body: PlanExecuteIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PlanExecuteOut | PlanExecuteAcceptedOut:
+    principal_id = resolve_principal_id(body.principal_id, context)
+    try:
+        artifact = container.orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key=body.task_key,
+                text=str(body.text or ""),
+                principal_id=principal_id,
+                goal=body.goal,
+            )
+        )
+    except ApprovalRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content=PlanExecuteAcceptedOut(
+                task_key=body.task_key,
+                session_id=exc.session_id,
+                approval_id=exc.approval_id,
+                status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except HumanTaskRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content=PlanExecuteAcceptedOut(
+                task_key=body.task_key,
+                session_id=exc.session_id,
+                human_task_id=exc.human_task_id,
+                status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except PolicyDeniedError as exc:
+        reason = str(exc or "policy_denied")
+        raise HTTPException(status_code=403, detail=f"policy_denied:{reason}") from exc
+    return PlanExecuteOut(
+        task_key=body.task_key,
+        artifact_id=artifact.artifact_id,
+        kind=artifact.kind,
+        content=artifact.content,
+        execution_session_id=artifact.execution_session_id,
     )

@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-246 | P1 | Carry merged dependency outputs into generic task execution so non-rewrite workflows can stop hardcoding `rewrite_text` and reuse the graph runtime for other executive contracts | codex | queued | The graph runtime now schedules by dependencies and merges context for policy/tool/human review, but `build_artifact()` still hardcodes the rewrite vertical instead of accepting a compiled task contract key |
+| Q-247 | P1 | Extend generic task execution coverage so non-rewrite contracts can pause into `awaiting_human` or `awaiting_approval` with the same first-class async contract as rewrite execution | codex | queued | `POST /v1/plans/execute` now runs non-rewrite task keys through the queue runtime, but the approved smoke/docs parity still only proves the synchronous completion path rather than queued human/approval pauses |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-246 | P1 | Carry merged dependency outputs into generic task execution so non-rewrite workflows can stop hardcoding `rewrite_text` and reuse the graph runtime for other executive contracts | codex | done | Added `POST /v1/plans/execute`, generalized orchestrator task execution beyond `rewrite_text`, and proved via smoke/Postgres contract coverage that non-rewrite task contracts preserve task identity, deliverable type, and principal scoping through the same queue-backed runtime |
 | D-245 | P1 | Propagate dependency outputs across human/system/tool execution so non-linear plans can consume merged branch context instead of leaning on parent-step assumptions | codex | done | Human-review step execution now merges dependency outputs into packet input, and the shared input merge helper normalizes `source_text`, `normalized_text`, and `text_length` before policy/tool/human handlers consume dependency-produced context |
 | D-244 | P1 | Remove preflight-vs-step ambiguity by moving real policy/normalization work into queued execution or collapsing those records into explicit preflight events | codex | done | `policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`, and approval/block transitions are derived from that runtime step instead of a pre-queue preflight check |
 | D-243 | P1 | Make queued step advancement dependency-aware so `depends_on` becomes executable scheduler behavior instead of descriptive plan metadata | codex | done | Queue advancement now resolves the next runnable step from satisfied dependency edges instead of parent-linked step order, and Postgres contract coverage proves join steps wait for every prerequisite before they are enqueued |

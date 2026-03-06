@@ -5,7 +5,8 @@ import uuid
 
 import pytest
 
-from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, now_utc_iso
+from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, TaskExecutionRequest, now_utc_iso
+from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
@@ -13,6 +14,8 @@ from app.repositories.operator_profiles_postgres import PostgresOperatorProfileR
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.planner import PlannerService
+from app.services.task_contracts import TaskContractService
 
 
 def _db_url() -> str:
@@ -150,6 +153,50 @@ def test_postgres_task_contracts_upsert_get_and_list() -> None:
 
     listed = repo.list_all(limit=20)
     assert any(entry.task_key == task_key for entry in listed)
+
+
+def test_postgres_orchestrator_executes_non_rewrite_task_contract() -> None:
+    ledger = PostgresExecutionLedgerRepository(_db_url())
+    repo = PostgresTaskContractRepository(_db_url())
+    service = TaskContractService(repo)
+    task_key = f"stakeholder_briefing_{uuid.uuid4().hex}"
+    service.upsert_contract(
+        task_key=task_key,
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={"class": "low"},
+    )
+    orchestrator = RewriteOrchestrator(
+        artifacts=InMemoryArtifactRepository(),
+        ledger=ledger,
+        task_contracts=service,
+        planner=PlannerService(service),
+    )
+
+    artifact = orchestrator.execute_task_artifact(
+        TaskExecutionRequest(
+            task_key=task_key,
+            text="Board context and stakeholder sensitivities.",
+            principal_id="exec-briefing",
+            goal="prepare a stakeholder briefing",
+        )
+    )
+
+    assert artifact.kind == "stakeholder_briefing"
+    assert artifact.content == "Board context and stakeholder sensitivities."
+
+    session = ledger.get_session(artifact.execution_session_id)
+    assert session is not None
+    assert session.status == "completed"
+
+    steps = ledger.steps_for(session.session_id)
+    assert len(steps) == 3
+    assert steps[0].input_json["plan_step_key"] == "step_input_prepare"
+    assert steps[-1].input_json["tool_name"] == "artifact_repository"
 
 
 def test_postgres_execution_queue_enqueue_lease_complete_and_list() -> None:

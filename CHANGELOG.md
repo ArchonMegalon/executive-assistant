@@ -8,6 +8,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Principal-scoped connector and memory routes now derive the effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query values.
 - Caller-supplied `principal_id` on those routes is now a compatibility filter only; mismatches fail with `403 principal_scope_mismatch`.
 - Rewrite creation/session/artifact/receipt/run-cost and plan-compile routes now derive the effective principal from request context too, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and block foreign-principal execution-proof fetches.
+- Generic `POST /v1/plans/execute` task execution now derives the effective principal from request context too, rejects caller-supplied mismatches with `403 principal_scope_mismatch`, and reuses the same queued session/artifact runtime as rewrite execution.
 - Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.
@@ -15,6 +16,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Policy decisions are now recorded from the queued `step_policy_evaluate` handler after `input_prepared`, so approval/block audit events match runtime step order instead of preflight bookkeeping.
 - Planner output can now project a first-class `human_task` review branch (`step_human_review`) from task-contract metadata via `budget_policy_json.human_review_role`.
 - Human-review step execution now merges dependency outputs into the created packet input, so queued review work receives the same normalized text and text length that upstream dependency steps produced without leaning on parent-step-only context.
+- Non-`rewrite_text` task contracts can now execute through the same queue-backed graph runtime and persist their own deliverable type instead of hardcoding the rewrite vertical.
 - Rewrite execution now auto-runs compiled `step_human_review` nodes into real human task packets, pauses with `202 awaiting_human`, and resumes the queue after the packet is returned.
 - Returned human-review packets can now override the downstream artifact content via `returned_payload_json.final_text`, so compiled review branches affect the final persisted artifact instead of only gating it.
 - Rewrite tool-call execution now flows through a registry-backed `ToolExecutionService`, and `artifact_repository` receipts expose a normalized `tool.v1` invocation contract.
