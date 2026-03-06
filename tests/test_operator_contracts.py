@@ -88,6 +88,7 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "tests/test_memory_router_contracts.py" in script
     assert "tests/test_openapi_async_acceptance_examples_contracts.py" in script
     assert "tests/test_openapi_dependency_examples_contracts.py" in script
+    assert "tests/test_plan_scope_contracts.py" in script
     assert "tests/test_rewrite_scope_contracts.py" in script
     assert "tests/test_rewrite_api_scope_contracts.py" in script
     assert "tests/test_rewrite_dependency_projection_contracts.py" in script
@@ -168,6 +169,20 @@ def test_openapi_async_acceptance_examples_are_guarded() -> None:
     assert "rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []" in smoke_script
     assert "plan_examples=(schemas.get('PlanExecuteAcceptedOut') or {}).get('examples') or []" in smoke_script
     assert "approval-123|human-task-123|poll_or_subscribe|poll_or_subscribe|decision_brief_approval|stakeholder_briefing_review" in smoke_script
+
+
+def test_plan_scope_contracts_are_wired_into_focused_contract_bundle() -> None:
+    script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    plan_scope_test = (ROOT / "tests/test_plan_scope_contracts.py").read_text(encoding="utf-8")
+
+    assert "tests/test_plan_scope_contracts.py" in script
+    assert "/v1/plans/compile" in plan_scope_test
+    assert "/v1/plans/execute" in plan_scope_test
+    assert "/v1/rewrite/sessions/" in plan_scope_test
+    assert "/v1/rewrite/artifacts/" in plan_scope_test
+    assert "/v1/rewrite/receipts/" in plan_scope_test
+    assert "/v1/rewrite/run-costs/" in plan_scope_test
+    assert 'denied.json()["error"]["code"] == "principal_scope_mismatch"' in plan_scope_test
 
 
 def test_policy_docs_and_milestone_cover_external_action_evaluation() -> None:

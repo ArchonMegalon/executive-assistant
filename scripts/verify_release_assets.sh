@@ -792,6 +792,7 @@ if grep -Fq "tests/test_postgres_contract_matrix_integration.py" "scripts/test_p
    grep -Fq "tests/test_memory_router_contracts.py" "scripts/test_postgres_contracts.sh" && \
    grep -Fq "tests/test_openapi_async_acceptance_examples_contracts.py" "scripts/test_postgres_contracts.sh" && \
    grep -Fq "tests/test_openapi_dependency_examples_contracts.py" "scripts/test_postgres_contracts.sh" && \
+   grep -Fq "tests/test_plan_scope_contracts.py" "scripts/test_postgres_contracts.sh" && \
    grep -Fq "tests/test_rewrite_scope_contracts.py" "scripts/test_postgres_contracts.sh" && \
    grep -Fq "tests/test_rewrite_api_scope_contracts.py" "scripts/test_postgres_contracts.sh" && \
    grep -Fq "tests/test_rewrite_dependency_projection_contracts.py" "scripts/test_postgres_contracts.sh"; then
@@ -837,6 +838,13 @@ if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
    grep -Fq 'step-artifact-save-blocked-human' "tests/test_openapi_dependency_examples_contracts.py" && \
    grep -Fq 'schemas["RewriteAcceptedOut"]["examples"]' "tests/test_openapi_async_acceptance_examples_contracts.py" && \
    grep -Fq 'schemas["PlanExecuteAcceptedOut"]["examples"]' "tests/test_openapi_async_acceptance_examples_contracts.py" && \
+   grep -Fq "/v1/plans/compile" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq "/v1/plans/execute" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq "/v1/rewrite/sessions/" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq "/v1/rewrite/artifacts/" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq "/v1/rewrite/receipts/" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq "/v1/rewrite/run-costs/" "tests/test_plan_scope_contracts.py" && \
+   grep -Fq 'principal_scope_mismatch' "tests/test_plan_scope_contracts.py" && \
    grep -Fq "projection_ok=(" "scripts/smoke_api.sh" && \
    grep -Fq 'curl -fsS "${BASE}/openapi.json"' "scripts/smoke_api.sh" && \
    grep -Fq "rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []" "scripts/smoke_api.sh" && \
