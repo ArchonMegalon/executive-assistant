@@ -316,10 +316,33 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     assert "connector.dispatch" in runbook
     assert "/v1/tools/execute" in http_examples
     assert "connector.dispatch" in http_examples
-    assert "connector.dispatch|queued|connector.dispatch|tool.v1" in smoke_api
+    assert "connector.dispatch|queued|" in smoke_api
+    assert "connector.dispatch|tool.v1" in smoke_api
     assert "connector.dispatch" in smoke_runtime
     assert "/v1/tools/execute" in smoke_runtime
     assert "test_tool_execution_service_executes_builtin_connector_dispatch_handler" in tool_execution_tests
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_tool_execution_slice")
+    assert capability["status"] == "tested"
+
+
+def test_connector_dispatch_binding_scope_guardrails_are_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "enabled connector binding" in readme
+    assert "principal scope" in runbook
+    assert "\"binding_id\"" in http_examples
+    assert "principal_scope_mismatch" in smoke_api
+    assert "binding_id" in smoke_api
+    assert "execute_mismatch" in smoke_runtime
+    assert "binding_id" in smoke_runtime
+    assert "test_tool_execution_service_rejects_foreign_connector_binding_scope" in tool_execution_tests
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_binding_scope_guardrails")
     assert capability["status"] == "tested"

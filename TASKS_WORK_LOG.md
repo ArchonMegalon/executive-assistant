@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-180 | P1 | Require connector binding resolution and principal-aware credential checks before `connector.dispatch` execution can queue delivery | codex | queued | The built-in dispatch handler now exists, but it still queues delivery without validating connector binding or principal-scoped credential state |
+| Q-181 | P1 | Replace approval-required rewrite `409` responses with a first-class async acceptance contract (`202` + pending session metadata) | codex | queued | Approval is now a real paused workflow state, but the external rewrite API still exposes it as an error-shaped denial instead of an asynchronous lifecycle contract |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-180 | P1 | Require connector binding resolution and principal-aware credential checks before `connector.dispatch` execution can queue delivery | codex | done | `connector.dispatch` now requires an enabled connector binding in the caller's principal scope before `/v1/tools/execute` can queue delivery, and foreign-principal attempts fail before side effects |
 | D-179 | P1 | Add a real connector/tool handler path beyond `artifact_repository`, starting with a registry-backed `connector.dispatch` execution slice | codex | done | `connector.dispatch` now executes through `ToolExecutionService`, `POST /v1/tools/execute` exposes the shared handler path, and successful calls queue durable outbox rows with normalized `tool.v1` receipts |
 | D-178 | P1 | Promote the rewrite step-handler scaffold into a reusable tool-execution service with registry-backed handlers and normalized invocation contracts | codex | done | Rewrite tool-call steps now execute through `ToolExecutionService`, the built-in `artifact_repository` handler is registry-backed, and receipts expose a normalized `tool.v1` invocation contract |
 | D-177 | P1 | Replace hardcoded `artifact_repository`-only execution with a typed step-handler/tool-execution gateway | codex | done | Rewrite planning/execution now uses `step_input_prepare` and `step_artifact_save` handlers with sequential queue execution instead of a single hardcoded artifact-save step |

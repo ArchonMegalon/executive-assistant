@@ -47,6 +47,7 @@ Removed:
 - rewrite execution now records `plan_compiled`, runs a typed two-step queue path (`step_input_prepare` -> `step_artifact_save`) through the execution ledger, and dispatches tool steps through a registry-backed `ToolExecutionService`
 - rewrite tool receipts now carry a normalized `tool.v1` invocation contract for the built-in `artifact_repository` handler
 - the built-in `connector.dispatch` handler now also runs through `ToolExecutionService` and queues durable delivery outbox rows
+- `connector.dispatch` now requires an enabled connector binding that matches the request principal before `/v1/tools/execute` can queue delivery
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
 - `/v1/channels/telegram/ingest` maps raw Telegram updates into normalized observation events

@@ -222,11 +222,13 @@ GET {{host}}/v1/tools/registry/email.send
 ### Tools -> execute builtin connector dispatch
 POST {{host}}/v1/tools/execute
 Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
 
 {
   "tool_name": "connector.dispatch",
   "action_kind": "delivery.send",
   "payload_json": {
+    "binding_id": "replace-with-a-real-binding-id",
     "channel": "email",
     "recipient": "ops@example.com",
     "content": "Queue this via tool execution",

@@ -159,6 +159,17 @@ class ToolExecutionService:
         if self._channel_runtime is None:
             raise ToolExecutionError("channel_runtime_unavailable:connector.dispatch")
         payload = dict(request.payload_json or {})
+        binding_id = str(payload.get("binding_id") or "").strip()
+        if not binding_id:
+            raise ToolExecutionError("connector_binding_required:connector.dispatch")
+        binding = self._tool_runtime.get_connector_binding(binding_id)
+        if binding is None:
+            raise ToolExecutionError(f"connector_binding_not_found:{binding_id}")
+        if str(binding.status or "").strip().lower() != "enabled":
+            raise ToolExecutionError(f"connector_binding_disabled:{binding_id}")
+        principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
+        if principal_id and binding.principal_id != principal_id:
+            raise ToolExecutionError("principal_scope_mismatch")
         channel = str(payload.get("channel") or "").strip()
         recipient = str(payload.get("recipient") or "").strip()
         content = str(payload.get("content") or "")
@@ -181,16 +192,22 @@ class ToolExecutionService:
                 "status": delivery.status,
                 "channel": delivery.channel,
                 "recipient": delivery.recipient,
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "principal_id": binding.principal_id,
                 "idempotency_key": delivery.idempotency_key,
                 "tool_name": definition.tool_name,
                 "action_kind": action_kind,
             },
             receipt_json={
+                "binding_id": binding.binding_id,
                 "channel": delivery.channel,
+                "connector_name": binding.connector_name,
                 "delivery_id": delivery.delivery_id,
                 "handler_key": definition.tool_name,
                 "idempotency_key": delivery.idempotency_key,
                 "invocation_contract": "tool.v1",
+                "principal_id": binding.principal_id,
                 "status": delivery.status,
                 "tool_version": definition.version,
             },

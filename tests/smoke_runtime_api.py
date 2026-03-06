@@ -365,29 +365,6 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert any(row["tool_name"] == "connector.dispatch" for row in listed_tools.json())
     assert any(row["tool_name"] == "email.send" for row in listed_tools.json())
 
-    executed = client.post(
-        "/v1/tools/execute",
-        json={
-            "tool_name": "connector.dispatch",
-            "action_kind": "delivery.send",
-            "payload_json": {
-                "channel": "email",
-                "recipient": "ops@example.com",
-                "content": "Queued from tool runtime",
-                "metadata": {"source": "tool-execute"},
-                "idempotency_key": "tool-dispatch-1",
-            },
-        },
-    )
-    assert executed.status_code == 200
-    assert executed.json()["tool_name"] == "connector.dispatch"
-    assert executed.json()["output_json"]["status"] == "queued"
-    assert executed.json()["receipt_json"]["handler_key"] == "connector.dispatch"
-    assert executed.json()["receipt_json"]["invocation_contract"] == "tool.v1"
-    pending_after_execute = client.get("/v1/delivery/outbox/pending", params={"limit": 10})
-    assert pending_after_execute.status_code == 200
-    assert any(row["delivery_id"] == executed.json()["target_ref"] for row in pending_after_execute.json())
-
     binding = client.post(
         "/v1/connectors/bindings",
         json={
@@ -405,6 +382,48 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     listed_bindings = client.get("/v1/connectors/bindings", params={"limit": 10})
     assert listed_bindings.status_code == 200
     assert any(row["binding_id"] == binding_id for row in listed_bindings.json())
+
+    executed = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "connector.dispatch",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "binding_id": binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "Queued from tool runtime",
+                "metadata": {"source": "tool-execute"},
+                "idempotency_key": "tool-dispatch-1",
+            },
+        },
+    )
+    assert executed.status_code == 200
+    assert executed.json()["tool_name"] == "connector.dispatch"
+    assert executed.json()["output_json"]["status"] == "queued"
+    assert executed.json()["output_json"]["binding_id"] == binding_id
+    assert executed.json()["receipt_json"]["handler_key"] == "connector.dispatch"
+    assert executed.json()["receipt_json"]["invocation_contract"] == "tool.v1"
+    pending_after_execute = client.get("/v1/delivery/outbox/pending", params={"limit": 10})
+    assert pending_after_execute.status_code == 200
+    assert any(row["delivery_id"] == executed.json()["target_ref"] for row in pending_after_execute.json())
+
+    execute_mismatch = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "connector.dispatch",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "binding_id": binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "Should not queue",
+            },
+        },
+        headers=_headers(principal_id="exec-2"),
+    )
+    assert execute_mismatch.status_code == 403
+    assert execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
     mismatch = client.get("/v1/connectors/bindings", params={"principal_id": "exec-2", "limit": 10})
     assert mismatch.status_code == 403

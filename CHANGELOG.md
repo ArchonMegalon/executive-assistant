@@ -11,6 +11,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Rewrite execution now runs through a typed two-step handler path (`step_input_prepare` -> `step_artifact_save`) instead of a single hardcoded artifact-save step.
 - Rewrite tool-call execution now flows through a registry-backed `ToolExecutionService`, and `artifact_repository` receipts expose a normalized `tool.v1` invocation contract.
 - The built-in `connector.dispatch` handler now executes through the shared tool plane and `POST /v1/tools/execute` can enqueue delivery outbox rows with normalized `tool.v1` receipt metadata.
+- `connector.dispatch` now requires an enabled connector binding owned by the request principal before the shared tool plane will queue delivery.
 
 ## 2026-03-05
 

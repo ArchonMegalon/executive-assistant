@@ -929,7 +929,8 @@ then
      grep -Fq "connector.dispatch" "RUNBOOK.md" && \
      grep -Fq "/v1/tools/execute" "HTTP_EXAMPLES.http" && \
      grep -Fq "connector.dispatch" "HTTP_EXAMPLES.http" && \
-     grep -Fq "connector.dispatch|queued|connector.dispatch|tool.v1" "scripts/smoke_api.sh" && \
+     grep -Fq "connector.dispatch|queued|" "scripts/smoke_api.sh" && \
+     grep -Fq "connector.dispatch|tool.v1" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/tools/execute" "tests/smoke_runtime_api.py" && \
      grep -Fq "connector.dispatch" "tests/smoke_runtime_api.py" && \
      grep -Fq "test_tool_execution_service_executes_builtin_connector_dispatch_handler" "tests/test_tool_execution.py"; then
@@ -940,6 +941,32 @@ then
   fi
 else
   echo "missing: connector dispatch tool execution slice milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_binding_scope_guardrails")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "enabled connector binding" "README.md" && \
+     grep -Fq "principal scope" "RUNBOOK.md" && \
+     grep -Fq '"binding_id"' "HTTP_EXAMPLES.http" && \
+     grep -Fq "principal_scope_mismatch" "scripts/smoke_api.sh" && \
+     grep -Fq "binding_id" "scripts/smoke_api.sh" && \
+     grep -Fq "execute_mismatch" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_tool_execution_service_rejects_foreign_connector_binding_scope" "tests/test_tool_execution.py"; then
+    echo "ok: connector dispatch binding scope guardrails docs"
+  else
+    echo "missing: connector dispatch binding scope guardrails docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: connector dispatch binding scope guardrails milestone status" >&2
   missing=1
 fi
 

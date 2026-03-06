@@ -88,6 +88,14 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
     )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-1",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
 
     result = service.execute_invocation(
         ToolInvocationRequest(
@@ -96,19 +104,63 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
             tool_name="connector.dispatch",
             action_kind="delivery.send",
             payload_json={
+                "binding_id": binding.binding_id,
                 "channel": "email",
                 "recipient": "ops@example.com",
                 "content": "queued dispatch",
                 "metadata": {"source": "tool"},
                 "idempotency_key": "tool-dispatch-test",
             },
+            context_json={"principal_id": "exec-1"},
         )
     )
 
     assert result.tool_name == "connector.dispatch"
     assert result.action_kind == "delivery.send"
     assert result.output_json["status"] == "queued"
+    assert result.output_json["binding_id"] == binding.binding_id
     assert result.receipt_json["handler_key"] == "connector.dispatch"
     assert result.receipt_json["invocation_contract"] == "tool.v1"
     pending = channel_runtime.list_pending_delivery(limit=10)
     assert any(row.delivery_id == result.target_ref for row in pending)
+
+
+def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-1",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-3",
+                step_id="step-3",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-2"},
+            )
+        )

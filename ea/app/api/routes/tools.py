@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.tool_execution import ToolExecutionError
@@ -125,6 +125,7 @@ def get_tool(
 def execute_tool(
     body: ToolExecuteIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> ToolExecutionOut:
     invocation = ToolInvocationRequest(
         session_id=f"direct-tool:{uuid.uuid4()}",
@@ -132,12 +133,20 @@ def execute_tool(
         tool_name=body.tool_name,
         action_kind=body.action_kind,
         payload_json=body.payload_json,
+        context_json={"principal_id": context.principal_id},
     )
     try:
         result = container.tool_execution.execute_invocation(invocation)
     except ToolExecutionError as exc:
         detail = str(exc or "tool_execution_failed")
-        status_code = 404 if detail.startswith("tool_not_registered:") else 409
+        if detail.startswith("tool_not_registered:") or detail.startswith("connector_binding_not_found:"):
+            status_code = 404
+        elif detail == "principal_scope_mismatch":
+            status_code = 403
+        elif detail.startswith("connector_binding_required:") or detail == "tool_name_required":
+            status_code = 400
+        else:
+            status_code = 409
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return ToolExecutionOut(
         tool_name=result.tool_name,

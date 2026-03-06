@@ -246,11 +246,19 @@ if [[ "${TOOL_FIELDS}" != "True|True|True" ]]; then
   echo "${TOOLS_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+CONNECTOR_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  "${PRINCIPAL_ARGS[@]}" \
+  -d '{"connector_name":"gmail","external_account_ref":"acct-1","scope_json":{"scopes":["mail.readonly"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"
+BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("binding_id",""))' <<<"${CONNECTOR_JSON}")"
+if [[ -z "${BINDING_ID}" ]]; then
+  fail 13 "missing binding_id from connector response"
+fi
 TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"tool_name":"connector.dispatch","action_kind":"delivery.send","payload_json":{"channel":"email","recipient":"ops@example.com","content":"tool-runtime smoke dispatch","metadata":{"source":"tool-execute"},"idempotency_key":"tool-dispatch-smoke-1"}}')"
-TOOL_EXEC_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; out=body.get('output_json') or {}; print('{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('status',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${TOOL_EXEC_JSON}")"
-if [[ "${TOOL_EXEC_FIELDS}" != "connector.dispatch|queued|connector.dispatch|tool.v1" ]]; then
-  echo "expected connector.dispatch execute route to queue delivery with normalized receipt contract; got ${TOOL_EXEC_FIELDS}" >&2
+  "${PRINCIPAL_ARGS[@]}" \
+  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"tool-runtime smoke dispatch\",\"metadata\":{\"source\":\"tool-execute\"},\"idempotency_key\":\"tool-dispatch-smoke-1\"}}")"
+TOOL_EXEC_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; out=body.get('output_json') or {}; print('{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('status',''), out.get('binding_id',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${TOOL_EXEC_JSON}")"
+if [[ "${TOOL_EXEC_FIELDS}" != "connector.dispatch|queued|${BINDING_ID}|connector.dispatch|tool.v1" ]]; then
+  echo "expected connector.dispatch execute route to queue delivery with scoped binding and normalized receipt contract; got ${TOOL_EXEC_FIELDS}" >&2
   echo "${TOOL_EXEC_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -265,12 +273,34 @@ if [[ "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
   echo "${DELIVERY_PENDING_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-CONNECTOR_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  "${PRINCIPAL_ARGS[@]}" \
-  -d '{"connector_name":"gmail","external_account_ref":"acct-1","scope_json":{"scopes":["mail.readonly"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"
-BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("binding_id",""))' <<<"${CONNECTOR_JSON}")"
-if [[ -z "${BINDING_ID}" ]]; then
-  fail 13 "missing binding_id from connector response"
+TOOL_EXEC_MISMATCH_CODE="$(curl -sS -o /tmp/ea_tool_exec_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" \
+  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"blocked dispatch\"}}")"
+if [[ "${TOOL_EXEC_MISMATCH_CODE}" != "403" ]]; then
+  echo "expected 403 for foreign principal tool execution; got ${TOOL_EXEC_MISMATCH_CODE}" >&2
+  cat /tmp/ea_tool_exec_mismatch_resp.json >&2 || true
+  fail 12 "policy contract mismatch"
+fi
+TOOL_EXEC_MISMATCH_REASON="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("/tmp/ea_tool_exec_mismatch_resp.json")
+if not path.exists():
+    print("")
+    raise SystemExit(0)
+try:
+    body = json.loads(path.read_text())
+except Exception:
+    print("")
+    raise SystemExit(0)
+print(((body.get("error") or {}).get("code")) or "")
+PY
+)"
+if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected foreign principal tool execution code principal_scope_mismatch; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
+  cat /tmp/ea_tool_exec_mismatch_resp.json >&2 || true
+  fail 12 "policy contract mismatch"
 fi
 if [[ -n "${BINDING_ID}" ]]; then
   FOREIGN_BINDING_CODE="$(curl -sS -o /tmp/ea_foreign_binding_resp.json -w '%{http_code}' -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
