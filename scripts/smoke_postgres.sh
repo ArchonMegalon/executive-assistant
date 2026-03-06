@@ -287,9 +287,10 @@ echo "${status_out}"
 sessions_count="$(awk -F': ' '/^execution_sessions:/ {v=$2} END {print v+0}' <<<"${status_out}")"
 events_count="$(awk -F': ' '/^execution_events:/ {v=$2} END {print v+0}' <<<"${status_out}")"
 policy_count="$(awk -F': ' '/^policy_decisions:/ {v=$2} END {print v+0}' <<<"${status_out}")"
+queue_count="$(awk -F': ' '/^execution_queue:/ {v=$2} END {print v+0}' <<<"${status_out}")"
 
-if [[ "${sessions_count}" -lt 1 || "${events_count}" -lt 1 || "${policy_count}" -lt 1 ]]; then
-  echo "postgres smoke failed: expected non-zero execution_sessions/execution_events/policy_decisions counts" >&2
+if [[ "${sessions_count}" -lt 1 || "${events_count}" -lt 1 || "${policy_count}" -lt 1 || "${queue_count}" -lt 1 ]]; then
+  echo "postgres smoke failed: expected non-zero execution_sessions/execution_events/policy_decisions/execution_queue counts" >&2
   exit 32
 fi
 

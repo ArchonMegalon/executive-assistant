@@ -203,6 +203,16 @@
         "approved_rewrite_inline_resume"
       ],
       "notes": "Approving a paused rewrite now resumes the existing execution step and completes artifact/receipt/run-cost persistence instead of leaving the session stranded in an intermediate state."
+    },
+    {
+      "name": "execution_queue_inline_worker",
+      "status": "tested",
+      "scope": [
+        "execution_queue_kernel",
+        "inline_queue_drain",
+        "worker_queue_drain"
+      ],
+      "notes": "Rewrite execution now persists durable execution-queue rows, exposes queue state in session projections, drains queued work inline for API requests, and lets non-API runner roles lease queued work as workers."
     }
   ],
   "migrations": [
@@ -226,7 +236,8 @@
     "ea/schema/20260305_v0_19_decision_windows_kernel.sql",
     "ea/schema/20260305_v0_20_communication_policies_kernel.sql",
     "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql",
-    "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql"
+    "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql",
+    "ea/schema/20260305_v0_23_execution_queue_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

@@ -9,6 +9,7 @@ from app.domain.models import (
     ApprovalRequest,
     Artifact,
     ExecutionEvent,
+    ExecutionQueueItem,
     ExecutionSession,
     ExecutionStep,
     IntentSpecV3,
@@ -38,6 +39,7 @@ class ExecutionSessionSnapshot:
     session: ExecutionSession
     events: list[ExecutionEvent]
     steps: list[ExecutionStep]
+    queue_items: list[ExecutionQueueItem]
     receipts: list[ToolReceipt]
     artifacts: list[Artifact]
     run_costs: list[RunCost]
@@ -95,6 +97,26 @@ class RewriteOrchestrator:
             steps=(step,),
         )
 
+    def _queue_idempotency_key(self, session_id: str, step_id: str) -> str:
+        return f"rewrite:{session_id}:{step_id}"
+
+    def _enqueue_rewrite_step(self, session_id: str, step_id: str) -> ExecutionQueueItem:
+        queue_item = self._ledger.enqueue_step(
+            session_id,
+            step_id,
+            idempotency_key=self._queue_idempotency_key(session_id, step_id),
+        )
+        self._ledger.append_event(
+            session_id,
+            "step_enqueued",
+            {
+                "queue_id": queue_item.queue_id,
+                "step_id": step_id,
+                "state": queue_item.state,
+            },
+        )
+        return queue_item
+
     def _complete_rewrite_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact:
         input_json = dict(rewrite_step.input_json or {})
         source_text = str(input_json.get("source_text") or "")
@@ -151,9 +173,71 @@ class RewriteOrchestrator:
                 "plan_step_key": plan_step_key,
             },
         )
-        self._ledger.complete_session(session_id, status="completed")
-        self._ledger.append_event(session_id, "session_completed", {"status": "completed"})
         return artifact
+
+    def _execute_leased_queue_item(self, queue_item: ExecutionQueueItem) -> Artifact:
+        step = self._ledger.get_step(queue_item.step_id)
+        if step is None:
+            self._ledger.fail_queue_item(queue_item.queue_id, last_error="step_not_found")
+            raise RuntimeError(f"queued step missing: {queue_item.step_id}")
+        self._ledger.complete_session(queue_item.session_id, status="running")
+        running_step = self._ledger.update_step(
+            step.step_id,
+            state="running",
+            error_json={},
+            attempt_count=queue_item.attempt_count,
+        )
+        if running_step is None:
+            self._ledger.fail_queue_item(queue_item.queue_id, last_error="step_not_found")
+            raise RuntimeError(f"unable to mark step running: {queue_item.step_id}")
+        self._ledger.append_event(
+            queue_item.session_id,
+            "step_execution_started",
+            {
+                "queue_id": queue_item.queue_id,
+                "step_id": queue_item.step_id,
+                "lease_owner": queue_item.lease_owner,
+                "attempt_count": queue_item.attempt_count,
+            },
+        )
+        try:
+            artifact = self._complete_rewrite_step(queue_item.session_id, running_step)
+        except Exception as exc:
+            self._ledger.fail_queue_item(queue_item.queue_id, last_error=str(exc))
+            self._ledger.update_step(
+                queue_item.step_id,
+                state="failed",
+                error_json={"reason": "execution_failed", "detail": str(exc)},
+                attempt_count=queue_item.attempt_count,
+            )
+            self._ledger.complete_session(queue_item.session_id, status="failed")
+            self._ledger.append_event(
+                queue_item.session_id,
+                "session_failed",
+                {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id, "reason": "execution_failed"},
+            )
+            raise
+        self._ledger.complete_queue_item(queue_item.queue_id, state="done")
+        self._ledger.append_event(
+            queue_item.session_id,
+            "queue_item_completed",
+            {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id},
+        )
+        self._ledger.complete_session(queue_item.session_id, status="completed")
+        self._ledger.append_event(queue_item.session_id, "session_completed", {"status": "completed"})
+        return artifact
+
+    def run_queue_item(self, queue_id: str, *, lease_owner: str = "inline") -> Artifact | None:
+        queue_item = self._ledger.lease_queue_item(queue_id, lease_owner=lease_owner)
+        if queue_item is None:
+            return None
+        return self._execute_leased_queue_item(queue_item)
+
+    def run_next_queue_item(self, *, lease_owner: str = "worker") -> Artifact | None:
+        queue_item = self._ledger.lease_next_queue_item(lease_owner=lease_owner)
+        if queue_item is None:
+            return None
+        return self._execute_leased_queue_item(queue_item)
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
         if self._planner:
@@ -278,7 +362,11 @@ class RewriteOrchestrator:
                 {"reason": "approval_required", "approval_id": approval_request.approval_id},
             )
             raise PolicyDeniedError("approval_required")
-        return self._complete_rewrite_step(session.session_id, rewrite_step)
+        queue_item = self._enqueue_rewrite_step(session.session_id, rewrite_step.step_id)
+        artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
+        if artifact is None:
+            raise RuntimeError(f"queued rewrite did not execute: {queue_item.queue_id}")
+        return artifact
 
     def fetch_artifact(self, artifact_id: str) -> Artifact | None:
         return self._artifacts.get(artifact_id)
@@ -298,6 +386,7 @@ class RewriteOrchestrator:
             session=session,
             events=self._ledger.events_for(sid),
             steps=self._ledger.steps_for(sid),
+            queue_items=self._ledger.queue_for_session(sid),
             receipts=self._ledger.receipts_for(sid),
             artifacts=self._artifacts.list_for_session(sid),
             run_costs=self._ledger.run_costs_for(sid),
@@ -353,7 +442,10 @@ class RewriteOrchestrator:
                 {"approval_id": request.approval_id, "step_id": request.step_id},
             )
             if updated_step is not None:
-                self._complete_rewrite_step(request.session_id, updated_step)
+                queue_item = self._enqueue_rewrite_step(request.session_id, updated_step.step_id)
+                artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
+                if artifact is None:
+                    raise RuntimeError(f"approved queue item did not execute: {queue_item.queue_id}")
         else:
             self._ledger.update_step(
                 request.step_id,

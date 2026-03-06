@@ -74,6 +74,22 @@ class ExecutionStep:
 
 
 @dataclass(frozen=True)
+class ExecutionQueueItem:
+    queue_id: str
+    session_id: str
+    step_id: str
+    state: str
+    lease_owner: str
+    lease_expires_at: str | None
+    attempt_count: int
+    next_attempt_at: str | None
+    idempotency_key: str
+    last_error: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ToolReceipt:
     receipt_id: str
     session_id: str

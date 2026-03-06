@@ -17,7 +17,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found` |
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found` |
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
-| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + receipts + artifacts + costs, including `plan_compiled` event) |
+| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs, including `plan_compiled` event) |
 | GET | `/v1/policy/decisions/recent` | `200` | n/a |
 | POST | `/v1/policy/evaluate` | `200` | validation `422` |
 | GET | `/v1/policy/approvals/pending` | `200` | n/a |
@@ -97,6 +97,7 @@ Policy notes:
 - Rewrite policy requires approval for explicit approval classes, long inputs, and high-risk/high-budget or external-send actions.
 - `POST /v1/policy/evaluate` provides a direct HTTP path for previewing external-send approval requirements.
 - Approving a paused rewrite resumes execution immediately on the current scaffold, so the session should move from `awaiting_approval` to `completed` with an artifact, receipt, and run-cost row.
+- Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers.
 
 ## Operator Script Help Index
 

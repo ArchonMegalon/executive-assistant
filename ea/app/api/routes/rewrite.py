@@ -63,6 +63,20 @@ class SessionArtifactOut(BaseModel):
     execution_session_id: str
 
 
+class SessionQueueItemOut(BaseModel):
+    queue_id: str
+    step_id: str
+    state: str
+    lease_owner: str
+    lease_expires_at: str | None
+    attempt_count: int
+    next_attempt_at: str | None
+    idempotency_key: str
+    last_error: str
+    created_at: str
+    updated_at: str
+
+
 class SessionRunCostOut(BaseModel):
     cost_id: str
     model_name: str
@@ -81,6 +95,7 @@ class SessionOut(BaseModel):
     intent_risk_class: str
     events: list[SessionEventOut]
     steps: list[SessionStepOut]
+    queue_items: list[SessionQueueItemOut]
     receipts: list[SessionReceiptOut]
     artifacts: list[SessionArtifactOut]
     run_costs: list[SessionRunCostOut]
@@ -152,6 +167,22 @@ def get_session(
                 updated_at=s.updated_at,
             )
             for s in found.steps
+        ],
+        queue_items=[
+            SessionQueueItemOut(
+                queue_id=q.queue_id,
+                step_id=q.step_id,
+                state=q.state,
+                lease_owner=q.lease_owner,
+                lease_expires_at=q.lease_expires_at,
+                attempt_count=q.attempt_count,
+                next_attempt_at=q.next_attempt_at,
+                idempotency_key=q.idempotency_key,
+                last_error=q.last_error,
+                created_at=q.created_at,
+                updated_at=q.updated_at,
+            )
+            for q in found.queue_items
         ],
         receipts=[
             SessionReceiptOut(

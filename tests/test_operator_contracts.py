@@ -154,6 +154,27 @@ def test_approval_resume_docs_and_milestone_cover_inline_completion() -> None:
     assert capability["status"] == "tested"
 
 
+def test_execution_queue_docs_and_milestone_cover_runtime_path() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
+    db_status = (ROOT / "scripts/db_status.sh").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "execution_queue" in readme
+    assert "execution_queue" in runbook
+    assert "v0_23 execution queue kernel" in db_bootstrap
+    assert "execution_queue" in db_status
+    assert "queue_items" in smoke_api
+    assert "execution_queue" in smoke_postgres
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "execution_queue_inline_worker")
+    assert capability["status"] == "tested"
+    assert "ea/schema/20260305_v0_23_execution_queue_kernel.sql" in milestone["migrations"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

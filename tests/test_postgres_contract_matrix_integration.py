@@ -5,8 +5,9 @@ import uuid
 
 import pytest
 
-from app.domain.models import PolicyDecision, TaskContract, now_utc_iso
+from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, now_utc_iso
 from app.repositories.approvals_postgres import PostgresApprovalRepository
+from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 
@@ -146,3 +147,58 @@ def test_postgres_task_contracts_upsert_get_and_list() -> None:
 
     listed = repo.list_all(limit=20)
     assert any(entry.task_key == task_key for entry in listed)
+
+
+def test_postgres_execution_queue_enqueue_lease_complete_and_list() -> None:
+    repo = PostgresExecutionLedgerRepository(_db_url())
+    session = repo.start_session(
+        IntentSpecV3(
+            principal_id="queue-tester",
+            goal="persist a queued rewrite",
+            task_type="rewrite_text",
+            deliverable_type="rewrite_note",
+            risk_class="low",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    step = repo.start_step(
+        session.session_id,
+        "tool_call",
+        input_json={"source_text": "queued contract payload", "tool_name": "artifact_repository"},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+
+    queue_item = repo.enqueue_step(
+        session.session_id,
+        step.step_id,
+        idempotency_key=f"{session.session_id}:{step.step_id}",
+    )
+    assert queue_item.state == "queued"
+    assert queue_item.attempt_count == 0
+
+    leased = repo.lease_next_queue_item(lease_owner="contract-worker", lease_seconds=30)
+    assert leased is not None
+    assert leased.queue_id == queue_item.queue_id
+    assert leased.state == "leased"
+    assert leased.attempt_count == 1
+    assert leased.lease_owner == "contract-worker"
+
+    updated_step = repo.update_step(step.step_id, state="running", attempt_count=leased.attempt_count, error_json={})
+    assert updated_step is not None
+    assert updated_step.state == "running"
+    assert updated_step.attempt_count == 1
+
+    done = repo.complete_queue_item(queue_item.queue_id, state="done")
+    assert done is not None
+    assert done.state == "done"
+    assert done.lease_owner == ""
+
+    listed = repo.queue_for_session(session.session_id)
+    assert len(listed) == 1
+    assert listed[0].queue_id == queue_item.queue_id
+    assert listed[0].state == "done"

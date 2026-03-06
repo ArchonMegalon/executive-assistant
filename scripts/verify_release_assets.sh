@@ -254,6 +254,32 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "execution_queue_inline_worker")
+assert capability["status"] == "tested"
+assert "ea/schema/20260305_v0_23_execution_queue_kernel.sql" in milestone["migrations"]
+PY
+then
+  if grep -Fq "execution_queue" "README.md" && \
+     grep -Fq "execution_queue" "RUNBOOK.md" && \
+     grep -Fq "v0_23 execution queue kernel" "scripts/db_bootstrap.sh" && \
+     grep -Fq "execution_queue" "scripts/db_status.sh" && \
+     grep -Fq "queue_items" "scripts/smoke_api.sh" && \
+     grep -Fq "execution_queue" "scripts/smoke_postgres.sh"; then
+    echo "ok: execution queue runtime docs"
+  else
+    echo "missing: execution queue runtime docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: execution queue milestone status" >&2
+  missing=1
+fi
+
 if grep -Fq 'Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags' "README.md"; then
   echo "ok: README milestone gate-tag pointer"
 else

@@ -131,6 +131,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Added `GET /v1/rewrite/artifacts/{artifact_id}` plus docs/examples/tests so persisted artifacts are directly retrievable over HTTP.
 - Added `GET /v1/rewrite/receipts/{receipt_id}` and `GET /v1/rewrite/run-costs/{cost_id}` plus docs/examples/tests so execution proof records are directly retrievable over HTTP.
 - Approved rewrites now resume execution immediately and complete the artifact/receipt/run-cost flow instead of stopping at `approved_pending_execution`.
+- Added a durable `execution_queue` kernel plus queue-aware rewrite session projections so execution now runs through leaseable queue rows instead of direct artifact saves.
 - `scripts/smoke_api.sh` now asserts `/v1/policy/evaluate` returns approval-required for external-send actions, which automatically extends the existing Postgres smoke path.
 - `scripts/test_postgres_contracts.sh` now exercises approvals, policy decisions, and task contracts in addition to the existing artifact/channel-runtime Postgres repository contracts.
 - Promoted the principal-scoped memory seed API milestone slice to `tested` now that both `tests/smoke_runtime_api.py` and the approved host smoke path explicitly cover that surface.
@@ -148,6 +149,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Release checklist now includes explicit milestone release-tag parity verification.
 - Artifact persistence now supports durable Postgres metadata + file-backed content storage.
 - Approval-required rewrite sessions now pause with `waiting_approval` steps and transition on approve/deny/expire decisions.
+- Non-API runner roles now drain queued execution work instead of sitting idle, while API requests keep the same synchronous behavior by leasing and completing their own queued rewrite steps inline.
 - Observation ingest now supports dedupe and source attribution; delivery outbox now supports retry scheduling and idempotent enqueue.
 - API/runtime now includes first-class tool registry and connector binding management surfaces.
 - Rewrite orchestration now supports contract-driven intent compilation via task contracts.

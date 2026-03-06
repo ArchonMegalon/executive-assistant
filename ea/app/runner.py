@@ -6,6 +6,7 @@ import time
 
 import uvicorn
 
+from app.container import build_container
 from app.logging_utils import configure_logging
 from app.settings import get_settings
 
@@ -15,7 +16,7 @@ def _run_api() -> None:
     uvicorn.run("app.main:app", host=s.host, port=s.port, log_level=s.log_level.lower())
 
 
-def _run_idle_worker(role: str) -> None:
+def _run_execution_worker(role: str) -> None:
     stop = {"flag": False}
 
     def _handle_stop(signum, frame):  # type: ignore[no-untyped-def]
@@ -25,9 +26,24 @@ def _run_idle_worker(role: str) -> None:
     signal.signal(signal.SIGINT, _handle_stop)
 
     log = logging.getLogger("ea.runner")
-    log.info("role=%s started (idle baseline)", role)
+    container = build_container()
+    log.info("role=%s started (execution worker)", role)
     while not stop["flag"]:
-        time.sleep(1.0)
+        try:
+            artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
+        except Exception:
+            log.exception("role=%s queue execution failed", role)
+            time.sleep(1.0)
+            continue
+        if artifact is None:
+            time.sleep(1.0)
+            continue
+        log.info(
+            "role=%s completed queued rewrite session=%s artifact=%s",
+            role,
+            artifact.execution_session_id,
+            artifact.artifact_id,
+        )
     log.info("role=%s stopped", role)
 
 
@@ -37,7 +53,7 @@ def main() -> None:
     if s.role == "api":
         _run_api()
         return
-    _run_idle_worker(s.role)
+    _run_execution_worker(s.role)
 
 
 if __name__ == "__main__":

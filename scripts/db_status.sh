@@ -11,7 +11,7 @@ Usage:
 Checks kernel table presence and row counts for:
   execution_sessions, execution_events, observation_events,
   delivery_outbox, policy_decisions, artifacts,
-  execution_steps, tool_receipts, run_costs,
+  execution_steps, execution_queue, tool_receipts, run_costs,
   approval_requests, approval_decisions,
   memory_candidates, memory_items,
   entities, relationships, commitments, authority_bindings, delivery_preferences,
@@ -39,6 +39,7 @@ TABLES=(
   policy_decisions
   artifacts
   execution_steps
+  execution_queue
   tool_receipts
   run_costs
   approval_requests

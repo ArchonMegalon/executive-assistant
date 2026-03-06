@@ -74,6 +74,12 @@ fi
 echo "== smoke: session + policy =="
 curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" >/dev/null
 SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+SESSION_RUNTIME_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); queues=body.get("queue_items") or []; print("{}|{}|{}".format(body.get("status",""), len(queues) >= 1, (queues[0] or {}).get("state","") if queues else ""))' <<<"${SESSION_JSON}")"
+if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|done" ]]; then
+  echo "expected initial rewrite session to complete with a done queue item; got ${SESSION_RUNTIME_FIELDS}" >&2
+  echo "${SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 RECEIPT_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("receipts") or []; print(((rows[0] or {}).get("receipt_id")) if rows else "")' <<<"${SESSION_JSON}")"
 COST_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("run_costs") or []; print(((rows[0] or {}).get("cost_id")) if rows else "")' <<<"${SESSION_JSON}")"
 if [[ -z "${RECEIPT_ID}" ]]; then
@@ -141,9 +147,9 @@ fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"smoke-operator","reason":"resume execution"}' >/dev/null
 APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}")"
-APPROVED_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), len(body.get("artifacts") or []) >= 1, len(body.get("receipts") or []) >= 1, len(body.get("run_costs") or []) >= 1))' <<<"${APPROVED_SESSION_JSON}")"
-if [[ "${APPROVED_FIELDS}" != "completed|True|True|True" ]]; then
-  echo "expected resumed session to complete with artifacts/receipts/run_costs; got ${APPROVED_FIELDS}" >&2
+APPROVED_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); queues=body.get("queue_items") or []; print("{}|{}|{}|{}|{}|{}".format(body.get("status",""), len(body.get("artifacts") or []) >= 1, len(body.get("receipts") or []) >= 1, len(body.get("run_costs") or []) >= 1, len(queues) >= 1, (queues[0] or {}).get("state","") if queues else ""))' <<<"${APPROVED_SESSION_JSON}")"
+if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|done" ]]; then
+  echo "expected resumed session to complete with artifacts/receipts/run_costs and a done queue item; got ${APPROVED_FIELDS}" >&2
   echo "${APPROVED_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

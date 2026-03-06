@@ -64,9 +64,13 @@ def test_rewrite_and_policy_audit_flow() -> None:
     event_names = [e["name"] for e in body["events"]]
     assert "plan_compiled" in event_names
     assert "policy_decision" in event_names
+    assert "step_enqueued" in event_names
+    assert "queue_item_completed" in event_names
     assert len(body["steps"]) >= 1
-    assert body["steps"][0]["state"] in {"completed", "running", "blocked", "waiting_approval"}
+    assert body["steps"][0]["state"] in {"completed", "running", "blocked", "waiting_approval", "queued"}
     assert body["steps"][0]["input_json"]["plan_step_key"]
+    assert len(body["queue_items"]) >= 1
+    assert body["queue_items"][0]["state"] == "done"
     assert len(body["receipts"]) >= 1
     receipt_id = body["receipts"][0]["receipt_id"]
     assert body["artifacts"][0]["artifact_id"] == payload["artifact_id"]
@@ -127,6 +131,7 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
     body = session.json()
     assert body["status"] == "awaiting_approval"
     assert len(body["artifacts"]) == 0
+    assert len(body["queue_items"]) == 0
     assert len(body["receipts"]) == 0
     assert any(step["state"] == "waiting_approval" for step in body["steps"])
 
@@ -147,8 +152,12 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
     event_names_after = [event["name"] for event in body_after["events"]]
     assert body_after["status"] == "completed"
     assert "session_resumed_from_approval" in event_names_after
+    assert "step_enqueued" in event_names_after
+    assert "queue_item_completed" in event_names_after
     assert "session_completed" in event_names_after
     assert any(step["state"] == "completed" for step in body_after["steps"])
+    assert len(body_after["queue_items"]) == 1
+    assert body_after["queue_items"][0]["state"] == "done"
     assert len(body_after["artifacts"]) == 1
     assert len(body_after["receipts"]) >= 1
     assert len(body_after["run_costs"]) >= 1

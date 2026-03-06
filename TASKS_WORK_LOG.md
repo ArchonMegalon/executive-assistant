@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-174 | P1 | Introduce a durable execution queue and inline worker path for resumable step execution | codex | queued | Approval now resumes inline, but the runtime still lacks a true queued execution engine and worker lease model |
+| Q-175 | P1 | Enforce explicit runtime-mode storage policy so production cannot silently fall back to memory | codex | queued | The queue/runtime path is now durable, but `EA_STORAGE_BACKEND=auto` still makes production safety caller-convention instead of enforced policy |
 
 ## In Progress
 
@@ -204,6 +204,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 | D-171 | P1 | Expose direct artifact lookup over the durable artifact repository with API/docs/smoke coverage | codex | done | Added `GET /v1/rewrite/artifacts/{artifact_id}`, extended API/docs/release-asset coverage, and folded the fetch path into the approved host smoke run |
 | D-172 | P1 | Expose direct tool-receipt and run-cost lookup APIs with docs/smoke coverage | codex | done | Added direct rewrite receipt/run-cost fetch routes, extended smoke/docs/milestone coverage, and queued approval-request lookup as the next slice |
 | D-173 | P1 | Make approval decisions resume rewrite execution to completion | codex | done | Persisted resumable rewrite input on the waiting step, resumed approved rewrites inline to artifact/receipt/run-cost completion, extended host smoke coverage, and queued the durable execution-queue slice next |
+| D-174 | P1 | Introduce a durable execution queue and inline worker path for resumable step execution | codex | done | Added execution-queue schema/repository support, routed rewrite execution through leased queue rows, exposed queue state in session projections, taught non-API runner roles to drain queued work, and queued runtime-mode hardening next |
 
 ## Intake Template
 

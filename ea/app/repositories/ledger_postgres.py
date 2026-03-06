@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.domain.models import (
     ExecutionEvent,
+    ExecutionQueueItem,
     ExecutionSession,
     ExecutionStep,
     IntentSpecV3,
@@ -120,6 +121,36 @@ class PostgresExecutionLedgerRepository:
                 )
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS execution_queue (
+                        queue_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        step_id TEXT NOT NULL REFERENCES execution_steps(step_id) ON DELETE CASCADE,
+                        state TEXT NOT NULL,
+                        lease_owner TEXT NOT NULL,
+                        lease_expires_at TIMESTAMPTZ NULL,
+                        attempt_count INT NOT NULL,
+                        next_attempt_at TIMESTAMPTZ NULL,
+                        idempotency_key TEXT NOT NULL UNIQUE,
+                        last_error TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_execution_queue_state_next_attempt
+                    ON execution_queue(state, next_attempt_at, created_at, queue_id)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_execution_queue_session_created
+                    ON execution_queue(session_id, created_at, queue_id)
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS tool_receipts (
                         receipt_id TEXT PRIMARY KEY,
                         session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
@@ -215,6 +246,36 @@ class PostgresExecutionLedgerRepository:
             target_ref=str(target_ref),
             receipt_json=dict(receipt_json or {}),
             created_at=_to_iso(created_at),
+        )
+
+    def _queue_from_db_row(self, row: tuple[Any, ...]) -> ExecutionQueueItem:
+        (
+            queue_id,
+            session_id,
+            step_id,
+            state,
+            lease_owner,
+            lease_expires_at,
+            attempt_count,
+            next_attempt_at,
+            idempotency_key,
+            last_error,
+            created_at,
+            updated_at,
+        ) = row
+        return ExecutionQueueItem(
+            queue_id=str(queue_id),
+            session_id=str(session_id),
+            step_id=str(step_id),
+            state=str(state),
+            lease_owner=str(lease_owner or ""),
+            lease_expires_at=_to_iso(lease_expires_at) if lease_expires_at else None,
+            attempt_count=int(attempt_count),
+            next_attempt_at=_to_iso(next_attempt_at) if next_attempt_at else None,
+            idempotency_key=str(idempotency_key or ""),
+            last_error=str(last_error or ""),
+            created_at=_to_iso(created_at),
+            updated_at=_to_iso(updated_at),
         )
 
     def _cost_from_db_row(self, row: tuple[Any, ...]) -> RunCost:
@@ -354,6 +415,7 @@ class PostgresExecutionLedgerRepository:
         causation_id: str = "",
         actor_type: str = "system",
         actor_id: str = "orchestrator",
+        state: str = "queued",
     ) -> ExecutionStep:
         sid = str(session_id or "")
         if not sid or not self.get_session(sid):
@@ -364,8 +426,8 @@ class PostgresExecutionLedgerRepository:
             session_id=sid,
             parent_step_id=str(parent_step_id) if parent_step_id else None,
             step_kind=str(step_kind or "step"),
-            state="running",
-            attempt_count=1,
+            state=str(state or "queued"),
+            attempt_count=0,
             input_json=dict(input_json or {}),
             output_json={},
             error_json={},
@@ -412,9 +474,13 @@ class PostgresExecutionLedgerRepository:
         state: str,
         output_json: dict[str, object] | None = None,
         error_json: dict[str, object] | None = None,
+        attempt_count: int | None = None,
     ) -> ExecutionStep | None:
         sid = str(step_id or "")
         if not sid:
+            return None
+        current = self.get_step(sid)
+        if current is None:
             return None
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -424,6 +490,7 @@ class PostgresExecutionLedgerRepository:
                     SET state = %s,
                         output_json = %s,
                         error_json = %s,
+                        attempt_count = COALESCE(%s, attempt_count),
                         updated_at = %s
                     WHERE step_id = %s
                     RETURNING step_id, session_id, parent_step_id, step_kind, state, attempt_count, input_json, output_json, error_json,
@@ -431,8 +498,9 @@ class PostgresExecutionLedgerRepository:
                     """,
                     (
                         str(state or "completed"),
-                        self._json_value(dict(output_json or {})),
-                        self._json_value(dict(error_json or {})),
+                        self._json_value(current.output_json if output_json is None else dict(output_json)),
+                        self._json_value(current.error_json if error_json is None else dict(error_json)),
+                        max(0, int(attempt_count)) if attempt_count is not None else None,
                         now_utc_iso(),
                         sid,
                     ),
@@ -460,6 +528,208 @@ class PostgresExecutionLedgerRepository:
                 )
                 rows = cur.fetchall()
         return [self._step_from_db_row(row) for row in rows]
+
+    def get_step(self, step_id: str) -> ExecutionStep | None:
+        sid = str(step_id or "")
+        if not sid:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT step_id, session_id, parent_step_id, step_kind, state, attempt_count, input_json, output_json, error_json,
+                           correlation_id, causation_id, actor_type, actor_id, created_at, updated_at
+                    FROM execution_steps
+                    WHERE step_id = %s
+                    """,
+                    (sid,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._step_from_db_row(row)
+
+    def enqueue_step(
+        self,
+        session_id: str,
+        step_id: str,
+        *,
+        idempotency_key: str,
+        next_attempt_at: str | None = None,
+    ) -> ExecutionQueueItem:
+        sid = str(session_id or "")
+        stid = str(step_id or "")
+        key = str(idempotency_key or "")
+        if not sid or not self.get_session(sid):
+            raise KeyError(f"unknown session: {sid}")
+        if not key:
+            raise ValueError("idempotency_key is required")
+        ts = now_utc_iso()
+        queue_id = str(uuid.uuid4())
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO execution_queue
+                    (queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                     idempotency_key, last_error, created_at, updated_at)
+                    VALUES (%s, %s, %s, 'queued', '', NULL, 0, %s, %s, '', %s, %s)
+                    ON CONFLICT (idempotency_key) DO UPDATE
+                    SET updated_at = execution_queue.updated_at
+                    RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                              idempotency_key, last_error, created_at, updated_at
+                    """,
+                    (queue_id, sid, stid, next_attempt_at, key, ts, ts),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise RuntimeError("failed to enqueue execution step")
+        return self._queue_from_db_row(row)
+
+    def lease_queue_item(self, queue_id: str, *, lease_owner: str, lease_seconds: int = 60) -> ExecutionQueueItem | None:
+        qid = str(queue_id or "")
+        if not qid:
+            return None
+        now = datetime.now(timezone.utc)
+        lease_expires = (now + timedelta(seconds=max(1, int(lease_seconds)))).isoformat()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE execution_queue
+                    SET state = 'leased',
+                        lease_owner = %s,
+                        lease_expires_at = %s,
+                        attempt_count = attempt_count + 1,
+                        updated_at = %s
+                    WHERE queue_id = %s
+                      AND (
+                        (state = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= %s))
+                        OR (state = 'leased' AND lease_expires_at IS NOT NULL AND lease_expires_at <= %s)
+                      )
+                    RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                              idempotency_key, last_error, created_at, updated_at
+                    """,
+                    (str(lease_owner or "worker"), lease_expires, now.isoformat(), qid, now.isoformat(), now.isoformat()),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._queue_from_db_row(row)
+
+    def lease_next_queue_item(self, *, lease_owner: str, lease_seconds: int = 60) -> ExecutionQueueItem | None:
+        now = datetime.now(timezone.utc)
+        lease_expires = (now + timedelta(seconds=max(1, int(lease_seconds)))).isoformat()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    WITH candidate AS (
+                        SELECT queue_id
+                        FROM execution_queue
+                        WHERE (
+                            state = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+                        ) OR (
+                            state = 'leased' AND lease_expires_at IS NOT NULL AND lease_expires_at <= %s
+                        )
+                        ORDER BY created_at ASC, queue_id ASC
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE execution_queue
+                    SET state = 'leased',
+                        lease_owner = %s,
+                        lease_expires_at = %s,
+                        attempt_count = execution_queue.attempt_count + 1,
+                        updated_at = %s
+                    FROM candidate
+                    WHERE execution_queue.queue_id = candidate.queue_id
+                    RETURNING execution_queue.queue_id, execution_queue.session_id, execution_queue.step_id, execution_queue.state,
+                              execution_queue.lease_owner, execution_queue.lease_expires_at, execution_queue.attempt_count,
+                              execution_queue.next_attempt_at, execution_queue.idempotency_key, execution_queue.last_error,
+                              execution_queue.created_at, execution_queue.updated_at
+                    """,
+                    (
+                        now.isoformat(),
+                        now.isoformat(),
+                        str(lease_owner or "worker"),
+                        lease_expires,
+                        now.isoformat(),
+                    ),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._queue_from_db_row(row)
+
+    def complete_queue_item(self, queue_id: str, *, state: str = "done") -> ExecutionQueueItem | None:
+        qid = str(queue_id or "")
+        if not qid:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE execution_queue
+                    SET state = %s,
+                        lease_owner = '',
+                        lease_expires_at = NULL,
+                        last_error = '',
+                        updated_at = %s
+                    WHERE queue_id = %s
+                    RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                              idempotency_key, last_error, created_at, updated_at
+                    """,
+                    (str(state or "done"), now_utc_iso(), qid),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._queue_from_db_row(row)
+
+    def fail_queue_item(self, queue_id: str, *, last_error: str) -> ExecutionQueueItem | None:
+        qid = str(queue_id or "")
+        if not qid:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE execution_queue
+                    SET state = 'failed',
+                        lease_owner = '',
+                        lease_expires_at = NULL,
+                        last_error = %s,
+                        updated_at = %s
+                    WHERE queue_id = %s
+                    RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                              idempotency_key, last_error, created_at, updated_at
+                    """,
+                    (str(last_error or "execution_failed"), now_utc_iso(), qid),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._queue_from_db_row(row)
+
+    def queue_for_session(self, session_id: str) -> list[ExecutionQueueItem]:
+        sid = str(session_id or "")
+        if not sid:
+            return []
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
+                           idempotency_key, last_error, created_at, updated_at
+                    FROM execution_queue
+                    WHERE session_id = %s
+                    ORDER BY created_at ASC, queue_id ASC
+                    """,
+                    (sid,),
+                )
+                rows = cur.fetchall()
+        return [self._queue_from_db_row(row) for row in rows]
 
     def append_tool_receipt(
         self,

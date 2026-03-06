@@ -19,7 +19,7 @@ Removed:
 - `/v1/rewrite/artifact` creates an artifact and an execution session
 - `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion
-- `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, receipts, artifacts, costs)
+- `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs)
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/delivery/outbox/{delivery_id}/failed` marks retry/dead-letter transitions with error context
@@ -50,7 +50,8 @@ The principal-scoped memory seed surface is explicitly covered by both `tests/sm
 - `/v1/policy/evaluate` exposes direct policy checks for tool/action/channel combinations, including external-send approval branches
 - `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
-- `app.runner` supports role-based startup (`EA_ROLE=api` or idle worker roles)
+- rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning
+- `app.runner` supports role-based startup (`EA_ROLE=api` or queue-draining worker roles)
 - `app.domain.IntentSpecV3` and execution session/event models provide a typed kernel scaffold
 - rewrite execution is gated by a centralized policy decision service (`policy_decision` event)
 
@@ -86,6 +87,7 @@ The principal-scoped memory seed surface is explicitly covered by both `tests/sm
 - communication policies kernel migration: `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
 - follow-up rules kernel migration: `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
 - interruption budgets kernel migration: `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
+- execution queue kernel migration: `ea/schema/20260305_v0_23_execution_queue_kernel.sql`
 
 ## Auth
 
