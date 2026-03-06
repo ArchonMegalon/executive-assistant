@@ -365,6 +365,31 @@ def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     assert planner_capability["status"] == "tested"
 
 
+def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "human_review_role" in readme
+    assert "step_human_review" in readme
+    assert "human_review_role" in runbook
+    assert "step_human_review" in runbook
+    assert "rewrite_review" in smoke_api
+    assert "communications_reviewer" in smoke_api
+    assert "step_human_review" in smoke_runtime
+    assert "communications_review" in smoke_runtime
+    assert "human_review_role" in planner_test
+    assert "step_human_review" in planner_test
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_branch_projection"
+    )
+    assert capability["status"] == "tested"
+
+
 def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

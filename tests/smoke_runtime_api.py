@@ -646,6 +646,38 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     assert compiled.json()["plan"]["steps"][2]["depends_on"] == ["step_policy_evaluate"]
     assert compiled.json()["plan"]["steps"][2]["approval_required"] is True
 
+    review_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "rewrite_review",
+            "deliverable_type": "rewrite_note",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "human_review_role": "communications_reviewer",
+                "human_review_task_type": "communications_review",
+                "human_review_brief": "Review the rewrite before finalizing it.",
+            },
+        },
+    )
+    assert review_contract.status_code == 200
+
+    compiled_review = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "rewrite_review", "principal_id": "exec-1", "goal": "review this rewrite"},
+    )
+    assert compiled_review.status_code == 200
+    assert len(compiled_review.json()["plan"]["steps"]) == 4
+    assert compiled_review.json()["plan"]["steps"][2]["step_key"] == "step_human_review"
+    assert compiled_review.json()["plan"]["steps"][2]["step_kind"] == "human_task"
+    assert compiled_review.json()["plan"]["steps"][2]["task_type"] == "communications_review"
+    assert compiled_review.json()["plan"]["steps"][2]["role_required"] == "communications_reviewer"
+    assert compiled_review.json()["plan"]["steps"][3]["depends_on"] == ["step_human_review"]
+
     rewrite = client.post("/v1/rewrite/artifact", json={"text": "short rewrite input"})
     assert rewrite.status_code == 202
     assert rewrite.json()["status"] == "awaiting_approval"

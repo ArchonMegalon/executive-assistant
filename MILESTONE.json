@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.50.0",
+  "version": "0.51.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -258,6 +258,17 @@
         "approval_target_step_alignment"
       ],
       "notes": "Planner output now exposes dependency/input/output metadata for each rewrite step, and approval pauses on the actual approval-gated step after the non-side-effect prefix has already completed."
+    },
+    {
+      "name": "planner_human_task_branch_projection",
+      "status": "tested",
+      "scope": [
+        "task_contract_human_review_role",
+        "step_human_review_plan_node",
+        "human_task_role_required_projection",
+        "artifact_save_depends_on_human_review"
+      ],
+      "notes": "Task-contract metadata can now project a first-class `human_task` review branch into the plan graph via `budget_policy_json.human_review_role`, so review work is visible in planner output before runtime auto-execution lands."
     },
     {
       "name": "registry_backed_tool_execution_service",

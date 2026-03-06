@@ -502,6 +502,16 @@ if [[ "${PLAN_FIELDS}" != "3|step_input_prepare|step_policy_evaluate|step_input_
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"rewrite_review","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it."}}' >/dev/null
+REVIEW_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"rewrite_review","principal_id":"exec-1","goal":"review this rewrite"}')"
+REVIEW_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; print('{}|{}|{}|{}'.format(len(steps), (steps[2] or {}).get('step_kind','') if len(steps) > 2 else '', (steps[2] or {}).get('role_required','') if len(steps) > 2 else '', ','.join((steps[3] or {}).get('depends_on') or []) if len(steps) > 3 else ''))" <<<"${REVIEW_PLAN_JSON}")"
+if [[ "${REVIEW_PLAN_FIELDS}" != "4|human_task|communications_reviewer|step_human_review" ]]; then
+  echo "expected compiled human-review branch in plan response; got ${REVIEW_PLAN_FIELDS}" >&2
+  echo "${REVIEW_PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 echo "plans ok"
 
 echo "== smoke: memory =="

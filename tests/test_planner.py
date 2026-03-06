@@ -32,3 +32,32 @@ def test_planner_uses_task_contract_defaults() -> None:
     assert plan.steps[2].tool_name == "artifact_repository"
     assert plan.steps[2].depends_on == ("step_policy_evaluate",)
     assert plan.steps[2].approval_required is True
+
+
+def test_planner_can_compile_human_review_branch_from_task_contract_metadata() -> None:
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    contracts.upsert_contract(
+        task_key="rewrite_review",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "class": "low",
+            "human_review_role": "communications_reviewer",
+            "human_review_task_type": "communications_review",
+            "human_review_brief": "Review the rewrite before finalizing it.",
+        },
+    )
+    planner = PlannerService(contracts)
+    _, plan = planner.build_plan(task_key="rewrite_review", principal_id="exec-1", goal="review this rewrite")
+
+    assert len(plan.steps) == 4
+    assert plan.steps[2].step_key == "step_human_review"
+    assert plan.steps[2].step_kind == "human_task"
+    assert plan.steps[2].depends_on == ("step_policy_evaluate",)
+    assert plan.steps[2].task_type == "communications_review"
+    assert plan.steps[2].role_required == "communications_reviewer"
+    assert plan.steps[3].step_key == "step_artifact_save"
+    assert plan.steps[3].depends_on == ("step_human_review",)

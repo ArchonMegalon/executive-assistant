@@ -900,6 +900,35 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_branch_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "human_review_role" "README.md" && \
+     grep -Fq "step_human_review" "README.md" && \
+     grep -Fq "human_review_role" "RUNBOOK.md" && \
+     grep -Fq "step_human_review" "RUNBOOK.md" && \
+     grep -Fq "rewrite_review" "scripts/smoke_api.sh" && \
+     grep -Fq "communications_reviewer" "scripts/smoke_api.sh" && \
+     grep -Fq "step_human_review" "tests/smoke_runtime_api.py" && \
+     grep -Fq "communications_review" "tests/smoke_runtime_api.py" && \
+     grep -Fq "human_review_role" "tests/test_planner.py" && \
+     grep -Fq "step_human_review" "tests/test_planner.py"; then
+    echo "ok: planner human-task branch docs"
+  else
+    echo "missing: planner human-task branch docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: planner human-task branch milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "registry_backed_tool_execution_service")
 assert capability["status"] == "tested"
 PY

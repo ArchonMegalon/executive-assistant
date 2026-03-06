@@ -412,6 +412,9 @@ class PlanStepSpec:
     depends_on: tuple[str, ...] = ()
     input_keys: tuple[str, ...] = ()
     output_keys: tuple[str, ...] = ()
+    task_type: str = ""
+    role_required: str = ""
+    brief: str = ""
 
 
 @dataclass(frozen=True)

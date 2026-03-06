@@ -116,6 +116,7 @@ Policy notes:
 - Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers.
 - The current rewrite scaffold now executes as three explicit queued steps: `step_input_prepare`, `step_policy_evaluate`, and `step_artifact_save`.
 - `POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys` so plan projections show the same dependency graph the rewrite runtime now executes.
+- Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`; this is planner-visible first, with runtime execution still queued as follow-up work.
 - Tool-call steps now flow through a registry-backed `ToolExecutionService`; the built-in `artifact_repository` handler emits normalized `tool.v1` receipt metadata and `tool_execution_completed` events.
 - `POST /v1/tools/execute` now exposes the same execution plane directly for built-in handlers; `connector.dispatch` queues a delivery outbox row and returns normalized `tool.v1` receipt metadata.
 - `connector.dispatch` execution now requires a real enabled connector binding in the caller's principal scope; foreign-principal or missing bindings fail before any outbox row is queued.

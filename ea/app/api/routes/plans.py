@@ -44,6 +44,9 @@ class PlanStepOut(BaseModel):
     depends_on: list[str]
     input_keys: list[str]
     output_keys: list[str]
+    task_type: str
+    role_required: str
+    brief: str
 
 
 class PlanOut(BaseModel):
@@ -104,6 +107,9 @@ def compile_plan(
                     depends_on=list(s.depends_on),
                     input_keys=list(s.input_keys),
                     output_keys=list(s.output_keys),
+                    task_type=s.task_type,
+                    role_required=s.role_required,
+                    brief=s.brief,
                 )
                 for s in plan.steps
             ],
