@@ -48,7 +48,8 @@ Removed:
 - `/v1/memory/interruption-budgets*` upserts/list/gets principal-scoped interruption budgets
 - the principal-scoped memory seed surface is explicitly covered by both `tests/smoke_runtime_api.py` and the approved host smoke path (`scripts/smoke_api.sh` via `scripts/smoke_postgres.sh`)
 - principal-scoped connector and memory routes now derive their effective principal from `X-EA-Principal-ID` or `EA_DEFAULT_PRINCIPAL_ID` instead of trusting caller-supplied body/query IDs
-- rewrite execution now records `plan_compiled`, runs a typed two-step queue path (`step_input_prepare` -> `step_artifact_save`) through the execution ledger, and dispatches tool steps through a registry-backed `ToolExecutionService`
+- rewrite execution now records `plan_compiled`, runs a typed three-step queue path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) through the execution ledger, and dispatches tool steps through a registry-backed `ToolExecutionService`
+- `POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys so planner output reflects the current multi-step rewrite runtime instead of a thin artifact-save wrapper
 - rewrite tool receipts now carry a normalized `tool.v1` invocation contract for the built-in `artifact_repository` handler
 - the built-in `connector.dispatch` handler now also runs through `ToolExecutionService` and queues durable delivery outbox rows
 - `connector.dispatch` now requires an enabled connector binding that matches the request principal before `/v1/tools/execute` can queue delivery

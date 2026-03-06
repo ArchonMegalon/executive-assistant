@@ -41,6 +41,9 @@ class PlanStepOut(BaseModel):
     reversible: bool
     expected_artifact: str
     fallback: str
+    depends_on: list[str]
+    input_keys: list[str]
+    output_keys: list[str]
 
 
 class PlanOut(BaseModel):
@@ -98,6 +101,9 @@ def compile_plan(
                     reversible=s.reversible,
                     expected_artifact=s.expected_artifact,
                     fallback=s.fallback,
+                    depends_on=list(s.depends_on),
+                    input_keys=list(s.input_keys),
+                    output_keys=list(s.output_keys),
                 )
                 for s in plan.steps
             ],

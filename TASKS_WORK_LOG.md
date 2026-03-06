@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-189 | P1 | Expand the planner beyond a single artifact-save intent so core workflows project explicit multi-step plan structure | codex | queued | The runtime now executes two queued rewrite steps, but `PlannerService` still emits a thin plan surface that does not express meaningful step kinds, dependencies, or non-artifact workflow branches |
+| Q-190 | P1 | Let the planner emit the first non-artifact workflow branch so human review becomes a compiled step kind instead of an external follow-up API call | codex | queued | The runtime now supports human tasks and a three-step rewrite plan, but the planner still cannot compile `human_task` branches or operator-review paths directly into the plan graph |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-189 | P1 | Expand the planner beyond a single artifact-save intent so core workflows project explicit multi-step plan structure | codex | done | Planner output now emits a three-step rewrite graph (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) with dependency/input/output metadata, and approval pauses on the actual approval-gated step after non-side-effect prefix work completes |
 | D-188 | P1 | Add explicit assignment state on human tasks so pre-assigned pending work is first-class in projections instead of inferred | codex | done | Added durable `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) across human task storage, API/session payloads, bootstrap migration `v0_26`, and smoke/Postgres contract coverage so backlog and session views expose assignment lifecycle directly |
 | D-187 | P1 | Add explicit assignment-state visibility or dedicated pre-assigned backlog views so pending owner assignment is distinct from unassigned work | codex | done | Added `/v1/human/tasks/unassigned` plus `assignment_state=assigned|unassigned` backlog filters so ownerless pending work is visibly distinct from pre-assigned pending work |
 | D-186 | P1 | Add explicit operator assignment semantics beyond claim-only ownership so reviewers can pre-assign packets without starting work | codex | done | Added `/v1/human/tasks/{human_task_id}/assign`, preserved pending status for pre-assigned packets, and emitted `human_task_assigned` ledger events before later claim/return transitions |

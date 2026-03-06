@@ -72,14 +72,16 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert "plan_compiled" in event_names
     assert "policy_decision" in event_names
     assert "input_prepared" in event_names
+    assert "policy_step_completed" in event_names
     assert "tool_execution_completed" in event_names
     assert "step_enqueued" in event_names
     assert "queue_item_completed" in event_names
-    assert len(body["steps"]) >= 2
+    assert len(body["steps"]) >= 3
     assert body["steps"][0]["input_json"]["plan_step_key"] == "step_input_prepare"
-    assert body["steps"][1]["input_json"]["plan_step_key"] in {"step_artifact_save", "step_rewrite_fallback"}
+    assert body["steps"][1]["input_json"]["plan_step_key"] == "step_policy_evaluate"
+    assert body["steps"][2]["input_json"]["plan_step_key"] == "step_artifact_save"
     assert all(step["state"] in {"completed", "running", "blocked", "waiting_approval", "queued"} for step in body["steps"])
-    assert len(body["queue_items"]) >= 2
+    assert len(body["queue_items"]) >= 3
     assert all(item["state"] == "done" for item in body["queue_items"])
     assert len(body["receipts"]) >= 1
     receipt_id = body["receipts"][0]["receipt_id"]
@@ -145,9 +147,12 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
     body = session.json()
     assert body["status"] == "awaiting_approval"
     assert len(body["artifacts"]) == 0
-    assert len(body["queue_items"]) == 0
+    assert len(body["queue_items"]) == 2
+    assert all(item["state"] == "done" for item in body["queue_items"])
     assert len(body["receipts"]) == 0
-    assert any(step["state"] == "waiting_approval" for step in body["steps"])
+    assert body["steps"][0]["state"] == "completed"
+    assert body["steps"][1]["state"] == "completed"
+    assert body["steps"][2]["state"] == "waiting_approval"
 
     approve = client.post(
         f"/v1/policy/approvals/{approval_id}/approve",
@@ -167,13 +172,14 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
     assert body_after["status"] == "completed"
     assert "input_prepared" in event_names_after
     assert "tool_execution_completed" in event_names_after
+    assert "policy_step_completed" in event_names_after
     assert "session_resumed_from_approval" in event_names_after
     assert "step_enqueued" in event_names_after
     assert "queue_item_completed" in event_names_after
     assert "session_completed" in event_names_after
-    assert len(body_after["steps"]) >= 2
+    assert len(body_after["steps"]) >= 3
     assert all(step["state"] == "completed" for step in body_after["steps"])
-    assert len(body_after["queue_items"]) == 2
+    assert len(body_after["queue_items"]) == 3
     assert all(item["state"] == "done" for item in body_after["queue_items"])
     assert len(body_after["artifacts"]) == 1
     assert len(body_after["receipts"]) >= 1
@@ -630,10 +636,15 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     )
     assert compiled.status_code == 200
     assert compiled.json()["intent"]["task_type"] == "rewrite_text"
-    assert len(compiled.json()["plan"]["steps"]) == 2
+    assert len(compiled.json()["plan"]["steps"]) == 3
     assert compiled.json()["plan"]["steps"][0]["step_key"] == "step_input_prepare"
-    assert compiled.json()["plan"]["steps"][1]["tool_name"] == "artifact_repository"
-    assert compiled.json()["plan"]["steps"][1]["approval_required"] is True
+    assert compiled.json()["plan"]["steps"][1]["step_key"] == "step_policy_evaluate"
+    assert compiled.json()["plan"]["steps"][1]["step_kind"] == "policy_check"
+    assert compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]
+    assert compiled.json()["plan"]["steps"][1]["output_keys"] == ["allow", "requires_approval", "reason", "retention_policy"]
+    assert compiled.json()["plan"]["steps"][2]["tool_name"] == "artifact_repository"
+    assert compiled.json()["plan"]["steps"][2]["depends_on"] == ["step_policy_evaluate"]
+    assert compiled.json()["plan"]["steps"][2]["approval_required"] is True
 
     rewrite = client.post("/v1/rewrite/artifact", json={"text": "short rewrite input"})
     assert rewrite.status_code == 202

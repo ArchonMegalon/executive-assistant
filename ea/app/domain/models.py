@@ -409,6 +409,9 @@ class PlanStepSpec:
     reversible: bool
     expected_artifact: str
     fallback: str
+    depends_on: tuple[str, ...] = ()
+    input_keys: tuple[str, ...] = ()
+    output_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

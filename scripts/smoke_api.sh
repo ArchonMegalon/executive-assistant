@@ -80,9 +80,9 @@ fi
 echo "== smoke: session + policy =="
 curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" >/dev/null
 SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
-SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 2, len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'tool_execution_completed' in events))" <<<"${SESSION_JSON}")"
-if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True" ]]; then
-  echo "expected initial rewrite session to complete with two steps, done queue items, input_prepared, and tool_execution_completed; got ${SESSION_RUNTIME_FIELDS}" >&2
+SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 3, len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events))" <<<"${SESSION_JSON}")"
+if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True|True" ]]; then
+  echo "expected initial rewrite session to complete with three steps, done queue items, input_prepared, policy_step_completed, and tool_execution_completed; got ${SESSION_RUNTIME_FIELDS}" >&2
   echo "${SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -303,9 +303,9 @@ fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"smoke-operator","reason":"resume execution"}' >/dev/null
 APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}")"
-APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 2 and len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
-if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True|True" ]]; then
-  echo "expected resumed session to complete with artifacts/receipts/run_costs, a two-step queue, input_prepared, and tool_execution_completed; got ${APPROVED_FIELDS}" >&2
+APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 3 and len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
+if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True|True|True" ]]; then
+  echo "expected resumed session to complete with artifacts/receipts/run_costs, a three-step queue, input_prepared, policy_step_completed, and tool_execution_completed; got ${APPROVED_FIELDS}" >&2
   echo "${APPROVED_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -496,9 +496,9 @@ echo "task contracts ok"
 echo "== smoke: plans =="
 PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","principal_id":"exec-1","goal":"rewrite this text"}')"
-PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; print('{}|{}|{}'.format(len(steps), (steps[0] or {}).get('step_key','') if steps else '', (steps[1] or {}).get('tool_name','') if len(steps) > 1 else ''))" <<<"${PLAN_JSON}")"
-if [[ "${PLAN_FIELDS}" != "2|step_input_prepare|artifact_repository" ]]; then
-  echo "expected two-step plan compile response; got ${PLAN_FIELDS}" >&2
+PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; print('{}|{}|{}|{}|{}'.format(len(steps), (steps[0] or {}).get('step_key','') if steps else '', (steps[1] or {}).get('step_key','') if len(steps) > 1 else '', ','.join((steps[1] or {}).get('depends_on') or []) if len(steps) > 1 else '', (steps[2] or {}).get('tool_name','') if len(steps) > 2 else ''))" <<<"${PLAN_JSON}")"
+if [[ "${PLAN_FIELDS}" != "3|step_input_prepare|step_policy_evaluate|step_input_prepare|artifact_repository" ]]; then
+  echo "expected three-step plan compile response with an explicit policy step; got ${PLAN_FIELDS}" >&2
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

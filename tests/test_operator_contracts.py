@@ -341,17 +341,28 @@ def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "step_input_prepare" in readme
+    assert "step_policy_evaluate" in readme
     assert "step_artifact_save" in readme
     assert "step_input_prepare" in runbook
+    assert "step_policy_evaluate" in runbook
     assert "step_artifact_save" in runbook
     assert "step_input_prepare" in smoke_api
+    assert "step_policy_evaluate" in smoke_api
     assert "input_prepared" in smoke_api
+    assert "policy_step_completed" in smoke_api
     assert "step_input_prepare" in smoke_runtime
+    assert "step_policy_evaluate" in smoke_runtime
     assert "input_prepared" in smoke_runtime
+    assert "policy_step_completed" in smoke_runtime
     assert "step_input_prepare" in planner_test
+    assert "step_policy_evaluate" in planner_test
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
     assert capability["status"] == "tested"
+    planner_capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection"
+    )
+    assert planner_capability["status"] == "tested"
 
 
 def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> None:

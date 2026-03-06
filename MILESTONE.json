@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -240,12 +240,24 @@
       "name": "typed_step_handler_gateway",
       "status": "tested",
       "scope": [
-        "rewrite_two_step_plan",
+        "rewrite_three_step_plan",
         "step_input_prepare_handler",
+        "step_policy_evaluate_handler",
         "step_artifact_save_handler",
         "inline_multi_step_queue_drain"
       ],
-      "notes": "The rewrite scaffold now compiles and executes a typed two-step queue path (`step_input_prepare` then `step_artifact_save`) through explicit step handlers instead of a single hardcoded artifact-save execution path."
+      "notes": "The rewrite scaffold now compiles and executes a typed three-step queue path (`step_input_prepare`, `step_policy_evaluate`, `step_artifact_save`) through explicit handlers instead of a thin artifact-save-only execution path."
+    },
+    {
+      "name": "planner_dependency_graph_projection",
+      "status": "tested",
+      "scope": [
+        "plan_step_dependencies",
+        "plan_step_input_keys",
+        "plan_step_output_keys",
+        "approval_target_step_alignment"
+      ],
+      "notes": "Planner output now exposes dependency/input/output metadata for each rewrite step, and approval pauses on the actual approval-gated step after the non-side-effect prefix has already completed."
     },
     {
       "name": "registry_backed_tool_execution_service",

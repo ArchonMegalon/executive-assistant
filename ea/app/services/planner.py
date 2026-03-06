@@ -10,6 +10,48 @@ class PlannerService:
     def __init__(self, task_contracts: TaskContractService) -> None:
         self._task_contracts = task_contracts
 
+    def _build_rewrite_steps(self, intent: IntentSpecV3) -> tuple[PlanStepSpec, ...]:
+        approval_required = intent.approval_class not in {"", "none"}
+        prepare_step = PlanStepSpec(
+            step_key="step_input_prepare",
+            step_kind="system_task",
+            tool_name="",
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="",
+            fallback="request_human_intervention",
+            input_keys=("source_text",),
+            output_keys=("normalized_text", "text_length"),
+        )
+        policy_step = PlanStepSpec(
+            step_key="step_policy_evaluate",
+            step_kind="policy_check",
+            tool_name="",
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="",
+            fallback="pause_for_approval_or_block",
+            depends_on=("step_input_prepare",),
+            input_keys=("normalized_text", "text_length"),
+            output_keys=("allow", "requires_approval", "reason", "retention_policy"),
+        )
+        save_step = PlanStepSpec(
+            step_key="step_artifact_save",
+            step_kind="tool_call",
+            tool_name="artifact_repository",
+            evidence_required=intent.evidence_requirements,
+            approval_required=approval_required,
+            reversible=False,
+            expected_artifact=intent.deliverable_type,
+            fallback="request_human_intervention",
+            depends_on=("step_policy_evaluate",),
+            input_keys=("normalized_text",),
+            output_keys=("artifact_id", "receipt_id", "cost_id"),
+        )
+        return (prepare_step, policy_step, save_step)
+
     def compile_intent(
         self,
         *,
@@ -41,32 +83,11 @@ class PlannerService:
         goal: str,
     ) -> tuple[IntentSpecV3, PlanSpec]:
         intent = self.compile_intent(task_key=task_key, principal_id=principal_id, goal=goal)
-        approval_required = intent.approval_class not in {"", "none"}
-        prepare_step = PlanStepSpec(
-            step_key="step_input_prepare",
-            step_kind="system_task",
-            tool_name="",
-            evidence_required=(),
-            approval_required=False,
-            reversible=False,
-            expected_artifact="",
-            fallback="request_human_intervention",
-        )
-        save_step = PlanStepSpec(
-            step_key="step_artifact_save",
-            step_kind="tool_call",
-            tool_name="artifact_repository",
-            evidence_required=intent.evidence_requirements,
-            approval_required=approval_required,
-            reversible=False,
-            expected_artifact=intent.deliverable_type,
-            fallback="request_human_intervention",
-        )
         plan = PlanSpec(
             plan_id=str(uuid.uuid4()),
             task_key=intent.task_type,
             principal_id=intent.principal_id,
             created_at=now_utc_iso(),
-            steps=(prepare_step, save_step),
+            steps=self._build_rewrite_steps(intent),
         )
         return intent, plan
