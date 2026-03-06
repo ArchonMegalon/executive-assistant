@@ -240,6 +240,7 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
         input_json={"artifact_id": "artifact-1"},
         desired_output_json={"format": "review_packet"},
         priority="high",
+        sla_due_at="2000-01-01T00:00:00+00:00",
         resume_session_on_return=True,
     )
     assert created.status == "pending"
@@ -249,10 +250,26 @@ def test_postgres_human_tasks_create_claim_return_and_list() -> None:
     listed_principal = repo.list_for_principal(session.intent.principal_id, limit=10)
     assert any(row.human_task_id == created.human_task_id for row in listed_principal)
 
+    listed_role = repo.list_for_principal(
+        session.intent.principal_id,
+        role_required="communications_reviewer",
+        overdue_only=True,
+        limit=10,
+    )
+    assert any(row.human_task_id == created.human_task_id for row in listed_role)
+
     claimed = repo.claim(created.human_task_id, operator_id="operator-1")
     assert claimed is not None
     assert claimed.status == "claimed"
     assert claimed.assigned_operator_id == "operator-1"
+
+    listed_operator = repo.list_for_principal(
+        session.intent.principal_id,
+        status="claimed",
+        assigned_operator_id="operator-1",
+        limit=10,
+    )
+    assert any(row.human_task_id == created.human_task_id for row in listed_operator)
 
     returned = repo.return_task(
         created.human_task_id,

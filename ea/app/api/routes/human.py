@@ -113,6 +113,9 @@ def list_human_tasks(
     principal_id: str | None = None,
     session_id: str | None = None,
     status: str | None = None,
+    role_required: str | None = None,
+    assigned_operator_id: str | None = None,
+    overdue_only: bool = False,
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
@@ -122,6 +125,9 @@ def list_human_tasks(
         principal_id=resolved_principal,
         session_id=session_id,
         status=status,
+        role_required=role_required,
+        assigned_operator_id=assigned_operator_id,
+        overdue_only=overdue_only,
         limit=limit,
     )
     return [_to_out(row) for row in rows]

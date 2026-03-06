@@ -57,6 +57,7 @@ Removed:
 - `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints
 - human task packets append `human_task_created`, `human_task_claimed`, and `human_task_returned` events into the linked session ledger so returned-from-human work is auditable
 - human task packets can optionally reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume that step to completion when the operator returns the packet
+- human task queue listings now support operator-facing `role_required`, `assigned_operator_id`, and `overdue_only` filters for targeted reviewer backlogs
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial
 - rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning

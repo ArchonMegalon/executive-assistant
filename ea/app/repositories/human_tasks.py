@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Dict, List, Protocol
 
 from app.domain.models import HumanTask, now_utc_iso
@@ -33,6 +34,9 @@ class HumanTaskRepository(Protocol):
         principal_id: str,
         *,
         status: str | None = None,
+        role_required: str | None = None,
+        assigned_operator_id: str | None = None,
+        overdue_only: bool = False,
         limit: int = 50,
     ) -> list[HumanTask]:
         ...
@@ -109,15 +113,40 @@ class InMemoryHumanTaskRepository:
         principal_id: str,
         *,
         status: str | None = None,
+        role_required: str | None = None,
+        assigned_operator_id: str | None = None,
+        overdue_only: bool = False,
         limit: int = 50,
     ) -> list[HumanTask]:
         principal = str(principal_id or "")
         status_filter = str(status or "").strip()
+        role_filter = str(role_required or "").strip()
+        operator_filter = str(assigned_operator_id or "").strip()
         n = max(1, min(500, int(limit or 50)))
         rows = [self._rows[row_id] for row_id in reversed(self._order) if row_id in self._rows]
         rows = [row for row in rows if row.principal_id == principal]
         if status_filter:
             rows = [row for row in rows if row.status == status_filter]
+        if role_filter:
+            rows = [row for row in rows if row.role_required == role_filter]
+        if operator_filter:
+            rows = [row for row in rows if row.assigned_operator_id == operator_filter]
+        if overdue_only:
+            now = datetime.now(timezone.utc)
+            overdue_rows: list[HumanTask] = []
+            for row in rows:
+                raw = str(row.sla_due_at or "").strip()
+                if not raw:
+                    continue
+                try:
+                    due = datetime.fromisoformat(raw)
+                except ValueError:
+                    continue
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                if due <= now:
+                    overdue_rows.append(row)
+            rows = overdue_rows
         return rows[:n]
 
     def list_for_session(self, session_id: str, *, limit: int = 200) -> list[HumanTask]:

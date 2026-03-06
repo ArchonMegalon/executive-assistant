@@ -220,39 +220,45 @@ class PostgresHumanTaskRepository:
         principal_id: str,
         *,
         status: str | None = None,
+        role_required: str | None = None,
+        assigned_operator_id: str | None = None,
+        overdue_only: bool = False,
         limit: int = 50,
     ) -> list[HumanTask]:
         principal = str(principal_id or "")
         status_filter = str(status or "").strip()
+        role_filter = str(role_required or "").strip()
+        operator_filter = str(assigned_operator_id or "").strip()
         n = max(1, min(500, int(limit or 50)))
+        clauses = ["principal_id = %s"]
+        params: list[object] = [principal]
+        if status_filter:
+            clauses.append("status = %s")
+            params.append(status_filter)
+        if role_filter:
+            clauses.append("role_required = %s")
+            params.append(role_filter)
+        if operator_filter:
+            clauses.append("assigned_operator_id = %s")
+            params.append(operator_filter)
+        if overdue_only:
+            clauses.append("sla_due_at IS NOT NULL")
+            clauses.append("sla_due_at <= NOW()")
+        params.append(n)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                if status_filter:
-                    cur.execute(
-                        """
-                        SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                               input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
-                        FROM human_tasks
-                        WHERE principal_id = %s AND status = %s
-                        ORDER BY created_at DESC, human_task_id DESC
-                        LIMIT %s
-                        """,
-                        (principal, status_filter, n),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                               input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
-                               resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
-                        FROM human_tasks
-                        WHERE principal_id = %s
-                        ORDER BY created_at DESC, human_task_id DESC
-                        LIMIT %s
-                        """,
-                        (principal, n),
-                    )
+                cur.execute(
+                    f"""
+                    SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
+                           input_json, desired_output_json, priority, sla_due_at, status, assigned_operator_id,
+                           resolution, resume_session_on_return, returned_payload_json, provenance_json, created_at, updated_at
+                    FROM human_tasks
+                    WHERE {' AND '.join(clauses)}
+                    ORDER BY created_at DESC, human_task_id DESC
+                    LIMIT %s
+                    """,
+                    tuple(params),
+                )
                 rows = cur.fetchall()
         return [self._from_row(row) for row in rows]
 

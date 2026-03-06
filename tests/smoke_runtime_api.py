@@ -250,6 +250,7 @@ def test_human_task_flow_and_session_projection() -> None:
             "input_json": {"artifact_id": create.json()["artifact_id"]},
             "desired_output_json": {"format": "review_packet"},
             "priority": "high",
+            "sla_due_at": "2000-01-01T00:00:00+00:00",
             "resume_session_on_return": True,
         },
     )
@@ -272,9 +273,23 @@ def test_human_task_flow_and_session_projection() -> None:
     assert listed.status_code == 200
     assert any(row["human_task_id"] == task_id for row in listed.json())
 
+    role_filtered = client.get(
+        "/v1/human/tasks",
+        params={"limit": 10, "role_required": "communications_reviewer", "overdue_only": True},
+    )
+    assert role_filtered.status_code == 200
+    assert any(row["human_task_id"] == task_id for row in role_filtered.json())
+
     claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-1"})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
+
+    operator_filtered = client.get(
+        "/v1/human/tasks",
+        params={"limit": 10, "assigned_operator_id": "operator-1", "status": "claimed"},
+    )
+    assert operator_filtered.status_code == 200
+    assert any(row["human_task_id"] == task_id for row in operator_filtered.json())
 
     returned = client.post(
         f"/v1/human/tasks/{task_id}/return",

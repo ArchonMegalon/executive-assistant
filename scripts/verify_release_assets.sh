@@ -1007,21 +1007,29 @@ capability = next(entry for entry in milestone["capabilities"] if entry["name"] 
 assert capability["status"] == "tested"
 resume_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_pause_resume_session_flow")
 assert resume_capability["status"] == "tested"
+filter_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_queue_filters")
+assert filter_capability["status"] == "tested"
 PY
 then
   if grep -Fq "/v1/human/tasks" "README.md" && \
      grep -Fq "human task packets" "README.md" && \
      grep -Fq "resume_session_on_return=true" "README.md" && \
+     grep -Fq "assigned_operator_id" "README.md" && \
      grep -Fq "/v1/human/tasks" "RUNBOOK.md" && \
      grep -Fq "awaiting_human" "RUNBOOK.md" && \
+     grep -Fq "overdue_only" "RUNBOOK.md" && \
      grep -Fq "human_task_returned" "RUNBOOK.md" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/return" "HTTP_EXAMPLES.http" && \
+     grep -Fq "role_required=communications_reviewer&overdue_only=true" "HTTP_EXAMPLES.http" && \
+     grep -Fq "assigned_operator_id=operator&status=claimed" "HTTP_EXAMPLES.http" && \
      grep -Fq '"resume_session_on_return": true' "HTTP_EXAMPLES.http" && \
      grep -Fq "v0_24 human tasks kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "v0_25 human task resume kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "human_tasks" "scripts/db_status.sh" && \
      grep -Fq "human tasks ok" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_human|True|True" "scripts/smoke_api.sh" && \
+     grep -Fq "role/overdue human task queue filter" "scripts/smoke_api.sh" && \
+     grep -Fq "assigned-operator human task queue filter" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/human/tasks" "tests/smoke_runtime_api.py" && \
      grep -Fq "test_postgres_human_tasks_create_claim_return_and_list" "tests/test_postgres_contract_matrix_integration.py"; then
     echo "ok: human task packet kernel docs"

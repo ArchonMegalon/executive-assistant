@@ -136,8 +136,12 @@ X-EA-Principal-ID: {{principal_id}}
   "resume_session_on_return": true
 }
 
-### Human tasks -> list for principal
-GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&limit=20
+### Human tasks -> list for principal / role backlog
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&role_required=communications_reviewer&overdue_only=true&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> list for assigned operator
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&assigned_operator_id=operator&status=claimed&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
 ### Human tasks -> claim

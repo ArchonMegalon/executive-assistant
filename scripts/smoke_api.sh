@@ -113,7 +113,7 @@ if [[ -z "${SESSION_STEP_ID}" ]]; then
   fail 13 "missing step_id from session response"
 fi
 HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\",\"resume_session_on_return\":true}")"
+  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\",\"sla_due_at\":\"2000-01-01T00:00:00+00:00\",\"resume_session_on_return\":true}")"
 HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HUMAN_CREATE_JSON}")"
 HUMAN_CREATE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}".format(body.get("status",""), body.get("resume_session_on_return", False)))' <<<"${HUMAN_CREATE_JSON}")"
 if [[ -z "${HUMAN_TASK_ID}" ]]; then
@@ -131,11 +131,25 @@ if [[ "${SESSION_HUMAN_WAITING_FIELDS}" != "awaiting_human|True|True" ]]; then
   echo "${SESSION_HUMAN_WAITING_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+HUMAN_ROLE_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?role_required=communications_reviewer&overdue_only=true&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_ROLE_FILTER_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_ROLE_FILTER_JSON}")"
+if [[ "${HUMAN_ROLE_FILTER_MATCH}" != "True" ]]; then
+  echo "expected role/overdue human task queue filter to include ${HUMAN_TASK_ID}" >&2
+  echo "${HUMAN_ROLE_FILTER_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
 HUMAN_CLAIM_STATUS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("status",""))' <<<"${HUMAN_CLAIM_JSON}")"
 if [[ "${HUMAN_CLAIM_STATUS}" != "claimed" ]]; then
   echo "expected claimed human task after claim; got ${HUMAN_CLAIM_STATUS}" >&2
   echo "${HUMAN_CLAIM_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_OPERATOR_FILTER_JSON="$(curl -fsS "${BASE}/v1/human/tasks?assigned_operator_id=smoke-operator&status=claimed&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_OPERATOR_FILTER_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); task_id='${HUMAN_TASK_ID}'; print(any((row or {}).get('human_task_id') == task_id for row in rows))" <<<"${HUMAN_OPERATOR_FILTER_JSON}")"
+if [[ "${HUMAN_OPERATOR_FILTER_MATCH}" != "True" ]]; then
+  echo "expected assigned-operator human task queue filter to include ${HUMAN_TASK_ID}" >&2
+  echo "${HUMAN_OPERATOR_FILTER_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \

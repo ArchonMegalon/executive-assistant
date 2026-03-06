@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-184 | P1 | Add operator-facing role and SLA filters to the human task queue so reviewers can work from targeted pending packets | codex | queued | Human tasks now support pause/resume semantics, but the queue view still lacks role-required and overdue/SLA targeting for operator work allocation |
+| Q-185 | P1 | Add role-claim assignment flow and explicit operator backlog endpoints on top of the filtered human task queue | codex | queued | Human task listings can now filter by role/operator/SLA, but there is still no dedicated operator backlog route or claim-assignment contract beyond generic list + claim |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-184 | P1 | Add operator-facing role and SLA filters to the human task queue so reviewers can work from targeted pending packets | codex | done | Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters across HTTP and Postgres repository contract coverage |
 | D-183 | P1 | Resume or advance execution from returned human task packets instead of leaving them as linked review records only | codex | done | Human task packets can now reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back |
 | D-182 | P1 | Introduce first-class human task packets instead of using approvals as the only human interaction primitive | codex | done | Added durable human task storage plus `/v1/human/tasks` create/list/get/claim/return routes, linked session projection rows, ledger events, migration/bootstrap wiring, and smoke/contract coverage |
 | D-181 | P1 | Replace approval-required rewrite `409` responses with a first-class async acceptance contract (`202` + pending session metadata) | codex | done | Approval-required rewrites now return `202 Accepted` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe`, while the existing approval resume flow remains intact |

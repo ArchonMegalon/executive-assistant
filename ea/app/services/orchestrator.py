@@ -572,6 +572,9 @@ class RewriteOrchestrator:
         principal_id: str,
         session_id: str | None = None,
         status: str | None = None,
+        role_required: str | None = None,
+        assigned_operator_id: str | None = None,
+        overdue_only: bool = False,
         limit: int = 50,
     ) -> list[HumanTask]:
         session = str(session_id or "").strip()
@@ -581,7 +584,14 @@ class RewriteOrchestrator:
                 return []
             rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
             return [row for row in rows if row.principal_id == str(principal_id or "")]
-        return self._human_tasks.list_for_principal(principal_id, status=status, limit=limit)
+        return self._human_tasks.list_for_principal(
+            principal_id,
+            status=status,
+            role_required=role_required,
+            assigned_operator_id=assigned_operator_id,
+            overdue_only=overdue_only,
+            limit=limit,
+        )
 
     def claim_human_task(self, human_task_id: str, *, principal_id: str, operator_id: str) -> HumanTask | None:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
