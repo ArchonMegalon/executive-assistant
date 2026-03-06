@@ -80,9 +80,9 @@ fi
 echo "== smoke: session + policy =="
 curl -fsS "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" >/dev/null
 SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
-SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 2, len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events))" <<<"${SESSION_JSON}")"
-if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True" ]]; then
-  echo "expected initial rewrite session to complete with two steps, done queue items, and input_prepared; got ${SESSION_RUNTIME_FIELDS}" >&2
+SESSION_RUNTIME_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) >= 2, len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'tool_execution_completed' in events))" <<<"${SESSION_JSON}")"
+if [[ "${SESSION_RUNTIME_FIELDS}" != "completed|True|True|True|True" ]]; then
+  echo "expected initial rewrite session to complete with two steps, done queue items, input_prepared, and tool_execution_completed; got ${SESSION_RUNTIME_FIELDS}" >&2
   echo "${SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -94,7 +94,13 @@ fi
 if [[ -z "${COST_ID}" ]]; then
   fail 13 "missing cost_id from session response"
 fi
-curl -fsS "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" >/dev/null
+RECEIPT_JSON="$(curl -fsS "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}")"
+RECEIPT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; print('{}|{}'.format(receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${RECEIPT_JSON}")"
+if [[ "${RECEIPT_FIELDS}" != "artifact_repository|tool.v1" ]]; then
+  echo "expected normalized receipt contract for artifact_repository; got ${RECEIPT_FIELDS}" >&2
+  echo "${RECEIPT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" >/dev/null
@@ -153,9 +159,9 @@ fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"smoke-operator","reason":"resume execution"}' >/dev/null
 APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}")"
-APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 2 and len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events))" <<<"${APPROVED_SESSION_JSON}")"
-if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True" ]]; then
-  echo "expected resumed session to complete with artifacts/receipts/run_costs, a two-step queue, and input_prepared; got ${APPROVED_FIELDS}" >&2
+APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 2 and len(queues) >= 2 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
+if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True|True" ]]; then
+  echo "expected resumed session to complete with artifacts/receipts/run_costs, a two-step queue, input_prepared, and tool_execution_completed; got ${APPROVED_FIELDS}" >&2
   echo "${APPROVED_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -233,7 +239,13 @@ echo "telegram adapter ok"
 echo "== smoke: tools and connectors =="
 curl -fsS -X POST "${BASE}/v1/tools/registry" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"tool_name":"email.send","version":"v1","input_schema_json":{"type":"object"},"output_schema_json":{"type":"object"},"policy_json":{"risk":"medium"},"allowed_channels":["email"],"approval_default":"manager","enabled":true}' >/dev/null
-curl -fsS "${BASE}/v1/tools/registry?limit=5" "${AUTH_ARGS[@]}" >/dev/null
+TOOLS_JSON="$(curl -fsS "${BASE}/v1/tools/registry?limit=10" "${AUTH_ARGS[@]}")"
+TOOL_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names={row.get('tool_name','') for row in rows}; print('{}|{}'.format('artifact_repository' in names, 'email.send' in names))" <<<"${TOOLS_JSON}")"
+if [[ "${TOOL_FIELDS}" != "True|True" ]]; then
+  echo "expected tool registry to expose builtin artifact_repository and upserted email.send; got ${TOOL_FIELDS}" >&2
+  echo "${TOOLS_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 CONNECTOR_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \
   -d '{"connector_name":"gmail","external_account_ref":"acct-1","scope_json":{"scopes":["mail.readonly"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"

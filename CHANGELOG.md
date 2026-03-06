@@ -9,6 +9,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Caller-supplied `principal_id` on those routes is now a compatibility filter only; mismatches fail with `403 principal_scope_mismatch`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed two-step handler path (`step_input_prepare` -> `step_artifact_save`) instead of a single hardcoded artifact-save step.
+- Rewrite tool-call execution now flows through a registry-backed `ToolExecutionService`, and `artifact_repository` receipts expose a normalized `tool.v1` invocation contract.
 
 ## 2026-03-05
 

@@ -278,3 +278,24 @@ def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_step_handler_gateway")
     assert capability["status"] == "tested"
+
+
+def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "ToolExecutionService" in readme
+    assert "tool.v1" in readme
+    assert "ToolExecutionService" in runbook
+    assert "tool.v1" in runbook
+    assert "artifact_repository|tool.v1" in smoke_api
+    assert "tool_execution_completed" in smoke_api
+    assert "artifact_repository" in smoke_runtime
+    assert "tool_execution_completed" in smoke_runtime
+    assert "invocation_contract" in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "registry_backed_tool_execution_service")
+    assert capability["status"] == "tested"

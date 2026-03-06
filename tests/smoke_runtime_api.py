@@ -72,6 +72,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert "plan_compiled" in event_names
     assert "policy_decision" in event_names
     assert "input_prepared" in event_names
+    assert "tool_execution_completed" in event_names
     assert "step_enqueued" in event_names
     assert "queue_item_completed" in event_names
     assert len(body["steps"]) >= 2
@@ -96,6 +97,8 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert fetched_receipt.status_code == 200
     assert fetched_receipt.json()["receipt_id"] == receipt_id
     assert fetched_receipt.json()["target_ref"] == artifact_id
+    assert fetched_receipt.json()["receipt_json"]["handler_key"] == "artifact_repository"
+    assert fetched_receipt.json()["receipt_json"]["invocation_contract"] == "tool.v1"
 
     fetched_cost = client.get(f"/v1/rewrite/run-costs/{cost_id}")
     assert fetched_cost.status_code == 200
@@ -161,6 +164,7 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
     event_names_after = [event["name"] for event in body_after["events"]]
     assert body_after["status"] == "completed"
     assert "input_prepared" in event_names_after
+    assert "tool_execution_completed" in event_names_after
     assert "session_resumed_from_approval" in event_names_after
     assert "step_enqueued" in event_names_after
     assert "queue_item_completed" in event_names_after
@@ -357,6 +361,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
 
     listed_tools = client.get("/v1/tools/registry", params={"limit": 10})
     assert listed_tools.status_code == 200
+    assert any(row["tool_name"] == "artifact_repository" for row in listed_tools.json())
     assert any(row["tool_name"] == "email.send" for row in listed_tools.json())
 
     binding = client.post(

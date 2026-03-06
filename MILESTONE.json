@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.38.0",
+  "version": "0.39.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -246,6 +246,17 @@
         "inline_multi_step_queue_drain"
       ],
       "notes": "The rewrite scaffold now compiles and executes a typed two-step queue path (`step_input_prepare` then `step_artifact_save`) through explicit step handlers instead of a single hardcoded artifact-save execution path."
+    },
+    {
+      "name": "registry_backed_tool_execution_service",
+      "status": "tested",
+      "scope": [
+        "tool_execution_service",
+        "artifact_repository_builtin_registration",
+        "tool_v1_receipt_contract",
+        "shared_tool_runtime_bootstrap"
+      ],
+      "notes": "Tool-call rewrite steps now execute through a reusable `ToolExecutionService` backed by the tool registry, the built-in `artifact_repository` handler is registered automatically, and receipts/events expose normalized invocation metadata."
     }
   ],
   "migrations": [

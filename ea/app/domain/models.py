@@ -350,6 +350,30 @@ class ToolDefinition:
 
 
 @dataclass(frozen=True)
+class ToolInvocationRequest:
+    session_id: str
+    step_id: str
+    tool_name: str
+    action_kind: str
+    payload_json: dict[str, Any]
+    context_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolInvocationResult:
+    tool_name: str
+    action_kind: str
+    target_ref: str
+    output_json: dict[str, Any]
+    receipt_json: dict[str, Any]
+    artifacts: tuple[Artifact, ...] = ()
+    model_name: str = "none"
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+
+
+@dataclass(frozen=True)
 class ConnectorBinding:
     binding_id: str
     principal_id: str

@@ -17,6 +17,7 @@ from app.domain.models import (
     PlanStepSpec,
     RewriteRequest,
     RunCost,
+    ToolInvocationRequest,
     ToolReceipt,
     now_utc_iso,
 )
@@ -32,6 +33,7 @@ from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
+from app.services.tool_execution import ToolExecutionService
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class RewriteOrchestrator:
         policy: PolicyDecisionService | None = None,
         task_contracts: TaskContractService | None = None,
         planner: PlannerService | None = None,
+        tool_execution: ToolExecutionService | None = None,
     ) -> None:
         self._artifacts = artifacts or InMemoryArtifactRepository()
         self._ledger = ledger or InMemoryExecutionLedgerRepository()
@@ -63,6 +66,7 @@ class RewriteOrchestrator:
         self._policy = policy or PolicyDecisionService()
         self._task_contracts = task_contracts
         self._planner = planner
+        self._tool_execution = tool_execution or ToolExecutionService(artifacts=self._artifacts)
 
     def _fallback_rewrite_intent(self) -> IntentSpecV3:
         return IntentSpecV3(
@@ -154,62 +158,75 @@ class RewriteOrchestrator:
             },
         )
 
-    def _complete_rewrite_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact:
+    def _complete_tool_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
         input_json = dict(rewrite_step.input_json or {})
-        source_text = str(input_json.get("source_text") or "")
-        artifact_kind = str(input_json.get("expected_artifact") or "rewrite_note")
-        plan_id = str(input_json.get("plan_id") or "")
-        plan_step_key = str(input_json.get("plan_step_key") or "")
         tool_name = str(input_json.get("tool_name") or "artifact_repository") or "artifact_repository"
-
+        action_kind = str(input_json.get("action_kind") or "artifact.save") or "artifact.save"
         self._ledger.append_event(
             session_id,
-            "input_validated",
-            {"text_length": len(source_text)},
+            "tool_execution_started",
+            {
+                "step_id": rewrite_step.step_id,
+                "tool_name": tool_name,
+                "action_kind": action_kind,
+            },
         )
-        artifact = Artifact(
-            artifact_id=str(uuid.uuid4()),
-            kind=artifact_kind,
-            content=source_text,
-            execution_session_id=session_id,
+        result = self._tool_execution.execute_invocation(
+            ToolInvocationRequest(
+                session_id=session_id,
+                step_id=rewrite_step.step_id,
+                tool_name=tool_name,
+                action_kind=action_kind,
+                payload_json=input_json,
+                context_json={
+                    "correlation_id": rewrite_step.correlation_id,
+                    "causation_id": rewrite_step.causation_id,
+                },
+            )
         )
-        self._artifacts.save(artifact)
         self._ledger.append_tool_receipt(
             session_id,
             rewrite_step.step_id,
-            tool_name=tool_name,
-            action_kind="artifact.save",
-            target_ref=artifact.artifact_id,
-            receipt_json={"artifact_kind": artifact.kind, "plan_id": plan_id, "plan_step_key": plan_step_key},
+            tool_name=result.tool_name,
+            action_kind=result.action_kind,
+            target_ref=result.target_ref,
+            receipt_json=result.receipt_json,
         )
         self._ledger.append_run_cost(
             session_id,
-            model_name="none",
-            tokens_in=0,
-            tokens_out=0,
-            cost_usd=0.0,
+            model_name=result.model_name,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            cost_usd=result.cost_usd,
         )
         self._ledger.update_step(
             rewrite_step.step_id,
             state="completed",
-            output_json={
-                "artifact_id": artifact.artifact_id,
-                "artifact_kind": artifact.kind,
-                "plan_id": plan_id,
-                "plan_step_key": plan_step_key,
-            },
+            output_json=result.output_json,
             error_json={},
         )
         self._ledger.append_event(
             session_id,
-            "artifact_persisted",
+            "tool_execution_completed",
             {
-                "artifact_id": artifact.artifact_id,
-                "artifact_kind": artifact.kind,
-                "plan_id": plan_id,
-                "plan_step_key": plan_step_key,
+                "step_id": rewrite_step.step_id,
+                "tool_name": result.tool_name,
+                "action_kind": result.action_kind,
+                "target_ref": result.target_ref,
             },
         )
+        artifact = result.artifacts[0] if result.artifacts else None
+        if artifact is not None:
+            self._ledger.append_event(
+                session_id,
+                "artifact_persisted",
+                {
+                    "artifact_id": artifact.artifact_id,
+                    "artifact_kind": artifact.kind,
+                    "plan_id": str((result.output_json or {}).get("plan_id") or ""),
+                    "plan_step_key": str((result.output_json or {}).get("plan_step_key") or ""),
+                },
+            )
         return artifact
 
     def _execute_step_handler(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
@@ -217,8 +234,8 @@ class RewriteOrchestrator:
         if plan_step_key == "step_input_prepare":
             self._complete_input_prepare_step(session_id, rewrite_step)
             return None
-        if plan_step_key in {"step_artifact_save", "step_rewrite_fallback"}:
-            return self._complete_rewrite_step(session_id, rewrite_step)
+        if rewrite_step.step_kind == "tool_call":
+            return self._complete_tool_step(session_id, rewrite_step)
         raise RuntimeError(f"unsupported_step_handler:{plan_step_key or rewrite_step.step_kind}")
 
     def _queue_next_step_after(self, session_id: str, step_id: str, *, lease_owner: str) -> Artifact | None:
@@ -660,24 +677,32 @@ def build_artifact_repo(settings: Settings) -> ArtifactRepository:
     return InMemoryArtifactRepository()
 
 
-def build_default_orchestrator(settings: Settings | None = None) -> RewriteOrchestrator:
+def build_default_orchestrator(
+    settings: Settings | None = None,
+    *,
+    artifacts: ArtifactRepository | None = None,
+    task_contracts: TaskContractService | None = None,
+    planner: PlannerService | None = None,
+    tool_execution: ToolExecutionService | None = None,
+) -> RewriteOrchestrator:
     resolved = settings or get_settings()
     ledger = build_execution_ledger(resolved)
     policy_repo = build_policy_repo(resolved)
     approvals = build_approval_repo(resolved)
-    artifacts = build_artifact_repo(resolved)
-    task_contracts = build_task_contract_service(resolved)
-    planner = PlannerService(task_contracts)
+    artifact_repo = artifacts or build_artifact_repo(resolved)
+    task_contract_service = task_contracts or build_task_contract_service(resolved)
+    planner_service = planner or PlannerService(task_contract_service)
     policy = PolicyDecisionService(
         max_rewrite_chars=resolved.policy.max_rewrite_chars,
         approval_required_chars=resolved.policy.approval_required_chars,
     )
     return RewriteOrchestrator(
-        artifacts=artifacts,
+        artifacts=artifact_repo,
         ledger=ledger,
         policy_repo=policy_repo,
         approvals=approvals,
         policy=policy,
-        task_contracts=task_contracts,
-        planner=planner,
+        task_contracts=task_contract_service,
+        planner=planner_service,
+        tool_execution=tool_execution or ToolExecutionService(artifacts=artifact_repo),
     )

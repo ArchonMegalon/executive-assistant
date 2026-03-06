@@ -886,6 +886,34 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "registry_backed_tool_execution_service")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "ToolExecutionService" "README.md" && \
+     grep -Fq "tool.v1" "README.md" && \
+     grep -Fq "ToolExecutionService" "RUNBOOK.md" && \
+     grep -Fq "tool.v1" "RUNBOOK.md" && \
+     grep -Fq "artifact_repository|tool.v1" "scripts/smoke_api.sh" && \
+     grep -Fq "tool_execution_completed" "scripts/smoke_api.sh" && \
+     grep -Fq "tool_execution_completed" "tests/smoke_runtime_api.py" && \
+     grep -Fq "invocation_contract" "tests/smoke_runtime_api.py" && \
+     test -f "tests/test_tool_execution.py"; then
+    echo "ok: registry-backed tool execution service docs"
+  else
+    echo "missing: registry-backed tool execution service docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: registry-backed tool execution service milestone status" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1
