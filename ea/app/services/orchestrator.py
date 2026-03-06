@@ -1242,14 +1242,68 @@ class RewriteOrchestrator:
             )
         )
 
+    def fetch_session_for_principal(
+        self,
+        session_id: str,
+        *,
+        principal_id: str,
+    ) -> ExecutionSessionSnapshot | None:
+        found = self.fetch_session(session_id)
+        if found is None:
+            return None
+        self._require_session_principal_alignment(found.session, principal_id=principal_id)
+        return found
+
     def fetch_artifact(self, artifact_id: str) -> Artifact | None:
         return self._artifacts.get(artifact_id)
+
+    def fetch_artifact_for_principal(
+        self,
+        artifact_id: str,
+        *,
+        principal_id: str,
+    ) -> tuple[Artifact, ExecutionSessionSnapshot] | None:
+        artifact = self.fetch_artifact(artifact_id)
+        if artifact is None:
+            return None
+        session = self.fetch_session_for_principal(artifact.execution_session_id, principal_id=principal_id)
+        if session is None:
+            return None
+        return artifact, session
 
     def fetch_receipt(self, receipt_id: str) -> ToolReceipt | None:
         return self._ledger.get_receipt(receipt_id)
 
+    def fetch_receipt_for_principal(
+        self,
+        receipt_id: str,
+        *,
+        principal_id: str,
+    ) -> tuple[ToolReceipt, ExecutionSessionSnapshot] | None:
+        receipt = self.fetch_receipt(receipt_id)
+        if receipt is None:
+            return None
+        session = self.fetch_session_for_principal(receipt.session_id, principal_id=principal_id)
+        if session is None:
+            return None
+        return receipt, session
+
     def fetch_run_cost(self, cost_id: str) -> RunCost | None:
         return self._ledger.get_run_cost(cost_id)
+
+    def fetch_run_cost_for_principal(
+        self,
+        cost_id: str,
+        *,
+        principal_id: str,
+    ) -> tuple[RunCost, ExecutionSessionSnapshot] | None:
+        run_cost = self.fetch_run_cost(cost_id)
+        if run_cost is None:
+            return None
+        session = self.fetch_session_for_principal(run_cost.session_id, principal_id=principal_id)
+        if session is None:
+            return None
+        return run_cost, session
 
     def _require_session_principal_alignment(self, session: ExecutionSession, *, principal_id: str) -> None:
         session_principal = str(session.intent.principal_id or "").strip() or "local-user"

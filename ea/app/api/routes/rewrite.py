@@ -278,10 +278,12 @@ def get_session(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> SessionOut:
-    found = container.orchestrator.fetch_session(session_id)
+    try:
+        found = container.orchestrator.fetch_session_for_principal(session_id, principal_id=context.principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
     if not found:
         raise HTTPException(status_code=404, detail="session not found")
-    resolve_principal_id(found.session.intent.principal_id, context)
     session = found.session
     events = found.events
     has_source_filter, source_filter = _parse_assignment_source_filter(human_task_assignment_source)
@@ -443,13 +445,13 @@ def get_artifact(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RewriteOut:
-    found = container.orchestrator.fetch_artifact(artifact_id)
-    if not found:
+    try:
+        scoped = container.orchestrator.fetch_artifact_for_principal(artifact_id, principal_id=context.principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
+    if not scoped:
         raise HTTPException(status_code=404, detail="artifact_not_found")
-    session = container.orchestrator.fetch_session(found.execution_session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="artifact_not_found")
-    resolve_principal_id(session.session.intent.principal_id, context)
+    found, session = scoped
     return RewriteOut(
         artifact_id=found.artifact_id,
         kind=found.kind,
@@ -468,13 +470,13 @@ def get_receipt(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> SessionReceiptOut:
-    found = container.orchestrator.fetch_receipt(receipt_id)
-    if not found:
+    try:
+        scoped = container.orchestrator.fetch_receipt_for_principal(receipt_id, principal_id=context.principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
+    if not scoped:
         raise HTTPException(status_code=404, detail="receipt_not_found")
-    session = container.orchestrator.fetch_session(found.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="receipt_not_found")
-    resolve_principal_id(session.session.intent.principal_id, context)
+    found, session = scoped
     return SessionReceiptOut(
         receipt_id=found.receipt_id,
         step_id=found.step_id,
@@ -494,13 +496,13 @@ def get_run_cost(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> SessionRunCostOut:
-    found = container.orchestrator.fetch_run_cost(cost_id)
-    if not found:
+    try:
+        scoped = container.orchestrator.fetch_run_cost_for_principal(cost_id, principal_id=context.principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
+    if not scoped:
         raise HTTPException(status_code=404, detail="run_cost_not_found")
-    session = container.orchestrator.fetch_session(found.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="run_cost_not_found")
-    resolve_principal_id(session.session.intent.principal_id, context)
+    found, session = scoped
     return SessionRunCostOut(
         cost_id=found.cost_id,
         model_name=found.model_name,
