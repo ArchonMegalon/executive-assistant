@@ -1540,14 +1540,14 @@ assert capability["status"] == "tested"
 PY
 then
   if grep -Fq "sort=last_transition_desc" "README.md" && \
-     grep -Fq "sort=created_desc|last_transition_desc" "RUNBOOK.md" && \
+     grep -Fq "sort=created_desc|last_transition_desc|sla_due_at_asc" "RUNBOOK.md" && \
      grep -Fq "human task last-transition sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_BACKLOG_JSON" "scripts/smoke_api.sh" && \
      grep -Fq 'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
      grep -Fq 'params={"sort": "last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
      grep -Fq "/v1/human/tasks/backlog?sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http" && \
-     grep -Fq 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc)$")' "ea/app/api/routes/human.py"; then
+     grep -Fq 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc|sla_due_at_asc)$")' "ea/app/api/routes/human.py"; then
     echo "ok: human task last transition sorting docs"
   else
     echo "missing: human task last transition sorting docs" >&2
@@ -1555,6 +1555,34 @@ then
   fi
 else
   echo "missing: human task last transition sorting milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_sla_sorting")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "sort=sla_due_at_asc" "README.md" && \
+     grep -Fq "sort=created_desc|last_transition_desc|sla_due_at_asc" "RUNBOOK.md" && \
+     grep -Fq "human task SLA sort ok" "scripts/smoke_api.sh" && \
+     grep -Fq "SLA_LIST_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "SLA_BACKLOG_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20" "HTTP_EXAMPLES.http" && \
+     grep -Fq 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc|sla_due_at_asc)$")' "ea/app/api/routes/human.py"; then
+    echo "ok: human task SLA sorting docs"
+  else
+    echo "missing: human task SLA sorting docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task SLA sorting milestone" >&2
   missing=1
 fi
 

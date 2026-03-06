@@ -358,6 +358,39 @@ if [[ "${SORT_BACKLOG_FIELDS}" != "${SORT_TASK_OLDER_ID}|human_task_assigned|${S
 fi
 echo "human task last-transition sort ok"
 
+echo "== smoke: human task SLA sort =="
+SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
+SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"
+SLA_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SLA_SESSION_ID}" "${AUTH_ARGS[@]}")"
+SLA_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SLA_SESSION_JSON}")"
+if [[ -z "${SLA_STEP_ID}" ]]; then
+  fail 13 "missing sla sort step_id from session response"
+fi
+SLA_TASK_LATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${SLA_SESSION_ID}\",\"step_id\":\"${SLA_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Later due task.\",\"sla_due_at\":\"2100-01-02T00:00:00+00:00\",\"resume_session_on_return\":false}")"
+SLA_TASK_LATE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${SLA_TASK_LATE_JSON}")"
+SLA_TASK_SOON_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${SLA_SESSION_ID}\",\"step_id\":\"${SLA_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Sooner due task.\",\"sla_due_at\":\"2100-01-01T00:00:00+00:00\",\"resume_session_on_return\":false}")"
+SLA_TASK_SOON_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${SLA_TASK_SOON_JSON}")"
+if [[ -z "${SLA_TASK_LATE_ID}" || -z "${SLA_TASK_SOON_ID}" ]]; then
+  fail 13 "missing human task ids from sla sort smoke setup"
+fi
+SLA_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?status=pending&sort=sla_due_at_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+SLA_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${SLA_TASK_SOON_ID}','${SLA_TASK_LATE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; first=(filtered[0] if len(filtered) > 0 else {}); second=(filtered[1] if len(filtered) > 1 else {}); print('{}|{}'.format(first.get('human_task_id',''), second.get('human_task_id','')))" <<<"${SLA_LIST_JSON}")"
+if [[ "${SLA_LIST_FIELDS}" != "${SLA_TASK_SOON_ID}|${SLA_TASK_LATE_ID}" ]]; then
+  echo "expected sort=sla_due_at_asc to order general human task list by earliest SLA first; got ${SLA_LIST_FIELDS}" >&2
+  echo "${SLA_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+SLA_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+SLA_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${SLA_TASK_SOON_ID}','${SLA_TASK_LATE_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; first=(filtered[0] if len(filtered) > 0 else {}); second=(filtered[1] if len(filtered) > 1 else {}); print('{}|{}'.format(first.get('human_task_id',''), second.get('human_task_id','')))" <<<"${SLA_BACKLOG_JSON}")"
+if [[ "${SLA_BACKLOG_FIELDS}" != "${SLA_TASK_SOON_ID}|${SLA_TASK_LATE_ID}" ]]; then
+  echo "expected backlog sort=sla_due_at_asc to order pending work by earliest SLA first; got ${SLA_BACKLOG_FIELDS}" >&2
+  echo "${SLA_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human task SLA sort ok"
+
 echo "== smoke: approval resume path =="
 if (( APPROVAL_THRESHOLD_CHARS >= MAX_REWRITE_CHARS )); then
   fail 12 "approval smoke misconfigured: threshold must be below max rewrite chars"

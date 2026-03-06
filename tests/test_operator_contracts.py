@@ -561,18 +561,42 @@ def test_human_task_last_transition_sorting_is_documented_and_smoked() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "sort=last_transition_desc" in readme
-    assert "sort=created_desc|last_transition_desc" in runbook
+    assert "sort=created_desc|last_transition_desc|sla_due_at_asc" in runbook
     assert "human task last-transition sort ok" in smoke_api
     assert "SORT_LIST_JSON" in smoke_api
     assert "SORT_BACKLOG_JSON" in smoke_api
     assert 'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}' in smoke_runtime
     assert 'params={"sort": "last_transition_desc", "limit": 10}' in smoke_runtime
     assert "/v1/human/tasks/backlog?sort=last_transition_desc&limit=20" in http_examples
-    assert 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc)$")' in human_route
+    assert 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc|sla_due_at_asc)$")' in human_route
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_last_transition_sorting")
     assert capability["status"] == "tested"
     assert "last_transition_desc_runtime_ordering" in capability["scope"]
+
+
+def test_human_task_sla_sorting_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "sort=sla_due_at_asc" in readme
+    assert "sort=created_desc|last_transition_desc|sla_due_at_asc" in runbook
+    assert "human task SLA sort ok" in smoke_api
+    assert "SLA_LIST_JSON" in smoke_api
+    assert "SLA_BACKLOG_JSON" in smoke_api
+    assert 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
+    assert "/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20" in http_examples
+    assert 'sort: str | None = Query(default=None, pattern="^(created_desc|last_transition_desc|sla_due_at_asc)$")' in human_route
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_sla_sorting")
+    assert capability["status"] == "tested"
+    assert "sla_due_at_asc_runtime_ordering" in capability["scope"]
 
 
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:

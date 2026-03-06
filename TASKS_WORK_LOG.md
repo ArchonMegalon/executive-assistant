@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-206 | P1 | Add SLA-aware sorting on human task backlog endpoints so operators can switch between freshest ownership churn and oldest due work | codex | queued | `sort=last_transition_desc` now surfaces recent churn, but operator triage still lacks an explicit overdue/SLA-first ordering mode for aging pending work |
+| Q-207 | P1 | Add combined backlog ordering that breaks SLA ties by the latest ownership churn so overdue work stays stable under heavy reassignment | codex | queued | The backlog now supports either `last_transition_desc` or `sla_due_at_asc`, but operator dashboards still lack a multi-key “oldest due, then freshest churn” mode for stable triage |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-206 | P1 | Add SLA-aware sorting on human task backlog endpoints so operators can switch between freshest ownership churn and oldest due work | codex | done | Human task list/backlog endpoints now accept `sort=sla_due_at_asc`, and approved smoke coverage proves the earliest pending SLA sorts ahead of later-due work in both general list and direct backlog views |
 | D-205 | P1 | Add last-transition-aware sorting on human task backlog/list endpoints so operators can order queues by the freshest ownership churn | codex | done | Human task list/backlog endpoints now accept `sort=last_transition_desc`, and approved smoke coverage proves a recently reassigned task sorts ahead of a newer but untouched pending packet |
 | D-204 | P1 | Add last-transition summaries on human task backlog/session rows so operators can spot recent reassignments without expanding the full history chain | codex | done | Human task list/detail/session rows now expose compact `last_transition_*` fields derived from the latest ownership event, so operators can answer “who touched this last?” without opening the full assignment-history chain |
 | D-203 | P1 | Add operator-facing filters on task assignment history so reviewers can isolate reassignments, claims, or returns without scanning the full transition list | codex | done | `GET /v1/human/tasks/{human_task_id}/assignment-history` now accepts `event_name`, `assigned_operator_id`, and `assigned_by_actor_id`, with approved smoke coverage proving reassignment-only and return-only audit views |
