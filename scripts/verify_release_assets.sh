@@ -998,6 +998,35 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_packets_kernel")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "/v1/human/tasks" "README.md" && \
+     grep -Fq "human task packets" "README.md" && \
+     grep -Fq "/v1/human/tasks" "RUNBOOK.md" && \
+     grep -Fq "human_task_returned" "RUNBOOK.md" && \
+     grep -Fq "/v1/human/tasks/{{human_task_id}}/return" "HTTP_EXAMPLES.http" && \
+     grep -Fq "v0_24 human tasks kernel" "scripts/db_bootstrap.sh" && \
+     grep -Fq "human_tasks" "scripts/db_status.sh" && \
+     grep -Fq "human tasks ok" "scripts/smoke_api.sh" && \
+     grep -Fq "/v1/human/tasks" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_postgres_human_tasks_create_claim_return_and_list" "tests/test_postgres_contract_matrix_integration.py"; then
+    echo "ok: human task packet kernel docs"
+  else
+    echo "missing: human task packet kernel docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task packet kernel milestone status" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

@@ -17,7 +17,12 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found` |
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found` |
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
-| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs, including `plan_compiled` event) |
+| GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, including `plan_compiled` event) |
+| POST | `/v1/human/tasks` | `200` | `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` |
+| GET | `/v1/human/tasks` | `200` | validation `422`, `403 principal_scope_mismatch` |
+| GET | `/v1/human/tasks/{human_task_id}` | `200` | `404 human_task_not_found` |
+| POST | `/v1/human/tasks/{human_task_id}/claim` | `200` | `404 human_task_not_found`, `409 human_task_not_claimable` |
+| POST | `/v1/human/tasks/{human_task_id}/return` | `200` | `404 human_task_not_found`, `409 human_task_not_returnable` |
 | GET | `/v1/policy/decisions/recent` | `200` | n/a |
 | POST | `/v1/policy/evaluate` | `200` | validation `422` |
 | GET | `/v1/policy/approvals/pending` | `200` | n/a |
@@ -92,7 +97,7 @@ Error envelope for failures:
 Auth:
 - Set `EA_API_TOKEN=<token>` to require auth for all non-health routes.
 - Use `Authorization: Bearer <token>` or `X-API-Token: <token>`.
-- Use `X-EA-Principal-ID: <principal>` for principal-scoped connector and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
+- Use `X-EA-Principal-ID: <principal>` for principal-scoped connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
 
 Runtime mode:
@@ -109,6 +114,7 @@ Policy notes:
 - Tool-call steps now flow through a registry-backed `ToolExecutionService`; the built-in `artifact_repository` handler emits normalized `tool.v1` receipt metadata and `tool_execution_completed` events.
 - `POST /v1/tools/execute` now exposes the same execution plane directly for built-in handlers; `connector.dispatch` queues a delivery outbox row and returns normalized `tool.v1` receipt metadata.
 - `connector.dispatch` execution now requires a real enabled connector binding in the caller's principal scope; foreign-principal or missing bindings fail before any outbox row is queued.
+- Human review/work packets can now be attached to a session with `POST /v1/human/tasks`, claimed by an operator, and returned with structured payload/provenance while emitting `human_task_created`, `human_task_claimed`, and `human_task_returned` ledger events.
 
 ## Operator Script Help Index
 

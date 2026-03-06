@@ -12,7 +12,7 @@ Checks kernel table presence and row counts for:
   execution_sessions, execution_events, observation_events,
   delivery_outbox, policy_decisions, artifacts,
   execution_steps, execution_queue, tool_receipts, run_costs,
-  approval_requests, approval_decisions,
+  approval_requests, approval_decisions, human_tasks,
   memory_candidates, memory_items,
   entities, relationships, commitments, authority_bindings, delivery_preferences,
   follow_ups, deadline_windows, stakeholders, decision_windows, communication_policies, follow_up_rules,
@@ -44,6 +44,7 @@ TABLES=(
   run_costs
   approval_requests
   approval_decisions
+  human_tasks
   memory_candidates
   memory_items
   entities

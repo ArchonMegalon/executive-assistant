@@ -7,6 +7,8 @@
 @cost_id = replace_me
 @delivery_id = replace_me
 @approval_id = replace_me
+@step_id = replace_me
+@human_task_id = replace_me
 @memory_candidate_id = replace_me
 @memory_item_id = replace_me
 @entity_id = replace_me
@@ -18,7 +20,7 @@
 @interruption_budget_id = replace_me
 @oversized_text = replace_with_20001_chars
 
-### Principal-scoped connector and memory routes
+### Principal-scoped connector, human-task, and memory routes
 ### Use X-EA-Principal-ID to set the effective principal.
 ### body/query principal_id values below are compatibility filters only and mismatches return 403 principal_scope_mismatch.
 
@@ -111,6 +113,55 @@ Content-Type: application/json
 {
   "decided_by": "operator",
   "reason": "manual expiry"
+}
+
+### Human tasks -> create linked review packet
+POST {{host}}/v1/human/tasks
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "session_id": "{{session_id}}",
+  "step_id": "{{step_id}}",
+  "task_type": "communications_review",
+  "role_required": "communications_reviewer",
+  "brief": "Review the draft before external send.",
+  "input_json": {
+    "artifact_id": "{{artifact_id}}"
+  },
+  "desired_output_json": {
+    "format": "review_packet"
+  },
+  "priority": "high"
+}
+
+### Human tasks -> list for principal
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Human tasks -> claim
+POST {{host}}/v1/human/tasks/{{human_task_id}}/claim
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator"
+}
+
+### Human tasks -> return structured review packet
+POST {{host}}/v1/human/tasks/{{human_task_id}}/return
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "operator_id": "operator",
+  "resolution": "ready_for_send",
+  "returned_payload_json": {
+    "summary": "Reviewed and ready."
+  },
+  "provenance_json": {
+    "review_mode": "human"
+  }
 }
 
 ### Observations -> ingest

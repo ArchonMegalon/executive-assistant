@@ -446,6 +446,28 @@ class ApprovalDecision:
 
 
 @dataclass(frozen=True)
+class HumanTask:
+    human_task_id: str
+    session_id: str
+    step_id: str | None
+    principal_id: str
+    task_type: str
+    role_required: str
+    brief: str
+    input_json: dict[str, Any]
+    desired_output_json: dict[str, Any]
+    priority: str
+    sla_due_at: str | None
+    status: str
+    assigned_operator_id: str
+    resolution: str
+    created_at: str
+    updated_at: str
+    returned_payload_json: dict[str, Any] = field(default_factory=dict)
+    provenance_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PolicyDecision:
     allow: bool
     requires_approval: bool

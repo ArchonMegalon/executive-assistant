@@ -107,6 +107,47 @@ curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" >/dev/
 curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" >/dev/null
 echo "session/policy ok"
 
+echo "== smoke: human tasks =="
+SESSION_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SESSION_JSON}")"
+if [[ -z "${SESSION_STEP_ID}" ]]; then
+  fail 13 "missing step_id from session response"
+fi
+HUMAN_CREATE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Review the draft before external send.\",\"input_json\":{\"artifact_id\":\"${ARTIFACT_ID}\"},\"desired_output_json\":{\"format\":\"review_packet\"},\"priority\":\"high\"}")"
+HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HUMAN_CREATE_JSON}")"
+HUMAN_CREATE_STATUS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("status",""))' <<<"${HUMAN_CREATE_JSON}")"
+if [[ -z "${HUMAN_TASK_ID}" ]]; then
+  fail 13 "missing human_task_id from human task create response"
+fi
+if [[ "${HUMAN_CREATE_STATUS}" != "pending" ]]; then
+  echo "expected pending human task after creation; got ${HUMAN_CREATE_STATUS}" >&2
+  echo "${HUMAN_CREATE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_CLAIM_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/claim" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"smoke-operator"}')"
+HUMAN_CLAIM_STATUS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("status",""))' <<<"${HUMAN_CLAIM_JSON}")"
+if [[ "${HUMAN_CLAIM_STATUS}" != "claimed" ]]; then
+  echo "expected claimed human task after claim; got ${HUMAN_CLAIM_STATUS}" >&2
+  echo "${HUMAN_CLAIM_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_RETURN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/return" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"operator_id":"smoke-operator","resolution":"ready_for_send","returned_payload_json":{"summary":"Reviewed and ready."},"provenance_json":{"review_mode":"human"}}')"
+HUMAN_RETURN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}".format(body.get("status",""), body.get("resolution","")))' <<<"${HUMAN_RETURN_JSON}")"
+if [[ "${HUMAN_RETURN_FIELDS}" != "returned|ready_for_send" ]]; then
+  echo "expected returned human task after return; got ${HUMAN_RETURN_FIELDS}" >&2
+  echo "${HUMAN_RETURN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+SESSION_HUMAN_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; tasks=body.get('human_tasks') or []; task_id='${HUMAN_TASK_ID}'; print('{}|{}|{}|{}'.format('human_task_created' in events, 'human_task_claimed' in events, 'human_task_returned' in events, any((row or {}).get('human_task_id') == task_id and (row or {}).get('status') == 'returned' for row in tasks)))" <<<"${SESSION_HUMAN_JSON}")"
+if [[ "${SESSION_HUMAN_FIELDS}" != "True|True|True|True" ]]; then
+  echo "expected session projection to expose created/claimed/returned human task events and row; got ${SESSION_HUMAN_FIELDS}" >&2
+  echo "${SESSION_HUMAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human tasks ok"
+
 echo "== smoke: approval resume path =="
 if (( APPROVAL_THRESHOLD_CHARS >= MAX_REWRITE_CHARS )); then
   fail 12 "approval smoke misconfigured: threshold must be below max rewrite chars"

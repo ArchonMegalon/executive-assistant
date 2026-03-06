@@ -12,6 +12,7 @@ from app.domain.models import (
     ExecutionQueueItem,
     ExecutionSession,
     ExecutionStep,
+    HumanTask,
     IntentSpecV3,
     PlanSpec,
     PlanStepSpec,
@@ -25,6 +26,8 @@ from app.repositories.approvals import ApprovalRepository, InMemoryApprovalRepos
 from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.artifacts import ArtifactRepository, InMemoryArtifactRepository
 from app.repositories.artifacts_postgres import PostgresArtifactRepository
+from app.repositories.human_tasks import HumanTaskRepository, InMemoryHumanTaskRepository
+from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.policy_decisions import InMemoryPolicyDecisionRepository, PolicyDecisionRepository
@@ -45,6 +48,7 @@ class ExecutionSessionSnapshot:
     receipts: list[ToolReceipt]
     artifacts: list[Artifact]
     run_costs: list[RunCost]
+    human_tasks: list[HumanTask]
 
 
 class RewriteOrchestrator:
@@ -54,6 +58,7 @@ class RewriteOrchestrator:
         ledger: ExecutionLedgerRepository | None = None,
         policy_repo: PolicyDecisionRepository | None = None,
         approvals: ApprovalRepository | None = None,
+        human_tasks: HumanTaskRepository | None = None,
         policy: PolicyDecisionService | None = None,
         task_contracts: TaskContractService | None = None,
         planner: PlannerService | None = None,
@@ -63,6 +68,7 @@ class RewriteOrchestrator:
         self._ledger = ledger or InMemoryExecutionLedgerRepository()
         self._policy_repo = policy_repo or InMemoryPolicyDecisionRepository()
         self._approvals = approvals or InMemoryApprovalRepository()
+        self._human_tasks = human_tasks or InMemoryHumanTaskRepository()
         self._policy = policy or PolicyDecisionService()
         self._task_contracts = task_contracts
         self._planner = planner
@@ -484,6 +490,127 @@ class RewriteOrchestrator:
     def fetch_run_cost(self, cost_id: str) -> RunCost | None:
         return self._ledger.get_run_cost(cost_id)
 
+    def create_human_task(
+        self,
+        *,
+        session_id: str,
+        principal_id: str,
+        task_type: str,
+        role_required: str,
+        brief: str,
+        input_json: dict[str, object] | None = None,
+        desired_output_json: dict[str, object] | None = None,
+        priority: str = "normal",
+        sla_due_at: str | None = None,
+        step_id: str | None = None,
+    ) -> HumanTask:
+        session = self._ledger.get_session(session_id)
+        if session is None:
+            raise KeyError("session_not_found")
+        if step_id:
+            step = self._ledger.get_step(step_id)
+            if step is None or step.session_id != session.session_id:
+                raise KeyError("step_not_found")
+        row = self._human_tasks.create(
+            session_id=session.session_id,
+            step_id=step_id,
+            principal_id=principal_id,
+            task_type=task_type,
+            role_required=role_required,
+            brief=brief,
+            input_json=input_json,
+            desired_output_json=desired_output_json,
+            priority=priority,
+            sla_due_at=sla_due_at,
+        )
+        self._ledger.append_event(
+            session.session_id,
+            "human_task_created",
+            {
+                "human_task_id": row.human_task_id,
+                "step_id": row.step_id or "",
+                "task_type": row.task_type,
+                "role_required": row.role_required,
+                "priority": row.priority,
+            },
+        )
+        return row
+
+    def fetch_human_task(self, human_task_id: str, *, principal_id: str) -> HumanTask | None:
+        row = self._human_tasks.get(human_task_id)
+        if row is None or row.principal_id != str(principal_id or ""):
+            return None
+        return row
+
+    def list_human_tasks(
+        self,
+        *,
+        principal_id: str,
+        session_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[HumanTask]:
+        session = str(session_id or "").strip()
+        if session:
+            found = self._ledger.get_session(session)
+            if found is None:
+                return []
+            rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
+            return [row for row in rows if row.principal_id == str(principal_id or "")]
+        return self._human_tasks.list_for_principal(principal_id, status=status, limit=limit)
+
+    def claim_human_task(self, human_task_id: str, *, principal_id: str, operator_id: str) -> HumanTask | None:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return None
+        updated = self._human_tasks.claim(human_task_id, operator_id=operator_id)
+        if updated is None:
+            return None
+        self._ledger.append_event(
+            updated.session_id,
+            "human_task_claimed",
+            {
+                "human_task_id": updated.human_task_id,
+                "operator_id": updated.assigned_operator_id,
+                "step_id": updated.step_id or "",
+            },
+        )
+        return updated
+
+    def return_human_task(
+        self,
+        human_task_id: str,
+        *,
+        principal_id: str,
+        operator_id: str,
+        resolution: str,
+        returned_payload_json: dict[str, object] | None = None,
+        provenance_json: dict[str, object] | None = None,
+    ) -> HumanTask | None:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return None
+        updated = self._human_tasks.return_task(
+            human_task_id,
+            operator_id=operator_id,
+            resolution=resolution,
+            returned_payload_json=returned_payload_json,
+            provenance_json=provenance_json,
+        )
+        if updated is None:
+            return None
+        self._ledger.append_event(
+            updated.session_id,
+            "human_task_returned",
+            {
+                "human_task_id": updated.human_task_id,
+                "operator_id": updated.assigned_operator_id,
+                "resolution": updated.resolution,
+                "step_id": updated.step_id or "",
+            },
+        )
+        return updated
+
     def fetch_session(self, session_id: str) -> ExecutionSessionSnapshot | None:
         session = self._ledger.get_session(session_id)
         if not session:
@@ -497,6 +624,7 @@ class RewriteOrchestrator:
             receipts=self._ledger.receipts_for(sid),
             artifacts=self._artifacts.list_for_session(sid),
             run_costs=self._ledger.run_costs_for(sid),
+            human_tasks=self._human_tasks.list_for_session(sid),
         )
 
     def list_policy_decisions(self, limit: int = 50, session_id: str | None = None):
@@ -653,6 +781,26 @@ def build_approval_repo(settings: Settings) -> ApprovalRepository:
     return InMemoryApprovalRepository(default_ttl_minutes=settings.policy.approval_ttl_minutes)
 
 
+def build_human_task_repo(settings: Settings) -> HumanTaskRepository:
+    backend = _backend_mode(settings)
+    log = logging.getLogger("ea.human_tasks")
+    if backend == "memory":
+        ensure_storage_fallback_allowed(settings, "human tasks configured for memory")
+        return InMemoryHumanTaskRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        return PostgresHumanTaskRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            return PostgresHumanTaskRepository(settings.database_url)
+        except Exception as exc:
+            ensure_storage_fallback_allowed(settings, "human tasks auto fallback", exc)
+            log.warning("postgres human-task backend unavailable in auto mode; falling back to memory: %s", exc)
+    ensure_storage_fallback_allowed(settings, "human tasks auto backend without DATABASE_URL")
+    return InMemoryHumanTaskRepository()
+
+
 def build_artifact_repo(settings: Settings) -> ArtifactRepository:
     backend = _backend_mode(settings)
     log = logging.getLogger("ea.artifacts")
@@ -693,6 +841,7 @@ def build_default_orchestrator(
     ledger = build_execution_ledger(resolved)
     policy_repo = build_policy_repo(resolved)
     approvals = build_approval_repo(resolved)
+    human_tasks = build_human_task_repo(resolved)
     artifact_repo = artifacts or build_artifact_repo(resolved)
     task_contract_service = task_contracts or build_task_contract_service(resolved)
     planner_service = planner or PlannerService(task_contract_service)
@@ -705,6 +854,7 @@ def build_default_orchestrator(
         ledger=ledger,
         policy_repo=policy_repo,
         approvals=approvals,
+        human_tasks=human_tasks,
         policy=policy,
         task_contracts=task_contract_service,
         planner=planner_service,

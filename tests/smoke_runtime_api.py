@@ -227,6 +227,72 @@ def test_policy_evaluate_external_send_requires_approval() -> None:
     assert body["allowed_tools"] == ["connector.dispatch"]
 
 
+def test_human_task_flow_and_session_projection() -> None:
+    client = _client(storage_backend="memory")
+    create = client.post("/v1/rewrite/artifact", json={"text": "human task seed"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    steps = session.json()["steps"]
+    assert len(steps) >= 2
+    step_id = steps[-1]["step_id"]
+
+    created = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Review the draft before external send.",
+            "input_json": {"artifact_id": create.json()["artifact_id"]},
+            "desired_output_json": {"format": "review_packet"},
+            "priority": "high",
+        },
+    )
+    assert created.status_code == 200
+    task = created.json()
+    task_id = task["human_task_id"]
+    assert task["status"] == "pending"
+    assert task["step_id"] == step_id
+
+    listed = client.get("/v1/human/tasks", params={"limit": 10})
+    assert listed.status_code == 200
+    assert any(row["human_task_id"] == task_id for row in listed.json())
+
+    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-1"})
+    assert claimed.status_code == 200
+    assert claimed.json()["status"] == "claimed"
+
+    returned = client.post(
+        f"/v1/human/tasks/{task_id}/return",
+        json={
+            "operator_id": "operator-1",
+            "resolution": "ready_for_send",
+            "returned_payload_json": {"summary": "Reviewed and ready."},
+            "provenance_json": {"review_mode": "human"},
+        },
+    )
+    assert returned.status_code == 200
+    assert returned.json()["status"] == "returned"
+    assert returned.json()["resolution"] == "ready_for_send"
+
+    fetched = client.get(f"/v1/human/tasks/{task_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["returned_payload_json"]["summary"] == "Reviewed and ready."
+
+    session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session_after.status_code == 200
+    session_body = session_after.json()
+    event_names = [event["name"] for event in session_body["events"]]
+    assert "human_task_created" in event_names
+    assert "human_task_claimed" in event_names
+    assert "human_task_returned" in event_names
+    assert any(row["human_task_id"] == task_id and row["status"] == "returned" for row in session_body["human_tasks"])
+
+
 def test_rewrite_blocked_policy_flow_has_error_envelope() -> None:
     client = _client(storage_backend="memory")
     blocked = client.post("/v1/rewrite/artifact", json={"text": "x" * 20001})

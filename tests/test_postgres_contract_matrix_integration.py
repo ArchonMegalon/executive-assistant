@@ -7,6 +7,7 @@ import pytest
 
 from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, now_utc_iso
 from app.repositories.approvals_postgres import PostgresApprovalRepository
+from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
@@ -202,3 +203,66 @@ def test_postgres_execution_queue_enqueue_lease_complete_and_list() -> None:
     assert len(listed) == 1
     assert listed[0].queue_id == queue_item.queue_id
     assert listed[0].state == "done"
+
+
+def test_postgres_human_tasks_create_claim_return_and_list() -> None:
+    ledger = PostgresExecutionLedgerRepository(_db_url())
+    repo = PostgresHumanTaskRepository(_db_url())
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id="human-task-tester",
+            goal="collect a structured human review packet",
+            task_type="rewrite_text",
+            deliverable_type="rewrite_note",
+            risk_class="medium",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    step = ledger.start_step(
+        session.session_id,
+        "human_task",
+        input_json={"task_type": "communications_review"},
+        correlation_id=f"corr-{uuid.uuid4()}",
+        causation_id=f"cause-{uuid.uuid4()}",
+        actor_type="assistant",
+        actor_id="contract-test",
+    )
+
+    created = repo.create(
+        session_id=session.session_id,
+        step_id=step.step_id,
+        principal_id=session.intent.principal_id,
+        task_type="communications_review",
+        role_required="communications_reviewer",
+        brief="Review the executive reply before send.",
+        input_json={"artifact_id": "artifact-1"},
+        desired_output_json={"format": "review_packet"},
+        priority="high",
+    )
+    assert created.status == "pending"
+    assert created.step_id == step.step_id
+
+    listed_principal = repo.list_for_principal(session.intent.principal_id, limit=10)
+    assert any(row.human_task_id == created.human_task_id for row in listed_principal)
+
+    claimed = repo.claim(created.human_task_id, operator_id="operator-1")
+    assert claimed is not None
+    assert claimed.status == "claimed"
+    assert claimed.assigned_operator_id == "operator-1"
+
+    returned = repo.return_task(
+        created.human_task_id,
+        operator_id="operator-1",
+        resolution="ready_for_send",
+        returned_payload_json={"summary": "Reviewed and tightened tone."},
+        provenance_json={"review_mode": "human"},
+    )
+    assert returned is not None
+    assert returned.status == "returned"
+    assert returned.resolution == "ready_for_send"
+    assert returned.returned_payload_json["summary"] == "Reviewed and tightened tone."
+
+    listed_session = repo.list_for_session(session.session_id, limit=10)
+    assert any(row.human_task_id == created.human_task_id and row.status == "returned" for row in listed_session)

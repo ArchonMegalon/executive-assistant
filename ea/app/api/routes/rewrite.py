@@ -94,6 +94,27 @@ class SessionRunCostOut(BaseModel):
     created_at: str
 
 
+class SessionHumanTaskOut(BaseModel):
+    human_task_id: str
+    session_id: str
+    step_id: str | None
+    principal_id: str
+    task_type: str
+    role_required: str
+    brief: str
+    input_json: dict[str, object]
+    desired_output_json: dict[str, object]
+    priority: str
+    sla_due_at: str | None
+    status: str
+    assigned_operator_id: str
+    resolution: str
+    returned_payload_json: dict[str, object]
+    provenance_json: dict[str, object]
+    created_at: str
+    updated_at: str
+
+
 class SessionOut(BaseModel):
     session_id: str
     status: str
@@ -107,6 +128,7 @@ class SessionOut(BaseModel):
     receipts: list[SessionReceiptOut]
     artifacts: list[SessionArtifactOut]
     run_costs: list[SessionRunCostOut]
+    human_tasks: list[SessionHumanTaskOut]
 
 
 @router.post("/artifact")
@@ -232,6 +254,29 @@ def get_session(
                 created_at=c.created_at,
             )
             for c in found.run_costs
+        ],
+        human_tasks=[
+            SessionHumanTaskOut(
+                human_task_id=t.human_task_id,
+                session_id=t.session_id,
+                step_id=t.step_id,
+                principal_id=t.principal_id,
+                task_type=t.task_type,
+                role_required=t.role_required,
+                brief=t.brief,
+                input_json=t.input_json,
+                desired_output_json=t.desired_output_json,
+                priority=t.priority,
+                sla_due_at=t.sla_due_at,
+                status=t.status,
+                assigned_operator_id=t.assigned_operator_id,
+                resolution=t.resolution,
+                returned_payload_json=t.returned_payload_json,
+                provenance_json=t.provenance_json,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+            )
+            for t in found.human_tasks
         ],
     )
 

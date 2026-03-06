@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.42.0",
+  "version": "0.43.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -290,6 +290,17 @@
         "poll_or_subscribe_next_action"
       ],
       "notes": "Approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe`, making the paused workflow state explicit at the API boundary."
+    },
+    {
+      "name": "human_task_packets_kernel",
+      "status": "tested",
+      "scope": [
+        "human_task_storage_kernel",
+        "human_task_session_linkage",
+        "human_task_claim_return_api",
+        "returned_from_human_ledger_events"
+      ],
+      "notes": "Principal-scoped human task packets can now be created, listed, claimed, and returned over HTTP while staying linked to execution sessions/steps and surfacing in session projections plus host smoke and Postgres contract coverage."
     }
   ],
   "migrations": [
@@ -314,7 +325,8 @@
     "ea/schema/20260305_v0_20_communication_policies_kernel.sql",
     "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql",
     "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql",
-    "ea/schema/20260305_v0_23_execution_queue_kernel.sql"
+    "ea/schema/20260305_v0_23_execution_queue_kernel.sql",
+    "ea/schema/20260305_v0_24_human_tasks_kernel.sql"
   ],
   "env_contract": {
     "EA_STORAGE_BACKEND": "memory|postgres|auto",

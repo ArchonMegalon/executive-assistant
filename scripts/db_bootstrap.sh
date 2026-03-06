@@ -31,6 +31,7 @@ Applies kernel migrations in order:
   - v0_21 follow-up rules kernel
   - v0_22 interruption budgets kernel
   - v0_23 execution queue kernel
+  - v0_24 human tasks kernel
 EOF
   exit 0
 fi
@@ -68,6 +69,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_21_follow_up_rules_kernel.sql"
   "ea/schema/20260305_v0_22_interruption_budgets_kernel.sql"
   "ea/schema/20260305_v0_23_execution_queue_kernel.sql"
+  "ea/schema/20260305_v0_24_human_tasks_kernel.sql"
 )
 
 echo "== EA DB bootstrap =="

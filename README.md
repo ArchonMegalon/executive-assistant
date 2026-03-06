@@ -19,7 +19,8 @@ Removed:
 - `/v1/rewrite/artifact` creates an artifact and an execution session
 - `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion
-- `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs)
+- `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets)
+- `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/observations/ingest` and `/v1/observations/recent` provide channel-agnostic observation intake
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/delivery/outbox/{delivery_id}/failed` marks retry/dead-letter transitions with error context
@@ -54,6 +55,7 @@ Removed:
 - `/v1/policy/decisions/recent` exposes persisted policy decision audit records
 - `/v1/policy/evaluate` exposes direct policy checks for tool/action/channel combinations, including external-send approval branches
 - `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints
+- human task packets append `human_task_created`, `human_task_claimed`, and `human_task_returned` events into the linked session ledger so returned-from-human work is auditable
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial
 - rewrite execution now persists durable `execution_queue` rows and drains them inline for API requests before returning
@@ -96,12 +98,13 @@ Removed:
 - follow-up rules kernel migration: `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
 - interruption budgets kernel migration: `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
 - execution queue kernel migration: `ea/schema/20260305_v0_23_execution_queue_kernel.sql`
+- human tasks kernel migration: `ea/schema/20260305_v0_24_human_tasks_kernel.sql`
 
 ## Auth
 
 - Set `EA_API_TOKEN=<token>` to require bearer auth on all non-health routes.
 - Set `EA_DEFAULT_PRINCIPAL_ID=<principal>` to define the fallback request principal when `X-EA-Principal-ID` is omitted (default `local-user`).
-- Principal-scoped connector and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
+- Principal-scoped connector, human-task, and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
 
 ## Policy Tuning
 
