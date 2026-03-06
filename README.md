@@ -81,6 +81,7 @@ Removed:
 - `GET /v1/human/tasks/{human_task_id}/assignment-history` now filters the linked execution ledger down to ownership transitions so recommended assignment, later manual reassignment, claim, and return provenance remain queryable after the packet state has advanced
 - `GET /v1/human/tasks/{human_task_id}/assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source` so operator tooling can isolate just recommended, manual, or planner-preselected ownership transitions without scanning the whole chain
 - `/v1/rewrite/sessions/{session_id}` now also projects `human_task_assignment_history`, so operator UIs can render the same ownership transition chain inline with session events, steps, and linked human task packets without making a second history fetch
+- `/v1/rewrite/sessions/{session_id}` also accepts `human_task_assignment_source` so session detail can surface only manual, recommended, or planner `auto_preselected` human-task slices without client-side filtering
 - human task payloads now also compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so the best reviewer candidate can be surfaced directly on each packet
 - approving a paused rewrite now resumes execution inline and completes the artifact/ledger flow instead of stopping at a dead intermediate status
 - approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, and `status=awaiting_approval` instead of an error-shaped denial

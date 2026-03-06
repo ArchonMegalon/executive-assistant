@@ -886,6 +886,28 @@ def test_human_task_assignment_history_source_filter_is_documented_and_smoked() 
     assert "recommended_transition_isolation" in capability["scope"]
 
 
+def test_session_human_task_assignment_source_filter_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "also accepts `human_task_assignment_source`" in readme
+    assert "human_task_assignment_source" in runbook
+    assert "SESSION_HUMAN_MANUAL_JSON" in smoke_api
+    assert "HUMAN_REWRITE_AUTO_SESSION_JSON" in smoke_api
+    assert 'params={"human_task_assignment_source": "manual"}' in smoke_runtime
+    assert "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual" in http_examples
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_source_filter"
+    )
+    assert capability["status"] == "tested"
+    assert "manual_session_task_slice" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

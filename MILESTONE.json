@@ -665,6 +665,16 @@
         "manual_vs_auto_preselected_history_views"
       ],
       "notes": "Human task assignment history now accepts `assignment_source`, so operator tooling can isolate recommended, manual, or planner auto-preselected ownership transitions without scanning the full event chain."
+    },
+    {
+      "name": "session_human_task_assignment_source_filter",
+      "status": "tested",
+      "scope": [
+        "session_human_task_assignment_source_filter",
+        "manual_session_task_slice",
+        "auto_preselected_session_task_slice"
+      ],
+      "notes": "Rewrite session detail now accepts `human_task_assignment_source`, narrowing `human_tasks` and inline assignment history down to one ownership source without client-side filtering."
     }
   ],
   "migrations": [

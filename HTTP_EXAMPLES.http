@@ -48,6 +48,9 @@ Authorization: Bearer {{token}}
 ### Rewrite -> fetch session
 GET {{host}}/v1/rewrite/sessions/{{session_id}}
 
+### Rewrite -> fetch session filtered to one human-task assignment source
+GET {{host}}/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual
+
 ### Rewrite -> fetch artifact
 GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
 

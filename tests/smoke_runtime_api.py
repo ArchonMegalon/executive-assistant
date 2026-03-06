@@ -573,6 +573,19 @@ def test_human_task_flow_and_session_projection() -> None:
         and row["last_transition_by_actor_id"] == "operator-junior"
         for row in session_body["human_tasks"]
     )
+    session_manual = client.get(
+        f"/v1/rewrite/sessions/{session_id}",
+        params={"human_task_assignment_source": "manual"},
+    )
+    assert session_manual.status_code == 200
+    manual_body = session_manual.json()
+    assert len(manual_body["human_tasks"]) == 1
+    assert manual_body["human_tasks"][0]["human_task_id"] == task_id
+    assert [row["event_name"] for row in manual_body["human_task_assignment_history"]] == [
+        "human_task_assigned",
+        "human_task_claimed",
+        "human_task_returned",
+    ]
     resumed_step = next(step for step in session_body["steps"] if step["step_id"] == step_id)
     assert resumed_step["state"] == "completed"
     assert resumed_step["output_json"]["human_task_id"] == task_id
@@ -2252,6 +2265,18 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert review_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
     assert review_task["routing_hints_json"]["auto_assign_operator_id"] == ""
     assert review_task["routing_hints_json"]["candidate_count"] == 1
+
+    auto_only = client.get(
+        f"/v1/rewrite/sessions/{session_id}",
+        params={"human_task_assignment_source": "auto_preselected"},
+    )
+    assert auto_only.status_code == 200
+    auto_only_body = auto_only.json()
+    assert len(auto_only_body["human_tasks"]) == 1
+    assert auto_only_body["human_tasks"][0]["human_task_id"] == human_task_id
+    assert [row["event_name"] for row in auto_only_body["human_task_assignment_history"]] == [
+        "human_task_assigned"
+    ]
 
     reviewed_text = "rewrite with human review, edited by reviewer"
     returned = client.post(

@@ -323,6 +323,13 @@ if [[ "${SESSION_HUMAN_SUMMARY_FIELDS}" != "human_task_returned|True|returned|op
   echo "${SESSION_HUMAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+SESSION_HUMAN_MANUAL_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=manual" "${AUTH_ARGS[@]}")"
+SESSION_HUMAN_MANUAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; print('{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), ','.join((row or {}).get('event_name','') for row in history)))" <<<"${SESSION_HUMAN_MANUAL_JSON}")"
+if [[ "${SESSION_HUMAN_MANUAL_FIELDS}" != "1|${HUMAN_TASK_ID}|human_task_assigned,human_task_claimed,human_task_returned" ]]; then
+  echo "expected session assignment-source filter to isolate manual ownership rows and transitions; got ${SESSION_HUMAN_MANUAL_FIELDS}" >&2
+  echo "${SESSION_HUMAN_MANUAL_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 echo "human tasks ok"
 
 echo "== smoke: human task last-transition sort =="
@@ -1127,6 +1134,13 @@ HUMAN_REWRITE_SUMMARY_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys
 if [[ "${HUMAN_REWRITE_SUMMARY_FIELDS}" != "human_task_assigned|True|assigned|operator-specialist|auto_preselected|orchestrator:auto_preselected" ]]; then
   echo "expected planner-native human review row to expose compact auto-preselected transition summary; got ${HUMAN_REWRITE_SUMMARY_FIELDS}" >&2
   echo "${HUMAN_REWRITE_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_REWRITE_AUTO_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}?human_task_assignment_source=auto_preselected" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_AUTO_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; print('{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), ','.join((row or {}).get('event_name','') for row in history)))" <<<"${HUMAN_REWRITE_AUTO_SESSION_JSON}")"
+if [[ "${HUMAN_REWRITE_AUTO_SESSION_FIELDS}" != "1|${HUMAN_REWRITE_TASK_ID}|human_task_assigned" ]]; then
+  echo "expected session assignment-source filter to isolate planner auto-preselected pending rows and transitions; got ${HUMAN_REWRITE_AUTO_SESSION_FIELDS}" >&2
+  echo "${HUMAN_REWRITE_AUTO_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_REWRITE_AUTO_SUMMARY_JSON="$(curl -fsS "${BASE}/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator-specialist&assignment_source=auto_preselected" "${AUTH_ARGS[@]}")"
