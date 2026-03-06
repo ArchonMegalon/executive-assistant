@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.51.0",
+  "version": "0.52.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -269,6 +269,17 @@
         "artifact_save_depends_on_human_review"
       ],
       "notes": "Task-contract metadata can now project a first-class `human_task` review branch into the plan graph via `budget_policy_json.human_review_role`, so review work is visible in planner output before runtime auto-execution lands."
+    },
+    {
+      "name": "runtime_human_task_step_execution",
+      "status": "tested",
+      "scope": [
+        "rewrite_awaiting_human_acceptance_contract",
+        "compiled_step_human_review_runtime",
+        "human_task_step_pause_resume",
+        "artifact_step_after_human_return"
+      ],
+      "notes": "Rewrite execution now auto-runs compiled `step_human_review` plan nodes into real human task packets, returns `202 awaiting_human` while the queue pauses, and resumes the remaining steps when the packet is returned."
     },
     {
       "name": "registry_backed_tool_execution_service",

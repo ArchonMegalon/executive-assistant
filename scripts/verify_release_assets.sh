@@ -929,6 +929,31 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_human_task_step_execution")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "awaiting_human" "README.md" && \
+     grep -Fq "202 awaiting_human" "RUNBOOK.md" && \
+     grep -Fq "compiled human review runtime ok" "scripts/smoke_api.sh" && \
+     grep -Fq "awaiting_human|poll_or_subscribe|True|" "scripts/smoke_api.sh" && \
+     grep -Fq "test_rewrite_compiled_human_review_branch_pauses_and_resumes" "tests/smoke_runtime_api.py" && \
+     grep -Fq "human_task_step_started" "tests/smoke_runtime_api.py"; then
+    echo "ok: runtime human-task step execution docs"
+  else
+    echo "missing: runtime human-task step execution docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: runtime human-task step execution milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "registry_backed_tool_execution_service")
 assert capability["status"] == "tested"
 PY

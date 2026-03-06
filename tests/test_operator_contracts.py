@@ -390,6 +390,26 @@ def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None
     assert capability["status"] == "tested"
 
 
+def test_runtime_human_task_step_execution_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "202 awaiting_human" in runbook
+    assert "awaiting_human" in readme
+    assert "compiled human review runtime ok" in smoke_api
+    assert "awaiting_human|poll_or_subscribe|True|" in smoke_api
+    assert "test_rewrite_compiled_human_review_branch_pauses_and_resumes" in smoke_runtime
+    assert "human_task_step_started" in smoke_runtime
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "runtime_human_task_step_execution"
+    )
+    assert capability["status"] == "tested"
+
+
 def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

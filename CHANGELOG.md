@@ -10,6 +10,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.
 - Planner output can now project a first-class `human_task` review branch (`step_human_review`) from task-contract metadata via `budget_policy_json.human_review_role`.
+- Rewrite execution now auto-runs compiled `step_human_review` nodes into real human task packets, pauses with `202 awaiting_human`, and resumes the queue after the packet is returned.
 - Rewrite tool-call execution now flows through a registry-backed `ToolExecutionService`, and `artifact_repository` receipts expose a normalized `tool.v1` invocation contract.
 - The built-in `connector.dispatch` handler now executes through the shared tool plane and `POST /v1/tools/execute` can enqueue delivery outbox rows with normalized `tool.v1` receipt metadata.
 - `connector.dispatch` now requires an enabled connector binding owned by the request principal before the shared tool plane will queue delivery.

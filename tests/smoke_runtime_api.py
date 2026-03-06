@@ -684,6 +684,77 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     assert rewrite.json()["next_action"] == "poll_or_subscribe"
 
 
+def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
+    client = _client(storage_backend="memory")
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "rewrite_text",
+            "deliverable_type": "rewrite_note",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "human_review_role": "communications_reviewer",
+                "human_review_task_type": "communications_review",
+                "human_review_brief": "Review the rewrite before finalizing it.",
+            },
+        },
+    )
+    assert contract.status_code == 200
+
+    create = client.post("/v1/rewrite/artifact", json={"text": "rewrite with human review"})
+    assert create.status_code == 202
+    assert create.json()["status"] == "awaiting_human"
+    assert create.json()["human_task_id"]
+    assert create.json()["approval_id"] == ""
+    session_id = create.json()["session_id"]
+    human_task_id = create.json()["human_task_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    body = session.json()
+    assert body["status"] == "awaiting_human"
+    assert len(body["steps"]) == 4
+    assert body["steps"][2]["input_json"]["plan_step_key"] == "step_human_review"
+    assert body["steps"][2]["state"] == "waiting_human"
+    assert body["steps"][3]["state"] == "queued"
+    assert len(body["queue_items"]) == 3
+    assert all(item["state"] == "done" for item in body["queue_items"])
+    assert any(row["human_task_id"] == human_task_id and row["status"] == "pending" for row in body["human_tasks"])
+
+    returned = client.post(
+        f"/v1/human/tasks/{human_task_id}/return",
+        json={
+            "operator_id": "reviewer-1",
+            "resolution": "ready_for_send",
+            "returned_payload_json": {"final_text": "rewrite with human review"},
+            "provenance_json": {"review_mode": "human"},
+        },
+    )
+    assert returned.status_code == 200
+    assert returned.json()["status"] == "returned"
+
+    session_after = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session_after.status_code == 200
+    body_after = session_after.json()
+    event_names = [row["name"] for row in body_after["events"]]
+    assert body_after["status"] == "completed"
+    assert "human_task_step_started" in event_names
+    assert "human_task_created" in event_names
+    assert "human_task_returned" in event_names
+    assert "session_resumed_from_human_task" in event_names
+    assert "tool_execution_completed" in event_names
+    assert len(body_after["queue_items"]) == 4
+    assert all(item["state"] == "done" for item in body_after["queue_items"])
+    assert len(body_after["artifacts"]) == 1
+    assert body_after["steps"][2]["state"] == "completed"
+    assert body_after["steps"][3]["state"] == "completed"
+
+
 def test_memory_candidate_promotion_flow() -> None:
     client = _client(storage_backend="memory")
 

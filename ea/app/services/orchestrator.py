@@ -51,6 +51,14 @@ class ExecutionSessionSnapshot:
     human_tasks: list[HumanTask]
 
 
+class HumanTaskRequiredError(RuntimeError):
+    def __init__(self, *, session_id: str, human_task_id: str, status: str = "awaiting_human") -> None:
+        super().__init__(status)
+        self.session_id = session_id
+        self.human_task_id = human_task_id
+        self.status = status
+
+
 class RewriteOrchestrator:
     def __init__(
         self,
@@ -214,6 +222,39 @@ class RewriteOrchestrator:
             },
         )
 
+    def _start_human_task_step(self, session_id: str, rewrite_step: ExecutionStep) -> HumanTask:
+        session = self._ledger.get_session(session_id)
+        if session is None:
+            raise RuntimeError(f"session missing for human-task step: {session_id}")
+        input_json = dict(rewrite_step.input_json or {})
+        row = self.create_human_task(
+            session_id=session_id,
+            step_id=rewrite_step.step_id,
+            principal_id=session.intent.principal_id,
+            task_type=str(input_json.get("task_type") or "communications_review"),
+            role_required=str(input_json.get("role_required") or "communications_reviewer"),
+            brief=str(input_json.get("brief") or "Review the prepared rewrite before finalizing the artifact."),
+            input_json={
+                "source_text": str(input_json.get("source_text") or ""),
+                "text_length": int(input_json.get("text_length") or 0),
+                "plan_id": str(input_json.get("plan_id") or ""),
+                "plan_step_key": str(input_json.get("plan_step_key") or ""),
+            },
+            desired_output_json={"format": str(input_json.get("expected_artifact") or "review_packet")},
+            resume_session_on_return=True,
+        )
+        self._ledger.append_event(
+            session_id,
+            "human_task_step_started",
+            {
+                "step_id": rewrite_step.step_id,
+                "human_task_id": row.human_task_id,
+                "task_type": row.task_type,
+                "role_required": row.role_required,
+            },
+        )
+        return row
+
     def _complete_tool_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
         input_json = dict(rewrite_step.input_json or {})
         tool_name = str(input_json.get("tool_name") or "artifact_repository") or "artifact_repository"
@@ -292,6 +333,9 @@ class RewriteOrchestrator:
             return None
         if plan_step_key == "step_policy_evaluate" or rewrite_step.step_kind == "policy_check":
             self._complete_policy_evaluate_step(session_id, rewrite_step)
+            return None
+        if plan_step_key == "step_human_review" or rewrite_step.step_kind == "human_task":
+            self._start_human_task_step(session_id, rewrite_step)
             return None
         if rewrite_step.step_kind == "tool_call":
             return self._complete_tool_step(session_id, rewrite_step)
@@ -373,12 +417,15 @@ class RewriteOrchestrator:
                 {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id, "reason": "execution_failed"},
             )
             raise
+        refreshed_step = self._ledger.get_step(queue_item.step_id)
         self._ledger.complete_queue_item(queue_item.queue_id, state="done")
         self._ledger.append_event(
             queue_item.session_id,
             "queue_item_completed",
             {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id},
         )
+        if refreshed_step is not None and refreshed_step.state == "waiting_human":
+            return None
         next_artifact = self._queue_next_step_after(
             queue_item.session_id,
             running_step.step_id,
@@ -504,6 +551,9 @@ class RewriteOrchestrator:
                         "depends_on": list(plan_step.depends_on),
                         "input_keys": list(plan_step.input_keys),
                         "output_keys": list(plan_step.output_keys),
+                        "task_type": plan_step.task_type,
+                        "role_required": plan_step.role_required,
+                        "brief": plan_step.brief,
                         "step_index": index,
                         "step_count": len(plan_steps),
                     },
@@ -593,6 +643,14 @@ class RewriteOrchestrator:
         queue_item = self._enqueue_rewrite_step(session.session_id, rewrite_step.step_id)
         artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
         if artifact is None:
+            snapshot = self.fetch_session(session.session_id)
+            if snapshot is not None and snapshot.session.status == "awaiting_human":
+                human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
+                raise HumanTaskRequiredError(
+                    session_id=session.session_id,
+                    human_task_id=human_task_id,
+                    status=snapshot.session.status,
+                )
             raise RuntimeError(f"queued rewrite did not execute: {queue_item.queue_id}")
         return artifact
 
@@ -883,6 +941,9 @@ class RewriteOrchestrator:
                 queue_item = self._enqueue_rewrite_step(request.session_id, updated_step.step_id)
                 artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
                 if artifact is None:
+                    snapshot = self.fetch_session(request.session_id)
+                    if snapshot is not None and snapshot.session.status == "awaiting_human":
+                        return request, decision_row
                     raise RuntimeError(f"approved queue item did not execute: {queue_item.queue_id}")
         else:
             self._ledger.update_step(

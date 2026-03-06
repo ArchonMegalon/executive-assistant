@@ -514,6 +514,36 @@ if [[ "${REVIEW_PLAN_FIELDS}" != "4|human_task|communications_reviewer|step_huma
 fi
 echo "plans ok"
 
+echo "== smoke: compiled human review runtime =="
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","human_review_role":"communications_reviewer","human_review_task_type":"communications_review","human_review_brief":"Review the rewrite before finalizing it."}}' >/dev/null
+HUMAN_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"rewrite with human review"}')"
+HUMAN_REWRITE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), body.get("next_action",""), bool(body.get("human_task_id","")), body.get("approval_id","")))' <<<"${HUMAN_REWRITE_JSON}")"
+if [[ "${HUMAN_REWRITE_FIELDS}" != "awaiting_human|poll_or_subscribe|True|" ]]; then
+  echo "expected awaiting_human rewrite acceptance contract with human_task_id; got ${HUMAN_REWRITE_FIELDS}" >&2
+  echo "${HUMAN_REWRITE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+HUMAN_REWRITE_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
+HUMAN_REWRITE_TASK_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${HUMAN_REWRITE_JSON}")"
+HUMAN_REWRITE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(steps) == 4, len(queues) == 3 and all((q or {}).get('state','') == 'done' for q in queues), any((row or {}).get('human_task_id') == '${HUMAN_REWRITE_TASK_ID}' and (row or {}).get('status') == 'pending' for row in tasks), any((row or {}).get('step_id') and (row or {}).get('input_json',{}).get('plan_step_key') == 'step_human_review' and (row or {}).get('state') == 'waiting_human' for row in steps)))" <<<"${HUMAN_REWRITE_SESSION_JSON}")"
+if [[ "${HUMAN_REWRITE_SESSION_FIELDS}" != "awaiting_human|True|True|True|True" ]]; then
+  echo "expected awaiting_human session with queued human review step; got ${HUMAN_REWRITE_SESSION_FIELDS}" >&2
+  echo "${HUMAN_REWRITE_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/human/tasks/${HUMAN_REWRITE_TASK_ID}/return" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"operator_id":"reviewer-1","resolution":"ready_for_send","returned_payload_json":{"final_text":"rewrite with human review"},"provenance_json":{"review_mode":"human"}}' >/dev/null
+HUMAN_REWRITE_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}")"
+HUMAN_REWRITE_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; print('{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, 'human_task_step_started' in events, 'session_resumed_from_human_task' in events, len(queues) == 4 and all((q or {}).get('state','') == 'done' for q in queues), len(steps) == 4 and all((row or {}).get('state') == 'completed' for row in steps)))" <<<"${HUMAN_REWRITE_DONE_JSON}")"
+if [[ "${HUMAN_REWRITE_DONE_FIELDS}" != "completed|True|True|True|True|True" ]]; then
+  echo "expected resumed human-review rewrite to complete with artifact and fully drained queue; got ${HUMAN_REWRITE_DONE_FIELDS}" >&2
+  echo "${HUMAN_REWRITE_DONE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "compiled human review runtime ok"
+
 echo "== smoke: memory =="
 MEMORY_CANDIDATE_JSON="$(curl -fsS -X POST "${BASE}/v1/memory/candidates" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \

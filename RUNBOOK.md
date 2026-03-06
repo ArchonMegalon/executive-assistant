@@ -13,7 +13,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/health/live` | `200` | n/a |
 | GET | `/health/ready` | `200` | `503 not_ready:*` |
 | GET | `/version` | `200` | n/a |
-| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval` | `400 text is required`, `403 policy_denied:*` (including `tool_not_allowed`) |
+| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human` | `400 text is required`, `403 policy_denied:*` (including `tool_not_allowed`) |
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found` |
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found` |
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found` |
@@ -116,7 +116,7 @@ Policy notes:
 - Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers.
 - The current rewrite scaffold now executes as three explicit queued steps: `step_input_prepare`, `step_policy_evaluate`, and `step_artifact_save`.
 - `POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys` so plan projections show the same dependency graph the rewrite runtime now executes.
-- Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`; this is planner-visible first, with runtime execution still queued as follow-up work.
+- Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`, and the rewrite runtime now auto-creates the linked human task packet when that step executes.
 - Tool-call steps now flow through a registry-backed `ToolExecutionService`; the built-in `artifact_repository` handler emits normalized `tool.v1` receipt metadata and `tool_execution_completed` events.
 - `POST /v1/tools/execute` now exposes the same execution plane directly for built-in handlers; `connector.dispatch` queues a delivery outbox row and returns normalized `tool.v1` receipt metadata.
 - `connector.dispatch` execution now requires a real enabled connector binding in the caller's principal scope; foreign-principal or missing bindings fail before any outbox row is queued.

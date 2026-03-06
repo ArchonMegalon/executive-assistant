@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.api.dependencies import get_container
 from app.container import AppContainer
 from app.domain.models import RewriteRequest
+from app.services.orchestrator import HumanTaskRequiredError
 from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 
 router = APIRouter(prefix="/v1/rewrite", tags=["rewrite"])
@@ -25,7 +26,8 @@ class RewriteOut(BaseModel):
 
 class RewriteAcceptedOut(BaseModel):
     session_id: str
-    approval_id: str
+    approval_id: str = ""
+    human_task_id: str = ""
     status: str
     next_action: str
 
@@ -149,6 +151,16 @@ def create_artifact(
             content=RewriteAcceptedOut(
                 session_id=exc.session_id,
                 approval_id=exc.approval_id,
+                status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except HumanTaskRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content=RewriteAcceptedOut(
+                session_id=exc.session_id,
+                human_task_id=exc.human_task_id,
                 status=exc.status,
                 next_action="poll_or_subscribe",
             ).model_dump(),
