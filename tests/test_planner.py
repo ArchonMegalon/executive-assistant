@@ -50,6 +50,7 @@ def test_planner_can_compile_human_review_branch_from_task_contract_metadata() -
             "human_review_brief": "Review the rewrite before finalizing it.",
             "human_review_priority": "high",
             "human_review_sla_minutes": 45,
+            "human_review_auto_assign_if_unique": True,
             "human_review_desired_output_json": {
                 "format": "review_packet",
                 "escalation_policy": "manager_review",
@@ -72,6 +73,7 @@ def test_planner_can_compile_human_review_branch_from_task_contract_metadata() -
     assert plan.steps[2].role_required == "communications_reviewer"
     assert plan.steps[2].priority == "high"
     assert plan.steps[2].sla_minutes == 45
+    assert plan.steps[2].auto_assign_if_unique is True
     assert plan.steps[2].desired_output_json["escalation_policy"] == "manager_review"
     assert plan.steps[2].authority_required == "send_on_behalf_review"
     assert plan.steps[2].why_human == "Executive-facing rewrite needs human judgment before finalization."

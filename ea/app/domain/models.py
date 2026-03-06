@@ -417,6 +417,7 @@ class PlanStepSpec:
     brief: str = ""
     priority: str = ""
     sla_minutes: int = 0
+    auto_assign_if_unique: bool = False
     desired_output_json: dict[str, Any] = field(default_factory=dict)
     authority_required: str = ""
     why_human: str = ""

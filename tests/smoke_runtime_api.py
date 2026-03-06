@@ -722,6 +722,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
                 "human_review_brief": "Review the rewrite before finalizing it.",
                 "human_review_priority": "high",
                 "human_review_sla_minutes": 45,
+                "human_review_auto_assign_if_unique": True,
                 "human_review_desired_output_json": {
                     "format": "review_packet",
                     "escalation_policy": "manager_review",
@@ -748,6 +749,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
     assert compiled_review.json()["plan"]["steps"][2]["role_required"] == "communications_reviewer"
     assert compiled_review.json()["plan"]["steps"][2]["priority"] == "high"
     assert compiled_review.json()["plan"]["steps"][2]["sla_minutes"] == 45
+    assert compiled_review.json()["plan"]["steps"][2]["auto_assign_if_unique"] is True
     assert compiled_review.json()["plan"]["steps"][2]["desired_output_json"]["escalation_policy"] == "manager_review"
     assert compiled_review.json()["plan"]["steps"][2]["authority_required"] == "send_on_behalf_review"
     assert (
@@ -780,6 +782,7 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
                 "human_review_brief": "Review the rewrite before finalizing it.",
                 "human_review_priority": "high",
                 "human_review_sla_minutes": 45,
+                "human_review_auto_assign_if_unique": True,
                 "human_review_desired_output_json": {
                     "format": "review_packet",
                     "escalation_policy": "manager_review",
@@ -845,8 +848,10 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert review_task["authority_required"] == "send_on_behalf_review"
     assert review_task["why_human"] == "Executive-facing rewrite needs human judgment before finalization."
     assert review_task["quality_rubric_json"]["checks"][0] == "tone"
+    assert review_task["assignment_state"] == "assigned"
+    assert review_task["assigned_operator_id"] == "operator-specialist"
     assert review_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
-    assert review_task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
+    assert review_task["routing_hints_json"]["auto_assign_operator_id"] == ""
     assert review_task["routing_hints_json"]["candidate_count"] == 1
 
     reviewed_text = "rewrite with human review, edited by reviewer"

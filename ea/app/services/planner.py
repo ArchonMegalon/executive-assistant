@@ -14,6 +14,17 @@ def _policy_int(value: object, default: int = 0) -> int:
     return parsed if parsed >= 0 else default
 
 
+def _policy_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 class PlannerService:
     def __init__(self, task_contracts: TaskContractService) -> None:
         self._task_contracts = task_contracts
@@ -30,6 +41,10 @@ class PlannerService:
         ).strip()
         human_review_priority = str(contract.budget_policy_json.get("human_review_priority") or "normal").strip() or "normal"
         human_review_sla_minutes = _policy_int(contract.budget_policy_json.get("human_review_sla_minutes"), default=0)
+        human_review_auto_assign_if_unique = _policy_bool(
+            contract.budget_policy_json.get("human_review_auto_assign_if_unique"),
+            default=False,
+        )
         human_review_authority_required = str(
             contract.budget_policy_json.get("human_review_authority_required") or ""
         ).strip()
@@ -97,6 +112,7 @@ class PlannerService:
                     brief=human_review_brief,
                     priority=human_review_priority,
                     sla_minutes=human_review_sla_minutes,
+                    auto_assign_if_unique=human_review_auto_assign_if_unique,
                     desired_output_json=human_review_desired_output_json,
                     authority_required=human_review_authority_required,
                     why_human=human_review_why_human,

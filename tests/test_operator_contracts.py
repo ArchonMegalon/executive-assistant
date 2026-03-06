@@ -372,6 +372,30 @@ def test_human_task_recommended_assignment_action_is_documented_and_smoked() -> 
     assert "auto_assign_operator_id_consumption" in capability["scope"]
 
 
+def test_planner_human_task_auto_preselection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "human_review_auto_assign_if_unique" in readme
+    assert "human_review_auto_assign_if_unique" in runbook
+    assert "human_review_auto_assign_if_unique" in smoke_api
+    assert "assigned|operator-specialist" in smoke_api
+    assert "human_review_auto_assign_if_unique" in smoke_runtime
+    assert 'review_task["assignment_state"] == "assigned"' in smoke_runtime
+    assert 'review_task["assigned_operator_id"] == "operator-specialist"' in smoke_runtime
+    assert "human_review_auto_assign_if_unique" in planner_test
+    assert "auto_assign_if_unique is True" in planner_test
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_auto_preselection")
+    assert capability["status"] == "tested"
+    assert "plan_step_auto_assign_projection" in capability["scope"]
+    assert "runtime_human_task_auto_assignment" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")
@@ -549,7 +573,7 @@ def test_planner_human_review_operational_metadata_is_documented_and_smoked() ->
     assert "human_review_sla_minutes" in runbook
     assert "human_review_desired_output_json" in runbook
     assert "manager_review" in smoke_api
-    assert "high|45|manager_review" in smoke_api
+    assert "high|45|True|manager_review" in smoke_api
     assert 'review_task["priority"] == "high"' in smoke_runtime
     assert 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' in smoke_runtime
     assert "human_review_sla_minutes" in planner_test

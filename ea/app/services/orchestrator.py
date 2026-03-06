@@ -394,6 +394,16 @@ class RewriteOrchestrator:
             sla_due_at=sla_due_at or None,
             resume_session_on_return=True,
         )
+        if bool(input_json.get("auto_assign_if_unique")):
+            auto_assign_operator_id = str((row.routing_hints_json or {}).get("auto_assign_operator_id") or "").strip()
+            if auto_assign_operator_id:
+                updated = self.assign_human_task(
+                    row.human_task_id,
+                    principal_id=session.intent.principal_id,
+                    operator_id=auto_assign_operator_id,
+                )
+                if updated is not None:
+                    row = updated
         self._ledger.append_event(
             session_id,
             "human_task_step_started",
@@ -405,6 +415,8 @@ class RewriteOrchestrator:
                 "authority_required": row.authority_required,
                 "priority": row.priority,
                 "sla_due_at": row.sla_due_at or "",
+                "assignment_state": row.assignment_state,
+                "assigned_operator_id": row.assigned_operator_id,
             },
         )
         return self._decorate_human_task(row)
@@ -719,6 +731,7 @@ class RewriteOrchestrator:
                         "brief": plan_step.brief,
                         "priority": plan_step.priority,
                         "sla_minutes": plan_step.sla_minutes,
+                        "auto_assign_if_unique": plan_step.auto_assign_if_unique,
                         "desired_output_json": dict(plan_step.desired_output_json),
                         "authority_required": plan_step.authority_required,
                         "why_human": plan_step.why_human,

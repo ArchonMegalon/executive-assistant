@@ -49,6 +49,7 @@ class PlanStepOut(BaseModel):
     brief: str
     priority: str
     sla_minutes: int
+    auto_assign_if_unique: bool
     desired_output_json: dict[str, object]
     authority_required: str
     why_human: str
@@ -118,6 +119,7 @@ def compile_plan(
                     brief=s.brief,
                     priority=s.priority,
                     sla_minutes=s.sla_minutes,
+                    auto_assign_if_unique=s.auto_assign_if_unique,
                     desired_output_json=dict(s.desired_output_json),
                     authority_required=s.authority_required,
                     why_human=s.why_human,

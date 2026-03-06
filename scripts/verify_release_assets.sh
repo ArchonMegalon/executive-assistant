@@ -993,7 +993,7 @@ then
      grep -Fq "human_review_sla_minutes" "RUNBOOK.md" && \
      grep -Fq "human_review_desired_output_json" "RUNBOOK.md" && \
      grep -Fq "manager_review" "scripts/smoke_api.sh" && \
-     grep -Fq "high|45|manager_review" "scripts/smoke_api.sh" && \
+     grep -Fq "high|45|True|manager_review" "scripts/smoke_api.sh" && \
      grep -Fq 'review_task["priority"] == "high"' "tests/smoke_runtime_api.py" && \
      grep -Fq 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' "tests/smoke_runtime_api.py" && \
      grep -Fq "human_review_sla_minutes" "tests/test_planner.py" && \
@@ -1319,6 +1319,36 @@ then
   fi
 else
   echo "missing: human task recommended assignment action milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_auto_preselection")
+assert capability["status"] == "tested"
+assert "plan_step_auto_assign_projection" in capability["scope"]
+assert "runtime_human_task_auto_assignment" in capability["scope"]
+PY
+then
+  if grep -Fq "human_review_auto_assign_if_unique" "README.md" && \
+     grep -Fq "human_review_auto_assign_if_unique" "RUNBOOK.md" && \
+     grep -Fq "human_review_auto_assign_if_unique" "scripts/smoke_api.sh" && \
+     grep -Fq "assigned|operator-specialist" "scripts/smoke_api.sh" && \
+     grep -Fq "human_review_auto_assign_if_unique" "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_task["assignment_state"] == "assigned"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_task["assigned_operator_id"] == "operator-specialist"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "human_review_auto_assign_if_unique" "tests/test_planner.py" && \
+     grep -Fq "auto_assign_if_unique is True" "tests/test_planner.py"; then
+    echo "ok: planner human task auto-preselection docs"
+  else
+    echo "missing: planner human task auto-preselection docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: planner human task auto-preselection milestone" >&2
   missing=1
 fi
 

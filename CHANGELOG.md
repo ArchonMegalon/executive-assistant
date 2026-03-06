@@ -22,6 +22,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Added durable operator profiles plus `operator_id`-scoped backlog matching so the human-task queue can route by reviewer role, rubric-derived skill tags, and trust tier instead of only raw role labels.
 - Human task and session projections now compute `routing_hints_json` so specialized reviewers can be suggested or preselected directly on each packet, including `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id` when a single exact reviewer match exists.
 - `POST /v1/human/tasks/{human_task_id}/assign` can now consume `auto_assign_operator_id` directly when the caller omits `operator_id`, so a preselected reviewer can be assigned without re-sending the same operator choice from the client.
+- Planner-native `step_human_review` branches can now opt into `human_review_auto_assign_if_unique`, and the queue runtime pre-assigns a single exact reviewer match before the packet lands in the human backlog.
 - Human task queue listings now support `role_required`, `assigned_operator_id`, and `overdue_only` filters for operator-targeted backlogs.
 - Added direct `/v1/human/tasks/backlog` and `/v1/human/tasks/mine` endpoints so operators can pull pending and assigned queues without reconstructing filter sets manually.
 - Added `POST /v1/human/tasks/{human_task_id}/assign` so operator ownership can be set while a task remains pending, before `claim` transitions it into active work.
