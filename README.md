@@ -77,6 +77,7 @@ Removed:
 - `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none` now matches that same ownerless alias contract in the direct backlog view, so operator queues and unassigned-only views stay aligned
 - `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc` now has explicit FIFO smoke coverage, so oldest-first ownerless backlog slices stay predictable for operator triage
 - `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc` now has explicit untouched-ownerless coverage too, so newest ownerless packets surface first when triage switches to freshest-ownership ordering
+- `GET /v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc` now mirrors that newest-first ordering on the dedicated unassigned queue, keeping backlog and unassigned-only triage aligned
 - `GET /v1/human/tasks?session_id=<id>&assignment_source=<source>` now also opens those same ownership-source slices inside one session, so session-local manual or planner-preselected review queues do not require client-side filtering
 - `GET /v1/human/tasks/priority-summary` now exposes queue counts by priority band so operators can decide whether to pull `urgent`, `urgent,high`, or the full backlog before opening a reviewer queue
 - `GET /v1/human/tasks/priority-summary` also accepts `assigned_operator_id` so assigned reviewer queues can expose their own priority-band load instead of only the global pending backlog

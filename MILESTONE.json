@@ -703,6 +703,15 @@
       "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=last_transition_desc`, preserving newest-first triage order even when every row only carries the initial creation transition."
     },
     {
+      "name": "human_task_ownerless_unassigned_last_transition_sort",
+      "status": "tested",
+      "scope": [
+        "ownerless_unassigned_last_transition_desc_ordering",
+        "ownerless_unassigned_backlog_sort_alignment"
+      ],
+      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=last_transition_desc`, keeping its newest-first ordering aligned with the backlog slice."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [
