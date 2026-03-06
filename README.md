@@ -74,6 +74,7 @@ Removed:
 - human task queue views now also accept `priority=<level>` filters so list, backlog, unassigned, and mine views can isolate `urgent`, `high`, `normal`, or `low` work before sorting, and comma-separated values like `priority=urgent,high` pull multiple priority bands in one request
 - human task queue views now also accept `assignment_source=<source>` so list, backlog, and mine queues can open the same manual, recommended, or planner `auto_preselected` pending slices exposed by the priority summary endpoint
 - `GET /v1/human/tasks/unassigned?assignment_source=none` now isolates ownerless pending packets without requiring clients to filter for empty-string ownership sources after fetch
+- `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none` now matches that same ownerless alias contract in the direct backlog view, so operator queues and unassigned-only views stay aligned
 - `GET /v1/human/tasks?session_id=<id>&assignment_source=<source>` now also opens those same ownership-source slices inside one session, so session-local manual or planner-preselected review queues do not require client-side filtering
 - `GET /v1/human/tasks/priority-summary` now exposes queue counts by priority band so operators can decide whether to pull `urgent`, `urgent,high`, or the full backlog before opening a reviewer queue
 - `GET /v1/human/tasks/priority-summary` also accepts `assigned_operator_id` so assigned reviewer queues can expose their own priority-band load instead of only the global pending backlog

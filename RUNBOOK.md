@@ -133,6 +133,7 @@ Policy notes:
 - Operator queue views can also pass comma-separated filters like `priority=urgent,high` to pull a combined action queue without client-side set merging.
 - Operator queue views can also pass `assignment_source=manual|recommended|auto_preselected` to open just one pending ownership slice instead of filtering manual or planner-preselected rows client-side after fetch.
 - `GET /v1/human/tasks/unassigned?assignment_source=none` isolates ownerless pending packets directly, so UIs do not need empty-string query conventions to open the unassigned-only backlog.
+- `GET /v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none` exposes that same ownerless slice through the general pending backlog endpoint, so direct backlog and unassigned-only queues share one contract.
 - `GET /v1/human/tasks?session_id=<id>&assignment_source=<source>` applies that same ownership-source filtering inside one session-scoped queue fetch, so operators can inspect only the manual or planner-preselected packets linked to a single execution thread.
 - `GET /v1/human/tasks/priority-summary` returns queue counts per priority band (`urgent`, `high`, `normal`, `low`) plus `total` and `highest_priority`, so operators can choose the right priority filter before opening a backlog view.
 - `GET /v1/human/tasks/priority-summary?assigned_operator_id=<id>` scopes those priority-band counts down to one assigned reviewer queue, so “mine” views can expose their own urgent/high load without fetching the full packet list first.

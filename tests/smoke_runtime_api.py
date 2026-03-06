@@ -1603,6 +1603,16 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
     assert manual_task_id not in ownerless_unassigned_ids
     assert auto_task_id not in ownerless_unassigned_ids
 
+    ownerless_backlog = client.get(
+        "/v1/human/tasks/backlog",
+        params={"assignment_state": "unassigned", "assignment_source": "none"},
+    )
+    assert ownerless_backlog.status_code == 200
+    ownerless_backlog_ids = {row["human_task_id"] for row in ownerless_backlog.json()}
+    assert ownerless_task_id in ownerless_backlog_ids
+    assert manual_task_id not in ownerless_backlog_ids
+    assert auto_task_id not in ownerless_backlog_ids
+
     ownerless_session = client.get(
         f"/v1/rewrite/sessions/{session_id}",
         params={"human_task_assignment_source": "none"},

@@ -676,6 +676,15 @@
       "notes": "Task assignment-history and session detail filters now accept `assignment_source=none`, so ownerless creation-only transitions and current ownerless packets use the same alias contract as the direct queue views."
     },
     {
+      "name": "human_task_ownerless_backlog_alias",
+      "status": "tested",
+      "scope": [
+        "human_task_backlog_ownerless_source_alias",
+        "ownerless_backlog_unassigned_slice_alignment"
+      ],
+      "notes": "The direct pending backlog now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none`, keeping the general backlog and unassigned-only view aligned on ownerless queue slices."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [

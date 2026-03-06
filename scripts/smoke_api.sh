@@ -220,6 +220,13 @@ if [[ "${HUMAN_UNASSIGNED_NONE_FIELDS}" != "True|True" ]]; then
   echo "${HUMAN_UNASSIGNED_NONE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+HUMAN_OWNERLESS_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_OWNERLESS_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted='${HUMAN_OWNERLESS_ID}'; blocked='${HUMAN_TASK_ID}'; print('{}|{}'.format(any((row or {}).get('human_task_id') == wanted for row in rows), all((row or {}).get('human_task_id') != blocked for row in rows)))" <<<"${HUMAN_OWNERLESS_BACKLOG_JSON}")"
+if [[ "${HUMAN_OWNERLESS_BACKLOG_FIELDS}" != "True|True" ]]; then
+  echo "expected assignment_source=none backlog queue to isolate ownerless pending work; got ${HUMAN_OWNERLESS_BACKLOG_FIELDS}" >&2
+  echo "${HUMAN_OWNERLESS_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 SESSION_HUMAN_NONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SESSION_ID}?human_task_assignment_source=none" "${AUTH_ARGS[@]}")"
 SESSION_HUMAN_NONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); tasks=body.get('human_tasks') or []; history=body.get('human_task_assignment_history') or []; wanted='${HUMAN_OWNERLESS_ID}'; print('{}|{}|{}|{}|{}'.format(len(tasks), (tasks[0].get('human_task_id','') if tasks else ''), all((row or {}).get('assignment_source','') == '' for row in history), all((row or {}).get('event_name','') == 'human_task_created' for row in history), any((row or {}).get('human_task_id','') == wanted for row in history)))" <<<"${SESSION_HUMAN_NONE_JSON}")"
 if [[ "${SESSION_HUMAN_NONE_FIELDS}" != "1|${HUMAN_OWNERLESS_ID}|True|True|True" ]]; then
