@@ -976,6 +976,32 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'direct execution proof records' "README.md" && \
+     grep -Fq 'originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
+     grep -Fq 'fetch receipt (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'fetch run cost (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
+     grep -Fq 'TASK_EXECUTE_RECEIPT_JSON' "scripts/smoke_api.sh" && \
+     grep -Fq 'TASK_EXECUTE_COST_JSON' "scripts/smoke_api.sh" && \
+     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py"; then
+    echo "ok: proof lookup task identity projection docs"
+  else
+    echo "missing: proof lookup task identity projection docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: proof lookup task identity projection milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
 assert capability["status"] == "tested"
 PY

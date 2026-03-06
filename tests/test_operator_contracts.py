@@ -1567,6 +1567,27 @@ def test_artifact_lookup_task_identity_projection_is_documented_and_smoked() -> 
     assert capability["status"] == "tested"
 
 
+def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "direct execution proof records" in readme
+    assert "originating `task_key`/`deliverable_type`" in runbook
+    assert "fetch receipt (includes originating task_key and deliverable_type)" in http_examples
+    assert "fetch run cost (includes originating task_key and deliverable_type)" in http_examples
+    assert "TASK_EXECUTE_RECEIPT_JSON" in smoke_api
+    assert "TASK_EXECUTE_COST_JSON" in smoke_api
+    assert 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    assert 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
+    assert capability["status"] == "tested"
+
+
 def test_dependency_aware_execution_scheduler_is_documented_and_tested() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

@@ -15,8 +15,8 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/version` | `200` | n/a |
 | POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human` | `400 text is required`, `403 principal_scope_mismatch`, `403 policy_denied:*` (including `tool_not_allowed`) |
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found`, `403 principal_scope_mismatch` (returns artifact content plus originating `task_key`/`deliverable_type`) |
-| GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found`, `403 principal_scope_mismatch` |
-| GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found`, `403 principal_scope_mismatch` |
+| GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found`, `403 principal_scope_mismatch` (returns proof metadata plus originating `task_key`/`deliverable_type`) |
+| GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found`, `403 principal_scope_mismatch` (returns cost metadata plus originating `task_key`/`deliverable_type`) |
 | GET | `/v1/rewrite/sessions/{session_id}` | `200` | `404 session not found`, `403 principal_scope_mismatch` (returns events + steps + queue items + receipts + artifacts + costs + human task packets, inline human task assignment history, `plan_compiled` event, computed reviewer routing hints, and supports `human_task_assignment_source`) |
 | POST | `/v1/human/tasks` | `200` | `400 step_id_required`, `404 session_not_found`, `404 step_not_found`, `403 principal_scope_mismatch` (supports `resume_session_on_return=true` to move a linked step into `waiting_human`) |
 | GET | `/v1/human/tasks/priority-summary` | `200` | validation `422`, `403 principal_scope_mismatch` (supports `status`, `role_required`, `operator_id`, `assigned_operator_id`, `assignment_state`, `assignment_source`, and `overdue_only`) |

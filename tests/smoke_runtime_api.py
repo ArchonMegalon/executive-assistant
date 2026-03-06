@@ -107,11 +107,15 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert fetched_receipt.json()["target_ref"] == artifact_id
     assert fetched_receipt.json()["receipt_json"]["handler_key"] == "artifact_repository"
     assert fetched_receipt.json()["receipt_json"]["invocation_contract"] == "tool.v1"
+    assert fetched_receipt.json()["task_key"] == "rewrite_text"
+    assert fetched_receipt.json()["deliverable_type"] == "rewrite_note"
 
     fetched_cost = client.get(f"/v1/rewrite/run-costs/{cost_id}")
     assert fetched_cost.status_code == 200
     assert fetched_cost.json()["cost_id"] == cost_id
     assert fetched_cost.json()["model_name"] == "none"
+    assert fetched_cost.json()["task_key"] == "rewrite_text"
+    assert fetched_cost.json()["deliverable_type"] == "rewrite_note"
 
     policy = client.get("/v1/policy/decisions/recent", params={"session_id": session_id, "limit": 5})
     assert policy.status_code == 200
@@ -2637,6 +2641,16 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert fetched_artifact.status_code == 200
     assert fetched_artifact.json()["task_key"] == "stakeholder_briefing"
     assert fetched_artifact.json()["deliverable_type"] == "stakeholder_briefing"
+
+    fetched_receipt = client.get(f"/v1/rewrite/receipts/{session_body['receipts'][0]['receipt_id']}")
+    assert fetched_receipt.status_code == 200
+    assert fetched_receipt.json()["task_key"] == "stakeholder_briefing"
+    assert fetched_receipt.json()["deliverable_type"] == "stakeholder_briefing"
+
+    fetched_cost = client.get(f"/v1/rewrite/run-costs/{session_body['run_costs'][0]['cost_id']}")
+    assert fetched_cost.status_code == 200
+    assert fetched_cost.json()["task_key"] == "stakeholder_briefing"
+    assert fetched_cost.json()["deliverable_type"] == "stakeholder_briefing"
 
     mismatch = client.post(
         "/v1/plans/execute",

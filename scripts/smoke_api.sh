@@ -1358,11 +1358,27 @@ if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stak
   echo "${TASK_EXECUTE_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+TASK_EXECUTE_RECEIPT_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); rows=body.get('receipts') or []; print((rows[0] or {}).get('receipt_id','') if rows else '')" <<<"${TASK_EXECUTE_SESSION_JSON}")"
+TASK_EXECUTE_COST_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); rows=body.get('run_costs') or []; print((rows[0] or {}).get('cost_id','') if rows else '')" <<<"${TASK_EXECUTE_SESSION_JSON}")"
 TASK_EXECUTE_ARTIFACT_JSON="$(curl -fsS "${BASE}/v1/rewrite/artifacts/${TASK_EXECUTE_ARTIFACT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 TASK_EXECUTE_ARTIFACT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), body.get('deliverable_type',''), body.get('execution_session_id','')))" <<<"${TASK_EXECUTE_ARTIFACT_JSON}")"
 if [[ "${TASK_EXECUTE_ARTIFACT_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|${TASK_EXECUTE_SESSION_ID}" ]]; then
   echo "expected direct artifact lookup to project generic task identity and deliverable context; got ${TASK_EXECUTE_ARTIFACT_FIELDS}" >&2
   echo "${TASK_EXECUTE_ARTIFACT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+TASK_EXECUTE_RECEIPT_JSON="$(curl -fsS "${BASE}/v1/rewrite/receipts/${TASK_EXECUTE_RECEIPT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+TASK_EXECUTE_RECEIPT_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('tool_name',''), body.get('target_ref','')))" <<<"${TASK_EXECUTE_RECEIPT_JSON}")"
+if [[ "${TASK_EXECUTE_RECEIPT_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|artifact_repository|${TASK_EXECUTE_ARTIFACT_ID}" ]]; then
+  echo "expected direct receipt lookup to project generic task identity and deliverable context; got ${TASK_EXECUTE_RECEIPT_FIELDS}" >&2
+  echo "${TASK_EXECUTE_RECEIPT_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+TASK_EXECUTE_COST_JSON="$(curl -fsS "${BASE}/v1/rewrite/run-costs/${TASK_EXECUTE_COST_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+TASK_EXECUTE_COST_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('model_name',''), body.get('tokens_in',''), body.get('tokens_out','')))" <<<"${TASK_EXECUTE_COST_JSON}")"
+if [[ "${TASK_EXECUTE_COST_FIELDS}" != "stakeholder_briefing|stakeholder_briefing|none|0|0" ]]; then
+  echo "expected direct run-cost lookup to project generic task identity and deliverable context; got ${TASK_EXECUTE_COST_FIELDS}" >&2
+  echo "${TASK_EXECUTE_COST_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 TASK_EXECUTE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_task_execute_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"

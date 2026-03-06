@@ -18,7 +18,7 @@ Removed:
 - `/health`, `/health/live`, `/health/ready`, `/version` provide liveness/readiness/version probes
 - `/v1/rewrite/artifact` creates an artifact and an execution session
 - `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store, including the originating task key and deliverable type for non-rewrite runs
-- `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion
+- `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion, including originating task identity for non-rewrite runs
 - `/v1/rewrite/sessions/{session_id}` exposes execution ledger detail (events, steps, queue items, receipts, artifacts, costs, human task packets, and human task assignment history)
 - `/v1/human/tasks*` manages principal-scoped human review/work packets linked back to execution sessions and steps
 - `/v1/human/tasks/operators*` manages principal-scoped operator profiles with role, skill-tag, and trust-tier metadata used for specialized backlog routing

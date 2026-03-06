@@ -69,6 +69,8 @@ class SessionReceiptOut(BaseModel):
     target_ref: str
     receipt_json: dict[str, object]
     created_at: str
+    task_key: str = ""
+    deliverable_type: str = ""
 
 
 class SessionArtifactOut(BaseModel):
@@ -99,6 +101,8 @@ class SessionRunCostOut(BaseModel):
     tokens_out: int
     cost_usd: float
     created_at: str
+    task_key: str = ""
+    deliverable_type: str = ""
 
 
 class SessionHumanTaskOut(BaseModel):
@@ -324,6 +328,8 @@ def get_session(
                 target_ref=r.target_ref,
                 receipt_json=r.receipt_json,
                 created_at=r.created_at,
+                task_key=session.intent.task_type,
+                deliverable_type=session.intent.deliverable_type,
             )
             for r in found.receipts
         ],
@@ -344,6 +350,8 @@ def get_session(
                 tokens_out=c.tokens_out,
                 cost_usd=c.cost_usd,
                 created_at=c.created_at,
+                task_key=session.intent.task_type,
+                deliverable_type=session.intent.deliverable_type,
             )
             for c in found.run_costs
         ],
@@ -433,6 +441,8 @@ def get_receipt(
         target_ref=found.target_ref,
         receipt_json=found.receipt_json,
         created_at=found.created_at,
+        task_key=session.session.intent.task_type,
+        deliverable_type=session.session.intent.deliverable_type,
     )
 
 
@@ -456,4 +466,6 @@ def get_run_cost(
         tokens_out=found.tokens_out,
         cost_usd=found.cost_usd,
         created_at=found.created_at,
+        task_key=session.session.intent.task_type,
+        deliverable_type=session.session.intent.deliverable_type,
     )

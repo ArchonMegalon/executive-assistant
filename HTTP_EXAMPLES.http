@@ -62,11 +62,11 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
 X-EA-Principal-ID: {{principal_id}}
 
-### Rewrite -> fetch receipt
+### Rewrite -> fetch receipt (includes originating task_key and deliverable_type)
 GET {{host}}/v1/rewrite/receipts/{{receipt_id}}
 X-EA-Principal-ID: {{principal_id}}
 
-### Rewrite -> fetch run cost
+### Rewrite -> fetch run cost (includes originating task_key and deliverable_type)
 GET {{host}}/v1/rewrite/run-costs/{{cost_id}}
 X-EA-Principal-ID: {{principal_id}}
 
