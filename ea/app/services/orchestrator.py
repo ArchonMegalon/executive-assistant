@@ -277,24 +277,35 @@ class RewriteOrchestrator:
                 reverse=True,
             )
         if sort_key == "sla_due_at_asc":
-            return sorted(
-                rows,
+            with_sla = sorted(
+                [row for row in rows if row.sla_due_at],
                 key=lambda row: (
-                    0 if row.sla_due_at else 1,
                     str(row.sla_due_at or ""),
-                    str(row.last_transition_at or ""),
                     str(row.created_at or ""),
                     str(row.human_task_id or ""),
                 ),
             )
-        if sort_key == "sla_due_at_asc_last_transition_desc":
-            return sorted(
-                self._sort_human_tasks(rows, sort="last_transition_desc"),
+            without_sla = sorted(
+                [row for row in rows if not row.sla_due_at],
                 key=lambda row: (
-                    0 if row.sla_due_at else 1,
-                    str(row.sla_due_at or ""),
+                    str(row.created_at or ""),
+                    str(row.human_task_id or ""),
                 ),
             )
+            return with_sla + without_sla
+        if sort_key == "sla_due_at_asc_last_transition_desc":
+            with_sla = sorted(
+                self._sort_human_tasks([row for row in rows if row.sla_due_at], sort="last_transition_desc"),
+                key=lambda row: str(row.sla_due_at or ""),
+            )
+            without_sla = sorted(
+                [row for row in rows if not row.sla_due_at],
+                key=lambda row: (
+                    str(row.created_at or ""),
+                    str(row.human_task_id or ""),
+                ),
+            )
+            return with_sla + without_sla
         return rows
 
     def _fallback_rewrite_intent(self) -> IntentSpecV3:

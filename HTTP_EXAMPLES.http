@@ -156,6 +156,10 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20
 X-EA-Principal-ID: {{principal_id}}
 
+### Human tasks -> general list sorted by earliest SLA, with no-SLA work falling back to oldest-created
+GET {{host}}/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
 ### Human tasks -> direct pending backlog
 GET {{host}}/v1/human/tasks/backlog?role_required=communications_reviewer&overdue_only=true&limit=20
 X-EA-Principal-ID: {{principal_id}}

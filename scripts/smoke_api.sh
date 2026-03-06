@@ -434,6 +434,56 @@ if [[ "${COMBINED_BACKLOG_FIELDS}" != "${COMBINED_TASK_RECENT_ID}|${COMBINED_TAS
 fi
 echo "human task combined sort ok"
 
+echo "== smoke: human task unscheduled fallback sort =="
+UNSCHED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"unscheduled fallback seed"}')"
+UNSCHED_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${UNSCHED_REWRITE_JSON}")"
+UNSCHED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${UNSCHED_SESSION_ID}" "${AUTH_ARGS[@]}")"
+UNSCHED_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${UNSCHED_SESSION_JSON}")"
+if [[ -z "${UNSCHED_STEP_ID}" ]]; then
+  fail 13 "missing unscheduled fallback step_id from session response"
+fi
+UNSCHED_DUE_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${UNSCHED_SESSION_ID}\",\"step_id\":\"${UNSCHED_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Scheduled task.\",\"sla_due_at\":\"2100-01-01T00:00:00+00:00\",\"resume_session_on_return\":false}")"
+UNSCHED_DUE_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${UNSCHED_DUE_JSON}")"
+UNSCHED_OLDER_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${UNSCHED_SESSION_ID}\",\"step_id\":\"${UNSCHED_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Older unscheduled task.\",\"resume_session_on_return\":false}")"
+UNSCHED_OLDER_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${UNSCHED_OLDER_JSON}")"
+UNSCHED_NEWER_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"session_id\":\"${UNSCHED_SESSION_ID}\",\"step_id\":\"${UNSCHED_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Newer unscheduled task.\",\"resume_session_on_return\":false}")"
+UNSCHED_NEWER_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${UNSCHED_NEWER_JSON}")"
+if [[ -z "${UNSCHED_DUE_ID}" || -z "${UNSCHED_OLDER_ID}" || -z "${UNSCHED_NEWER_ID}" ]]; then
+  fail 13 "missing human task ids from unscheduled fallback smoke setup"
+fi
+UNSCHED_ASSIGN_JSON="$(curl -fsS -X POST "${BASE}/v1/human/tasks/${UNSCHED_NEWER_ID}/assign" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"operator_id":"operator-sorter"}')"
+UNSCHED_ASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}".format(body.get("human_task_id",""), body.get("last_transition_event_name","")))' <<<"${UNSCHED_ASSIGN_JSON}")"
+if [[ "${UNSCHED_ASSIGN_FIELDS}" != "${UNSCHED_NEWER_ID}|human_task_assigned" ]]; then
+  echo "expected unscheduled fallback setup assignment to mark the newer no-SLA task as recently touched; got ${UNSCHED_ASSIGN_FIELDS}" >&2
+  echo "${UNSCHED_ASSIGN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+UNSCHED_SLA_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?status=pending&sort=sla_due_at_asc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+UNSCHED_SLA_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${UNSCHED_DUE_ID}','${UNSCHED_OLDER_ID}','${UNSCHED_NEWER_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:3]]; print('|'.join(ids))" <<<"${UNSCHED_SLA_LIST_JSON}")"
+if [[ "${UNSCHED_SLA_LIST_FIELDS}" != "${UNSCHED_DUE_ID}|${UNSCHED_OLDER_ID}|${UNSCHED_NEWER_ID}" ]]; then
+  echo "expected sort=sla_due_at_asc to keep unscheduled work in oldest-created order after scheduled work; got ${UNSCHED_SLA_LIST_FIELDS}" >&2
+  echo "${UNSCHED_SLA_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+UNSCHED_COMBINED_LIST_JSON="$(curl -fsS "${BASE}/v1/human/tasks?status=pending&sort=sla_due_at_asc_last_transition_desc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+UNSCHED_COMBINED_LIST_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${UNSCHED_DUE_ID}','${UNSCHED_OLDER_ID}','${UNSCHED_NEWER_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:3]]; print('|'.join(ids))" <<<"${UNSCHED_COMBINED_LIST_JSON}")"
+if [[ "${UNSCHED_COMBINED_LIST_FIELDS}" != "${UNSCHED_DUE_ID}|${UNSCHED_OLDER_ID}|${UNSCHED_NEWER_ID}" ]]; then
+  echo "expected combined sort to keep unscheduled work in oldest-created order after scheduled work; got ${UNSCHED_COMBINED_LIST_FIELDS}" >&2
+  echo "${UNSCHED_COMBINED_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+UNSCHED_COMBINED_BACKLOG_JSON="$(curl -fsS "${BASE}/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+UNSCHED_COMBINED_BACKLOG_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted=['${UNSCHED_DUE_ID}','${UNSCHED_OLDER_ID}','${UNSCHED_NEWER_ID}']; filtered=[row for row in rows if (row or {}).get('human_task_id') in wanted]; ids=[(row or {}).get('human_task_id','') for row in filtered[:3]]; print('|'.join(ids))" <<<"${UNSCHED_COMBINED_BACKLOG_JSON}")"
+if [[ "${UNSCHED_COMBINED_BACKLOG_FIELDS}" != "${UNSCHED_DUE_ID}|${UNSCHED_OLDER_ID}|${UNSCHED_NEWER_ID}" ]]; then
+  echo "expected combined backlog sort to keep unscheduled work in oldest-created order after scheduled work; got ${UNSCHED_COMBINED_BACKLOG_FIELDS}" >&2
+  echo "${UNSCHED_COMBINED_BACKLOG_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "human task unscheduled fallback sort ok"
+
 echo "== smoke: approval resume path =="
 if (( APPROVAL_THRESHOLD_CHARS >= MAX_REWRITE_CHARS )); then
   fail 12 "approval smoke misconfigured: threshold must be below max rewrite chars"

@@ -767,6 +767,106 @@ def test_human_task_sort_by_sla_then_last_transition() -> None:
     assert [row["human_task_id"] for row in backlog_rows[:3]] == [early_recent_id, early_stale_id, later_due_id]
 
 
+def test_human_task_unscheduled_fallback_sorting_for_sla_modes() -> None:
+    client = _client(storage_backend="memory")
+    create = client.post("/v1/rewrite/artifact", json={"text": "unscheduled fallback seed"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    step_id = session.json()["steps"][-1]["step_id"]
+
+    due_task = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Scheduled task.",
+            "sla_due_at": "2100-01-01T00:00:00+00:00",
+            "resume_session_on_return": False,
+        },
+    )
+    assert due_task.status_code == 200
+    due_task_id = due_task.json()["human_task_id"]
+
+    older_unscheduled = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Older unscheduled task.",
+            "resume_session_on_return": False,
+        },
+    )
+    assert older_unscheduled.status_code == 200
+    older_unscheduled_id = older_unscheduled.json()["human_task_id"]
+
+    newer_unscheduled = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "Newer unscheduled task.",
+            "resume_session_on_return": False,
+        },
+    )
+    assert newer_unscheduled.status_code == 200
+    newer_unscheduled_id = newer_unscheduled.json()["human_task_id"]
+
+    assigned = client.post(f"/v1/human/tasks/{newer_unscheduled_id}/assign", json={"operator_id": "operator-sorter"})
+    assert assigned.status_code == 200
+    assert assigned.json()["last_transition_event_name"] == "human_task_assigned"
+
+    sla_list = client.get(
+        "/v1/human/tasks",
+        params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10},
+    )
+    assert sla_list.status_code == 200
+    sla_list_rows = [
+        row for row in sla_list.json() if row["human_task_id"] in {due_task_id, older_unscheduled_id, newer_unscheduled_id}
+    ]
+    assert [row["human_task_id"] for row in sla_list_rows[:3]] == [due_task_id, older_unscheduled_id, newer_unscheduled_id]
+
+    combined_list = client.get(
+        "/v1/human/tasks",
+        params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10},
+    )
+    assert combined_list.status_code == 200
+    combined_list_rows = [
+        row
+        for row in combined_list.json()
+        if row["human_task_id"] in {due_task_id, older_unscheduled_id, newer_unscheduled_id}
+    ]
+    assert [row["human_task_id"] for row in combined_list_rows[:3]] == [
+        due_task_id,
+        older_unscheduled_id,
+        newer_unscheduled_id,
+    ]
+
+    combined_backlog = client.get(
+        "/v1/human/tasks/backlog",
+        params={"sort": "sla_due_at_asc_last_transition_desc", "limit": 10},
+    )
+    assert combined_backlog.status_code == 200
+    combined_backlog_rows = [
+        row
+        for row in combined_backlog.json()
+        if row["human_task_id"] in {due_task_id, older_unscheduled_id, newer_unscheduled_id}
+    ]
+    assert [row["human_task_id"] for row in combined_backlog_rows[:3]] == [
+        due_task_id,
+        older_unscheduled_id,
+        newer_unscheduled_id,
+    ]
+
+
 def test_rewrite_blocked_policy_flow_has_error_envelope() -> None:
     client = _client(storage_backend="memory")
     blocked = client.post("/v1/rewrite/artifact", json={"text": "x" * 20001})

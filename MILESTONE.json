@@ -1,6 +1,6 @@
 {
   "milestone": "rewrite-kernel-baseline",
-  "version": "0.68.0",
+  "version": "0.69.0",
   "date": "2026-03-06",
   "status_model": {
     "planned": "scoped but not yet implemented in the current branch",
@@ -555,6 +555,16 @@
         "sla_due_at_asc_last_transition_desc_runtime_ordering"
       ],
       "notes": "Human task list/backlog endpoints now accept `sort=sla_due_at_asc_last_transition_desc` so operator queues can break same-SLA ties by the freshest ownership churn instead of default repository order."
+    },
+    {
+      "name": "human_task_unscheduled_fallback_sorting",
+      "status": "tested",
+      "scope": [
+        "sla_sort_no_sla_created_fallback",
+        "combined_sort_no_sla_created_fallback",
+        "unscheduled_backlog_stability"
+      ],
+      "notes": "SLA-oriented human task queue sorts now fall back to oldest-created ordering for rows without `sla_due_at`, keeping unscheduled backlog stable even when newer packets are reassigned."
     }
   ],
   "migrations": [

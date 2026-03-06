@@ -625,6 +625,30 @@ def test_human_task_combined_sla_transition_sorting_is_documented_and_smoked() -
     assert "sla_due_at_asc_last_transition_desc_runtime_ordering" in capability["scope"]
 
 
+def test_human_task_unscheduled_fallback_sorting_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "fall back to oldest-created ordering for tasks without `sla_due_at`" in readme
+    assert "fall back to oldest-created ordering for tasks without `sla_due_at`" in runbook
+    assert "human task unscheduled fallback sort ok" in smoke_api
+    assert "UNSCHED_SLA_LIST_JSON" in smoke_api
+    assert "UNSCHED_COMBINED_BACKLOG_JSON" in smoke_api
+    assert 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' in smoke_runtime
+    assert 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' in smoke_runtime
+    assert "/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20" in http_examples
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "human_task_unscheduled_fallback_sorting"
+    )
+    assert capability["status"] == "tested"
+    assert "unscheduled_backlog_stability" in capability["scope"]
+
+
 def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "postgres_contract_matrix")

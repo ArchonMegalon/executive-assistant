@@ -1614,6 +1614,33 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_unscheduled_fallback_sorting")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "fall back to oldest-created ordering for tasks without \`sla_due_at\`" "README.md" && \
+     grep -Fq "fall back to oldest-created ordering for tasks without \`sla_due_at\`" "RUNBOOK.md" && \
+     grep -Fq "human task unscheduled fallback sort ok" "scripts/smoke_api.sh" && \
+     grep -Fq "UNSCHED_SLA_LIST_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "UNSCHED_COMBINED_BACKLOG_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20" "HTTP_EXAMPLES.http"; then
+    echo "ok: human task unscheduled fallback sorting docs"
+  else
+    echo "missing: human task unscheduled fallback sorting docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: human task unscheduled fallback sorting milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1
