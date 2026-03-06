@@ -78,6 +78,8 @@ class SessionArtifactOut(BaseModel):
     kind: str
     content: str
     execution_session_id: str
+    task_key: str = ""
+    deliverable_type: str = ""
 
 
 class SessionQueueItemOut(BaseModel):
@@ -339,6 +341,8 @@ def get_session(
                 kind=a.kind,
                 content=a.content,
                 execution_session_id=a.execution_session_id,
+                task_key=session.intent.task_type,
+                deliverable_type=session.intent.deliverable_type,
             )
             for a in found.artifacts
         ],

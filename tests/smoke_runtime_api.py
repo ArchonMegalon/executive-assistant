@@ -90,6 +90,8 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert len(body["receipts"]) >= 1
     receipt_id = body["receipts"][0]["receipt_id"]
     assert body["artifacts"][0]["artifact_id"] == payload["artifact_id"]
+    assert body["artifacts"][0]["task_key"] == "rewrite_text"
+    assert body["artifacts"][0]["deliverable_type"] == "rewrite_note"
     assert len(body["run_costs"]) >= 1
     cost_id = body["run_costs"][0]["cost_id"]
 
@@ -2635,6 +2637,8 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert session_body["intent_task_type"] == "stakeholder_briefing"
     assert session_body["status"] == "completed"
     assert session_body["artifacts"][0]["kind"] == "stakeholder_briefing"
+    assert session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"
+    assert session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"
     assert session_body["steps"][2]["input_json"]["plan_step_key"] == "step_artifact_save"
 
     fetched_artifact = client.get(f"/v1/rewrite/artifacts/{body['artifact_id']}")

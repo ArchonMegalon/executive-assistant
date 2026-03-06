@@ -12,6 +12,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Generic `POST /v1/plans/execute` task execution now returns the same first-class `202 awaiting_approval` and `202 awaiting_human` async contract as rewrite execution, and those non-rewrite task sessions resume through the shared approval and human-task paths.
 - Direct artifact lookup now returns the originating task key and deliverable type, so non-rewrite executions can be inspected without expanding the full session envelope first.
 - Direct receipt and run-cost lookup now return the originating task key and deliverable type too, so non-rewrite proof records can be inspected without expanding the full session envelope first.
+- Inline session artifact rows now return the same task identity, so the main session envelope stays self-describing for non-rewrite runs too.
 - Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.

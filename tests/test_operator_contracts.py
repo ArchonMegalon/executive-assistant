@@ -1588,6 +1588,24 @@ def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> Non
     assert capability["status"] == "tested"
 
 
+def test_session_artifact_task_identity_projection_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "inline artifact/proof rows now carry originating task identity" in readme
+    assert "self-describing artifact/proof task identity" in runbook
+    assert "TASK_EXECUTE_SESSION_FIELDS" in smoke_api
+    assert "stakeholder_briefing|stakeholder_briefing|stakeholder_briefing" in smoke_api
+    assert 'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    assert 'session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"' in smoke_runtime
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_artifact_task_identity_projection")
+    assert capability["status"] == "tested"
+
+
 def test_dependency_aware_execution_scheduler_is_documented_and_tested() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")

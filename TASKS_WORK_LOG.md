@@ -13,7 +13,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| Q-250 | P1 | Project task identity onto session artifact projections so non-rewrite executions stay self-describing inside the main session envelope | codex | queued | Direct artifact/receipt/run-cost lookups now carry task identity, and inline session receipts/run_costs do too, but the session `artifacts` array still omits the originating `task_key` and `deliverable_type` for generic execution threads |
+| Q-251 | P1 | Project task identity onto generic approval and human-task list/detail projections so non-rewrite async work stays self-describing before completion | codex | queued | Sessions and direct proof lookups now carry task identity, but pending approval and human-task queue/detail payloads still rely on clients to join back through the session if they need the originating non-rewrite task context |
 
 ## In Progress
 
@@ -31,6 +31,7 @@ Use this file as the active queue and progress ledger for rewrite slices.
 
 | ID | Priority | Task | Owner | Status | Notes |
 |---|---|---|---|---|---|
+| D-250 | P1 | Project task identity onto session artifact projections so non-rewrite executions stay self-describing inside the main session envelope | codex | done | Inline session artifact rows now return the originating `task_key` and `deliverable_type`, and the approved smoke path proves generic execution threads stay self-describing without separate artifact or session joins |
 | D-249 | P1 | Project task identity onto direct receipt and run-cost lookup so non-rewrite executions can inspect proof records without expanding the full session envelope | codex | done | `GET /v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` now return the originating `task_key` and `deliverable_type`, and the approved smoke path proves generic task proof records carry that identity without requiring a separate session fetch |
 | D-248 | P1 | Project task identity onto direct artifact lookup so non-rewrite executions can be inspected without expanding the full session envelope | codex | done | `GET /v1/rewrite/artifacts/{artifact_id}` now returns the originating `task_key` and `deliverable_type`, and the approved smoke path proves generic task artifacts carry that identity without requiring a separate session fetch |
 | D-247 | P1 | Extend generic task execution coverage so non-rewrite contracts can pause into `awaiting_human` or `awaiting_approval` with the same first-class async contract as rewrite execution | codex | done | Approved smoke plus in-process API coverage now prove `POST /v1/plans/execute` returns first-class `202 awaiting_approval` / `202 awaiting_human` contracts for non-rewrite task keys and that those sessions resume through the shared approval and human-task endpoints |

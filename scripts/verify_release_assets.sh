@@ -1002,6 +1002,30 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_artifact_task_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'inline artifact/proof rows now carry originating task identity' "README.md" && \
+     grep -Fq 'self-describing artifact/proof task identity' "RUNBOOK.md" && \
+     grep -Fq 'TASK_EXECUTE_SESSION_FIELDS' "scripts/smoke_api.sh" && \
+     grep -Fq 'stakeholder_briefing|stakeholder_briefing|stakeholder_briefing' "scripts/smoke_api.sh" && \
+     grep -Fq 'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py"; then
+    echo "ok: session artifact task identity projection docs"
+  else
+    echo "missing: session artifact task identity projection docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: session artifact task identity projection milestone status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_principal_scoped_human_task_routes")
 assert capability["status"] == "tested"
 PY

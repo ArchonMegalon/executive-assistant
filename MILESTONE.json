@@ -960,6 +960,16 @@
         "generic_proof_identity_without_session_expand"
       ],
       "notes": "GET /v1/rewrite/receipts/{receipt_id} and GET /v1/rewrite/run-costs/{cost_id} now return the originating task key and deliverable type, so generic non-rewrite proof records can be inspected without fetching the full session envelope first."
+    },
+    {
+      "name": "session_artifact_task_identity_projection",
+      "status": "tested",
+      "scope": [
+        "session_artifact_task_key",
+        "session_artifact_deliverable_type",
+        "generic_session_artifact_identity"
+      ],
+      "notes": "Inline session artifact rows now return the originating task key and deliverable type too, so the main session envelope stays self-describing for generic non-rewrite runs."
     }
   ],
   "migrations": [

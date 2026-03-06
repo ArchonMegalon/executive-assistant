@@ -1352,8 +1352,8 @@ fi
 TASK_EXECUTE_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${TASK_EXECUTE_JSON}")"
 TASK_EXECUTE_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${TASK_EXECUTE_JSON}")"
 TASK_EXECUTE_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${TASK_EXECUTE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-TASK_EXECUTE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), len(body.get('steps') or []), (artifacts[0] or {}).get('kind','') if artifacts else '', any((event or {}).get('name') == 'plan_compiled' for event in (body.get('events') or []))))" <<<"${TASK_EXECUTE_SESSION_JSON}")"
-if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stakeholder_briefing|True" ]]; then
+TASK_EXECUTE_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; first=(artifacts[0] if artifacts else {}); print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), len(body.get('steps') or []), first.get('kind',''), first.get('task_key',''), first.get('deliverable_type',''), any((event or {}).get('name') == 'plan_compiled' for event in (body.get('events') or []))))" <<<"${TASK_EXECUTE_SESSION_JSON}")"
+if [[ "${TASK_EXECUTE_SESSION_FIELDS}" != "stakeholder_briefing|completed|3|stakeholder_briefing|stakeholder_briefing|stakeholder_briefing|True" ]]; then
   echo "expected generic task execution session to retain the compiled task identity and persisted artifact kind; got ${TASK_EXECUTE_SESSION_FIELDS}" >&2
   echo "${TASK_EXECUTE_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
