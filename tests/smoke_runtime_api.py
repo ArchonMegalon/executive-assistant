@@ -1658,6 +1658,22 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
     ]
     assert ownerless_backlog_created_ids == [ownerless_task_id, ownerless_newer_task_id]
 
+    ownerless_backlog_transition = client.get(
+        "/v1/human/tasks/backlog",
+        params={
+            "assignment_state": "unassigned",
+            "assignment_source": "none",
+            "sort": "last_transition_desc",
+        },
+    )
+    assert ownerless_backlog_transition.status_code == 200
+    ownerless_backlog_transition_ids = [
+        row["human_task_id"]
+        for row in ownerless_backlog_transition.json()
+        if row["human_task_id"] in {ownerless_task_id, ownerless_newer_task_id}
+    ]
+    assert ownerless_backlog_transition_ids == [ownerless_newer_task_id, ownerless_task_id]
+
     auto_summary = client.get(
         "/v1/human/tasks/priority-summary",
         params={"status": "pending", "assignment_source": "auto_preselected"},

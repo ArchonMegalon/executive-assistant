@@ -694,6 +694,15 @@
       "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=created_asc`, preserving oldest-created FIFO ordering when operators triage untouched ownerless work."
     },
     {
+      "name": "human_task_ownerless_backlog_last_transition_sort",
+      "status": "tested",
+      "scope": [
+        "ownerless_backlog_last_transition_desc_ordering",
+        "ownerless_backlog_newest_first_triage"
+      ],
+      "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=last_transition_desc`, preserving newest-first triage order even when every row only carries the initial creation transition."
+    },
+    {
       "name": "human_task_assignment_history_source_filter",
       "status": "tested",
       "scope": [
