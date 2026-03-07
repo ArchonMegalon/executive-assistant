@@ -3553,6 +3553,36 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hints_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "provider_hints_json" "ea/app/domain/models.py" && \
+     grep -Fq "provider_hints_json" "ea/app/services/skills.py" && \
+     grep -Fq "provider_hints_json" "ea/app/api/routes/skills.py" && \
+     grep -Fq 'body["provider_hints_json"]["primary"] == ["1min.AI"]' "tests/test_skills.py" && \
+     grep -Fq 'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' "tests/smoke_runtime_api.py" && \
+     grep -Fq "provider_hints_json" "scripts/smoke_api.sh" && \
+     grep -Fq "provider-hint" "README.md" && \
+     grep -Fq "provider policy" "RUNBOOK.md" && \
+     grep -Fq "provider_hints_json" "CHANGELOG.md" && \
+     grep -Fq "provider_hints_json" "HTTP_EXAMPLES.http" && \
+     grep -Fq "provider_hints_json" "SKILLS.md"; then
+    echo "ok: skill provider hints projection docs and contract coverage"
+  else
+    echo "missing: skill provider hints projection docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: skill provider hints projection milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_identity_projection")
 assert capability["status"] == "tested"
 PY

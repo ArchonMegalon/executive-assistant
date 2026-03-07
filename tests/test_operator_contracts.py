@@ -401,6 +401,38 @@ def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_skill_provider_hints_projection_is_documented_and_guarded() -> None:
+    skills_route = (ROOT / "ea/app/api/routes/skills.py").read_text(encoding="utf-8")
+    skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
+    skills_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "provider_hints_json" in skills_models
+    assert "provider_hints_json" in skills_service
+    assert "provider_hints_json" in skills_route
+    assert 'body["provider_hints_json"]["primary"] == ["1min.AI"]' in skills_test
+    assert 'fetched_body["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]' in skills_test
+    assert 'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' in smoke_test
+    assert 'fetched.json()["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]' in smoke_test
+    assert "provider_hints_json" in smoke_script
+    assert "provider-hint" in readme
+    assert "provider policy" in runbook
+    assert "provider_hints_json" in changelog
+    assert "provider_hints_json" in http_examples
+    assert "provider_hints_json" in skills_doc
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hints_projection")
+    assert capability["status"] == "tested"
+
+
 def test_session_status_transition_api_is_documented_and_guarded() -> None:
     queue_retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
     postgres_contract_test = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")

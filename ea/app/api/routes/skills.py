@@ -28,6 +28,7 @@ class SkillIn(BaseModel):
     output_schema_json: dict[str, object] = Field(default_factory=dict)
     authority_profile_json: dict[str, object] = Field(default_factory=dict)
     model_policy_json: dict[str, object] = Field(default_factory=dict)
+    provider_hints_json: dict[str, object] = Field(default_factory=dict)
     tool_policy_json: dict[str, object] = Field(default_factory=dict)
     human_policy_json: dict[str, object] = Field(default_factory=dict)
     evaluation_cases_json: list[dict[str, object]] = Field(default_factory=list)
@@ -53,6 +54,7 @@ class SkillOut(BaseModel):
     output_schema_json: dict[str, object]
     authority_profile_json: dict[str, object]
     model_policy_json: dict[str, object]
+    provider_hints_json: dict[str, object]
     tool_policy_json: dict[str, object]
     human_policy_json: dict[str, object]
     evaluation_cases_json: list[dict[str, object]]
@@ -79,6 +81,7 @@ def _to_out(row) -> SkillOut:
         output_schema_json=dict(row.output_schema_json),
         authority_profile_json=dict(row.authority_profile_json),
         model_policy_json=dict(row.model_policy_json),
+        provider_hints_json=dict(row.provider_hints_json),
         tool_policy_json=dict(row.tool_policy_json),
         human_policy_json=dict(row.human_policy_json),
         evaluation_cases_json=[dict(value) for value in row.evaluation_cases_json],
@@ -110,6 +113,7 @@ def upsert_skill(
         output_schema_json=body.output_schema_json,
         authority_profile_json=body.authority_profile_json,
         model_policy_json=body.model_policy_json,
+        provider_hints_json=body.provider_hints_json,
         tool_policy_json=body.tool_policy_json,
         human_policy_json=body.human_policy_json,
         evaluation_cases_json=tuple(body.evaluation_cases_json),

@@ -2897,6 +2897,11 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
             "memory_writes": ["meeting_pack_fact"],
             "tags": ["executive", "meeting", "briefing"],
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["1min.AI"],
+                "research": ["BrowserAct", "Paperguide"],
+                "output": ["MarkupGo"],
+            },
             "human_policy_json": {"review_roles": ["briefing_reviewer"]},
             "evaluation_cases_json": [{"case_key": "meeting_prep_golden", "priority": "high"}],
             "budget_policy_json": {
@@ -2910,6 +2915,7 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
     assert created.status_code == 200
     assert created.json()["skill_key"] == "meeting_prep"
     assert created.json()["workflow_template"] == "artifact_then_memory_candidate"
+    assert created.json()["provider_hints_json"]["primary"] == ["1min.AI"]
 
     listed = client.get("/v1/skills", params={"limit": 10})
     assert listed.status_code == 200
@@ -2919,6 +2925,7 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
     assert fetched.status_code == 200
     assert fetched.json()["memory_reads"] == ["stakeholders", "commitments", "decision_windows"]
     assert fetched.json()["memory_writes"] == ["meeting_pack_fact"]
+    assert fetched.json()["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]
     assert fetched.json()["human_policy_json"]["review_roles"] == ["briefing_reviewer"]
 
     compiled = client.post(

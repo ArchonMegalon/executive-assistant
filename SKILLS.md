@@ -11,7 +11,7 @@ This repository now treats executive capabilities as first-class skills layered 
 - input/output schemas
 - evaluation cases
 
-The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET /v1/skills/{skill_key}`. Skills persist through the existing task-contract store, so the runtime stays schema-light while the product layer becomes explicit.
+The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET /v1/skills/{skill_key}`. Skills persist through the existing task-contract store, so the runtime stays schema-light while the product layer becomes explicit. The same API now also carries `provider_hints_json`, so the LTD-backed service stack is projected into the product skill layer instead of living only in markdown notes.
 
 ## Initial Catalog
 

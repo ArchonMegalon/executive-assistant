@@ -678,6 +678,18 @@ Content-Type: application/json
     "authority_class": "draft",
     "review_class": "operator"
   },
+  "provider_hints_json": {
+    "primary": [
+      "1min.AI"
+    ],
+    "research": [
+      "BrowserAct",
+      "Paperguide"
+    ],
+    "output": [
+      "MarkupGo"
+    ]
+  },
   "tool_policy_json": {
     "allowed_tools": [
       "artifact_repository"

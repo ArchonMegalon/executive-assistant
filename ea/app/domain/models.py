@@ -471,6 +471,7 @@ class SkillContract:
     output_schema_json: dict[str, Any]
     authority_profile_json: dict[str, Any]
     model_policy_json: dict[str, Any]
+    provider_hints_json: dict[str, Any]
     tool_policy_json: dict[str, Any]
     human_policy_json: dict[str, Any]
     evaluation_cases_json: tuple[dict[str, Any], ...]

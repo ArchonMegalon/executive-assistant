@@ -110,6 +110,7 @@ class SkillCatalogService:
             "default_approval_class": contract.default_approval_class,
             "workflow_template": workflow_template,
         }
+        provider_hints_json = _as_dict(meta.get("provider_hints_json"))
         tool_policy_json = _as_dict(meta.get("tool_policy_json")) or {
             "allowed_tools": list(contract.allowed_tools),
         }
@@ -133,6 +134,7 @@ class SkillCatalogService:
             output_schema_json=output_schema_json,
             authority_profile_json=authority_profile_json,
             model_policy_json=_as_dict(meta.get("model_policy_json")),
+            provider_hints_json=provider_hints_json,
             tool_policy_json=tool_policy_json,
             human_policy_json=human_policy_json,
             evaluation_cases_json=_as_json_object_tuple(meta.get("evaluation_cases_json")),
@@ -160,6 +162,7 @@ class SkillCatalogService:
         output_schema_json: dict[str, Any] | None = None,
         authority_profile_json: dict[str, Any] | None = None,
         model_policy_json: dict[str, Any] | None = None,
+        provider_hints_json: dict[str, Any] | None = None,
         tool_policy_json: dict[str, Any] | None = None,
         human_policy_json: dict[str, Any] | None = None,
         evaluation_cases_json: tuple[dict[str, Any], ...] = (),
@@ -179,6 +182,7 @@ class SkillCatalogService:
             "output_schema_json": dict(output_schema_json or {}),
             "authority_profile_json": dict(authority_profile_json or {}),
             "model_policy_json": dict(model_policy_json or {}),
+            "provider_hints_json": dict(provider_hints_json or {}),
             "tool_policy_json": dict(tool_policy_json or {}),
             "human_policy_json": dict(human_policy_json or {}),
             "evaluation_cases_json": [dict(value) for value in evaluation_cases_json],

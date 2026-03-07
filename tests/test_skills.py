@@ -45,6 +45,11 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
             },
             "output_schema_json": {"type": "object", "properties": {"deliverable_type": {"const": "meeting_pack"}}},
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["1min.AI"],
+                "research": ["BrowserAct", "Paperguide"],
+                "output": ["MarkupGo"],
+            },
             "tool_policy_json": {"allowed_tools": ["artifact_repository"]},
             "human_policy_json": {"review_roles": ["briefing_reviewer"]},
             "evaluation_cases_json": [{"case_key": "meeting_prep_golden", "priority": "high"}],
@@ -63,6 +68,7 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
     assert body["memory_reads"] == ["stakeholders", "commitments", "decision_windows"]
     assert body["memory_writes"] == ["meeting_pack_fact"]
     assert body["tags"] == ["executive", "meeting", "briefing"]
+    assert body["provider_hints_json"]["primary"] == ["1min.AI"]
 
     listed = client.get("/v1/skills", params={"limit": 10})
     assert listed.status_code == 200
@@ -74,6 +80,7 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
     assert fetched_body["name"] == "Meeting Prep"
     assert fetched_body["human_policy_json"]["review_roles"] == ["briefing_reviewer"]
     assert fetched_body["authority_profile_json"]["authority_class"] == "draft"
+    assert fetched_body["provider_hints_json"]["research"] == ["BrowserAct", "Paperguide"]
     assert fetched_body["evaluation_cases_json"][0]["case_key"] == "meeting_prep_golden"
 
     contract = client.get("/v1/tasks/contracts/meeting_prep")
@@ -82,6 +89,7 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
     assert budget["workflow_template"] == "artifact_then_memory_candidate"
     assert budget["skill_catalog_json"]["skill_key"] == "meeting_prep"
     assert budget["skill_catalog_json"]["name"] == "Meeting Prep"
+    assert budget["skill_catalog_json"]["provider_hints_json"]["output"] == ["MarkupGo"]
 
     compiled = client.post(
         "/v1/plans/compile",
@@ -154,6 +162,7 @@ def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> 
     assert body["name"] == "Stakeholder Briefing"
     assert body["workflow_template"] == "rewrite"
     assert body["memory_reads"] == ["stakeholder_context"]
+    assert body["provider_hints_json"] == {}
     assert body["tool_policy_json"]["allowed_tools"] == ["artifact_repository"]
 
     compiled = client.post(
