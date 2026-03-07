@@ -1360,6 +1360,17 @@
         "generic_task_runtime_skill_smoke"
       ],
       "notes": "The rewrite/session inspection surface now also projects resolved skill identity: session payloads expose `intent_skill_key`, and direct artifact/receipt/run-cost rows plus embedded session artifacts/proof rows carry `skill_key` alongside `task_key`."
+    },
+    {
+      "name": "plan_skill_key_entrypoint_alias",
+      "status": "tested",
+      "scope": [
+        "plan_compile_skill_key_selector",
+        "plan_execute_skill_key_selector",
+        "skill_catalog_round_trip_alias",
+        "skill_key_docs_examples"
+      ],
+      "notes": "The generic plan runtime now accepts `skill_key` directly on `POST /v1/plans/compile` and `POST /v1/plans/execute`, so product-facing clients can invoke first-class executive skills without resolving the backing `task_key` first."
     }
   ],
   "migrations": [

@@ -22,9 +22,16 @@ router = APIRouter(prefix="/v1/plans", tags=["plans"])
 
 
 class PlanCompileIn(BaseModel):
-    task_key: str = Field(min_length=1, max_length=200)
+    task_key: str = Field(default="", max_length=200)
+    skill_key: str = Field(default="", max_length=200)
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     goal: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def _require_task_key_or_skill_key(self) -> "PlanCompileIn":
+        if str(self.task_key or "").strip() or str(self.skill_key or "").strip():
+            return self
+        raise PydanticCustomError("task_or_skill_key_required", "task_or_skill_key_required")
 
 
 class IntentOut(BaseModel):
@@ -90,7 +97,8 @@ class PlanCompileOut(BaseModel):
 
 
 class PlanExecuteIn(BaseModel):
-    task_key: str = Field(min_length=1, max_length=200)
+    task_key: str = Field(default="", max_length=200)
+    skill_key: str = Field(default="", max_length=200)
     text: str = Field(default="", max_length=20000)
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     goal: str = Field(default="", max_length=2000)
@@ -99,6 +107,8 @@ class PlanExecuteIn(BaseModel):
 
     @model_validator(mode="after")
     def _require_text_or_input_json(self) -> "PlanExecuteIn":
+        if not str(self.task_key or "").strip() and not str(self.skill_key or "").strip():
+            raise PydanticCustomError("task_or_skill_key_required", "task_or_skill_key_required")
         if str(self.text or "").strip() or dict(self.input_json or {}):
             return self
         raise PydanticCustomError("text_or_input_json_required", "text_or_input_json_required")
@@ -175,6 +185,22 @@ def _resolve_skill_key(container: AppContainer, task_key: str) -> str:
     return str(row.skill_key or resolved_task_key)
 
 
+def _resolve_task_key(container: AppContainer, *, task_key: str = "", skill_key: str = "") -> str:
+    resolved_task_key = str(task_key or "").strip()
+    resolved_skill_key = str(skill_key or "").strip()
+    if resolved_task_key and not resolved_skill_key:
+        return resolved_task_key
+    if resolved_skill_key:
+        row = container.skills.get_skill(resolved_skill_key)
+        if row is None:
+            raise HTTPException(status_code=404, detail="skill_not_found")
+        row_task_key = str(row.task_key or resolved_skill_key).strip() or resolved_skill_key
+        if resolved_task_key and row_task_key != resolved_task_key:
+            raise HTTPException(status_code=422, detail="task_skill_key_mismatch")
+        return row_task_key
+    return resolved_task_key
+
+
 def _artifact_execute_out_payload(artifact):  # type: ignore[no-untyped-def]
     normalized = normalize_artifact(artifact)
     return {
@@ -199,9 +225,14 @@ def compile_plan(
     context: RequestContext = Depends(get_request_context),
 ) -> PlanCompileOut:
     principal_id = resolve_principal_id(body.principal_id, context)
+    resolved_task_key = _resolve_task_key(
+        container,
+        task_key=body.task_key,
+        skill_key=body.skill_key,
+    )
     try:
         intent, plan = container.planner.build_plan(
-            task_key=body.task_key,
+            task_key=resolved_task_key,
             principal_id=principal_id,
             goal=body.goal,
         )
@@ -275,11 +306,16 @@ def execute_plan(
     context: RequestContext = Depends(get_request_context),
 ) -> PlanExecuteOut | PlanExecuteAcceptedOut:
     principal_id = resolve_principal_id(body.principal_id, context)
-    skill_key = _resolve_skill_key(container, body.task_key)
+    resolved_task_key = _resolve_task_key(
+        container,
+        task_key=body.task_key,
+        skill_key=body.skill_key,
+    )
+    skill_key = _resolve_skill_key(container, resolved_task_key)
     try:
         artifact = container.orchestrator.execute_task_artifact(
             TaskExecutionRequest(
-                task_key=body.task_key,
+                task_key=resolved_task_key,
                 text=str(body.text or ""),
                 principal_id=principal_id,
                 goal=body.goal,
@@ -294,7 +330,7 @@ def execute_plan(
             status_code=202,
             content=PlanExecuteAcceptedOut(
                 skill_key=skill_key,
-                task_key=body.task_key,
+                task_key=resolved_task_key,
                 session_id=exc.session_id,
                 approval_id=exc.approval_id,
                 status=exc.status,
@@ -306,7 +342,7 @@ def execute_plan(
             status_code=202,
             content=PlanExecuteAcceptedOut(
                 skill_key=skill_key,
-                task_key=body.task_key,
+                task_key=resolved_task_key,
                 session_id=exc.session_id,
                 human_task_id=exc.human_task_id,
                 status=exc.status,
@@ -318,7 +354,7 @@ def execute_plan(
             status_code=202,
             content=PlanExecuteAcceptedOut(
                 skill_key=skill_key,
-                task_key=body.task_key,
+                task_key=resolved_task_key,
                 session_id=exc.session_id,
                 status=exc.status,
                 next_action="poll_or_subscribe",
@@ -329,7 +365,7 @@ def execute_plan(
         raise HTTPException(status_code=403, detail=f"policy_denied:{reason}") from exc
     return PlanExecuteOut(
         skill_key=skill_key,
-        task_key=body.task_key,
+        task_key=resolved_task_key,
         **_artifact_execute_out_payload(artifact),
         deliverable_type=artifact.kind,
     )

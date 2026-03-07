@@ -3728,6 +3728,39 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_skill_key_entrypoint_alias")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "_resolve_task_key(" "ea/app/api/routes/plans.py" && \
+     grep -Fq 'skill_key: str = Field(default="", max_length=200)' "ea/app/api/routes/plans.py" && \
+     grep -Fq "task_or_skill_key_required" "ea/app/api/routes/plans.py" && \
+     grep -Fq "task_skill_key_mismatch" "ea/app/api/routes/plans.py" && \
+     grep -Fq "compiled_via_skill = client.post(" "tests/test_skills.py" && \
+     grep -Fq "executed_via_skill = client.post(" "tests/test_skills.py" && \
+     grep -Fq "task_or_skill_key_required" "tests/test_plan_execute_input_contracts.py" && \
+     grep -Fq "compiled_via_skill = client.post(" "tests/smoke_runtime_api.py" && \
+     grep -Fq "LTD_SKILL_PLAN_BY_SKILL_JSON" "scripts/smoke_api.sh" && \
+     grep -Fq "accepts either \`task_key\` or \`skill_key\`" "README.md" && \
+     grep -Fq "accepts either \`task_key\` or \`skill_key\`" "RUNBOOK.md" && \
+     grep -Fq "accept either \`task_key\` or \`skill_key\`" "CHANGELOG.md" && \
+     grep -Fq '"skill_key": "meeting_prep"' "HTTP_EXAMPLES.http" && \
+     grep -Fq '"skill_key": "ltd_inventory_refresh"' "HTTP_EXAMPLES.http"; then
+    echo "ok: plan skill_key entrypoint alias docs and contract coverage"
+  else
+    echo "missing: plan skill_key entrypoint alias docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: plan skill_key entrypoint alias milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_skill_identity_projection")
 assert capability["status"] == "tested"
 PY

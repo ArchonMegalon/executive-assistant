@@ -644,6 +644,39 @@ def test_runtime_skill_identity_projection_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
+    plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "skill_key: str = Field(default=\"\", max_length=200)" in plans_route
+    assert "_resolve_task_key(" in plans_route
+    assert "task_or_skill_key_required" in plans_route
+    assert "task_skill_key_mismatch" in plans_route
+    assert "compiled_via_skill = client.post(" in skills_test
+    assert "executed_via_skill = client.post(" in skills_test
+    assert "task_or_skill_key_required" in execute_input_test
+    assert "compiled_via_skill = client.post(" in smoke_test
+    assert "LTD_SKILL_PLAN_BY_SKILL_JSON" in smoke_script
+    assert '"skill_key":"meeting_prep"' in smoke_script
+    assert '"skill_key":"ltd_inventory_refresh"' in smoke_script
+    assert "accepts either `task_key` or `skill_key`" in readme
+    assert "accepts either `task_key` or `skill_key`" in runbook
+    assert "accept either `task_key` or `skill_key`" in changelog
+    assert '"skill_key": "meeting_prep"' in http_examples
+    assert '"skill_key": "ltd_inventory_refresh"' in http_examples
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_skill_key_entrypoint_alias")
+    assert capability["status"] == "tested"
+
+
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")

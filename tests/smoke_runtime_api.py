@@ -3067,6 +3067,14 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
         "step_memory_candidate_stage",
     ]
 
+    compiled_via_skill = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "meeting_prep", "goal": "prepare the board meeting packet"},
+    )
+    assert compiled_via_skill.status_code == 200
+    assert compiled_via_skill.json()["skill_key"] == "meeting_prep"
+    assert compiled_via_skill.json()["plan"]["task_key"] == "meeting_prep"
+
 
 def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
     client = _client(storage_backend="memory", approval_threshold_chars=20000)
@@ -3153,6 +3161,13 @@ def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
         "step_artifact_save",
     ]
 
+    compiled_via_skill = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "ltd_inventory_refresh", "goal": "refresh LTD inventory facts"},
+    )
+    assert compiled_via_skill.status_code == 200
+    assert compiled_via_skill.json()["skill_key"] == "ltd_inventory_refresh"
+
     executed = client.post(
         "/v1/plans/execute",
         json={
@@ -3170,6 +3185,22 @@ def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
     assert body["skill_key"] == "ltd_inventory_refresh"
     assert body["kind"] == "ltd_inventory_profile"
     assert body["structured_output_json"]["missing_services"] == ["UnknownService"]
+
+    executed_via_skill = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "ltd_inventory_refresh",
+            "goal": "refresh LTD inventory facts",
+            "input_json": {
+                "binding_id": binding_id,
+                "service_names": ["BrowserAct", "Teable", "UnknownService"],
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert executed_via_skill.status_code == 200
+    assert executed_via_skill.json()["skill_key"] == "ltd_inventory_refresh"
+    assert executed_via_skill.json()["task_key"] == "ltd_inventory_refresh"
 
     session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
     assert session.status_code == 200

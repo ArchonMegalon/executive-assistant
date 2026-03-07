@@ -861,6 +861,16 @@ X-EA-Principal-ID: {{principal_id}}
   "goal": "prepare the board meeting packet"
 }
 
+### Plans -> compile `meeting_prep` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "meeting_prep",
+  "goal": "prepare the board meeting packet"
+}
+
 ### Plans -> compile `ltd_inventory_refresh` skill via its backing task contract
 POST {{host}}/v1/plans/compile
 Content-Type: application/json
@@ -1156,6 +1166,29 @@ X-EA-Principal-ID: {{principal_id}}
 
 {
   "task_key": "browseract_ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts",
+  "input_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_names": [
+      "BrowserAct",
+      "Teable",
+      "UnknownService"
+    ],
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
+  }
+}
+
+### Plans -> execute `ltd_inventory_refresh` directly via `skill_key`
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "ltd_inventory_refresh",
   "goal": "refresh LTD inventory facts",
   "input_json": {
     "binding_id": "replace-with-browseract-binding-id",

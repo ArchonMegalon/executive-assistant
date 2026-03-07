@@ -73,6 +73,23 @@ def test_plan_execute_requires_text_or_input_json() -> None:
     )
 
 
+def test_plan_execute_requires_task_or_skill_key() -> None:
+    client = _client()
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "goal": "rewrite this text",
+            "text": "payload present but no task selector",
+        },
+    )
+    assert execute.status_code == 422
+    assert any(
+        detail["type"] == "task_or_skill_key_required"
+        for detail in execute.json()["error"]["details"]
+    )
+
+
 def test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance() -> None:
     client = _client()
     container = client.app.state.container

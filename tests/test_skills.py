@@ -110,6 +110,25 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
         "step_memory_candidate_stage",
     ]
 
+    compiled_via_skill = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "meeting_prep", "goal": "prepare the board meeting packet"},
+    )
+    assert compiled_via_skill.status_code == 200
+    assert compiled_via_skill.json()["skill_key"] == "meeting_prep"
+    assert compiled_via_skill.json()["plan"]["task_key"] == "meeting_prep"
+
+    mismatched = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "rewrite_text",
+            "skill_key": "meeting_prep",
+            "goal": "prepare the board meeting packet",
+        },
+    )
+    assert mismatched.status_code == 422
+    assert mismatched.json()["error"]["code"] == "task_skill_key_mismatch"
+
     executed = client.post(
         "/v1/plans/execute",
         json={
@@ -121,6 +140,18 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
     assert executed.status_code == 200
     assert executed.json()["skill_key"] == "meeting_prep"
     assert executed.json()["deliverable_type"] == "meeting_pack"
+
+    executed_via_skill = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "meeting_prep",
+            "goal": "prepare the board meeting packet",
+            "input_json": {"source_text": "Board packet context via skill."},
+        },
+    )
+    assert executed_via_skill.status_code == 200
+    assert executed_via_skill.json()["skill_key"] == "meeting_prep"
+    assert executed_via_skill.json()["task_key"] == "meeting_prep"
 
     session = client.get(f"/v1/rewrite/sessions/{executed.json()['execution_session_id']}")
     assert session.status_code == 200
@@ -272,6 +303,13 @@ def test_skill_catalog_can_execute_ltd_inventory_refresh_skill() -> None:
         "step_artifact_save",
     ]
 
+    compiled_via_skill = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "ltd_inventory_refresh", "goal": "refresh LTD inventory facts"},
+    )
+    assert compiled_via_skill.status_code == 200
+    assert compiled_via_skill.json()["skill_key"] == "ltd_inventory_refresh"
+
     executed = client.post(
         "/v1/plans/execute",
         json={
@@ -288,6 +326,22 @@ def test_skill_catalog_can_execute_ltd_inventory_refresh_skill() -> None:
     assert executed.json()["skill_key"] == "ltd_inventory_refresh"
     assert executed.json()["kind"] == "ltd_inventory_profile"
     assert executed.json()["structured_output_json"]["missing_services"] == ["UnknownService"]
+
+    executed_via_skill = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "ltd_inventory_refresh",
+            "goal": "refresh LTD inventory facts",
+            "input_json": {
+                "binding_id": binding_id,
+                "service_names": ["BrowserAct", "Teable", "UnknownService"],
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert executed_via_skill.status_code == 200
+    assert executed_via_skill.json()["skill_key"] == "ltd_inventory_refresh"
+    assert executed_via_skill.json()["task_key"] == "ltd_inventory_refresh"
 
     session = client.get(f"/v1/rewrite/sessions/{executed.json()['execution_session_id']}")
     assert session.status_code == 200
