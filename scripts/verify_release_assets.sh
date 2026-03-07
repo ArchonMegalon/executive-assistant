@@ -3583,6 +3583,37 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hint_filtering")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "provider_hint: str = Query" "ea/app/api/routes/skills.py" && \
+     grep -Fq "provider_hint=provider_hint" "ea/app/api/routes/skills.py" && \
+     grep -Fq "def list_skills(self, limit: int = 100, provider_hint: str = \"\")" "ea/app/services/skills.py" && \
+     grep -Fq "_collect_string_values" "ea/app/services/skills.py" && \
+     grep -Fq 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' "tests/test_skills.py" && \
+     grep -Fq 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' "tests/smoke_runtime_api.py" && \
+     grep -Fq "provider_hint=browseract" "scripts/smoke_api.sh" && \
+     grep -Fq "provider_hint=BrowserAct" "README.md" && \
+     grep -Fq "provider_hint=<value>" "RUNBOOK.md" && \
+     grep -Fq "provider_hint=<value>" "CHANGELOG.md" && \
+     grep -Fq "provider_hint=BrowserAct" "HTTP_EXAMPLES.http" && \
+     grep -Fq "provider_hint=BrowserAct" "SKILLS.md"; then
+    echo "ok: skill provider hint filtering docs and contract coverage"
+  else
+    echo "missing: skill provider hint filtering docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: skill provider hint filtering milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_identity_projection")
 assert capability["status"] == "tested"
 PY

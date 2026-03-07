@@ -125,9 +125,10 @@ def upsert_skill(
 @router.get("")
 def list_skills(
     limit: int = Query(default=100, ge=1, le=500),
+    provider_hint: str = Query(default="", max_length=200),
     container: AppContainer = Depends(get_container),
 ) -> list[SkillOut]:
-    return [_to_out(row) for row in container.skills.list_skills(limit=limit)]
+    return [_to_out(row) for row in container.skills.list_skills(limit=limit, provider_hint=provider_hint)]
 
 
 @router.get("/{skill_key}")

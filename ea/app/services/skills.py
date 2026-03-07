@@ -24,6 +24,23 @@ def _as_json_object_tuple(values: object) -> tuple[dict[str, Any], ...]:
     return tuple(_as_dict(value) for value in values)
 
 
+def _collect_string_values(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        normalized = str(value or "").strip()
+        return (normalized,) if normalized else ()
+    if isinstance(value, dict):
+        collected: list[str] = []
+        for nested in value.values():
+            collected.extend(_collect_string_values(nested))
+        return tuple(collected)
+    if isinstance(value, (list, tuple, set)):
+        collected: list[str] = []
+        for nested in value:
+            collected.extend(_collect_string_values(nested))
+        return tuple(collected)
+    return ()
+
+
 def _title_from_key(value: str) -> str:
     parts = [part for part in str(value or "").replace("-", "_").split("_") if part]
     if not parts:
@@ -211,5 +228,17 @@ class SkillCatalogService:
                 return self.contract_to_skill(contract)
         return None
 
-    def list_skills(self, limit: int = 100) -> list[SkillContract]:
-        return [self.contract_to_skill(contract) for contract in self._task_contracts.list_contracts(limit=limit)]
+    def list_skills(self, limit: int = 100, provider_hint: str = "") -> list[SkillContract]:
+        normalized_provider_hint = str(provider_hint or "").strip().lower()
+        fetch_limit = 500 if normalized_provider_hint else limit
+        rows = [self.contract_to_skill(contract) for contract in self._task_contracts.list_contracts(limit=fetch_limit)]
+        if normalized_provider_hint:
+            rows = [
+                row
+                for row in rows
+                if any(
+                    normalized_provider_hint in candidate.lower()
+                    for candidate in _collect_string_values(row.provider_hints_json)
+                )
+            ]
+        return rows[:limit]

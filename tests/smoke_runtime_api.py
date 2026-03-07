@@ -2920,6 +2920,9 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
     listed = client.get("/v1/skills", params={"limit": 10})
     assert listed.status_code == 200
     assert any(row["skill_key"] == "meeting_prep" for row in listed.json())
+    filtered = client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})
+    assert filtered.status_code == 200
+    assert [row["skill_key"] for row in filtered.json()] == ["meeting_prep"]
 
     fetched = client.get("/v1/skills/meeting_prep")
     assert fetched.status_code == 200

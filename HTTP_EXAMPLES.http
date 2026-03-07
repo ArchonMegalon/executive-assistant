@@ -717,6 +717,9 @@ Content-Type: application/json
 ### Skills -> list catalog entries
 GET {{host}}/v1/skills?limit=20
 
+### Skills -> filter catalog entries by provider hint
+GET {{host}}/v1/skills?limit=20&provider_hint=BrowserAct
+
 ### Skills -> fetch `meeting_prep`
 GET {{host}}/v1/skills/meeting_prep
 

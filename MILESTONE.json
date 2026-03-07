@@ -1297,6 +1297,16 @@
       "notes": "The first-class skill catalog now persists `provider_hints_json`, so product-facing skills can project suggested LTD capability providers like `1min.AI`, `BrowserAct`, `Paperguide`, or `MarkupGo` through the API/task-contract store instead of keeping that mapping only in markdown."
     },
     {
+      "name": "skill_provider_hint_filtering",
+      "status": "tested",
+      "scope": [
+        "skills_api_provider_hint_query",
+        "meeting_prep_provider_hint_smoke",
+        "provider_hint_docs_examples"
+      ],
+      "notes": "The skill catalog now supports `GET /v1/skills?provider_hint=<value>`, filtering nested `provider_hints_json` so operator tooling can discover which skills rely on specific LTD-backed providers like `BrowserAct` or `1min.AI` without maintaining a separate mapping."
+    },
+    {
       "name": "skill_identity_projection",
       "status": "tested",
       "scope": [

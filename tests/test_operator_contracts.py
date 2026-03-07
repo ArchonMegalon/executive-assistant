@@ -433,6 +433,36 @@ def test_skill_provider_hints_projection_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_skill_provider_hint_filtering_is_documented_and_guarded() -> None:
+    skills_route = (ROOT / "ea/app/api/routes/skills.py").read_text(encoding="utf-8")
+    skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "provider_hint: str = Query" in skills_route
+    assert "provider_hint=provider_hint" in skills_route
+    assert "def list_skills(self, limit: int = 100, provider_hint: str = \"\")" in skills_service
+    assert "_collect_string_values" in skills_service
+    assert 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' in skills_test
+    assert 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' in smoke_test
+    assert "provider_hint=browseract" in smoke_script
+    assert "provider_hint=BrowserAct" in readme
+    assert "provider_hint=<value>" in runbook
+    assert "provider_hint=<value>" in changelog
+    assert "provider_hint=BrowserAct" in http_examples
+    assert "provider_hint=BrowserAct" in skills_doc
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hint_filtering")
+    assert capability["status"] == "tested"
+
+
 def test_session_status_transition_api_is_documented_and_guarded() -> None:
     queue_retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
     postgres_contract_test = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")

@@ -57,7 +57,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/tasks/contracts` | `200` | validation `422` |
 | GET | `/v1/tasks/contracts/{task_key}` | `200` | `404 task_contract_not_found` |
 | POST | `/v1/skills` | `200` | validation `422` |
-| GET | `/v1/skills` | `200` | validation `422` |
+| GET | `/v1/skills` | `200` | validation `422` (supports `provider_hint=<value>` to filter the catalog by LTD-backed provider hints such as `BrowserAct` or `1min.AI`) |
 | GET | `/v1/skills/{skill_key}` | `200` | `404 skill_not_found` |
 | POST | `/v1/plans/compile` | `200` | validation `422`, `403 principal_scope_mismatch` |
 | POST | `/v1/plans/execute` | `200`, `202 awaiting_approval`, `202 awaiting_human`, `202 queued` | validation `422`, `403 principal_scope_mismatch`, `403 policy_denied:*` |
@@ -146,6 +146,7 @@ Policy notes:
 - Task contracts can now also use the generic `workflow_template=tool_then_artifact` macro plus `budget_policy_json.pre_artifact_tool_name=<tool>` to compile a reusable pre-artifact tool branch, and the first supported slice proves `browseract.extract_account_facts` can run through `step_input_prepare -> step_browseract_extract -> step_artifact_save` without another one-off planner path.
 - Task contracts can now also switch to `workflow_template=browseract_extract_then_artifact`, compiling `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can extract tier/email/status facts and persist them as a structured artifact in one queue-backed pass.
 - `/v1/skills` now exposes a first-class executive skill catalog on top of those task contracts, preserving product metadata such as memory reads/writes, authority/tool/human/provider policy, evaluation cases, and workflow-template selection in the existing task-contract store; [SKILLS.md](/docker/EA/SKILLS.md) tracks the current catalog and `meeting_prep` is the first fully guarded skill slice.
+- `/v1/skills?provider_hint=<value>` now filters that catalog against nested `provider_hints_json`, so operator tooling can answer questions like “which skills rely on BrowserAct or 1min.AI?” without maintaining a second provider map outside the task-contract store.
 - `/v1/plans/compile` and `/v1/plans/execute` now also project the resolved `skill_key`, so operator tooling can render the product-facing executive capability name without reverse-mapping every `task_key` client-side.
 - `/v1/rewrite/sessions/{session_id}` plus direct artifact/receipt/run-cost reads now also project that same `skill_key`, so queue/runtime inspection stays aligned with the product-facing skill catalog once work has been executed.
 - Task contracts can now also use `workflow_template=artifact_then_packs` plus `budget_policy_json.post_artifact_packs=[...]` to compose shared post-artifact planner branches (currently `dispatch` and `memory_candidate`) without adding another one-off named workflow template for every combination.

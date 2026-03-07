@@ -73,6 +73,12 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
     listed = client.get("/v1/skills", params={"limit": 10})
     assert listed.status_code == 200
     assert any(row["skill_key"] == "meeting_prep" for row in listed.json())
+    filtered = client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})
+    assert filtered.status_code == 200
+    assert [row["skill_key"] for row in filtered.json()] == ["meeting_prep"]
+    empty_filter = client.get("/v1/skills", params={"limit": 10, "provider_hint": "chatplayground"})
+    assert empty_filter.status_code == 200
+    assert empty_filter.json() == []
 
     fetched = client.get("/v1/skills/meeting_prep")
     assert fetched.status_code == 200
