@@ -63,14 +63,14 @@ Use this section to track missing tier/email/account facts discovered through th
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `AvoMap` |  | `missing` | `manual_inventory` |  | Remaining redemption work still blocks final account verification. |
-| `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_inventory` |  | The EA runtime can now resolve tier/email/status facts from a BrowserAct connector binding for one service or a whole LTD inventory slice and persist those results as structured artifacts; live values are still pending. |
+| `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | Plan/Tier: Tier 3; Status: activated |
 | `Documentation.AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Invoiless` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `MarkupGo` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
-| `Teable` |  | `missing` | `manual_inventory` |  | Workspace references exist, but no account-fact discovery run is documented here yet. |
+| `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
 | `Vizologi` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 
 ## Attention Items
