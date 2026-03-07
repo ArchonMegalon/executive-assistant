@@ -1146,6 +1146,17 @@
         "compiled_artifact_retry_runtime"
       ],
       "notes": "Task contracts can now tune the built-in artifact and dispatch retry posture directly from `budget_policy_json`: `artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds` compile onto `step_artifact_save`, `dispatch_*` compiles onto `step_connector_dispatch`, and focused runtime coverage proves compiled artifact retries execute through the queue runtime."
+    },
+    {
+      "name": "delayed_retry_async_acceptance",
+      "status": "tested",
+      "scope": [
+        "rewrite_queued_async_contract",
+        "plan_execute_queued_async_contract",
+        "approval_resume_delayed_retry_passthrough",
+        "openapi_queued_async_examples"
+      ],
+      "notes": "When a retryable step reschedules itself into the future (`retry_backoff_seconds>0`), rewrite and generic task execution now return the same first-class async workflow contract with `status=queued` and `next_action=poll_or_subscribe` instead of raising `queued task did not execute`; approval resumption treats that delayed retry as an async continuation instead of a runtime error too."
     }
   ],
   "migrations": [

@@ -21,6 +21,7 @@ from app.repositories.ledger import InMemoryExecutionLedgerRepository
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.orchestrator import AsyncExecutionQueuedError
 from app.services.policy import ApprovalRequiredError
 from app.services.planner import PlannerService
 from app.services.task_contracts import TaskContractService
@@ -179,8 +180,9 @@ def test_retry_failure_strategy_exhausts_into_terminal_session_failure() -> None
 
 
 class _StaticRetryPlanner:
-    def __init__(self, *, approval_class: str) -> None:
+    def __init__(self, *, approval_class: str, retry_backoff_seconds: int = 0) -> None:
         self._approval_class = approval_class
+        self._retry_backoff_seconds = retry_backoff_seconds
 
     def build_plan(self, *, task_key: str, principal_id: str, goal: str):
         intent = IntentSpecV3(
@@ -241,14 +243,14 @@ class _StaticRetryPlanner:
                     review_class="none",
                     failure_strategy="retry",
                     max_attempts=2,
-                    retry_backoff_seconds=0,
+                    retry_backoff_seconds=self._retry_backoff_seconds,
                 ),
             ),
         )
         return intent, plan
 
 
-def _build_inline_retry_orchestrator(*, approval_class: str):
+def _build_inline_retry_orchestrator(*, approval_class: str, retry_backoff_seconds: int = 0):
     artifacts = InMemoryArtifactRepository()
     approvals = InMemoryApprovalRepository()
     tool_runtime = ToolRuntimeService(
@@ -284,7 +286,10 @@ def _build_inline_retry_orchestrator(*, approval_class: str):
         artifacts=artifacts,
         approvals=approvals,
         ledger=InMemoryExecutionLedgerRepository(),
-        planner=_StaticRetryPlanner(approval_class=approval_class),
+        planner=_StaticRetryPlanner(
+            approval_class=approval_class,
+            retry_backoff_seconds=retry_backoff_seconds,
+        ),
         tool_execution=tool_execution,
     )
     return orchestrator, approvals, calls
@@ -311,6 +316,36 @@ def test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion(
     assert snapshot.queue_items[-1].state == "done"
     assert snapshot.queue_items[-1].attempt_count == 2
     assert calls["count"] == 2
+
+
+def test_execute_task_artifact_returns_queued_async_state_for_delayed_retry() -> None:
+    orchestrator, _approvals, calls = _build_inline_retry_orchestrator(
+        approval_class="none",
+        retry_backoff_seconds=30,
+    )
+
+    with pytest.raises(AsyncExecutionQueuedError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="retry_delayed_rewrite",
+                principal_id="exec-1",
+                goal="retry delayed rewrite",
+                input_json={"source_text": "retry me later"},
+            )
+        )
+
+    assert exc.value.status == "queued"
+    snapshot = orchestrator.fetch_session(exc.value.session_id)
+    assert snapshot is not None
+    assert snapshot.session.status == "queued"
+    artifact_step = next(row for row in snapshot.steps if row.input_json.get("plan_step_key") == "step_artifact_save")
+    assert artifact_step.state == "queued"
+    assert artifact_step.attempt_count == 1
+    assert artifact_step.error_json["reason"] == "retry_scheduled"
+    assert snapshot.queue_items[-1].state == "queued"
+    assert snapshot.queue_items[-1].attempt_count == 1
+    assert snapshot.queue_items[-1].next_attempt_at
+    assert calls["count"] == 1
 
 
 def test_approval_resume_drains_zero_backoff_retries_inline_to_completion() -> None:
@@ -347,6 +382,44 @@ def test_approval_resume_drains_zero_backoff_retries_inline_to_completion() -> N
     assert len(snapshot.artifacts) == 1
     assert snapshot.artifacts[0].content == "approval gated retry"
     assert calls["count"] == 2
+
+
+def test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring() -> None:
+    orchestrator, approvals, calls = _build_inline_retry_orchestrator(
+        approval_class="manager",
+        retry_backoff_seconds=45,
+    )
+
+    with pytest.raises(ApprovalRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="retry_delayed_approval",
+                principal_id="exec-1",
+                goal="retry delayed rewrite after approval",
+                input_json={"source_text": "approval gated delayed retry"},
+            )
+        )
+
+    pending = approvals.list_pending(limit=10)
+    request = next(row for row in pending if row.approval_id == exc.value.approval_id)
+
+    decided = orchestrator.decide_approval(
+        request.approval_id,
+        decision="approved",
+        decided_by="operator",
+        reason="approve delayed retry",
+    )
+
+    assert decided is not None
+    snapshot = orchestrator.fetch_session(request.session_id)
+    assert snapshot is not None
+    assert snapshot.session.status == "queued"
+    assert snapshot.steps[-1].state == "queued"
+    assert snapshot.steps[-1].attempt_count == 1
+    assert snapshot.steps[-1].error_json["reason"] == "retry_scheduled"
+    assert snapshot.queue_items[-1].state == "queued"
+    assert snapshot.queue_items[-1].next_attempt_at
+    assert calls["count"] == 1
 
 
 def test_execute_task_artifact_uses_compiled_artifact_retry_policy_from_contract_metadata() -> None:

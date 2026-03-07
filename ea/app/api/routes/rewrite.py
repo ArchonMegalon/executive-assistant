@@ -8,7 +8,7 @@ from app.api.dependencies import RequestContext, get_container, get_request_cont
 from app.container import AppContainer
 from app.domain.models import PlanValidationError, RewriteRequest
 from app.repositories.human_tasks import _parse_assignment_source_filter
-from app.services.orchestrator import HumanTaskRequiredError
+from app.services.orchestrator import AsyncExecutionQueuedError, HumanTaskRequiredError
 from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 
 router = APIRouter(prefix="/v1/rewrite", tags=["rewrite"])
@@ -54,6 +54,13 @@ class RewriteAcceptedOut(BaseModel):
                     "approval_id": "",
                     "human_task_id": "human-task-123",
                     "status": "awaiting_human",
+                    "next_action": "poll_or_subscribe",
+                },
+                {
+                    "session_id": "session-queued-retry",
+                    "approval_id": "",
+                    "human_task_id": "",
+                    "status": "queued",
                     "next_action": "poll_or_subscribe",
                 },
             ]
@@ -371,6 +378,15 @@ def create_artifact(
             content=RewriteAcceptedOut(
                 session_id=exc.session_id,
                 human_task_id=exc.human_task_id,
+                status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except AsyncExecutionQueuedError as exc:
+        return JSONResponse(
+            status_code=202,
+            content=RewriteAcceptedOut(
+                session_id=exc.session_id,
                 status=exc.status,
                 next_action="poll_or_subscribe",
             ).model_dump(),

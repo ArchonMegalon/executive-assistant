@@ -3297,6 +3297,36 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "delayed_retry_async_acceptance")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "test_execute_task_artifact_returns_queued_async_state_for_delayed_retry" "tests/test_queue_retry_contracts.py" && \
+     grep -Fq "test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring" "tests/test_queue_retry_contracts.py" && \
+     grep -Fq "test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance" "tests/test_plan_execute_input_contracts.py" && \
+     grep -Fq "test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance" "tests/test_rewrite_api_scope_contracts.py" && \
+     grep -Fq 'example["status"] == "queued"' "tests/test_openapi_async_acceptance_examples_contracts.py" && \
+     grep -Fq "AsyncExecutionQueuedError" "ea/app/services/orchestrator.py" && \
+     grep -Fq "except AsyncExecutionQueuedError as exc" "ea/app/api/routes/plans.py" && \
+     grep -Fq "except AsyncExecutionQueuedError as exc" "ea/app/api/routes/rewrite.py" && \
+     grep -Fq 'first-class `202 queued` async acceptance' "README.md" && \
+     grep -Fq '`202 queued`' "RUNBOOK.md" && \
+     grep -Fq 'Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance' "CHANGELOG.md"; then
+    echo "ok: delayed retry async acceptance docs and contract coverage"
+  else
+    echo "missing: delayed retry async acceptance docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: delayed retry async acceptance milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

@@ -384,6 +384,35 @@ def test_contract_retry_policy_metadata_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
+    retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
+    plan_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    rewrite_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(encoding="utf-8")
+    openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
+    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
+    rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "test_execute_task_artifact_returns_queued_async_state_for_delayed_retry" in retry_test
+    assert "test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring" in retry_test
+    assert "test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance" in plan_test
+    assert "test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance" in rewrite_test
+    assert 'example["status"] == "queued"' in openapi_test
+    assert "AsyncExecutionQueuedError" in orchestrator
+    assert "except AsyncExecutionQueuedError as exc" in plans_route
+    assert "except AsyncExecutionQueuedError as exc" in rewrite_route
+    assert "first-class `202 queued` async acceptance" in readme
+    assert "`202 queued`" in runbook
+    assert "Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "delayed_retry_async_acceptance")
+    assert capability["status"] == "tested"
+
+
 def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")

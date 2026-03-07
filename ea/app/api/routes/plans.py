@@ -8,7 +8,7 @@ from pydantic_core import PydanticCustomError
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 from app.domain.models import PlanValidationError, TaskExecutionRequest
-from app.services.orchestrator import HumanTaskRequiredError
+from app.services.orchestrator import AsyncExecutionQueuedError, HumanTaskRequiredError
 from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 
 router = APIRouter(prefix="/v1/plans", tags=["plans"])
@@ -135,6 +135,14 @@ class PlanExecuteAcceptedOut(BaseModel):
                     "status": "awaiting_human",
                     "next_action": "poll_or_subscribe",
                 },
+                {
+                    "task_key": "rewrite_retry_delayed",
+                    "session_id": "session-queued-retry",
+                    "approval_id": "",
+                    "human_task_id": "",
+                    "status": "queued",
+                    "next_action": "poll_or_subscribe",
+                },
             ]
         }
     }
@@ -252,6 +260,16 @@ def execute_plan(
                 task_key=body.task_key,
                 session_id=exc.session_id,
                 human_task_id=exc.human_task_id,
+                status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except AsyncExecutionQueuedError as exc:
+        return JSONResponse(
+            status_code=202,
+            content=PlanExecuteAcceptedOut(
+                task_key=body.task_key,
+                session_id=exc.session_id,
                 status=exc.status,
                 next_action="poll_or_subscribe",
             ).model_dump(),

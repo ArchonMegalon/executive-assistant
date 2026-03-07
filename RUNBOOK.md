@@ -13,7 +13,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/health/live` | `200` | n/a |
 | GET | `/health/ready` | `200` | `503 not_ready:*` |
 | GET | `/version` | `200` | n/a |
-| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human` | `400 text is required`, `403 principal_scope_mismatch`, `403 policy_denied:*` (including `tool_not_allowed`) |
+| POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human`, `202 queued` | `400 text is required`, `403 principal_scope_mismatch`, `403 policy_denied:*` (including `tool_not_allowed`) |
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found`, `403 principal_scope_mismatch` (returns artifact content plus explicit `principal_id` ownership, originating `task_key`/`deliverable_type`, `preview_text`, and `storage_handle`) |
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found`, `403 principal_scope_mismatch` (returns proof metadata plus originating `task_key`/`deliverable_type`) |
 | GET | `/v1/rewrite/run-costs/{cost_id}` | `200` | `404 run_cost_not_found`, `403 principal_scope_mismatch` (returns cost metadata plus originating `task_key`/`deliverable_type`) |
@@ -57,7 +57,7 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/tasks/contracts` | `200` | validation `422` |
 | GET | `/v1/tasks/contracts/{task_key}` | `200` | `404 task_contract_not_found` |
 | POST | `/v1/plans/compile` | `200` | validation `422`, `403 principal_scope_mismatch` |
-| POST | `/v1/plans/execute` | `200`, `202 awaiting_approval`, `202 awaiting_human` | validation `422`, `403 principal_scope_mismatch`, `403 policy_denied:*` |
+| POST | `/v1/plans/execute` | `200`, `202 awaiting_approval`, `202 awaiting_human`, `202 queued` | validation `422`, `403 principal_scope_mismatch`, `403 policy_denied:*` |
 | POST | `/v1/memory/candidates` | `200` | validation `422` |
 | GET | `/v1/memory/candidates` | `200` | validation `422` |
 | POST | `/v1/memory/candidates/{candidate_id}/promote` | `200` | `404 memory_candidate_not_found` |
@@ -129,6 +129,7 @@ Policy notes:
 - `POST /v1/plans/compile` and the queued session step input payloads now also expose `owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`, so operator tooling can see who owns each step and what runtime posture it expects before deeper graph execution lands.
 - `POST /v1/plans/execute` now reuses that same compiled task-contract runtime for non-`rewrite_text` artifact flows, accepts structured `input_json` plus `context_refs` in addition to the legacy `text` convenience field, and lets stakeholder briefings and similar executive contracts run through the queue-backed graph without a rewrite-only entrypoint.
 - `POST /v1/plans/execute` now also returns the same first-class `202 awaiting_approval` and `202 awaiting_human` workflow contract as rewrite execution, and those generic task sessions resume through the shared approval and human-task endpoints.
+- Rewrite creation and `POST /v1/plans/execute` now also return `202 queued` with `next_action=poll_or_subscribe` when a retryable step reschedules itself into the future (`retry_backoff_seconds>0`), so delayed queue retries stay async instead of surfacing `queued task did not execute`.
 - Those paused generic task sessions keep graph-aware dependency metadata in `GET /v1/rewrite/sessions/{session_id}` too: approval-backed runs hold `step_artifact_save` in `waiting_approval` with satisfied dependencies, while human-review-backed runs leave downstream save steps queued behind `blocked_dependency_keys=["step_human_review"]` until the operator returns the packet.
 - Tool and system step failures can now also honor `failure_strategy=retry`: the queue runtime reuses the same queue row, keeps `attempt_count` monotonic, records `step_retry_scheduled`, and delays the next lease by `retry_backoff_seconds` until `max_attempts` is exhausted.
 - If that retried queue row is immediately eligible (`retry_backoff_seconds=0`), the inline create/approve/return paths now keep draining the same session until it reaches completion, pause, or terminal failure instead of surfacing `queued task did not execute` for a retry that was already ready to run.

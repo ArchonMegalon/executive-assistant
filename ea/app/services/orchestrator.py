@@ -70,6 +70,20 @@ class HumanTaskRequiredError(RuntimeError):
         self.status = status
 
 
+class AsyncExecutionQueuedError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        status: str = "queued",
+        next_attempt_at: str | None = None,
+    ) -> None:
+        super().__init__(status)
+        self.session_id = session_id
+        self.status = status
+        self.next_attempt_at = next_attempt_at
+
+
 class RewriteOrchestrator:
     _TRUST_RANK = {
         "junior": 0,
@@ -557,6 +571,63 @@ class RewriteOrchestrator:
 
     def _queue_idempotency_key(self, session_id: str, step_id: str) -> str:
         return f"rewrite:{session_id}:{step_id}"
+
+    def _delayed_retry_queue_item(
+        self,
+        snapshot: ExecutionSessionSnapshot,
+    ) -> ExecutionQueueItem | None:
+        if str(snapshot.session.status or "") != "queued":
+            return None
+        now = datetime.now(timezone.utc)
+        delayed_items: list[tuple[datetime, ExecutionQueueItem]] = []
+        for row in snapshot.queue_items:
+            if str(row.state or "") != "queued":
+                continue
+            raw_next_attempt_at = str(row.next_attempt_at or "").strip()
+            if not raw_next_attempt_at:
+                continue
+            try:
+                parsed = datetime.fromisoformat(raw_next_attempt_at)
+            except ValueError:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if parsed > now:
+                delayed_items.append((parsed, row))
+        if not delayed_items:
+            return None
+        delayed_items.sort(key=lambda item: (item[0], str(item[1].queue_id or "")))
+        return delayed_items[0][1]
+
+    def _raise_for_async_snapshot_state(self, snapshot: ExecutionSessionSnapshot) -> None:
+        if snapshot.session.status == "awaiting_human":
+            human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
+            raise HumanTaskRequiredError(
+                session_id=snapshot.session.session_id,
+                human_task_id=human_task_id,
+                status=snapshot.session.status,
+            )
+        if snapshot.session.status == "awaiting_approval":
+            approval_request = next(
+                (row for row in self._approvals.list_pending(limit=100) if row.session_id == snapshot.session.session_id),
+                None,
+            )
+            raise ApprovalRequiredError(
+                session_id=snapshot.session.session_id,
+                approval_id=approval_request.approval_id if approval_request is not None else "",
+                status=snapshot.session.status,
+            )
+        if snapshot.session.status == "blocked":
+            decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=snapshot.session.session_id)), None)
+            reason = str(decision.reason if decision is not None else "") or "policy_denied"
+            raise PolicyDeniedError(reason)
+        delayed_retry = self._delayed_retry_queue_item(snapshot)
+        if delayed_retry is not None:
+            raise AsyncExecutionQueuedError(
+                session_id=snapshot.session.session_id,
+                status="queued",
+                next_attempt_at=delayed_retry.next_attempt_at,
+            )
 
     def _step_failure_strategy(self, rewrite_step: ExecutionStep) -> str:
         return str((rewrite_step.input_json or {}).get("failure_strategy") or "fail").strip().lower() or "fail"
@@ -1447,27 +1518,7 @@ class RewriteOrchestrator:
             artifact = drained_artifact
         snapshot = self.fetch_session(session.session_id)
         if snapshot is not None:
-            if snapshot.session.status == "awaiting_human":
-                human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
-                raise HumanTaskRequiredError(
-                    session_id=session.session_id,
-                    human_task_id=human_task_id,
-                    status=snapshot.session.status,
-                )
-            if snapshot.session.status == "awaiting_approval":
-                approval_request = next(
-                    (row for row in self._approvals.list_pending(limit=100) if row.session_id == session.session_id),
-                    None,
-                )
-                raise ApprovalRequiredError(
-                    session_id=session.session_id,
-                    approval_id=approval_request.approval_id if approval_request is not None else "",
-                    status=snapshot.session.status,
-                )
-            if snapshot.session.status == "blocked":
-                decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=session.session_id)), None)
-                reason = str(decision.reason if decision is not None else "") or "policy_denied"
-                raise PolicyDeniedError(reason)
+            self._raise_for_async_snapshot_state(snapshot)
             if snapshot.session.status == "completed":
                 if artifact is not None:
                     return artifact
@@ -2110,9 +2161,9 @@ class RewriteOrchestrator:
                 if artifact is None:
                     snapshot = self.fetch_session(request.session_id)
                     if snapshot is not None:
-                        if snapshot.session.status == "awaiting_human":
+                        if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
                             return request, decision_row
-                        if snapshot.session.status == "completed":
+                        if self._delayed_retry_queue_item(snapshot) is not None:
                             return request, decision_row
                     raise RuntimeError(f"approved queue item did not execute: {queue_item.queue_id}")
         else:
