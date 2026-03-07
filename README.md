@@ -55,8 +55,8 @@ The Codex session skill list is separate from this LTD inventory: skills are loc
 - `/v1/connectors/bindings*` manages external connector bindings and status transitions
 - `/v1/tasks/contracts*` manages typed task contracts used by intent compilation
 - `/v1/skills*` promotes those task contracts into product-facing executive skills with explicit workflow, memory, authority, human-policy, and evaluation metadata
-- `/v1/plans/compile` emits a typed plan DSL projection from task contracts
-- `/v1/plans/execute` runs task-contract keys through the same queue-backed graph runtime used by rewrite execution
+- `/v1/plans/compile` emits a typed plan DSL projection from task contracts and now also projects the resolved `skill_key` for the product-facing capability behind that task
+- `/v1/plans/execute` runs task-contract keys through the same queue-backed graph runtime used by rewrite execution and now returns the resolved `skill_key` alongside `task_key`
 - `/v1/memory/candidates*` stages reviewable memory candidates from runtime signals
 - `/v1/memory/items*` lists promoted long-term memory items with provenance
 - `/v1/memory/entities*` upserts/list/gets semantic entities for people/projects/objects

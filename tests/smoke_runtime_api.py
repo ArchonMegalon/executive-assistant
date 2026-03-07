@@ -2926,6 +2926,7 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
         json={"task_key": "meeting_prep", "goal": "prepare the board meeting packet"},
     )
     assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "meeting_prep"
     assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
         "step_input_prepare",
         "step_policy_evaluate",

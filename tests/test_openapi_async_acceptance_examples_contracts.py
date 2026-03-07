@@ -42,12 +42,15 @@ def test_openapi_async_acceptance_schemas_include_approval_and_human_examples() 
     plan_approval = next(example for example in plan_examples if example["status"] == "awaiting_approval")
     plan_human = next(example for example in plan_examples if example["status"] == "awaiting_human")
     plan_queued = next(example for example in plan_examples if example["status"] == "queued")
+    assert plan_approval["skill_key"] == "decision_briefing"
     assert plan_approval["task_key"] == "decision_brief_approval"
     assert plan_approval["approval_id"] == "approval-123"
     assert plan_approval["human_task_id"] == ""
+    assert plan_human["skill_key"] == "stakeholder_briefing"
     assert plan_human["task_key"] == "stakeholder_briefing_review"
     assert plan_human["approval_id"] == ""
     assert plan_human["human_task_id"] == "human-task-123"
+    assert plan_queued["skill_key"] == "rewrite_retry_delayed"
     assert plan_queued["task_key"] == "rewrite_retry_delayed"
     assert plan_queued["approval_id"] == ""
     assert plan_queued["human_task_id"] == ""

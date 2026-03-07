@@ -3548,6 +3548,36 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_identity_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "_resolve_skill_key(" "ea/app/api/routes/plans.py" && \
+     grep -Fq "skill_key: str" "ea/app/api/routes/plans.py" && \
+     grep -Fq 'compiled.json()["skill_key"] == "meeting_prep"' "tests/test_skills.py" && \
+     grep -Fq 'executed.json()["skill_key"] == "meeting_prep"' "tests/test_skills.py" && \
+     grep -Fq 'body["skill_key"] == "rewrite_text"' "tests/test_plan_execute_input_contracts.py" && \
+     grep -Fq 'plan_approval["skill_key"] == "decision_briefing"' "tests/test_openapi_async_acceptance_examples_contracts.py" && \
+     grep -Fq "compiled.get('skill_key','')" "scripts/smoke_api.sh" && \
+     grep -Fq "body.get('skill_key','')" "scripts/smoke_api.sh" && \
+     grep -Fq 'resolved `skill_key`' "README.md" && \
+     grep -Fq 'resolved `skill_key`' "RUNBOOK.md" && \
+     grep -Fq 'resolved `skill_key`' "CHANGELOG.md"; then
+    echo "ok: skill identity projection docs and contract coverage"
+  else
+    echo "missing: skill identity projection docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: skill identity projection milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

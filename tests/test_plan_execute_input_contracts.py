@@ -38,6 +38,7 @@ def test_plan_execute_accepts_structured_input_json_and_context_refs() -> None:
     )
     assert execute.status_code == 200
     body = execute.json()
+    assert body["skill_key"] == "rewrite_text"
     assert body["content"] == "Structured workflow input."
 
     session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
@@ -114,6 +115,7 @@ def test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance() -> Non
         },
     )
     assert execute.status_code == 202
+    assert execute.json()["skill_key"] == "rewrite_retry_delayed_plan"
     assert execute.json()["status"] == "queued"
     assert execute.json()["next_action"] == "poll_or_subscribe"
 

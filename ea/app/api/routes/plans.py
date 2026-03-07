@@ -84,6 +84,7 @@ class PlanOut(BaseModel):
 
 
 class PlanCompileOut(BaseModel):
+    skill_key: str
     intent: IntentOut
     plan: PlanOut
 
@@ -104,6 +105,7 @@ class PlanExecuteIn(BaseModel):
 
 
 class PlanExecuteOut(BaseModel):
+    skill_key: str
     task_key: str
     artifact_id: str
     kind: str
@@ -120,6 +122,7 @@ class PlanExecuteOut(BaseModel):
 
 
 class PlanExecuteAcceptedOut(BaseModel):
+    skill_key: str
     task_key: str
     session_id: str
     approval_id: str = ""
@@ -131,6 +134,7 @@ class PlanExecuteAcceptedOut(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
+                    "skill_key": "decision_briefing",
                     "task_key": "decision_brief_approval",
                     "session_id": "session-awaiting-approval",
                     "approval_id": "approval-123",
@@ -139,6 +143,7 @@ class PlanExecuteAcceptedOut(BaseModel):
                     "next_action": "poll_or_subscribe",
                 },
                 {
+                    "skill_key": "stakeholder_briefing",
                     "task_key": "stakeholder_briefing_review",
                     "session_id": "session-awaiting-human",
                     "approval_id": "",
@@ -147,6 +152,7 @@ class PlanExecuteAcceptedOut(BaseModel):
                     "next_action": "poll_or_subscribe",
                 },
                 {
+                    "skill_key": "rewrite_retry_delayed",
                     "task_key": "rewrite_retry_delayed",
                     "session_id": "session-queued-retry",
                     "approval_id": "",
@@ -157,6 +163,16 @@ class PlanExecuteAcceptedOut(BaseModel):
             ]
         }
     }
+
+
+def _resolve_skill_key(container: AppContainer, task_key: str) -> str:
+    resolved_task_key = str(task_key or "").strip()
+    if not resolved_task_key:
+        return ""
+    row = container.skills.get_skill(resolved_task_key)
+    if row is None:
+        return resolved_task_key
+    return str(row.skill_key or resolved_task_key)
 
 
 def _artifact_execute_out_payload(artifact):  # type: ignore[no-untyped-def]
@@ -191,7 +207,9 @@ def compile_plan(
         )
     except PlanValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    skill_key = _resolve_skill_key(container, plan.task_key)
     return PlanCompileOut(
+        skill_key=skill_key,
         intent=IntentOut(
             principal_id=intent.principal_id,
             goal=intent.goal,
@@ -257,6 +275,7 @@ def execute_plan(
     context: RequestContext = Depends(get_request_context),
 ) -> PlanExecuteOut | PlanExecuteAcceptedOut:
     principal_id = resolve_principal_id(body.principal_id, context)
+    skill_key = _resolve_skill_key(container, body.task_key)
     try:
         artifact = container.orchestrator.execute_task_artifact(
             TaskExecutionRequest(
@@ -274,6 +293,7 @@ def execute_plan(
         return JSONResponse(
             status_code=202,
             content=PlanExecuteAcceptedOut(
+                skill_key=skill_key,
                 task_key=body.task_key,
                 session_id=exc.session_id,
                 approval_id=exc.approval_id,
@@ -285,6 +305,7 @@ def execute_plan(
         return JSONResponse(
             status_code=202,
             content=PlanExecuteAcceptedOut(
+                skill_key=skill_key,
                 task_key=body.task_key,
                 session_id=exc.session_id,
                 human_task_id=exc.human_task_id,
@@ -296,6 +317,7 @@ def execute_plan(
         return JSONResponse(
             status_code=202,
             content=PlanExecuteAcceptedOut(
+                skill_key=skill_key,
                 task_key=body.task_key,
                 session_id=exc.session_id,
                 status=exc.status,
@@ -306,6 +328,7 @@ def execute_plan(
         reason = str(exc or "policy_denied")
         raise HTTPException(status_code=403, detail=f"policy_denied:{reason}") from exc
     return PlanExecuteOut(
+        skill_key=skill_key,
         task_key=body.task_key,
         **_artifact_execute_out_payload(artifact),
         deliverable_type=artifact.kind,

@@ -88,12 +88,25 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
         json={"task_key": "meeting_prep", "goal": "prepare the board meeting packet"},
     )
     assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "meeting_prep"
     assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
         "step_input_prepare",
         "step_policy_evaluate",
         "step_artifact_save",
         "step_memory_candidate_stage",
     ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "meeting_prep",
+            "goal": "prepare the board meeting packet",
+            "input_json": {"source_text": "Board packet context."},
+        },
+    )
+    assert executed.status_code == 200
+    assert executed.json()["skill_key"] == "meeting_prep"
+    assert executed.json()["deliverable_type"] == "meeting_pack"
 
 
 def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> None:
@@ -122,3 +135,10 @@ def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> 
     assert body["workflow_template"] == "rewrite"
     assert body["memory_reads"] == ["stakeholder_context"]
     assert body["tool_policy_json"]["allowed_tools"] == ["artifact_repository"]
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "stakeholder_briefing", "goal": "prepare a stakeholder briefing"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "stakeholder_briefing"

@@ -1285,6 +1285,17 @@
         "pause_resume_runtime_status_transition"
       ],
       "notes": "The execution ledger now exposes a dedicated `set_session_status(...)` API for nonterminal states (`queued`, `running`, `blocked`, `awaiting_approval`, `awaiting_human`, `failed`), and the queue runtime uses that instead of overloading `complete_session(...)` for retry and pause/resume transitions."
+    },
+    {
+      "name": "skill_identity_projection",
+      "status": "tested",
+      "scope": [
+        "plan_compile_skill_key_projection",
+        "plan_execute_skill_key_projection",
+        "skill_catalog_execute_round_trip",
+        "openapi_async_skill_identity_examples"
+      ],
+      "notes": "The plan/task execution surface now projects the resolved `skill_key` alongside `task_key`, so product-facing executive capability identity travels with compile and execute responses instead of living only in the separate skill catalog."
     }
   ],
   "migrations": [

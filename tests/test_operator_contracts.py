@@ -429,6 +429,37 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_skill_identity_projection_is_documented_and_guarded() -> None:
+    plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "class PlanCompileOut(BaseModel):" in plans_route
+    assert "skill_key: str" in plans_route
+    assert "_resolve_skill_key(" in plans_route
+    assert 'compiled.json()["skill_key"] == "meeting_prep"' in skills_test
+    assert 'executed.json()["skill_key"] == "meeting_prep"' in skills_test
+    assert 'body["skill_key"] == "rewrite_text"' in execute_input_test
+    assert 'execute.json()["skill_key"] == "rewrite_retry_delayed_plan"' in execute_input_test
+    assert 'compiled.json()["skill_key"] == "meeting_prep"' in smoke_test
+    assert "compiled.get('skill_key','')" in smoke_script
+    assert "body.get('skill_key','')" in smoke_script
+    assert 'plan_approval["skill_key"] == "decision_briefing"' in openapi_test
+    assert "resolved `skill_key`" in readme
+    assert "resolved `skill_key`" in runbook
+    assert "resolved `skill_key`" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_identity_projection")
+    assert capability["status"] == "tested"
+
+
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
