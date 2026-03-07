@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 from app.domain.models import IntentSpecV3
 from app.services.policy import PolicyDecisionService
@@ -62,7 +62,7 @@ class PolicyEvaluateIn(BaseModel):
     step_kind: str = Field(default="connector_call", max_length=100)
     authority_class: str = Field(default="execute", max_length=100)
     review_class: str = Field(default="manager", max_length=100)
-    principal_id: str = Field(default="local-user", min_length=1, max_length=200)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     goal: str = Field(default="evaluate outbound action policy", max_length=2000)
     task_type: str = Field(default="external_action", min_length=1, max_length=200)
     deliverable_type: str = Field(default="external_message", max_length=200)
@@ -100,10 +100,14 @@ def _session_task_identity(
     container: AppContainer,
     session_id: str,
     cache: dict[str, tuple[str, str]] | None = None,
+    principal_id: str | None = None,
 ) -> tuple[str, str]:
     if cache is not None and session_id in cache:
         return cache[session_id]
-    snapshot = container.orchestrator.fetch_session(session_id)
+    if principal_id:
+        snapshot = container.orchestrator.fetch_session_for_principal(session_id, principal_id=principal_id)
+    else:
+        snapshot = container.orchestrator.fetch_session(session_id)
     if snapshot is None:
         identity = ("", "")
     else:
@@ -116,13 +120,48 @@ def _session_task_identity(
     return identity
 
 
+def _require_scoped_session(
+    container: AppContainer,
+    *,
+    session_id: str,
+    principal_id: str,
+) -> None:
+    try:
+        scoped = container.orchestrator.fetch_session_for_principal(session_id, principal_id=principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
+    if scoped is None:
+        raise HTTPException(status_code=404, detail="session_not_found")
+
+
+def _require_scoped_approval(
+    container: AppContainer,
+    *,
+    approval_id: str,
+    principal_id: str,
+) -> None:
+    try:
+        found = container.orchestrator.fetch_approval_request_for_principal(approval_id, principal_id=principal_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="approval_not_found")
+
+
 @router.get("/decisions/recent")
 def list_recent_policy_decisions(
     limit: int = Query(default=50, ge=1, le=500),
     session_id: str | None = Query(default=None),
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> list[PolicyDecisionOut]:
-    rows = container.orchestrator.list_policy_decisions(limit=limit, session_id=session_id)
+    if session_id:
+        _require_scoped_session(container, session_id=session_id, principal_id=context.principal_id)
+    rows = container.orchestrator.list_policy_decisions_for_principal(
+        limit=limit,
+        session_id=session_id,
+        principal_id=context.principal_id,
+    )
     return [
         PolicyDecisionOut(
             decision_id=r.decision_id,
@@ -142,6 +181,7 @@ def list_recent_policy_decisions(
 def evaluate_policy(
     body: PolicyEvaluateIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> PolicyEvaluateOut:
     tool_name = str(body.tool_name or "").strip()
     action_kind = str(body.action_kind or "").strip()
@@ -152,8 +192,9 @@ def evaluate_policy(
     allowed_tools = tuple(str(value or "").strip() for value in body.allowed_tools if str(value or "").strip())
     if not allowed_tools and tool_name:
         allowed_tools = (tool_name,)
+    principal_id = resolve_principal_id(body.principal_id, context)
     intent = IntentSpecV3(
-        principal_id=str(body.principal_id or "local-user").strip() or "local-user",
+        principal_id=principal_id,
         goal=str(body.goal or ""),
         task_type=str(body.task_type or "external_action").strip() or "external_action",
         deliverable_type=str(body.deliverable_type or "external_message").strip() or "external_message",
@@ -194,8 +235,12 @@ def evaluate_policy(
 def list_pending_approvals(
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> list[ApprovalRequestOut]:
-    rows = container.orchestrator.list_pending_approvals(limit=limit)
+    rows = container.orchestrator.list_pending_approvals_for_principal(
+        limit=limit,
+        principal_id=context.principal_id,
+    )
     cache: dict[str, tuple[str, str]] = {}
     return [
         ApprovalRequestOut(
@@ -208,8 +253,8 @@ def list_pending_approvals(
             expires_at=r.expires_at,
             created_at=r.created_at,
             updated_at=r.updated_at,
-            task_key=_session_task_identity(container, r.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, r.session_id, cache)[1],
+            task_key=_session_task_identity(container, r.session_id, cache, principal_id=context.principal_id)[0],
+            deliverable_type=_session_task_identity(container, r.session_id, cache, principal_id=context.principal_id)[1],
         )
         for r in rows
     ]
@@ -220,8 +265,15 @@ def list_approval_history(
     limit: int = Query(default=50, ge=1, le=500),
     session_id: str | None = Query(default=None),
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> list[ApprovalDecisionOut]:
-    rows = container.orchestrator.list_approval_history(limit=limit, session_id=session_id)
+    if session_id:
+        _require_scoped_session(container, session_id=session_id, principal_id=context.principal_id)
+    rows = container.orchestrator.list_approval_history_for_principal(
+        limit=limit,
+        session_id=session_id,
+        principal_id=context.principal_id,
+    )
     cache: dict[str, tuple[str, str]] = {}
     return [
         ApprovalDecisionOut(
@@ -233,8 +285,8 @@ def list_approval_history(
             decided_by=r.decided_by,
             reason=r.reason,
             created_at=r.created_at,
-            task_key=_session_task_identity(container, r.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, r.session_id, cache)[1],
+            task_key=_session_task_identity(container, r.session_id, cache, principal_id=context.principal_id)[0],
+            deliverable_type=_session_task_identity(container, r.session_id, cache, principal_id=context.principal_id)[1],
         )
         for r in rows
     ]
@@ -245,7 +297,9 @@ def approve_request(
     approval_id: str,
     body: ApprovalDecisionIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
+    _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
     found = container.orchestrator.decide_approval(
         approval_id,
         decision="approve",
@@ -255,7 +309,11 @@ def approve_request(
     if not found:
         raise HTTPException(status_code=404, detail="approval_not_found")
     _request, decision = found
-    task_key, deliverable_type = _session_task_identity(container, decision.session_id)
+    task_key, deliverable_type = _session_task_identity(
+        container,
+        decision.session_id,
+        principal_id=context.principal_id,
+    )
     return ApprovalDecisionOut(
         decision_id=decision.decision_id,
         approval_id=decision.approval_id,
@@ -275,7 +333,9 @@ def deny_request(
     approval_id: str,
     body: ApprovalDecisionIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
+    _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
     found = container.orchestrator.decide_approval(
         approval_id,
         decision="deny",
@@ -285,7 +345,11 @@ def deny_request(
     if not found:
         raise HTTPException(status_code=404, detail="approval_not_found")
     _request, decision = found
-    task_key, deliverable_type = _session_task_identity(container, decision.session_id)
+    task_key, deliverable_type = _session_task_identity(
+        container,
+        decision.session_id,
+        principal_id=context.principal_id,
+    )
     return ApprovalDecisionOut(
         decision_id=decision.decision_id,
         approval_id=decision.approval_id,
@@ -305,7 +369,9 @@ def expire_request(
     approval_id: str,
     body: ApprovalDecisionIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
+    _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
     found = container.orchestrator.expire_approval(
         approval_id,
         decided_by=body.decided_by,
@@ -314,7 +380,11 @@ def expire_request(
     if not found:
         raise HTTPException(status_code=404, detail="approval_not_found")
     _request, decision = found
-    task_key, deliverable_type = _session_task_identity(container, decision.session_id)
+    task_key, deliverable_type = _session_task_identity(
+        container,
+        decision.session_id,
+        principal_id=context.principal_id,
+    )
     return ApprovalDecisionOut(
         decision_id=decision.decision_id,
         approval_id=decision.approval_id,

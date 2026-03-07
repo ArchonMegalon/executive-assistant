@@ -117,9 +117,21 @@ if [[ "${RECEIPT_FIELDS}" != "artifact_repository|tool.v1" ]]; then
   fail 12 "policy contract mismatch"
 fi
 curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" >/dev/null
-curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" >/dev/null
-curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+POLICY_EVAL_SCOPE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_policy_eval_scope_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"content\":\"scoped policy evaluate\",\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"channel\":\"email\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+if [[ "${POLICY_EVAL_SCOPE_MISMATCH_CODE}" != "403" ]]; then
+  echo "expected policy evaluate principal mismatch to return 403; got ${POLICY_EVAL_SCOPE_MISMATCH_CODE}" >&2
+  cat /tmp/ea_policy_eval_scope_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+POLICY_EVAL_SCOPE_MISMATCH_REASON="$(python3 -c 'import json,sys; body=json.load(open(sys.argv[1])); print(((body.get("error") or {}).get("code","")))' /tmp/ea_policy_eval_scope_mismatch_resp.json)"
+if [[ "${POLICY_EVAL_SCOPE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected policy evaluate principal mismatch code principal_scope_mismatch; got ${POLICY_EVAL_SCOPE_MISMATCH_REASON}" >&2
+  cat /tmp/ea_policy_eval_scope_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
 REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_principal_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
 if [[ "${REWRITE_PRINCIPAL_MISMATCH_CODE}" != "403" ]]; then
   echo "expected rewrite principal mismatch create to return 403; got ${REWRITE_PRINCIPAL_MISMATCH_CODE}" >&2
@@ -1113,11 +1125,26 @@ fi
 if [[ -z "${APPROVAL_ID}" || -z "${APPROVAL_SESSION_ID}" ]]; then
   fail 13 "missing approval metadata from acceptance response"
 fi
-PENDING_APPROVALS_JSON="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}")"
+PENDING_APPROVALS_JSON="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PENDING_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${APPROVAL_ID}'; session_id='${APPROVAL_SESSION_ID}'; print(any((row or {}).get('approval_id') == approval_id and (row or {}).get('session_id') == session_id for row in rows))" <<<"${PENDING_APPROVALS_JSON}")"
 if [[ "${PENDING_MATCH}" != "True" ]]; then
   echo "expected pending approvals to contain acceptance response ids approval_id=${APPROVAL_ID} session_id=${APPROVAL_SESSION_ID}" >&2
   echo "${PENDING_APPROVALS_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+FOREIGN_PENDING_APPROVALS_JSON="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_PENDING_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${APPROVAL_ID}'; print(any((row or {}).get('approval_id') == approval_id for row in rows))" <<<"${FOREIGN_PENDING_APPROVALS_JSON}")"
+if [[ "${FOREIGN_PENDING_MATCH}" != "False" ]]; then
+  echo "expected foreign principal pending approvals list to hide approval_id=${APPROVAL_ID}" >&2
+  echo "${FOREIGN_PENDING_APPROVALS_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+FOREIGN_APPROVAL_HISTORY_CODE="$(curl -sS -o /tmp/ea_policy_history_scope_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/policy/approvals/history?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_DECISIONS_CODE="$(curl -sS -o /tmp/ea_policy_decisions_scope_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/policy/decisions/recent?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+if [[ "${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" != "403|403" ]]; then
+  echo "expected foreign principal policy history/decision reads to return 403; got ${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" >&2
+  cat /tmp/ea_policy_history_scope_mismatch_resp.json >&2
+  cat /tmp/ea_policy_decisions_scope_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
 APPROVAL_WAITING_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
@@ -1127,7 +1154,13 @@ if [[ "${APPROVAL_WAITING_FIELDS}" != "awaiting_approval|waiting_approval|True|T
   echo "${APPROVAL_WAITING_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+FOREIGN_APPROVE_CODE="$(curl -sS -o /tmp/ea_policy_approve_scope_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' -d '{"decided_by":"smoke-operator","reason":"cross principal approval should fail"}')"
+if [[ "${FOREIGN_APPROVE_CODE}" != "403" ]]; then
+  echo "expected foreign principal approval decision to return 403; got ${FOREIGN_APPROVE_CODE}" >&2
+  cat /tmp/ea_policy_approve_scope_mismatch_resp.json >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"smoke-operator","reason":"resume execution"}' >/dev/null
 APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 3 and len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
@@ -1139,7 +1172,7 @@ fi
 echo "approval resume path ok"
 
 echo "== smoke: external-send policy path =="
-POLICY_EVAL_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+POLICY_EVAL_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"content":"Send the board update to the distribution list.","tool_name":"connector.dispatch","action_kind":"delivery.send","channel":"email"}')"
 POLICY_EVAL_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("allow", False), body.get("requires_approval", False), body.get("reason", ""), body.get("step_kind", ""), body.get("authority_class", ""), body.get("review_class", "")))' <<<"${POLICY_EVAL_JSON}")"
 if [[ "${POLICY_EVAL_FIELDS}" != "True|True|allowed|connector_call|execute|manager" ]]; then
@@ -1434,12 +1467,12 @@ if [[ "${GENERIC_APPROVAL_SESSION_FIELDS}" != "decision_brief_approval|awaiting_
   echo "expected generic approval-backed task session to preserve task identity plus satisfied dependency-state projection through awaiting_approval; got ${GENERIC_APPROVAL_SESSION_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_APPROVAL_PENDING_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=10" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; session_id='${GENERIC_APPROVAL_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('session_id') == session_id), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
+GENERIC_APPROVAL_PENDING_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; session_id='${GENERIC_APPROVAL_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('session_id') == session_id), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
 if [[ "${GENERIC_APPROVAL_PENDING_FIELDS}" != "decision_brief_approval|decision_brief" ]]; then
   echo "expected pending approval projection to carry generic task identity before completion; got ${GENERIC_APPROVAL_PENDING_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_APPROVAL_DECISION_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${GENERIC_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+GENERIC_APPROVAL_DECISION_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${GENERIC_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved generic task execution"}')"
 GENERIC_APPROVAL_DECISION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${GENERIC_APPROVAL_DECISION_JSON}")"
 if [[ "${GENERIC_APPROVAL_DECISION_FIELDS}" != "decision_brief_approval|decision_brief|approved" ]]; then
@@ -1452,7 +1485,7 @@ if [[ "${GENERIC_APPROVAL_DONE_FIELDS}" != "completed|decision_brief|True" ]]; t
   echo "expected generic approval-backed task to resume to completion after approval; got ${GENERIC_APPROVAL_DONE_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_APPROVAL_HISTORY_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/history?session_id=${GENERIC_APPROVAL_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('decision') == 'approved'), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
+GENERIC_APPROVAL_HISTORY_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/history?session_id=${GENERIC_APPROVAL_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('decision') == 'approved'), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
 if [[ "${GENERIC_APPROVAL_HISTORY_FIELDS}" != "decision_brief_approval|decision_brief" ]]; then
   echo "expected approval history projection to carry generic task identity after approval; got ${GENERIC_APPROVAL_HISTORY_FIELDS}" >&2
   fail 12 "policy contract mismatch"
@@ -1551,7 +1584,7 @@ if [[ "${DISPATCH_PENDING_BEFORE_FIELDS}" != "False" ]]; then
   echo "expected dispatch workflow to avoid queueing delivery before approval" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+DISPATCH_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved dispatch workflow"}')"
 DISPATCH_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${DISPATCH_APPROVE_JSON}")"
 if [[ "${DISPATCH_APPROVE_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing|approved" ]]; then
@@ -1654,7 +1687,7 @@ if [[ "${DISPATCH_MEMORY_PRE_CANDIDATES}" != "False" ]]; then
   echo "expected dispatch-memory workflow to avoid staging memory before approval-backed dispatch completes" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_MEMORY_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+DISPATCH_MEMORY_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_MEMORY_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved dispatch memory workflow"}')"
 DISPATCH_MEMORY_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${DISPATCH_MEMORY_APPROVE_JSON}")"
 if [[ "${DISPATCH_MEMORY_APPROVE_FIELDS}" != "stakeholder_dispatch_memory_candidate|stakeholder_briefing|approved" ]]; then
@@ -1718,12 +1751,12 @@ if [[ "${DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS}" != "awaiting_approval|complete
   echo "${DISPATCH_MEMORY_REVIEW_AWAITING_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_REVIEW_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${DISPATCH_MEMORY_REVIEW_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
+DISPATCH_MEMORY_REVIEW_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${DISPATCH_MEMORY_REVIEW_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
 if [[ -z "${DISPATCH_MEMORY_REVIEW_APPROVAL_ID}" ]]; then
   echo "expected review-dispatch-memory workflow to create a pending approval after human return" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_REVIEW_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_MEMORY_REVIEW_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+DISPATCH_MEMORY_REVIEW_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_MEMORY_REVIEW_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved reviewed dispatch memory"}')"
 DISPATCH_MEMORY_REVIEW_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${DISPATCH_MEMORY_REVIEW_APPROVE_JSON}")"
 if [[ "${DISPATCH_MEMORY_REVIEW_APPROVE_FIELDS}" != "stakeholder_review_dispatch_memory_candidate|stakeholder_briefing|approved" ]]; then
@@ -1799,12 +1832,12 @@ if [[ "${HYBRID_AWAITING_APPROVAL_FIELDS}" != "awaiting_approval|completed|compl
   echo "${HYBRID_AWAITING_APPROVAL_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${HYBRID_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
+HYBRID_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${HYBRID_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
 if [[ -z "${HYBRID_APPROVAL_ID}" ]]; then
   echo "expected review-then-dispatch workflow to create a pending approval after human return" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${HYBRID_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+HYBRID_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${HYBRID_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved reviewed dispatch"}')"
 HYBRID_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${HYBRID_APPROVE_JSON}")"
 if [[ "${HYBRID_APPROVE_FIELDS}" != "stakeholder_review_dispatch|stakeholder_briefing|approved" ]]; then
@@ -1852,12 +1885,12 @@ if [[ "${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" != "awaiting_approval|completed
   echo "${HYBRID_RETRY_AWAITING_APPROVAL_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_RETRY_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${HYBRID_RETRY_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
+HYBRID_RETRY_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${HYBRID_RETRY_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
 if [[ -z "${HYBRID_RETRY_APPROVAL_ID}" ]]; then
   echo "expected delayed review-then-dispatch workflow to create a pending approval after human return" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_RETRY_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${HYBRID_RETRY_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+HYBRID_RETRY_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${HYBRID_RETRY_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"decided_by":"operator","reason":"approved reviewed dispatch retry"}')"
 HYBRID_RETRY_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${HYBRID_RETRY_APPROVE_JSON}")"
 if [[ "${HYBRID_RETRY_APPROVE_FIELDS}" != "stakeholder_review_dispatch_retry|stakeholder_briefing|approved" ]]; then

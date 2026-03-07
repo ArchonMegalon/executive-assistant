@@ -32,13 +32,13 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 | GET | `/v1/human/tasks/{human_task_id}` | `200` | `404 human_task_not_found` |
 | POST | `/v1/human/tasks/{human_task_id}/claim` | `200` | `404 human_task_not_found`, `409 human_task_not_claimable` |
 | POST | `/v1/human/tasks/{human_task_id}/return` | `200` | `404 human_task_not_found`, `409 human_task_not_returnable` |
-| GET | `/v1/policy/decisions/recent` | `200` | n/a |
-| POST | `/v1/policy/evaluate` | `200` | validation `422` |
-| GET | `/v1/policy/approvals/pending` | `200` | n/a (pending rows include originating `task_key`/`deliverable_type`) |
-| GET | `/v1/policy/approvals/history` | `200` | n/a (history rows include originating `task_key`/`deliverable_type`) |
-| POST | `/v1/policy/approvals/{approval_id}/approve` | `200` | `404 approval_not_found` (decision row includes originating `task_key`/`deliverable_type`) |
-| POST | `/v1/policy/approvals/{approval_id}/deny` | `200` | `404 approval_not_found` (decision row includes originating `task_key`/`deliverable_type`) |
-| POST | `/v1/policy/approvals/{approval_id}/expire` | `200` | `404 approval_not_found` (decision row includes originating `task_key`/`deliverable_type`) |
+| GET | `/v1/policy/decisions/recent` | `200` | `403 principal_scope_mismatch`, `404 session_not_found` when `session_id` is scoped to another principal |
+| POST | `/v1/policy/evaluate` | `200` | validation `422`, `403 principal_scope_mismatch` |
+| GET | `/v1/policy/approvals/pending` | `200` | n/a (pending rows include originating `task_key`/`deliverable_type` and stay scoped to the effective request principal) |
+| GET | `/v1/policy/approvals/history` | `200` | `403 principal_scope_mismatch`, `404 session_not_found` when `session_id` is scoped to another principal (history rows include originating `task_key`/`deliverable_type`) |
+| POST | `/v1/policy/approvals/{approval_id}/approve` | `200` | `404 approval_not_found`, `403 principal_scope_mismatch` (decision row includes originating `task_key`/`deliverable_type`) |
+| POST | `/v1/policy/approvals/{approval_id}/deny` | `200` | `404 approval_not_found`, `403 principal_scope_mismatch` (decision row includes originating `task_key`/`deliverable_type`) |
+| POST | `/v1/policy/approvals/{approval_id}/expire` | `200` | `404 approval_not_found`, `403 principal_scope_mismatch` (decision row includes originating `task_key`/`deliverable_type`) |
 | POST | `/v1/observations/ingest` | `200` | validation `422` (supports source/external/dedupe/auth/raw payload pointers) |
 | GET | `/v1/observations/recent` | `200` | validation `422` |
 | POST | `/v1/delivery/outbox` | `200` | validation `422` (supports idempotency keys) |
@@ -116,7 +116,7 @@ Runtime mode:
 Policy notes:
 - Rewrite policy denies empty input, oversized input, and disallowed tool usage.
 - Rewrite policy requires approval for explicit approval classes, long inputs, and high-risk/high-budget or external-send actions.
-- `POST /v1/policy/evaluate` provides a direct HTTP path for previewing external-send approval requirements, including the step/authority/review metadata that now drives the queued policy step.
+- `POST /v1/policy/evaluate` provides a direct HTTP path for previewing external-send approval requirements, including the step/authority/review metadata that now drives the queued policy step, and its body `principal_id` is only a compatibility filter against the effective request principal.
 - Approving a paused rewrite resumes execution immediately on the current scaffold, so the session should move from `awaiting_approval` to `completed` with an artifact, receipt, and run-cost row.
 - Approval-required rewrites now return `202` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe` instead of a `409` error contract.
 - Allowed and approved rewrites now pass through durable `execution_queue` rows first; the current API path drains that queue inline, while non-API runner roles can drain it as workers.
@@ -139,6 +139,7 @@ Policy notes:
 - Session-bound `POST /v1/human/tasks` and `GET /v1/human/tasks?session_id=...` now enforce that the request principal matches the linked execution session principal too, so one principal cannot stitch packets onto or enumerate another principal's session thread via `session_id`.
 - Task-contract metadata can now add a projected `step_human_review` branch by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; the rewrite runtime auto-creates the linked human task packet with those routing and review-contract fields when that step executes, auto-assigns a unique exact reviewer when the flag is enabled, and a returned `final_text` payload now overrides the downstream artifact-save input.
 - Task contracts can now also switch the compiled workflow skeleton with `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template emits `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch`, persists the artifact before approval, and resumes into `connector.dispatch` only after the approval-backed delivery gate is approved.
+- Task contracts can now also use `workflow_template=artifact_then_packs` plus `budget_policy_json.post_artifact_packs=[...]` to compose shared post-artifact planner branches (currently `dispatch` and `memory_candidate`) without adding another one-off named workflow template for every combination.
 - The built-in `artifact_then_memory_candidate` workflow template now emits `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, persists the artifact, then stages a pending principal-scoped memory candidate through the same queue runtime so task contracts can write reviewable memory without adding a second API-side post-process.
 - The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now emits `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, so approval-backed external sends can complete first and only then stage a pending memory candidate with delivery context from the finished workflow.
 - That same `artifact_then_dispatch_then_memory_candidate` template can also combine with `budget_policy_json.human_review_role`, compiling `step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage` so sensitive send workflows pause first for human review and still stage post-dispatch memory only after approval-backed delivery completes.

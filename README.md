@@ -1,18 +1,8 @@
-# EA Rewrite Baseline
+# EA Hybrid Assistant Runtime
 
-This repository has been reset for a clean rewrite.
+This repository is a durable executive-assistant runtime kernel with principal-scoped API surfaces, queued execution, policy/approval gates, human-task routing, tools/connectors, observations/delivery, and executive memory domains.
 
-Kept:
-- core application scaffold in `ea/app`
-- deployment baseline (`ea/Dockerfile`, `docker-compose.yml`, `scripts/deploy.sh`)
-- environment/config templates (`.env.example`, `config/`)
-
-Removed:
-- legacy rollout docs, milestone scripts, and historical test packs
-- legacy process/task-tracking artifacts
-- legacy sidecar/runtime-specific operational clutter
-
-## Runtime Spine (Rewrite Seed)
+## Runtime Spine
 
 - `app.main` exposes a FastAPI app
 - `/health`, `/health/live`, `/health/ready`, `/version` provide liveness/readiness/version probes
@@ -73,6 +63,7 @@ Removed:
 - Those paused non-rewrite sessions keep the same dependency-state projection in `GET /v1/rewrite/sessions/{session_id}` too: approval-backed runs show `step_artifact_save.state=waiting_approval` with satisfied dependencies, while human-review-backed runs keep downstream save steps queued behind `blocked_dependency_keys=["step_human_review"]` until the packet returns
 - Task contracts can now project a first-class `human_task` branch (`step_human_review`) in plan output by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; rewrite execution now returns `202 awaiting_human` when that compiled review step pauses the queue runtime, creates the linked human task with those routing and review-contract semantics, can auto-preassign a unique exact reviewer when the policy flag is enabled, and downstream artifact persistence can consume `returned_payload_json.final_text` from the completed review packet
 - Task contracts can now also choose a materially different workflow skeleton with `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template compiles `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch`, persists the artifact before approval, then resumes into `connector.dispatch` only after the approval-backed delivery gate is cleared
+- Task contracts can now also use `workflow_template=artifact_then_packs` plus `budget_policy_json.post_artifact_packs=[...]` to compose shared post-artifact planner branches without minting a new one-off named workflow template for every dispatch/memory combination
 - The built-in `artifact_then_memory_candidate` workflow template now compiles `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, persists the artifact, then stages a pending principal-scoped memory candidate through the queue runtime so task contracts can emit reviewable memory without a second API-side post-process
 - The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now compiles `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, so an approval-backed external action can complete first and then stage a pending memory candidate with delivery context from the finished workflow
 - That same `artifact_then_dispatch_then_memory_candidate` template can also combine with `budget_policy_json.human_review_role`, compiling `step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage` so sensitive send workflows can pause for human judgment first and still stage post-dispatch memory only after approval-backed delivery completes
@@ -86,9 +77,9 @@ Removed:
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
 - `/v1/channels/telegram/ingest` maps raw Telegram updates into normalized observation events
-- `/v1/policy/decisions/recent` exposes persisted policy decision audit records
-- `/v1/policy/evaluate` exposes direct policy checks for tool/action/channel plus step/authority/review metadata, including external-send approval branches
-- `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints, and those approval projections now carry the originating task identity for non-rewrite async work
+- `/v1/policy/decisions/recent` exposes persisted policy decision audit records scoped to the effective request principal
+- `/v1/policy/evaluate` exposes direct policy checks for tool/action/channel plus step/authority/review metadata, including external-send approval branches, and treats body `principal_id` as a compatibility field that must match the request principal
+- `/v1/policy/approvals/*` exposes pending/history plus approve/deny/expire decision endpoints scoped to the effective request principal, and those approval projections now carry the originating task identity for non-rewrite async work
 - `/v1/human/tasks*` queue/detail payloads now also carry the originating task identity, so paused non-rewrite async work stays self-describing before completion
 - human task packets append `human_task_created`, `human_task_claimed`, and `human_task_returned` events into the linked session ledger so returned-from-human work is auditable
 - human task packets can optionally reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume that step to completion when the operator returns the packet

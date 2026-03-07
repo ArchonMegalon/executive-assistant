@@ -62,6 +62,7 @@ class PlannerService:
             str, Callable[[IntentSpecV3, TaskContract], tuple[PlanStepSpec, ...]]
         ] = {
             "rewrite": self._build_rewrite_steps,
+            "artifact_then_packs": self._build_artifact_then_packs_steps,
             "artifact_then_dispatch": self._build_artifact_then_dispatch_steps,
             "artifact_then_memory_candidate": self._build_artifact_then_memory_candidate_steps,
             "artifact_then_dispatch_then_memory_candidate": self._build_artifact_then_dispatch_then_memory_candidate_steps,
@@ -323,6 +324,30 @@ class PlannerService:
             quality_rubric_json=dict(metadata.get("quality_rubric_json") or {}),
         )
 
+    def _resolve_post_artifact_packs(
+        self,
+        contract: TaskContract,
+        *,
+        fallback: tuple[str, ...] = (),
+    ) -> tuple[str, ...]:
+        raw_packs = contract.budget_policy_json.get("post_artifact_packs")
+        values: list[str] = []
+        if isinstance(raw_packs, (list, tuple)):
+            values = [str(value or "").strip().lower() for value in raw_packs if str(value or "").strip()]
+        elif isinstance(raw_packs, str) and raw_packs.strip():
+            values = [raw_packs.strip().lower()]
+        if not values:
+            values = [str(value or "").strip().lower() for value in fallback if str(value or "").strip()]
+        resolved: list[str] = []
+        for value in values:
+            if value not in {"dispatch", "memory_candidate"}:
+                raise PlanValidationError(f"unknown_post_artifact_pack:{value}")
+            if value not in resolved:
+                resolved.append(value)
+        if not resolved:
+            raise PlanValidationError("post_artifact_pack_required")
+        return tuple(resolved)
+
     def _build_rewrite_steps(self, intent: IntentSpecV3, *, contract: TaskContract) -> tuple[PlanStepSpec, ...]:
         approval_required = intent.approval_class not in {"", "none"}
         human_review_metadata = self._human_review_metadata(contract)
@@ -348,12 +373,21 @@ class PlannerService:
         )
         return tuple(steps)
 
-    def _build_artifact_then_dispatch_steps(
+    def _build_artifact_then_packs_steps(
         self,
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        pack_keys: tuple[str, ...] | None = None,
     ) -> tuple[PlanStepSpec, ...]:
+        packs = pack_keys or self._resolve_post_artifact_packs(contract)
+        if "dispatch" not in packs and "memory_candidate" in packs:
+            return self._build_artifact_then_memory_candidate_steps(
+                intent,
+                contract=contract,
+                pack_keys=packs,
+            )
+
         human_review_metadata = self._human_review_metadata(contract)
         prepare_step = self._build_prepare_step()
         steps: list[PlanStepSpec] = [prepare_step]
@@ -374,15 +408,40 @@ class PlannerService:
                 approval_required=False,
             )
         )
-        steps.append(self._build_policy_step(depends_on=("step_artifact_save",)))
-        steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+        policy_depends_on = ("step_artifact_save",)
+        steps.append(self._build_policy_step(depends_on=policy_depends_on))
+        if "dispatch" in packs:
+            steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+        if "memory_candidate" in packs:
+            memory_depends_on = ["step_artifact_save", "step_policy_evaluate"]
+            additional_input_keys: tuple[str, ...] = ()
+            if "dispatch" in packs:
+                memory_depends_on.append("step_connector_dispatch")
+                additional_input_keys = ("delivery_id", "status", "binding_id", "channel", "recipient")
+            steps.append(
+                self._build_memory_candidate_step(
+                    intent,
+                    contract=contract,
+                    depends_on=tuple(memory_depends_on),
+                    additional_input_keys=additional_input_keys,
+                )
+            )
         return tuple(steps)
+
+    def _build_artifact_then_dispatch_steps(
+        self,
+        intent: IntentSpecV3,
+        *,
+        contract: TaskContract,
+    ) -> tuple[PlanStepSpec, ...]:
+        return self._build_artifact_then_packs_steps(intent, contract=contract, pack_keys=("dispatch",))
 
     def _build_artifact_then_memory_candidate_steps(
         self,
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        pack_keys: tuple[str, ...] | None = None,
     ) -> tuple[PlanStepSpec, ...]:
         prepare_step = self._build_prepare_step()
         policy_step = self._build_policy_step(depends_on=("step_input_prepare",))
@@ -397,7 +456,11 @@ class PlannerService:
             contract=contract,
             depends_on=("step_artifact_save", "step_policy_evaluate"),
         )
-        return (prepare_step, policy_step, artifact_step, memory_step)
+        steps: list[PlanStepSpec] = [prepare_step, policy_step, artifact_step, memory_step]
+        packs = pack_keys or self._resolve_post_artifact_packs(contract, fallback=("memory_candidate",))
+        if "dispatch" in packs:
+            steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+        return tuple(steps[:4])
 
     def _build_artifact_then_dispatch_then_memory_candidate_steps(
         self,
@@ -405,37 +468,11 @@ class PlannerService:
         *,
         contract: TaskContract,
     ) -> tuple[PlanStepSpec, ...]:
-        human_review_metadata = self._human_review_metadata(contract)
-        prepare_step = self._build_prepare_step()
-        steps: list[PlanStepSpec] = [prepare_step]
-        artifact_depends_on = ("step_input_prepare",)
-        human_review_step = self._build_human_review_step(
+        return self._build_artifact_then_packs_steps(
             intent,
-            depends_on=("step_input_prepare",),
-            metadata=human_review_metadata,
+            contract=contract,
+            pack_keys=("dispatch", "memory_candidate"),
         )
-        if human_review_step is not None:
-            steps.append(human_review_step)
-            artifact_depends_on = ("step_human_review",)
-        steps.append(
-            self._build_artifact_save_step(
-                intent,
-                contract=contract,
-                depends_on=artifact_depends_on,
-                approval_required=False,
-            )
-        )
-        steps.append(self._build_policy_step(depends_on=("step_artifact_save",)))
-        steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
-        steps.append(
-            self._build_memory_candidate_step(
-                intent,
-                contract=contract,
-                depends_on=("step_artifact_save", "step_policy_evaluate", "step_connector_dispatch"),
-                additional_input_keys=("delivery_id", "status", "binding_id", "channel", "recipient"),
-            )
-        )
-        return tuple(steps)
 
     def _workflow_template_key(self, contract: TaskContract) -> str:
         return str(contract.budget_policy_json.get("workflow_template") or "rewrite").strip().lower() or "rewrite"

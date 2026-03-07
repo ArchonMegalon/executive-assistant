@@ -181,6 +181,16 @@
       "notes": "HTTP policy evaluation now exposes external-send approval checks directly, echoes the evaluated `step_kind|authority_class|review_class` contract, and matches the queued runtime policy step's action-aware decision path."
     },
     {
+      "name": "policy_plane_principal_scope_enforcement",
+      "status": "tested",
+      "scope": [
+        "policy_evaluate_principal_scope",
+        "policy_audit_principal_scope",
+        "approval_mutation_principal_scope"
+      ],
+      "notes": "The policy plane now resolves body `principal_id` against request context, filters decision/pending/history views to the effective principal, and rejects foreign-principal approval mutations with `403 principal_scope_mismatch`."
+    },
+    {
       "name": "artifact_lookup_api_exposure",
       "status": "tested",
       "scope": [
@@ -1150,6 +1160,17 @@
         "review_dispatch_memory_api_smoke"
       ],
       "notes": "The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now also has focused and API-smoke coverage for the hybrid human-review case, proving task-contract review metadata can insert `step_human_review` ahead of artifact persistence, resume later into approval-backed `connector.dispatch`, and only stage the pending memory candidate after both gates clear."
+    },
+    {
+      "name": "composable_post_artifact_workflow_packs",
+      "status": "tested",
+      "scope": [
+        "artifact_then_packs_template",
+        "post_artifact_pack_dispatch",
+        "post_artifact_pack_memory_candidate",
+        "unknown_post_artifact_pack_validation"
+      ],
+      "notes": "Task contracts can now opt into reusable `post_artifact_packs` through `workflow_template=artifact_then_packs`, so dispatch and memory-candidate branches compile from shared planner composition helpers instead of requiring a brand-new named workflow template for each post-artifact combination."
     },
     {
       "name": "execution_queue_retry_runtime",

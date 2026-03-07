@@ -222,6 +222,26 @@ class PostgresApprovalRepository:
                 rows = cur.fetchall()
         return [self._request_from_row(row) for row in rows]
 
+    def get_request(self, approval_id: str) -> ApprovalRequest | None:
+        aid = str(approval_id or "").strip()
+        if not aid:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                self._expire_pending(cur)
+                cur.execute(
+                    """
+                    SELECT approval_id, session_id, step_id, reason, requested_action_json, status, expires_at, created_at, updated_at
+                    FROM approval_requests
+                    WHERE approval_id = %s
+                    """,
+                    (aid,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            return None
+        return self._request_from_row(row)
+
     def list_history(self, limit: int = 50, session_id: str | None = None) -> list[ApprovalDecision]:
         n = max(1, min(500, int(limit or 50)))
         sid = str(session_id or "").strip()

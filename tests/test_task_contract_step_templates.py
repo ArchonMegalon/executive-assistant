@@ -363,6 +363,80 @@ def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() 
     assert plan.steps[3].tool_name == "connector.dispatch"
 
 
+def test_planner_can_compile_post_artifact_packs_template() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_pack_template",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "artifact_then_packs",
+            "post_artifact_packs": ["dispatch", "memory_candidate"],
+            "memory_candidate_category": "stakeholder_follow_up_fact",
+            "memory_candidate_confidence": 0.8,
+            "memory_candidate_sensitivity": "internal",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="stakeholder_pack_template",
+        principal_id="exec-1",
+        goal="prepare, send, and stage stakeholder follow-up memory",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+        "step_memory_candidate_stage",
+    )
+    memory_step = plan.steps[4]
+    assert memory_step.depends_on == ("step_artifact_save", "step_policy_evaluate", "step_connector_dispatch")
+    assert memory_step.input_keys == (
+        "artifact_id",
+        "normalized_text",
+        "memory_write_allowed",
+        "delivery_id",
+        "status",
+        "binding_id",
+        "channel",
+        "recipient",
+    )
+
+
+def test_planner_rejects_unknown_post_artifact_pack() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_bad_pack",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "artifact_then_packs",
+            "post_artifact_packs": ["unknown_pack"],
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    with pytest.raises(PlanValidationError, match="unknown_post_artifact_pack:unknown_pack"):
+        planner.build_plan(
+            task_key="stakeholder_bad_pack",
+            principal_id="exec-1",
+            goal="prepare a stakeholder briefing",
+        )
+
+
 def test_dispatch_workflow_template_pauses_for_approval_after_artifact_persistence() -> None:
     orchestrator, channel_runtime, tool_runtime = _build_dispatch_runtime()
     binding = tool_runtime.upsert_connector_binding(

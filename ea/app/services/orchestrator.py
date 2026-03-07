@@ -18,6 +18,7 @@ from app.domain.models import (
     OperatorProfile,
     PlanSpec,
     PlanStepSpec,
+    PolicyDecision,
     RewriteRequest,
     RunCost,
     TaskExecutionRequest,
@@ -1742,6 +1743,23 @@ class RewriteOrchestrator:
             return None
         return run_cost, session
 
+    def fetch_approval_request(self, approval_id: str) -> ApprovalRequest | None:
+        return self._approvals.get_request(approval_id)
+
+    def fetch_approval_request_for_principal(
+        self,
+        approval_id: str,
+        *,
+        principal_id: str,
+    ) -> ApprovalRequest | None:
+        request = self.fetch_approval_request(approval_id)
+        if request is None:
+            return None
+        session = self.fetch_session_for_principal(request.session_id, principal_id=principal_id)
+        if session is None:
+            return None
+        return request
+
     def _require_session_principal_alignment(self, session: ExecutionSession, *, principal_id: str) -> None:
         session_principal = self._require_effective_principal(session.intent.principal_id)
         requested_principal = self._require_effective_principal(principal_id)
@@ -2231,11 +2249,76 @@ class RewriteOrchestrator:
     def list_policy_decisions(self, limit: int = 50, session_id: str | None = None):
         return self._policy_repo.list_recent(limit=limit, session_id=session_id)
 
+    def list_policy_decisions_for_principal(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 50,
+        session_id: str | None = None,
+    ) -> list[PolicyDecision]:
+        n = max(1, min(500, int(limit or 50)))
+        rows = self._policy_repo.list_recent(limit=500, session_id=session_id)
+        filtered: list[PolicyDecision] = []
+        for row in rows:
+            try:
+                session = self.fetch_session_for_principal(row.session_id, principal_id=principal_id)
+            except PermissionError:
+                continue
+            if session is None:
+                continue
+            filtered.append(row)
+            if len(filtered) >= n:
+                break
+        return filtered
+
     def list_pending_approvals(self, limit: int = 50) -> list[ApprovalRequest]:
         return self._approvals.list_pending(limit=limit)
 
+    def list_pending_approvals_for_principal(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 50,
+    ) -> list[ApprovalRequest]:
+        n = max(1, min(500, int(limit or 50)))
+        rows = self._approvals.list_pending(limit=500)
+        filtered: list[ApprovalRequest] = []
+        for row in rows:
+            try:
+                session = self.fetch_session_for_principal(row.session_id, principal_id=principal_id)
+            except PermissionError:
+                continue
+            if session is None:
+                continue
+            filtered.append(row)
+            if len(filtered) >= n:
+                break
+        return filtered
+
     def list_approval_history(self, limit: int = 50, session_id: str | None = None) -> list[ApprovalDecision]:
         return self._approvals.list_history(limit=limit, session_id=session_id)
+
+    def list_approval_history_for_principal(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 50,
+        session_id: str | None = None,
+    ) -> list[ApprovalDecision]:
+        n = max(1, min(500, int(limit or 50)))
+        rows = self._approvals.list_history(limit=500, session_id=session_id)
+        filtered: list[ApprovalDecision] = []
+        for row in rows:
+            try:
+                session = self.fetch_session_for_principal(row.session_id, principal_id=principal_id)
+            except PermissionError:
+                continue
+            if session is None:
+                continue
+            filtered.append(row)
+            if len(filtered) >= n:
+                break
+        return filtered
 
     def decide_approval(
         self,

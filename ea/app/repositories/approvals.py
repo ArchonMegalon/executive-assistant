@@ -40,6 +40,9 @@ class ApprovalRepository(Protocol):
     def list_pending(self, limit: int = 50) -> list[ApprovalRequest]:
         ...
 
+    def get_request(self, approval_id: str) -> ApprovalRequest | None:
+        ...
+
     def list_history(self, limit: int = 50, session_id: str | None = None) -> list[ApprovalDecision]:
         ...
 
@@ -139,6 +142,10 @@ class InMemoryApprovalRepository:
         ids = list(reversed(self._request_order))
         rows = [self._requests[i] for i in ids if i in self._requests and self._requests[i].status == "pending"]
         return rows[:n]
+
+    def get_request(self, approval_id: str) -> ApprovalRequest | None:
+        self._auto_expire_pending()
+        return self._requests.get(str(approval_id or ""))
 
     def list_history(self, limit: int = 50, session_id: str | None = None) -> list[ApprovalDecision]:
         n = max(1, min(500, int(limit or 50)))

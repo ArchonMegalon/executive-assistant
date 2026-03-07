@@ -94,6 +94,7 @@ Content-Type: application/json
 }
 
 ### Policy audit -> recent decisions
+### Policy routes are principal-scoped. If you pass body/query principal context, it must match `X-EA-Principal-ID`.
 GET {{host}}/v1/policy/decisions/recent?limit=20
 
 ### Policy audit -> by session

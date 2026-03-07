@@ -12,6 +12,7 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_APPROVAL_THRESHOLD_CHARS"] = "5000"
     from app.api.app import create_app
 
     client = TestClient(create_app())
