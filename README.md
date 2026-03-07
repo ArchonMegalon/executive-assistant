@@ -20,12 +20,11 @@ When the local EA API is running, `bash scripts/refresh_ltds_via_api.sh --bindin
 - Non-AppSumo / other LTDs:
   `1min.AI` (`Advanced Business Plan`, `2 licenses / 2 accounts`, workspace `Tier 1`), `Prompting Systems` (`Gold Plan`), `ChatPlayground AI` (`Unlimited Plan`), `AI Magicx` (`Rune Plan`), `FastestVPN PRO` (`15 Devices`), `OneAir` (`Elite`), `Headway` (`Premium`), `Internxt Cloud Storage` (`100TB`)
 - AppSumo LTDs:
-  `ApiX-Drive` (`Plus exclusive / License Tier 3`), `ApproveThis` (`License Tier 3`), `AvoMap` (`10x code-based`, `9 redeemed / 1 pending`, redeem by `2026-05-02`), `BrowserAct` (`tier unspecified`, workspace `Tier 1` via `browseract.extract_account_facts`), `Documentation.AI` (`License Tier 3`), `Invoiless` (`1x code-based`, redeem by `2026-04-29`), `MarkupGo` (`7x code-based`, redeem by `2026-04-28`), `MetaSurvey` (`Plus exclusive / 3x code-based`, redeem by `2026-04-29`), `Paperguide` (`License Tier 4`), `PeekShot` (`3x code-based`, redeem by `2026-04-30`), `Teable` (`License Tier 4`, workspace `Tier 2`), `Vizologi` (`Plus exclusive / 4x code-based`, redeem by `2026-04-30`)
   `ApiX-Drive` (`Plus exclusive / License Tier 3`), `ApproveThis` (`License Tier 3`), `AvoMap` (`10x code-based`, `9 redeemed / 1 pending`, redeem by `2026-05-02`), `BrowserAct` (`tier unspecified`, workspace `Tier 1` via `browseract.extract_account_facts`), `Documentation.AI` (`License Tier 3`), `Invoiless` (`1x code-based`, redeem by `2026-04-29`), `MarkupGo` (`7x code-based`, redeem by `2026-04-28`), `MetaSurvey` (`Plus exclusive / 3x code-based`, redeem by `2026-04-29`), `Mootion` (`License Tier 3`, `Activated`), `Paperguide` (`License Tier 4`), `PeekShot` (`3x code-based`, redeem by `2026-04-30`), `Teable` (`License Tier 4`, workspace `Tier 2`), `Vizologi` (`Plus exclusive / 4x code-based`, redeem by `2026-04-30`)
 
 ### Summary
 
-- `20` LTD products tracked
+- `21` LTD products tracked
 - Immediate attention items:
   `MarkupGo` (`2026-04-28`), `Invoiless` (`2026-04-29`), `MetaSurvey` (`2026-04-29`), `PeekShot` (`2026-04-30`), `Vizologi` (`2026-04-30`), `AvoMap` (`2026-05-02`), plus unresolved live `BrowserAct` tier/email verification details that can now be pulled through the BrowserAct workflow
 - Full status, holdings, and local integration notes live in [LTDs.md](/docker/EA/LTDs.md)
