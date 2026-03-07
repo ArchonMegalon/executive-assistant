@@ -526,6 +526,17 @@
       "notes": "`connector.dispatch` now requires an enabled connector binding in the caller's principal scope before `/v1/tools/execute` queues delivery, preventing foreign-scope or unbound dispatch attempts from producing side effects."
     },
     {
+      "name": "browseract_account_facts_tool_execution_slice",
+      "status": "tested",
+      "scope": [
+        "browseract_builtin_registration",
+        "browseract_connector_binding_fact_resolution",
+        "browseract_structured_output_projection",
+        "browseract_tool_v1_receipts"
+      ],
+      "notes": "The built-in `browseract.extract_account_facts` handler is now wired into `ToolExecutionService`, exposed through `POST /v1/tools/execute`, and resolves BrowserAct-backed tier/email/status facts from a scoped connector binding while returning normalized `tool.v1` receipt metadata."
+    },
+    {
       "name": "approval_async_acceptance_contract",
       "status": "tested",
       "scope": [
@@ -1110,6 +1121,17 @@
         "dispatch_workflow_receipt_identity"
       ],
       "notes": "Task contracts can now compile materially different workflow skeletons through `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template persists the artifact first, evaluates the delivery gate, then resumes into `connector.dispatch` only after approval so not every task is forced through the rewrite-shaped skeleton."
+    },
+    {
+      "name": "browseract_extract_then_artifact_workflow_template",
+      "status": "tested",
+      "scope": [
+        "browseract_extract_compile_shape",
+        "browseract_extract_structured_artifact_projection",
+        "browseract_extract_receipt_identity",
+        "browseract_extract_workflow_api_smoke"
+      ],
+      "notes": "Task contracts can now also compile `workflow_template=browseract_extract_then_artifact`, producing `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can persist tier/email/status facts into a structured artifact through the queue runtime."
     },
     {
       "name": "workflow_template_registry_validation",

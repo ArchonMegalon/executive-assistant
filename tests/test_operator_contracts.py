@@ -34,6 +34,23 @@ def test_docs_explain_pgdata_volume_usage() -> None:
     assert "not RAM" in runbook
 
 
+def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    env_local_example = (ROOT / ".env.local.example").read_text(encoding="utf-8")
+
+    assert ".env" in gitignore
+    assert ".env.*" in gitignore
+    assert "BROWSERACT_API_KEY" in env_example
+    assert "BROWSERACT_API_KEY_FALLBACK_1" in env_example
+    assert "BROWSERACT_API_KEY" in env_local_example
+    assert "BROWSERACT_API_KEY_FALLBACK_1" in env_local_example
+    assert "ONEMIN_AI_API_KEY" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
+    assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
+    assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
+
+
 def test_milestone_uses_status_model_and_release_tags() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -294,6 +311,36 @@ def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guar
     assert capability["status"] == "tested"
 
 
+def test_browseract_extract_then_artifact_workflow_template_is_documented_and_guarded() -> None:
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "browseract_extract_then_artifact" in workflow_test
+    assert "step_browseract_extract" in workflow_test
+    assert "browseract_ltd_discovery" in smoke_test
+    assert "browseract.extract_account_facts" in smoke_test
+    assert "browseract_ltd_discovery" in smoke_script
+    assert "step_browseract_extract" in smoke_script
+    assert "browseract_extract_then_artifact" in readme
+    assert "step_input_prepare -> step_browseract_extract -> step_artifact_save" in readme
+    assert "browseract_extract_then_artifact" in runbook
+    assert "step_input_prepare -> step_browseract_extract -> step_artifact_save" in runbook
+    assert "browseract_extract_then_artifact" in changelog
+    assert "browseract_ltd_discovery" in http_examples
+    assert "browseract.extract_account_facts" in http_examples
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_extract_then_artifact_workflow_template"
+    )
+    assert capability["status"] == "tested"
+
+
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
@@ -306,7 +353,7 @@ def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guar
 
     assert "artifact_then_dispatch_then_memory_candidate" in workflow_test
     assert "stakeholder_dispatch_memory_candidate" in workflow_test
-    assert "memory-dispatch@example.com" in workflow_test
+    assert "dispatch-memory@example.com" in workflow_test
     assert "stakeholder_dispatch_memory_candidate" in smoke_test
     assert "dispatch-memory@example.com" in smoke_test
     assert "stakeholder_dispatch_memory_candidate" in smoke_script
@@ -2548,6 +2595,33 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     assert "test_tool_execution_service_executes_builtin_connector_dispatch_handler" in tool_execution_tests
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_tool_execution_slice")
+    assert capability["status"] == "tested"
+
+
+def test_browseract_account_facts_tool_execution_slice_is_documented_and_smoked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/tools/execute" in readme
+    assert "browseract.extract_account_facts" in readme
+    assert "/v1/tools/execute" in runbook
+    assert "browseract.extract_account_facts" in runbook
+    assert "/v1/tools/execute" in http_examples
+    assert "browseract.extract_account_facts" in http_examples
+    assert "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com" in smoke_api
+    assert "browseract.extract_account_facts" in smoke_runtime
+    assert "browseract_ltd_discovery" in smoke_runtime
+    assert "test_tool_execution_service_executes_builtin_browseract_extract_handler" in tool_execution_tests
+    assert "test_tool_execution_service_self_heals_missing_builtin_browseract_definition" in tool_execution_tests
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_account_facts_tool_execution_slice"
+    )
     assert capability["status"] == "tested"
 
 

@@ -484,6 +484,25 @@ X-EA-Principal-ID: {{principal_id}}
   }
 }
 
+### Tools -> execute builtin BrowserAct account extraction
+POST {{host}}/v1/tools/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "tool_name": "browseract.extract_account_facts",
+  "action_kind": "account.extract",
+  "payload_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_name": "BrowserAct",
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
+  }
+}
+
 ### Connectors -> upsert binding
 POST {{host}}/v1/connectors/bindings
 Content-Type: application/json
@@ -499,6 +518,32 @@ X-EA-Principal-ID: {{principal_id}}
   },
   "auth_metadata_json": {
     "provider": "google"
+  },
+  "status": "enabled"
+}
+
+### Connectors -> upsert BrowserAct binding
+POST {{host}}/v1/connectors/bindings
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "connector_name": "browseract",
+  "external_account_ref": "browseract-main",
+  "scope_json": {
+    "services": [
+      "BrowserAct",
+      "Teable"
+    ]
+  },
+  "auth_metadata_json": {
+    "service_accounts_json": {
+      "BrowserAct": {
+        "tier": "Tier 3",
+        "account_email": "ops@example.com",
+        "status": "activated"
+      }
+    }
   },
   "status": "enabled"
 }
@@ -572,6 +617,29 @@ Content-Type: application/json
   }
 }
 
+### Task Contracts -> upsert BrowserAct LTD discovery workflow template
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "deliverable_type": "ltd_service_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "browseract.extract_account_facts",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "browseract_extract_then_artifact"
+  }
+}
+
 ### Plans -> compile dispatch workflow template
 POST {{host}}/v1/plans/compile
 Content-Type: application/json
@@ -580,6 +648,16 @@ X-EA-Principal-ID: {{principal_id}}
 {
   "task_key": "stakeholder_dispatch",
   "goal": "prepare and send a stakeholder briefing"
+}
+
+### Plans -> compile BrowserAct LTD discovery workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "goal": "extract LTD account facts for BrowserAct"
 }
 
 ### Task Contracts -> upsert memory-candidate workflow template (artifact -> memory candidate)
@@ -770,6 +848,25 @@ X-EA-Principal-ID: {{principal_id}}
     "binding_id": "{{binding_id}}",
     "channel": "email",
     "recipient": "workflow@example.com"
+  }
+}
+
+### Plans -> execute BrowserAct LTD discovery workflow template
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery",
+  "goal": "extract LTD account facts for BrowserAct",
+  "input_json": {
+    "binding_id": "replace-with-browseract-binding-id",
+    "service_name": "BrowserAct",
+    "requested_fields": [
+      "tier",
+      "account_email",
+      "status"
+    ]
   }
 }
 

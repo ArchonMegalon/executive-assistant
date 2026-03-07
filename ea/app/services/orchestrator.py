@@ -569,6 +569,8 @@ class RewriteOrchestrator:
         tool_name = str(plan_step.tool_name or "").strip()
         if tool_name == "connector.dispatch":
             return "delivery.send"
+        if tool_name == "browseract.extract_account_facts":
+            return "account.extract"
         if tool_name == "artifact_repository":
             return "artifact.save"
         return tool_name or "artifact.save"
@@ -863,7 +865,7 @@ class RewriteOrchestrator:
         )
         target_channel = str(((target_step.input_json if target_step is not None else {}) or {}).get("channel") or "").strip()
         normalized_text = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
-        decision = self._policy.evaluate_action(
+        decision = self._policy.evaluate_step(
             session.intent,
             normalized_text,
             tool_name=target_tool_name,

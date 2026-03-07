@@ -43,6 +43,8 @@ required_files=(
   "scripts/operator_summary.sh"
   "scripts/support_bundle.sh"
   "scripts/archive_tasks.sh"
+  "scripts/resolve_onemin_ai_key.sh"
+  "scripts/resolve_browseract_key.sh"
   "ea/schema/20260305_v0_2_execution_ledger_kernel.sql"
   "ea/schema/20260305_v0_3_channel_runtime_kernel.sql"
   "ea/schema/20260305_v0_4_policy_decisions_kernel.sql"

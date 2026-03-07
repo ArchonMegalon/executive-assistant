@@ -50,6 +50,8 @@ def _tool_authority_class(tool_name: str) -> str:
     normalized = str(tool_name or "").strip()
     if normalized == "connector.dispatch":
         return "execute"
+    if normalized == "browseract.extract_account_facts":
+        return "observe"
     if normalized == "artifact_repository":
         return "draft"
     return "observe"
@@ -62,6 +64,7 @@ class PlannerService:
             str, Callable[[IntentSpecV3, TaskContract], tuple[PlanStepSpec, ...]]
         ] = {
             "rewrite": self._build_rewrite_steps,
+            "browseract_extract_then_artifact": self._build_browseract_extract_then_artifact_steps,
             "artifact_then_packs": self._build_artifact_then_packs_steps,
             "artifact_then_dispatch": self._build_artifact_then_dispatch_steps,
             "artifact_then_memory_candidate": self._build_artifact_then_memory_candidate_steps,
@@ -74,7 +77,7 @@ class PlannerService:
             return resolved
         raise ValueError("principal_id_required")
 
-    def _build_prepare_step(self) -> PlanStepSpec:
+    def _build_prepare_step(self, *, input_keys: tuple[str, ...] = ("source_text",)) -> PlanStepSpec:
         return PlanStepSpec(
             step_key="step_input_prepare",
             step_kind="system_task",
@@ -91,7 +94,7 @@ class PlannerService:
             timeout_budget_seconds=30,
             max_attempts=1,
             retry_backoff_seconds=0,
-            input_keys=("source_text",),
+            input_keys=input_keys,
             output_keys=("normalized_text", "text_length"),
         )
 
@@ -137,11 +140,17 @@ class PlannerService:
         contract: TaskContract,
         depends_on: tuple[str, ...],
         approval_required: bool,
+        additional_input_keys: tuple[str, ...] = (),
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
             prefix="artifact",
         )
+        input_keys = ("normalized_text",)
+        for value in additional_input_keys:
+            key = str(value or "").strip()
+            if key and key not in input_keys:
+                input_keys += (key,)
         return PlanStepSpec(
             step_key="step_artifact_save",
             step_kind="tool_call",
@@ -159,8 +168,56 @@ class PlannerService:
             max_attempts=max_attempts,
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
-            input_keys=("normalized_text",),
+            input_keys=input_keys,
             output_keys=("artifact_id", "receipt_id", "cost_id"),
+        )
+
+    def _build_browseract_extract_step(
+        self,
+        *,
+        contract: TaskContract,
+        depends_on: tuple[str, ...],
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="browseract",
+        )
+        timeout_budget_seconds = max(
+            1,
+            _policy_int(contract.budget_policy_json.get("browseract_timeout_budget_seconds"), default=120),
+        )
+        return PlanStepSpec(
+            step_key="step_browseract_extract",
+            step_kind="tool_call",
+            tool_name="browseract.extract_account_facts",
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="account_facts",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class("browseract.extract_account_facts"),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=timeout_budget_seconds,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=("binding_id", "service_name"),
+            output_keys=(
+                "service_name",
+                "facts_json",
+                "missing_fields",
+                "account_email",
+                "plan_tier",
+                "discovery_status",
+                "verification_source",
+                "last_verified_at",
+                "normalized_text",
+                "preview_text",
+                "mime_type",
+                "structured_output_json",
+            ),
         )
 
     def _build_dispatch_step(
@@ -372,6 +429,26 @@ class PlannerService:
             )
         )
         return tuple(steps)
+
+    def _build_browseract_extract_then_artifact_steps(
+        self,
+        intent: IntentSpecV3,
+        *,
+        contract: TaskContract,
+    ) -> tuple[PlanStepSpec, ...]:
+        prepare_step = self._build_prepare_step(input_keys=("binding_id", "service_name"))
+        browseract_step = self._build_browseract_extract_step(
+            contract=contract,
+            depends_on=("step_input_prepare",),
+        )
+        artifact_step = self._build_artifact_save_step(
+            intent,
+            contract=contract,
+            depends_on=("step_browseract_extract",),
+            approval_required=False,
+            additional_input_keys=("structured_output_json", "preview_text", "mime_type"),
+        )
+        return (prepare_step, browseract_step, artifact_step)
 
     def _build_artifact_then_packs_steps(
         self,

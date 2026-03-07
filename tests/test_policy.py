@@ -89,7 +89,7 @@ def test_policy_requires_approval_for_external_send_action() -> None:
 
 def test_policy_requires_approval_for_connector_dispatch_step_even_without_explicit_send_action() -> None:
     service = PolicyDecisionService(max_rewrite_chars=200, approval_required_chars=50)
-    decision = service.evaluate_action(
+    decision = service.evaluate_step(
         _intent(allowed_tools=("artifact_repository", "connector.dispatch")),
         "short rewrite input",
         tool_name="connector.dispatch",
@@ -105,7 +105,7 @@ def test_policy_requires_approval_for_connector_dispatch_step_even_without_expli
 
 def test_policy_allows_draft_artifact_step_without_external_action_metadata() -> None:
     service = PolicyDecisionService(max_rewrite_chars=200, approval_required_chars=50)
-    decision = service.evaluate_action(
+    decision = service.evaluate_step(
         _intent(),
         "short rewrite input",
         tool_name="artifact_repository",
@@ -117,3 +117,29 @@ def test_policy_allows_draft_artifact_step_without_external_action_metadata() ->
     )
     assert decision.allow is True
     assert decision.requires_approval is False
+
+
+def test_policy_evaluate_action_alias_matches_step_contract() -> None:
+    service = PolicyDecisionService(max_rewrite_chars=200, approval_required_chars=50)
+    step_decision = service.evaluate_step(
+        _intent(allowed_tools=("artifact_repository", "connector.dispatch")),
+        "short rewrite input",
+        tool_name="connector.dispatch",
+        action_kind="delivery.send",
+        channel="email",
+        step_kind="connector_call",
+        authority_class="execute",
+        review_class="manager",
+    )
+    action_decision = service.evaluate_action(
+        _intent(allowed_tools=("artifact_repository", "connector.dispatch")),
+        "short rewrite input",
+        tool_name="connector.dispatch",
+        action_kind="delivery.send",
+        channel="email",
+        step_kind="connector_call",
+        authority_class="execute",
+        review_class="manager",
+    )
+
+    assert action_decision == step_decision

@@ -17,13 +17,13 @@ Lifetime services with API keys or account-backed access that are concretely dis
 - Non-AppSumo / other LTDs:
   `1min.AI` (`Advanced Business Plan`, `2 licenses / 2 accounts`, workspace `Tier 1`), `Prompting Systems` (`Gold Plan`), `ChatPlayground AI` (`Unlimited Plan`), `AI Magicx` (`Rune Plan`), `FastestVPN PRO` (`15 Devices`), `OneAir` (`Elite`), `Headway` (`Premium`), `Internxt Cloud Storage` (`100TB`)
 - AppSumo LTDs:
-  `ApiX-Drive` (`Plus exclusive / License Tier 3`), `ApproveThis` (`License Tier 3`), `AvoMap` (`10x code-based`, `9 redeemed / 1 pending`, redeem by `2026-05-02`), `BrowserAct` (`tier unspecified`), `Documentation.AI` (`License Tier 3`), `Invoiless` (`1x code-based`, redeem by `2026-04-29`), `MarkupGo` (`7x code-based`, redeem by `2026-04-28`), `MetaSurvey` (`Plus exclusive / 3x code-based`, redeem by `2026-04-29`), `Paperguide` (`License Tier 4`), `PeekShot` (`3x code-based`, redeem by `2026-04-30`), `Teable` (`License Tier 4`, workspace `Tier 2`), `Vizologi` (`Plus exclusive / 4x code-based`, redeem by `2026-04-30`)
+  `ApiX-Drive` (`Plus exclusive / License Tier 3`), `ApproveThis` (`License Tier 3`), `AvoMap` (`10x code-based`, `9 redeemed / 1 pending`, redeem by `2026-05-02`), `BrowserAct` (`tier unspecified`, workspace `Tier 1` via `browseract.extract_account_facts`), `Documentation.AI` (`License Tier 3`), `Invoiless` (`1x code-based`, redeem by `2026-04-29`), `MarkupGo` (`7x code-based`, redeem by `2026-04-28`), `MetaSurvey` (`Plus exclusive / 3x code-based`, redeem by `2026-04-29`), `Paperguide` (`License Tier 4`), `PeekShot` (`3x code-based`, redeem by `2026-04-30`), `Teable` (`License Tier 4`, workspace `Tier 2`), `Vizologi` (`Plus exclusive / 4x code-based`, redeem by `2026-04-30`)
 
 ### Summary
 
 - `20` LTD products tracked
 - Immediate attention items:
-  `MarkupGo` (`2026-04-28`), `Invoiless` (`2026-04-29`), `MetaSurvey` (`2026-04-29`), `PeekShot` (`2026-04-30`), `Vizologi` (`2026-04-30`), `AvoMap` (`2026-05-02`), plus unresolved `BrowserAct` tier/activation details
+  `MarkupGo` (`2026-04-28`), `Invoiless` (`2026-04-29`), `MetaSurvey` (`2026-04-29`), `PeekShot` (`2026-04-30`), `Vizologi` (`2026-04-30`), `AvoMap` (`2026-05-02`), plus unresolved live `BrowserAct` tier/email verification details that can now be pulled through the BrowserAct workflow
 - Full status, holdings, and local integration notes live in [LTDs.md](/docker/EA/LTDs.md)
 
 The Codex session skill list is separate from this LTD inventory: skills are local agent capabilities, while LTDs are your external services/accounts.
@@ -50,7 +50,7 @@ The Codex session skill list is separate from this LTD inventory: skills are loc
 - `/v1/delivery/outbox` endpoints provide channel-agnostic queued delivery tracking
 - `/v1/delivery/outbox/{delivery_id}/failed` marks retry/dead-letter transitions with error context
 - `/v1/tools/registry*` manages typed tool contracts (`tool_name`, schemas, policy metadata)
-- `/v1/tools/execute` runs built-in tool handlers through the shared execution plane
+- `/v1/tools/execute` runs built-in tool handlers through the shared execution plane, including `browseract.extract_account_facts` for BrowserAct-backed account discovery and `connector.dispatch` for queued sends
 - `/v1/connectors/bindings*` manages external connector bindings and status transitions
 - `/v1/tasks/contracts*` manages typed task contracts used by intent compilation
 - `/v1/plans/compile` emits a typed plan DSL projection from task contracts
@@ -89,6 +89,7 @@ The Codex session skill list is separate from this LTD inventory: skills are loc
 - Those paused non-rewrite sessions keep the same dependency-state projection in `GET /v1/rewrite/sessions/{session_id}` too: approval-backed runs show `step_artifact_save.state=waiting_approval` with satisfied dependencies, while human-review-backed runs keep downstream save steps queued behind `blocked_dependency_keys=["step_human_review"]` until the packet returns
 - Task contracts can now project a first-class `human_task` branch (`step_human_review`) in plan output by setting `budget_policy_json.human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_auto_assign_if_unique`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, and `human_review_quality_rubric_json`; rewrite execution now returns `202 awaiting_human` when that compiled review step pauses the queue runtime, creates the linked human task with those routing and review-contract semantics, can auto-preassign a unique exact reviewer when the policy flag is enabled, and downstream artifact persistence can consume `returned_payload_json.final_text` from the completed review packet
 - Task contracts can now also choose a materially different workflow skeleton with `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template compiles `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch`, persists the artifact before approval, then resumes into `connector.dispatch` only after the approval-backed delivery gate is cleared
+- Task contracts can now also choose `workflow_template=browseract_extract_then_artifact`, compiling `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can extract tier/email/status facts and persist them as a structured artifact in one queue-backed flow
 - Task contracts can now also use `workflow_template=artifact_then_packs` plus `budget_policy_json.post_artifact_packs=[...]` to compose shared post-artifact planner branches without minting a new one-off named workflow template for every dispatch/memory combination
 - The built-in `artifact_then_memory_candidate` workflow template now compiles `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, persists the artifact, then stages a pending principal-scoped memory candidate through the queue runtime so task contracts can emit reviewable memory without a second API-side post-process
 - The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now compiles `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, so an approval-backed external action can complete first and then stage a pending memory candidate with delivery context from the finished workflow
@@ -100,6 +101,7 @@ The Codex session skill list is separate from this LTD inventory: skills are loc
 - rewrite tool receipts now carry a normalized `tool.v1` invocation contract for the built-in `artifact_repository` handler, and the runtime self-heals missing built-in tool definitions before execution if the registry starts empty
 - the built-in `connector.dispatch` handler now also runs through `ToolExecutionService`, self-heals its built-in registry definition the same way, and queues durable delivery outbox rows
 - `connector.dispatch` now requires an enabled connector binding that matches the request principal before `/v1/tools/execute` can queue delivery
+- the built-in `browseract.extract_account_facts` handler now also runs through `ToolExecutionService`, resolves BrowserAct-backed account facts from a scoped connector binding (and optional configured live BrowserAct run URL), and can feed those facts straight into structured artifact persistence
 - observation intake supports `source_id`/`external_id`/`dedupe_key` attribution and auth/raw-payload pointers
 - delivery outbox supports idempotency keys plus retry/dead-letter state fields
 - `/v1/channels/telegram/ingest` maps raw Telegram updates into normalized observation events

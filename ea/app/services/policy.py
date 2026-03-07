@@ -20,7 +20,7 @@ class PolicyDecisionService:
         self._max_rewrite_chars = max(1, int(max_rewrite_chars))
         self._approval_required_chars = max(1, int(approval_required_chars))
 
-    def evaluate_action(
+    def evaluate_step(
         self,
         intent: IntentSpecV3,
         content: str,
@@ -29,6 +29,7 @@ class PolicyDecisionService:
         action_kind: str = "",
         channel: str = "",
         step_kind: str = "",
+        owner: str = "",
         authority_class: str = "",
         review_class: str = "",
     ) -> PolicyDecision:
@@ -96,6 +97,29 @@ class PolicyDecisionService:
             memory_write_allowed=intent.memory_write_policy != "none",
         )
 
+    def evaluate_action(
+        self,
+        intent: IntentSpecV3,
+        content: str,
+        *,
+        tool_name: str = "",
+        action_kind: str = "",
+        channel: str = "",
+        step_kind: str = "",
+        authority_class: str = "",
+        review_class: str = "",
+    ) -> PolicyDecision:
+        return self.evaluate_step(
+            intent,
+            content,
+            tool_name=tool_name,
+            action_kind=action_kind,
+            channel=channel,
+            step_kind=step_kind,
+            authority_class=authority_class,
+            review_class=review_class,
+        )
+
     def evaluate_rewrite(
         self,
         intent: IntentSpecV3,
@@ -105,7 +129,7 @@ class PolicyDecisionService:
         action_kind: str = "artifact.save",
         channel: str = "",
     ) -> PolicyDecision:
-        return self.evaluate_action(
+        return self.evaluate_step(
             intent,
             text,
             tool_name=tool_name,

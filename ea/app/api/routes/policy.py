@@ -204,7 +204,7 @@ def evaluate_policy(
         allowed_tools=allowed_tools,
         memory_write_policy=str(body.memory_write_policy or "none").strip() or "none",
     )
-    decision = _policy_service(container).evaluate_action(
+    decision = _policy_service(container).evaluate_step(
         intent,
         str(body.content or ""),
         tool_name=tool_name,

@@ -30,7 +30,7 @@ Updated: 2026-03-07
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `AvoMap` | `10x code-based` | `10 codes` | `9 redeemed / 1 pending` | `2026-05-02` | `Tier 3` | None | One remaining code must be redeemed by May 2, 2026. |
-| `BrowserAct` | `Tier unspecified` | `1 product` | `Unknown` |  | `Tier 3` | None | Tier, activation status, and purchase date still unclear. |
+| `BrowserAct` | `Tier unspecified` | `1 product` | `Unknown` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Tier, activation status, and purchase date still unclear; runtime discovery is now wired but live account verification still needs a configured BrowserAct run target. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Invoiless` | `1x code-based` | `1 code` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Pending redemption` | `2026-04-28` | `Tier 3` | None | Redeem by April 28, 2026. |
@@ -45,6 +45,33 @@ Updated: 2026-03-07
 - `20` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`2 licenses / 2 accounts`)
+
+## Discovery Tracking
+
+Use this section to track missing tier/email/account facts discovered through the BrowserAct-backed runtime flow.
+
+| Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
+|---|---|---|---|---|---|
+| `1min.AI` |  | `manual_seeded` | `local_env` |  | API-key rotation slots exist locally; account emails are still not documented here. |
+| `Prompting Systems` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `AI Magicx` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `AvoMap` |  | `missing` | `manual_inventory` |  | Remaining redemption work still blocks final account verification. |
+| `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_facts` |  | The EA runtime can now resolve tier/email/status facts from a BrowserAct connector binding and persist them as a structured artifact; live values are still pending. |
+| `Documentation.AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Invoiless` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `MarkupGo` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `MetaSurvey` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `PeekShot` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `Teable` |  | `missing` | `manual_inventory` |  | Workspace references exist, but no account-fact discovery run is documented here yet. |
+| `Vizologi` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 
 ## Attention Items
 

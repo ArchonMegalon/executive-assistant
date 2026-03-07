@@ -150,6 +150,58 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
     assert any(row.delivery_id == result.target_ref for row in pending)
 
 
+def test_tool_execution_service_executes_builtin_browseract_extract_handler() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct", "Teable"]},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "BrowserAct": {
+                    "tier": "Tier 3",
+                    "account_email": "ops@example.com",
+                    "status": "activated",
+                }
+            }
+        },
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-1",
+            step_id="step-browseract-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert result.action_kind == "account.extract"
+    assert result.output_json["service_name"] == "BrowserAct"
+    assert result.output_json["facts_json"]["tier"] == "Tier 3"
+    assert result.output_json["account_email"] == "ops@example.com"
+    assert result.output_json["missing_fields"] == []
+    assert result.output_json["structured_output_json"]["verification_source"] == "connector_metadata"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_facts"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
 def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -185,6 +237,40 @@ def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> Non
                     "channel": "email",
                     "recipient": "ops@example.com",
                     "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-2"},
+            )
+        )
+
+
+def test_tool_execution_service_rejects_foreign_browseract_binding_scope() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-2",
+                step_id="step-browseract-2",
+                tool_name="browseract.extract_account_facts",
+                action_kind="account.extract",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_name": "BrowserAct",
                 },
                 context_json={"principal_id": "exec-2"},
             )
@@ -266,3 +352,43 @@ def test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_de
 
     assert result.tool_name == "connector.dispatch"
     assert tool_runtime.get_tool("connector.dispatch") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_browseract_definition() -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    registry._rows.pop("browseract.extract_account_facts", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.extract_account_facts"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-3",
+            step_id="step-browseract-3",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert tool_runtime.get_tool("browseract.extract_account_facts") is not None

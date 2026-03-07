@@ -2553,6 +2553,131 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         json={"status": "disabled"},
     )
     assert disabled.status_code == 200
+
+
+def test_browseract_tool_execution_and_workflow_template_flow() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct", "Teable"]},
+            "auth_metadata_json": {
+                "service_accounts_json": {
+                    "BrowserAct": {
+                        "tier": "Tier 3",
+                        "account_email": "ops@example.com",
+                        "status": "activated",
+                    }
+                }
+            },
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    listed_tools = client.get("/v1/tools/registry", params={"limit": 20})
+    assert listed_tools.status_code == 200
+    assert any(row["tool_name"] == "browseract.extract_account_facts" for row in listed_tools.json())
+
+    executed = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "browseract.extract_account_facts",
+            "action_kind": "account.extract",
+            "payload_json": {
+                "binding_id": binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert executed.status_code == 200
+    executed_body = executed.json()
+    assert executed_body["tool_name"] == "browseract.extract_account_facts"
+    assert executed_body["output_json"]["service_name"] == "BrowserAct"
+    assert executed_body["output_json"]["facts_json"]["tier"] == "Tier 3"
+    assert executed_body["output_json"]["account_email"] == "ops@example.com"
+    assert executed_body["output_json"]["missing_fields"] == []
+    assert executed_body["receipt_json"]["handler_key"] == "browseract.extract_account_facts"
+    assert executed_body["receipt_json"]["invocation_contract"] == "tool.v1"
+
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "browseract_ltd_discovery",
+            "deliverable_type": "ltd_service_profile",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["browseract.extract_account_facts", "artifact_repository"],
+            "evidence_requirements": ["account_inventory"],
+            "memory_write_policy": "none",
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "browseract_extract_then_artifact",
+            },
+        },
+    )
+    assert contract.status_code == 200
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "browseract_ltd_discovery",
+            "goal": "extract LTD account facts for BrowserAct",
+        },
+    )
+    assert compiled.status_code == 200
+    plan_steps = compiled.json()["plan"]["steps"]
+    assert [step["step_key"] for step in plan_steps] == [
+        "step_input_prepare",
+        "step_browseract_extract",
+        "step_artifact_save",
+    ]
+    assert plan_steps[1]["tool_name"] == "browseract.extract_account_facts"
+    assert plan_steps[1]["depends_on"] == ["step_input_prepare"]
+    assert plan_steps[1]["input_keys"] == ["binding_id", "service_name"]
+    assert "structured_output_json" in plan_steps[1]["output_keys"]
+    assert plan_steps[2]["depends_on"] == ["step_browseract_extract"]
+    assert plan_steps[2]["input_keys"] == ["normalized_text", "structured_output_json", "preview_text", "mime_type"]
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "browseract_ltd_discovery",
+            "goal": "extract LTD account facts for BrowserAct",
+            "input_json": {
+                "binding_id": binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert execute.status_code == 200
+    execute_body = execute.json()
+    assert execute_body["task_key"] == "browseract_ltd_discovery"
+    assert execute_body["kind"] == "ltd_service_profile"
+    assert "Service: BrowserAct" in execute_body["content"]
+    assert execute_body["structured_output_json"]["facts_json"]["tier"] == "Tier 3"
+    assert execute_body["structured_output_json"]["account_email"] == "ops@example.com"
+    session_id = execute_body["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["status"] == "completed"
+    assert session_body["intent_task_type"] == "browseract_ltd_discovery"
+    steps_by_key = {step["input_json"]["plan_step_key"]: step for step in session_body["steps"]}
+    assert steps_by_key["step_browseract_extract"]["state"] == "completed"
+    assert steps_by_key["step_artifact_save"]["state"] == "completed"
+    assert steps_by_key["step_browseract_extract"]["output_json"]["account_email"] == "ops@example.com"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.extract_account_facts",
+        "artifact_repository",
+    ]
     assert disabled.json()["status"] == "disabled"
 
 

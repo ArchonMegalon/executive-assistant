@@ -1244,9 +1244,9 @@ echo "== smoke: tools and connectors =="
 curl -fsS -X POST "${BASE}/v1/tools/registry" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"tool_name":"email.send","version":"v1","input_schema_json":{"type":"object"},"output_schema_json":{"type":"object"},"policy_json":{"risk":"medium"},"allowed_channels":["email"],"approval_default":"manager","enabled":true}' >/dev/null
 TOOLS_JSON="$(curl -fsS "${BASE}/v1/tools/registry?limit=10" "${AUTH_ARGS[@]}")"
-TOOL_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names={row.get('tool_name','') for row in rows}; print('{}|{}|{}'.format('artifact_repository' in names, 'connector.dispatch' in names, 'email.send' in names))" <<<"${TOOLS_JSON}")"
-if [[ "${TOOL_FIELDS}" != "True|True|True" ]]; then
-  echo "expected tool registry to expose builtin artifact_repository, builtin connector.dispatch, and upserted email.send; got ${TOOL_FIELDS}" >&2
+TOOL_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names={row.get('tool_name','') for row in rows}; print('{}|{}|{}|{}'.format('artifact_repository' in names, 'browseract.extract_account_facts' in names, 'connector.dispatch' in names, 'email.send' in names))" <<<"${TOOLS_JSON}")"
+if [[ "${TOOL_FIELDS}" != "True|True|True|True" ]]; then
+  echo "expected tool registry to expose builtin artifact_repository, builtin browseract.extract_account_facts, builtin connector.dispatch, and upserted email.send; got ${TOOL_FIELDS}" >&2
   echo "${TOOLS_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -1306,6 +1306,23 @@ if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   cat /tmp/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
+BROWSERACT_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  "${PRINCIPAL_ARGS[@]}" \
+  -d '{"connector_name":"browseract","external_account_ref":"browseract-main","scope_json":{"services":["BrowserAct","Teable"]},"auth_metadata_json":{"service_accounts_json":{"BrowserAct":{"tier":"Tier 3","account_email":"ops@example.com","status":"activated"}}},"status":"enabled"}')"
+BROWSERACT_BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("binding_id",""))' <<<"${BROWSERACT_BINDING_JSON}")"
+if [[ -z "${BROWSERACT_BINDING_ID}" ]]; then
+  fail 13 "missing binding_id from browseract connector response"
+fi
+BROWSERACT_TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  "${PRINCIPAL_ARGS[@]}" \
+  -d "{\"tool_name\":\"browseract.extract_account_facts\",\"action_kind\":\"account.extract\",\"payload_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"]}}")"
+BROWSERACT_TOOL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); out=body.get('output_json') or {}; receipt=body.get('receipt_json') or {}; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('service_name',''), (out.get('facts_json') or {}).get('tier',''), out.get('account_email',''), ','.join(out.get('missing_fields') or []), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${BROWSERACT_TOOL_EXEC_JSON}")"
+if [[ "${BROWSERACT_TOOL_FIELDS}" != "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com||browseract.extract_account_facts|tool.v1" ]]; then
+  echo "expected browseract.extract_account_facts to resolve configured service facts through the shared tool plane; got ${BROWSERACT_TOOL_FIELDS}" >&2
+  echo "${BROWSERACT_TOOL_EXEC_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "tools ok"
 if [[ -n "${BINDING_ID}" ]]; then
   FOREIGN_BINDING_CODE="$(curl -sS -o /tmp/ea_foreign_binding_resp.json -w '%{http_code}' -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
     -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -d '{"status":"disabled"}')"
@@ -1551,6 +1568,32 @@ DISPATCH_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${A
 DISPATCH_BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("binding_id",""))' <<<"${DISPATCH_BINDING_JSON}")"
 if [[ -z "${DISPATCH_BINDING_ID}" ]]; then
   fail 13 "missing binding_id from dispatch workflow binding response"
+fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"browseract_ltd_discovery","deliverable_type":"ltd_service_profile","default_risk_class":"low","default_approval_class":"none","allowed_tools":["browseract.extract_account_facts","artifact_repository"],"evidence_requirements":["account_inventory"],"memory_write_policy":"none","budget_policy_json":{"class":"low","workflow_template":"browseract_extract_then_artifact"}}' >/dev/null
+BROWSERACT_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"browseract_ltd_discovery","goal":"extract LTD account facts for BrowserAct"}')"
+BROWSERACT_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; extract=(steps[1] if len(steps) > 1 else {}); artifact=(steps[2] if len(steps) > 2 else {}); print('{}|{}|{}|{}|{}|{}|{}'.format(len(steps), ','.join((row.get('step_key') or '') for row in steps), extract.get('tool_name',''), ','.join(extract.get('depends_on') or []), ','.join(extract.get('input_keys') or []), 'structured_output_json' in (extract.get('output_keys') or []), ','.join(artifact.get('input_keys') or [])))" <<<"${BROWSERACT_PLAN_JSON}")"
+if [[ "${BROWSERACT_PLAN_FIELDS}" != "3|step_input_prepare,step_browseract_extract,step_artifact_save|browseract.extract_account_facts|step_input_prepare|binding_id,service_name|True|normalized_text,structured_output_json,preview_text,mime_type" ]]; then
+  echo "expected browseract workflow template to compile prepare->browseract->artifact graph; got ${BROWSERACT_PLAN_FIELDS}" >&2
+  echo "${BROWSERACT_PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+BROWSERACT_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"browseract_ltd_discovery\",\"goal\":\"extract LTD account facts for BrowserAct\",\"input_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"]}}")"
+BROWSERACT_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); structured=body.get('structured_output_json') or {}; print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), 'Service: BrowserAct' in body.get('content',''), ((structured.get('facts_json') or {}).get('tier','')), structured.get('account_email',''), body.get('principal_id','')))" <<<"${BROWSERACT_EXECUTE_JSON}")"
+if [[ "${BROWSERACT_EXECUTE_FIELDS}" != "browseract_ltd_discovery|ltd_service_profile|True|Tier 3|ops@example.com|${PRINCIPAL_ID}" ]]; then
+  echo "expected browseract workflow template to persist discovered facts into a structured artifact envelope; got ${BROWSERACT_EXECUTE_FIELDS}" >&2
+  echo "${BROWSERACT_EXECUTE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+BROWSERACT_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${BROWSERACT_EXECUTE_JSON}")"
+BROWSERACT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${BROWSERACT_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+BROWSERACT_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; receipts=body.get('receipts') or []; artifacts=body.get('artifacts') or []; artifact=(artifacts[0] if artifacts else {}); print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), steps.get('step_browseract_extract',{}).get('state',''), steps.get('step_artifact_save',{}).get('state',''), [row.get('tool_name','') for row in receipts] == ['browseract.extract_account_facts', 'artifact_repository'], ((artifact.get('structured_output_json') or {}).get('facts_json') or {}).get('tier',''), (artifact.get('structured_output_json') or {}).get('account_email','')))" <<<"${BROWSERACT_SESSION_JSON}")"
+if [[ "${BROWSERACT_SESSION_FIELDS}" != "browseract_ltd_discovery|completed|completed|completed|True|Tier 3|ops@example.com" ]]; then
+  echo "expected browseract workflow session to complete with both extract and artifact receipts plus structured facts; got ${BROWSERACT_SESSION_FIELDS}" >&2
+  echo "${BROWSERACT_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
 fi
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_dispatch","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository","connector.dispatch"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_dispatch"}}' >/dev/null

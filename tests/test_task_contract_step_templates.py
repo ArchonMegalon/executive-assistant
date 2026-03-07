@@ -233,6 +233,46 @@ def _build_dispatch_memory_runtime(
     return orchestrator, channel_runtime, tool_runtime, memory_runtime
 
 
+def _build_browseract_runtime(
+    *,
+    task_key: str = "browseract_ltd_discovery",
+    budget_policy_json: dict[str, object] | None = None,
+) -> tuple[RewriteOrchestrator, ToolRuntimeService]:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key=task_key,
+        deliverable_type="ltd_service_profile",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("browseract.extract_account_facts", "artifact_repository"),
+        evidence_requirements=("account_inventory",),
+        memory_write_policy="none",
+        budget_policy_json=dict(
+            budget_policy_json
+            or {"class": "low", "workflow_template": "browseract_extract_then_artifact"}
+        ),
+    )
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    artifacts = InMemoryArtifactRepository()
+    orchestrator = RewriteOrchestrator(
+        artifacts=artifacts,
+        ledger=InMemoryExecutionLedgerRepository(),
+        approvals=InMemoryApprovalRepository(),
+        policy_repo=InMemoryPolicyDecisionRepository(),
+        policy=PolicyDecisionService(),
+        task_contracts=task_contracts,
+        planner=PlannerService(task_contracts),
+        tool_execution=ToolExecutionService(
+            tool_runtime=tool_runtime,
+            artifacts=artifacts,
+        ),
+    )
+    return orchestrator, tool_runtime
+
+
 def test_planner_can_compile_dispatch_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(
@@ -311,6 +351,44 @@ def test_planner_can_compile_memory_candidate_workflow_template() -> None:
     assert memory_step.output_keys == ("candidate_id", "candidate_status", "candidate_category")
     assert memory_step.desired_output_json["category"] == "stakeholder_briefing_fact"
     assert memory_step.desired_output_json["confidence"] == 0.7
+
+
+def test_planner_can_compile_browseract_extract_then_artifact_workflow_template() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="browseract_ltd_discovery",
+        deliverable_type="ltd_service_profile",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("browseract.extract_account_facts", "artifact_repository"),
+        evidence_requirements=("account_inventory",),
+        memory_write_policy="none",
+        budget_policy_json={"class": "low", "workflow_template": "browseract_extract_then_artifact"},
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="browseract_ltd_discovery",
+        principal_id="exec-1",
+        goal="extract LTD account facts for BrowserAct",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_browseract_extract",
+        "step_artifact_save",
+    )
+    extract_step = plan.steps[1]
+    assert extract_step.step_kind == "tool_call"
+    assert extract_step.tool_name == "browseract.extract_account_facts"
+    assert extract_step.depends_on == ("step_input_prepare",)
+    assert extract_step.authority_class == "observe"
+    assert extract_step.input_keys == ("binding_id", "service_name")
+    assert "structured_output_json" in extract_step.output_keys
+    artifact_step = plan.steps[2]
+    assert artifact_step.tool_name == "artifact_repository"
+    assert artifact_step.depends_on == ("step_browseract_extract",)
+    assert artifact_step.input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
 
 
 def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
@@ -531,6 +609,55 @@ def test_memory_candidate_workflow_template_stages_candidate_after_artifact() ->
     assert candidate.summary == "Board context and stakeholder sensitivities."
 
 
+def test_browseract_extract_then_artifact_workflow_template_persists_discovered_facts() -> None:
+    orchestrator, tool_runtime = _build_browseract_runtime()
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"]},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "BrowserAct": {
+                    "tier": "Tier 3",
+                    "account_email": "ops@example.com",
+                    "status": "activated",
+                }
+            }
+        },
+        status="enabled",
+    )
+
+    artifact = orchestrator.execute_task_artifact(
+        TaskExecutionRequest(
+            task_key="browseract_ltd_discovery",
+            principal_id="exec-1",
+            goal="extract LTD account facts for BrowserAct",
+            input_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        )
+    )
+
+    snapshot = orchestrator.fetch_session(artifact.execution_session_id)
+    assert snapshot is not None
+    assert snapshot.session.status == "completed"
+    steps_by_key = {step.input_json["plan_step_key"]: step for step in snapshot.steps}
+    assert steps_by_key["step_browseract_extract"].state == "completed"
+    assert steps_by_key["step_artifact_save"].state == "completed"
+    assert steps_by_key["step_browseract_extract"].output_json["service_name"] == "BrowserAct"
+    assert steps_by_key["step_browseract_extract"].output_json["facts_json"]["tier"] == "Tier 3"
+    assert steps_by_key["step_browseract_extract"].output_json["account_email"] == "ops@example.com"
+    assert steps_by_key["step_browseract_extract"].output_json["missing_fields"] == []
+    assert artifact.kind == "ltd_service_profile"
+    assert "Service: BrowserAct" in artifact.content
+    assert artifact.structured_output_json["facts_json"]["tier"] == "Tier 3"
+    assert artifact.structured_output_json["account_email"] == "ops@example.com"
+    assert [row.tool_name for row in snapshot.receipts] == ["browseract.extract_account_facts", "artifact_repository"]
+
+
 def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval() -> None:
     orchestrator, channel_runtime, tool_runtime, memory_runtime = _build_dispatch_memory_runtime()
     binding = tool_runtime.upsert_connector_binding(
@@ -552,7 +679,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
                     "source_text": "Board context and stakeholder sensitivities.",
                     "binding_id": binding.binding_id,
                     "channel": "email",
-                    "recipient": "memory-dispatch@example.com",
+                    "recipient": "dispatch-memory@example.com",
                 },
             )
         )
@@ -591,7 +718,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
     assert candidate_id
     pending = channel_runtime.list_pending_delivery(limit=10)
     assert len(pending) == 1
-    assert pending[0].recipient == "memory-dispatch@example.com"
+    assert pending[0].recipient == "dispatch-memory@example.com"
     candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
     candidate = next(row for row in candidates if row.candidate_id == candidate_id)
     assert candidate.category == "stakeholder_follow_up_fact"
@@ -599,7 +726,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
     assert candidate.fact_json["delivery_id"] == pending[0].delivery_id
     assert candidate.fact_json["delivery_status"] == pending[0].status
     assert candidate.fact_json["binding_id"] == binding.binding_id
-    assert candidate.fact_json["recipient"] == "memory-dispatch@example.com"
+    assert candidate.fact_json["recipient"] == "dispatch-memory@example.com"
     assert candidate.summary == "Board context and stakeholder sensitivities."
 
 
