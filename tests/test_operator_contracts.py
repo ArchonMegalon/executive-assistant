@@ -413,6 +413,23 @@ def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_review_dispatch_delayed_retry_runtime_is_documented_and_guarded() -> None:
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata" in workflow_test
+    assert "test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval" in workflow_test
+    assert "dispatch_failure_strategy|max_attempts|retry_backoff_seconds" in readme
+    assert "dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds" in runbook
+    assert "Review-then-dispatch workflows now preserve compiled dispatch retry posture" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_dispatch_delayed_retry_runtime")
+    assert capability["status"] == "tested"
+
+
 def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")

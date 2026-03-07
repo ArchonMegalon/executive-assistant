@@ -266,6 +266,51 @@ def test_planner_can_compile_dispatch_retry_policy_from_task_contract_metadata()
     assert dispatch_step.retry_backoff_seconds == 25
 
 
+def test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_review_dispatch_retry",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "artifact_then_dispatch",
+            "human_review_role": "communications_reviewer",
+            "human_review_task_type": "communications_review",
+            "human_review_brief": "Review before stakeholder dispatch.",
+            "human_review_priority": "high",
+            "human_review_desired_output_json": {"format": "review_packet"},
+            "dispatch_failure_strategy": "retry",
+            "dispatch_max_attempts": 3,
+            "dispatch_retry_backoff_seconds": 45,
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="stakeholder_review_dispatch_retry",
+        principal_id="exec-1",
+        goal="review and send a stakeholder briefing",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_human_review",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    )
+    dispatch_step = plan.steps[-1]
+    assert dispatch_step.step_key == "step_connector_dispatch"
+    assert dispatch_step.failure_strategy == "retry"
+    assert dispatch_step.max_attempts == 3
+    assert dispatch_step.retry_backoff_seconds == 45
+
+
 def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval() -> None:
     orchestrator, channel_runtime, tool_runtime = _build_dispatch_runtime(
         task_key="stakeholder_review_dispatch",
@@ -354,6 +399,92 @@ def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval()
     pending = channel_runtime.list_pending_delivery(limit=10)
     assert len(pending) == 1
     assert pending[0].recipient == "reviewed@example.com"
+
+
+def test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval() -> None:
+    orchestrator, channel_runtime, tool_runtime = _build_dispatch_runtime(
+        task_key="stakeholder_review_dispatch_retry",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "artifact_then_dispatch",
+            "human_review_role": "communications_reviewer",
+            "human_review_task_type": "communications_review",
+            "human_review_brief": "Review before stakeholder dispatch.",
+            "human_review_priority": "high",
+            "human_review_desired_output_json": {"format": "review_packet"},
+            "dispatch_failure_strategy": "retry",
+            "dispatch_max_attempts": 2,
+            "dispatch_retry_backoff_seconds": 45,
+        },
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-3",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+    original_handler = orchestrator._tool_execution._handlers["connector.dispatch"]  # type: ignore[attr-defined]
+    calls = {"count": 0}
+
+    def flaky_dispatch(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_dispatch_failure")
+        return original_handler(request, definition)
+
+    orchestrator._tool_execution.register_handler("connector.dispatch", flaky_dispatch)  # type: ignore[attr-defined]
+
+    with pytest.raises(HumanTaskRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="stakeholder_review_dispatch_retry",
+                principal_id="exec-1",
+                goal="review and send a stakeholder briefing",
+                input_json={
+                    "source_text": "Board context and stakeholder sensitivities.",
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "reviewed-retry@example.com",
+                },
+            )
+        )
+
+    returned = orchestrator.return_human_task(
+        exc.value.human_task_id,
+        principal_id="exec-1",
+        operator_id="reviewer-1",
+        resolution="ready_for_dispatch",
+        returned_payload_json={"final_text": "Reviewed stakeholder briefing."},
+        provenance_json={"review_mode": "human"},
+    )
+    assert returned is not None
+
+    pending_approvals = orchestrator.list_pending_approvals(limit=10)
+    approval = next(row for row in pending_approvals if row.session_id == exc.value.session_id)
+    decision = orchestrator.decide_approval(
+        approval.approval_id,
+        decision="approve",
+        decided_by="operator",
+        reason="approved reviewed dispatch retry",
+    )
+    assert decision is not None
+
+    queued = orchestrator.fetch_session(exc.value.session_id)
+    assert queued is not None
+    queued_steps = {step.input_json["plan_step_key"]: step for step in queued.steps}
+    assert queued.session.status == "queued"
+    assert queued_steps["step_human_review"].state == "completed"
+    assert queued_steps["step_artifact_save"].state == "completed"
+    assert queued_steps["step_policy_evaluate"].state == "completed"
+    assert queued_steps["step_connector_dispatch"].state == "queued"
+    assert queued_steps["step_connector_dispatch"].attempt_count == 1
+    assert queued_steps["step_connector_dispatch"].error_json["reason"] == "retry_scheduled"
+    assert queued.queue_items[-1].state == "queued"
+    assert queued.queue_items[-1].next_attempt_at
+    assert channel_runtime.list_pending_delivery(limit=10) == []
+    assert calls["count"] == 1
 
 
 def test_planner_rejects_unknown_workflow_template_metadata() -> None:

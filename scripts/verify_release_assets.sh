@@ -3327,6 +3327,30 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_dispatch_delayed_retry_runtime")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "dispatch_failure_strategy|max_attempts|retry_backoff_seconds" "README.md" && \
+     grep -Fq "dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds" "RUNBOOK.md" && \
+     grep -Fq "Review-then-dispatch workflows now preserve compiled dispatch retry posture" "CHANGELOG.md"; then
+    echo "ok: review-then-dispatch delayed retry runtime docs and contract coverage"
+  else
+    echo "missing: review-then-dispatch delayed retry runtime docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: review-then-dispatch delayed retry runtime milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

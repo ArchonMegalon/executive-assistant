@@ -1157,6 +1157,16 @@
         "openapi_queued_async_examples"
       ],
       "notes": "When a retryable step reschedules itself into the future (`retry_backoff_seconds>0`), rewrite and generic task execution now return the same first-class async workflow contract with `status=queued` and `next_action=poll_or_subscribe` instead of raising `queued task did not execute`; approval resumption treats that delayed retry as an async continuation instead of a runtime error too."
+    },
+    {
+      "name": "review_dispatch_delayed_retry_runtime",
+      "status": "tested",
+      "scope": [
+        "review_then_dispatch_retry_compile",
+        "human_review_then_dispatch_retry_runtime",
+        "approval_resumed_dispatch_retry_queue"
+      ],
+      "notes": "The built-in review-then-dispatch workflow now preserves compiled `dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds` metadata on `step_connector_dispatch`, and focused runtime coverage proves a delayed post-approval dispatch retry leaves the session queued behind `next_attempt_at` instead of erroring once the human-review gate has already cleared."
     }
   ],
   "migrations": [
