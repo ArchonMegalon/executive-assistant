@@ -341,6 +341,34 @@ def test_browseract_extract_then_artifact_workflow_template_is_documented_and_gu
     assert capability["status"] == "tested"
 
 
+def test_tool_then_artifact_workflow_template_is_documented_and_guarded() -> None:
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert 'workflow_template": "tool_then_artifact"' in workflow_test
+    assert "browseract_ltd_discovery_generic" in workflow_test
+    assert "pre_artifact_tool_name" in workflow_test
+    assert "unsupported_tool_then_artifact" in workflow_test
+    assert "browseract_ltd_discovery_generic" in smoke_test
+    assert 'workflow_template": "tool_then_artifact"' in smoke_test
+    assert "browseract_ltd_discovery_generic" in smoke_script
+    assert "generic tool-then-artifact workflow template" in smoke_script
+    assert "workflow_template=tool_then_artifact" in readme
+    assert "workflow_template=tool_then_artifact" in runbook
+    assert "workflow_template=tool_then_artifact" in changelog
+    assert "browseract_ltd_discovery_generic" in http_examples
+    assert '"pre_artifact_tool_name": "browseract.extract_account_facts"' in http_examples
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "tool_then_artifact_workflow_template")
+    assert capability["status"] == "tested"
+
+
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")

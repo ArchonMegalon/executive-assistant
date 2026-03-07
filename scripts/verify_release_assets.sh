@@ -3233,6 +3233,34 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "tool_then_artifact_workflow_template")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq 'workflow_template": "tool_then_artifact"' "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "browseract_ltd_discovery_generic" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "unsupported_tool_then_artifact" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "browseract_ltd_discovery_generic" "tests/smoke_runtime_api.py" && \
+     grep -Fq "browseract_ltd_discovery_generic" "scripts/smoke_api.sh" && \
+     grep -Fq "workflow_template=tool_then_artifact" "README.md" && \
+     grep -Fq "workflow_template=tool_then_artifact" "RUNBOOK.md" && \
+     grep -Fq "workflow_template=tool_then_artifact" "CHANGELOG.md" && \
+     grep -Fq "browseract_ltd_discovery_generic" "HTTP_EXAMPLES.http"; then
+    echo "ok: tool-then-artifact workflow template docs and smoke coverage"
+  else
+    echo "missing: tool-then-artifact workflow template docs or smoke coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: tool-then-artifact workflow template milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_then_memory_candidate_workflow_template")
 assert capability["status"] == "tested"
 PY

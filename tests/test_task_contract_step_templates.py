@@ -391,6 +391,68 @@ def test_planner_can_compile_browseract_extract_then_artifact_workflow_template(
     assert artifact_step.input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
 
 
+def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_browseract() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="browseract_ltd_discovery_generic",
+        deliverable_type="ltd_service_profile",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("browseract.extract_account_facts", "artifact_repository"),
+        evidence_requirements=("account_inventory",),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_tool_name": "browseract.extract_account_facts",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="browseract_ltd_discovery_generic",
+        principal_id="exec-1",
+        goal="extract LTD account facts for BrowserAct",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_browseract_extract",
+        "step_artifact_save",
+    )
+    assert plan.steps[0].input_keys == ("binding_id", "service_name")
+    assert plan.steps[1].tool_name == "browseract.extract_account_facts"
+    assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
+
+
+def test_generic_tool_then_artifact_workflow_template_rejects_unsupported_tool() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="unsupported_tool_then_artifact",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=(),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_tool_name": "not_real",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    with pytest.raises(PlanValidationError) as exc:
+        planner.build_plan(
+            task_key="unsupported_tool_then_artifact",
+            principal_id="exec-1",
+            goal="fail fast",
+        )
+
+    assert str(exc.value) == "pre_artifact_tool_not_allowed:not_real"
+
+
 def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(
@@ -656,6 +718,54 @@ def test_browseract_extract_then_artifact_workflow_template_persists_discovered_
     assert artifact.structured_output_json["facts_json"]["tier"] == "Tier 3"
     assert artifact.structured_output_json["account_email"] == "ops@example.com"
     assert [row.tool_name for row in snapshot.receipts] == ["browseract.extract_account_facts", "artifact_repository"]
+
+
+def test_generic_tool_then_artifact_workflow_template_persists_browseract_facts() -> None:
+    orchestrator, tool_runtime = _build_browseract_runtime(
+        task_key="browseract_ltd_discovery_generic",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_tool_name": "browseract.extract_account_facts",
+        },
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"]},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "BrowserAct": {
+                    "tier": "Tier 3",
+                    "account_email": "ops@example.com",
+                    "status": "activated",
+                }
+            }
+        },
+        status="enabled",
+    )
+
+    artifact = orchestrator.execute_task_artifact(
+        TaskExecutionRequest(
+            task_key="browseract_ltd_discovery_generic",
+            principal_id="exec-1",
+            goal="extract LTD account facts for BrowserAct",
+            input_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        )
+    )
+
+    snapshot = orchestrator.fetch_session(artifact.execution_session_id)
+    assert snapshot is not None
+    assert snapshot.session.status == "completed"
+    assert [row.tool_name for row in snapshot.receipts] == ["browseract.extract_account_facts", "artifact_repository"]
+    assert artifact.kind == "ltd_service_profile"
+    assert artifact.structured_output_json["facts_json"]["tier"] == "Tier 3"
+    assert artifact.structured_output_json["account_email"] == "ops@example.com"
 
 
 def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval() -> None:

@@ -64,6 +64,7 @@ class PlannerService:
             str, Callable[[IntentSpecV3, TaskContract], tuple[PlanStepSpec, ...]]
         ] = {
             "rewrite": self._build_rewrite_steps,
+            "tool_then_artifact": self._build_tool_then_artifact_steps,
             "browseract_extract_then_artifact": self._build_browseract_extract_then_artifact_steps,
             "artifact_then_packs": self._build_artifact_then_packs_steps,
             "artifact_then_dispatch": self._build_artifact_then_dispatch_steps,
@@ -219,6 +220,57 @@ class PlannerService:
                 "structured_output_json",
             ),
         )
+
+    def _resolve_pre_artifact_tool_name(self, contract: TaskContract, *, default: str = "") -> str:
+        metadata = dict(contract.budget_policy_json or {})
+        tool_name = str(metadata.get("pre_artifact_tool_name") or default).strip()
+        if not tool_name:
+            raise PlanValidationError("pre_artifact_tool_name_required")
+        allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
+        if allowed_tools and tool_name not in allowed_tools:
+            raise PlanValidationError(f"pre_artifact_tool_not_allowed:{tool_name}")
+        return tool_name
+
+    def _build_supported_pre_artifact_tool_step(
+        self,
+        *,
+        contract: TaskContract,
+        tool_name: str,
+        depends_on: tuple[str, ...],
+    ) -> PlanStepSpec:
+        normalized = str(tool_name or "").strip()
+        if normalized == "browseract.extract_account_facts":
+            return self._build_browseract_extract_step(contract=contract, depends_on=depends_on)
+        raise PlanValidationError(f"unsupported_pre_artifact_tool:{normalized or '<empty>'}")
+
+    def _additional_artifact_inputs_for_pre_artifact_tool(self, tool_name: str) -> tuple[str, ...]:
+        normalized = str(tool_name or "").strip()
+        if normalized == "browseract.extract_account_facts":
+            return ("structured_output_json", "preview_text", "mime_type")
+        return ()
+
+    def _build_pre_artifact_tool_then_artifact_steps(
+        self,
+        intent: IntentSpecV3,
+        *,
+        contract: TaskContract,
+        default_tool_name: str = "",
+    ) -> tuple[PlanStepSpec, ...]:
+        tool_name = self._resolve_pre_artifact_tool_name(contract, default=default_tool_name)
+        tool_step = self._build_supported_pre_artifact_tool_step(
+            contract=contract,
+            tool_name=tool_name,
+            depends_on=("step_input_prepare",),
+        )
+        prepare_step = self._build_prepare_step(input_keys=tuple(tool_step.input_keys or ("source_text",)))
+        artifact_step = self._build_artifact_save_step(
+            intent,
+            contract=contract,
+            depends_on=(tool_step.step_key,),
+            approval_required=False,
+            additional_input_keys=self._additional_artifact_inputs_for_pre_artifact_tool(tool_name),
+        )
+        return (prepare_step, tool_step, artifact_step)
 
     def _build_dispatch_step(
         self,
@@ -436,19 +488,22 @@ class PlannerService:
         *,
         contract: TaskContract,
     ) -> tuple[PlanStepSpec, ...]:
-        prepare_step = self._build_prepare_step(input_keys=("binding_id", "service_name"))
-        browseract_step = self._build_browseract_extract_step(
-            contract=contract,
-            depends_on=("step_input_prepare",),
-        )
-        artifact_step = self._build_artifact_save_step(
+        return self._build_pre_artifact_tool_then_artifact_steps(
             intent,
             contract=contract,
-            depends_on=("step_browseract_extract",),
-            approval_required=False,
-            additional_input_keys=("structured_output_json", "preview_text", "mime_type"),
+            default_tool_name="browseract.extract_account_facts",
         )
-        return (prepare_step, browseract_step, artifact_step)
+
+    def _build_tool_then_artifact_steps(
+        self,
+        intent: IntentSpecV3,
+        *,
+        contract: TaskContract,
+    ) -> tuple[PlanStepSpec, ...]:
+        return self._build_pre_artifact_tool_then_artifact_steps(
+            intent,
+            contract=contract,
+        )
 
     def _build_artifact_then_packs_steps(
         self,

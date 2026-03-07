@@ -1134,6 +1134,17 @@
       "notes": "Task contracts can now also compile `workflow_template=browseract_extract_then_artifact`, producing `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can persist tier/email/status facts into a structured artifact through the queue runtime."
     },
     {
+      "name": "tool_then_artifact_workflow_template",
+      "status": "tested",
+      "scope": [
+        "generic_pre_artifact_tool_macro",
+        "browseract_tool_then_artifact_compile_shape",
+        "browseract_tool_then_artifact_runtime_projection",
+        "unsupported_pre_artifact_tool_validation"
+      ],
+      "notes": "Task contracts can now also compile the generic `workflow_template=tool_then_artifact` macro with `budget_policy_json.pre_artifact_tool_name=<tool>`, and the first supported slice proves BrowserAct account discovery now routes through shared pre-artifact tool composition instead of another one-off workflow builder."
+    },
+    {
       "name": "workflow_template_registry_validation",
       "status": "tested",
       "scope": [

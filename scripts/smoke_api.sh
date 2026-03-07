@@ -1596,6 +1596,24 @@ if [[ "${BROWSERACT_SESSION_FIELDS}" != "browseract_ltd_discovery|completed|comp
   fail 12 "policy contract mismatch"
 fi
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"browseract_ltd_discovery_generic","deliverable_type":"ltd_service_profile","default_risk_class":"low","default_approval_class":"none","allowed_tools":["browseract.extract_account_facts","artifact_repository"],"evidence_requirements":["account_inventory"],"memory_write_policy":"none","budget_policy_json":{"class":"low","workflow_template":"tool_then_artifact","pre_artifact_tool_name":"browseract.extract_account_facts"}}' >/dev/null
+GENERIC_BROWSERACT_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"browseract_ltd_discovery_generic","goal":"extract LTD account facts for BrowserAct"}')"
+GENERIC_BROWSERACT_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; prepare=(steps[0] if steps else {}); extract=(steps[1] if len(steps) > 1 else {}); artifact=(steps[2] if len(steps) > 2 else {}); print('{}|{}|{}|{}|{}|{}'.format(len(steps), ','.join((row.get('step_key') or '') for row in steps), ','.join(prepare.get('input_keys') or []), extract.get('tool_name',''), ','.join(extract.get('input_keys') or []), ','.join(artifact.get('input_keys') or [])))" <<<"${GENERIC_BROWSERACT_PLAN_JSON}")"
+if [[ "${GENERIC_BROWSERACT_PLAN_FIELDS}" != "3|step_input_prepare,step_browseract_extract,step_artifact_save|binding_id,service_name|browseract.extract_account_facts|binding_id,service_name|normalized_text,structured_output_json,preview_text,mime_type" ]]; then
+  echo "expected generic tool-then-artifact workflow template to compile prepare->browseract->artifact graph; got ${GENERIC_BROWSERACT_PLAN_FIELDS}" >&2
+  echo "${GENERIC_BROWSERACT_PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+GENERIC_BROWSERACT_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"browseract_ltd_discovery_generic\",\"goal\":\"extract LTD account facts for BrowserAct\",\"input_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"]}}")"
+GENERIC_BROWSERACT_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); structured=body.get('structured_output_json') or {}; print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), ((structured.get('facts_json') or {}).get('tier','')), structured.get('account_email',''), body.get('principal_id','')))" <<<"${GENERIC_BROWSERACT_EXECUTE_JSON}")"
+if [[ "${GENERIC_BROWSERACT_EXECUTE_FIELDS}" != "browseract_ltd_discovery_generic|ltd_service_profile|Tier 3|ops@example.com|${PRINCIPAL_ID}" ]]; then
+  echo "expected generic tool-then-artifact workflow template to persist discovered BrowserAct facts; got ${GENERIC_BROWSERACT_EXECUTE_FIELDS}" >&2
+  echo "${GENERIC_BROWSERACT_EXECUTE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_dispatch","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository","connector.dispatch"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_dispatch"}}' >/dev/null
 DISPATCH_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_dispatch","goal":"prepare and send a stakeholder briefing"}')"

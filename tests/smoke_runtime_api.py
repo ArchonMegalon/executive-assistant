@@ -2680,6 +2680,73 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
     ]
     assert disabled.json()["status"] == "disabled"
 
+    generic_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "browseract_ltd_discovery_generic",
+            "deliverable_type": "ltd_service_profile",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["browseract.extract_account_facts", "artifact_repository"],
+            "evidence_requirements": ["account_inventory"],
+            "memory_write_policy": "none",
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_tool_name": "browseract.extract_account_facts",
+            },
+        },
+    )
+    assert generic_contract.status_code == 200
+
+    generic_compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "browseract_ltd_discovery_generic",
+            "goal": "extract LTD account facts for BrowserAct",
+        },
+    )
+    assert generic_compiled.status_code == 200
+    generic_plan_steps = generic_compiled.json()["plan"]["steps"]
+    assert [step["step_key"] for step in generic_plan_steps] == [
+        "step_input_prepare",
+        "step_browseract_extract",
+        "step_artifact_save",
+    ]
+    assert generic_plan_steps[0]["input_keys"] == ["binding_id", "service_name"]
+    assert generic_plan_steps[1]["tool_name"] == "browseract.extract_account_facts"
+    assert generic_plan_steps[2]["input_keys"] == [
+        "normalized_text",
+        "structured_output_json",
+        "preview_text",
+        "mime_type",
+    ]
+
+    generic_execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "browseract_ltd_discovery_generic",
+            "goal": "extract LTD account facts for BrowserAct",
+            "input_json": {
+                "binding_id": binding_id,
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert generic_execute.status_code == 200
+    generic_body = generic_execute.json()
+    assert generic_body["task_key"] == "browseract_ltd_discovery_generic"
+    assert generic_body["kind"] == "ltd_service_profile"
+    assert generic_body["structured_output_json"]["facts_json"]["tier"] == "Tier 3"
+    assert generic_body["structured_output_json"]["account_email"] == "ops@example.com"
+    generic_session = client.get(f"/v1/rewrite/sessions/{generic_body['execution_session_id']}")
+    assert generic_session.status_code == 200
+    assert [row["tool_name"] for row in generic_session.json()["receipts"]] == [
+        "browseract.extract_account_facts",
+        "artifact_repository",
+    ]
+
 
 def test_task_contracts_flow_and_rewrite_compilation() -> None:
     client = _client(storage_backend="memory", approval_threshold_chars=20000)

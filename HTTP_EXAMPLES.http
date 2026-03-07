@@ -660,6 +660,40 @@ X-EA-Principal-ID: {{principal_id}}
   "goal": "extract LTD account facts for BrowserAct"
 }
 
+### Task Contracts -> upsert generic tool-then-artifact workflow template (BrowserAct via reusable macro)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "browseract_ltd_discovery_generic",
+  "deliverable_type": "ltd_service_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": [
+    "browseract.extract_account_facts",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_tool_name": "browseract.extract_account_facts"
+  }
+}
+
+### Plans -> compile generic tool-then-artifact workflow template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "browseract_ltd_discovery_generic",
+  "goal": "extract LTD account facts for BrowserAct"
+}
+
 ### Task Contracts -> upsert memory-candidate workflow template (artifact -> memory candidate)
 POST {{host}}/v1/tasks/contracts
 Content-Type: application/json
