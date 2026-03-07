@@ -30,7 +30,7 @@ Updated: 2026-03-07
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `AvoMap` | `10x code-based` | `10 codes` | `9 redeemed / 1 pending` | `2026-05-02` | `Tier 3` | None | One remaining code must be redeemed by May 2, 2026. |
-| `BrowserAct` | `Tier unspecified` | `1 product` | `Unknown` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Tier, activation status, and purchase date still unclear; runtime discovery is now wired for both single-service facts and multi-service LTD inventory refresh, but live verification still needs a configured BrowserAct run target. |
+| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Invoiless` | `1x code-based` | `1 code` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Pending redemption` | `2026-04-28` | `Tier 3` | None | Redeem by April 28, 2026. |
@@ -85,7 +85,6 @@ Use this section to track missing tier/email/account facts discovered through th
 | `PeekShot` | Redeem pending codes | `2026-04-30` |
 | `Vizologi` | Redeem pending codes | `2026-04-30` |
 | `AvoMap` | Redeem 1 remaining code | `2026-05-02` |
-| `BrowserAct` | Confirm tier and activation details |  |
 
 ## Notes
 
