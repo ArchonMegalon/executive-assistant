@@ -35,6 +35,7 @@ Updated: 2026-03-07
 | `Invoiless` | `1x code-based` | `1 code` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Pending redemption` | `2026-04-28` | `Tier 3` | None | Redeem by April 28, 2026. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
+| `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD with activation confirmed; email/account details pending. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Pending redemption` | `2026-04-30` | `Tier 3` | None | Redeem by April 30, 2026. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
@@ -42,7 +43,7 @@ Updated: 2026-03-07
 
 ## Summary
 
-- `20` total LTD products tracked
+- `21` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`2 licenses / 2 accounts`)
 
@@ -68,6 +69,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Invoiless` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `MarkupGo` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
