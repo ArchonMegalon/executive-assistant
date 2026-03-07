@@ -3032,6 +3032,119 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
     ]
 
 
+def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
+    client = _client(storage_backend="memory", approval_threshold_chars=20000)
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct", "Teable", "UnknownService"]},
+            "auth_metadata_json": {
+                "service_accounts_json": {
+                    "BrowserAct": {
+                        "tier": "Tier 3",
+                        "account_email": "ops@example.com",
+                        "status": "activated",
+                    },
+                    "Teable": {
+                        "tier": "License Tier 4",
+                        "account_email": "ops@teable.example",
+                        "status": "activated",
+                    },
+                }
+            },
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "ltd_inventory_refresh",
+            "task_key": "ltd_inventory_refresh",
+            "name": "LTD Inventory Refresh",
+            "description": "Refresh BrowserAct-backed LTD account facts.",
+            "deliverable_type": "ltd_inventory_profile",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.extract_account_inventory", "artifact_repository"],
+            "evidence_requirements": ["account_inventory"],
+            "memory_write_policy": "none",
+            "memory_reads": ["account_inventory"],
+            "memory_writes": [],
+            "tags": ["ltd", "inventory", "operations"],
+            "authority_profile_json": {"authority_class": "observe", "review_class": "none"},
+            "provider_hints_json": {
+                "primary": ["BrowserAct"],
+                "ops": ["Teable"],
+                "output": ["MarkupGo"],
+            },
+            "tool_policy_json": {
+                "allowed_tools": ["browseract.extract_account_inventory", "artifact_repository"]
+            },
+            "evaluation_cases_json": [{"case_key": "ltd_inventory_refresh_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "low",
+                "pre_artifact_tool_name": "browseract.extract_account_inventory",
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "ltd_inventory_refresh"
+
+    filtered = client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})
+    assert filtered.status_code == 200
+    assert [row["skill_key"] for row in filtered.json()] == ["ltd_inventory_refresh"]
+
+    fetched = client.get("/v1/skills/ltd_inventory_refresh")
+    assert fetched.status_code == 200
+    assert fetched.json()["provider_hints_json"]["ops"] == ["Teable"]
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "ltd_inventory_refresh", "goal": "refresh LTD inventory facts"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "ltd_inventory_refresh"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_inventory_extract",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "ltd_inventory_refresh",
+            "goal": "refresh LTD inventory facts",
+            "input_json": {
+                "binding_id": binding_id,
+                "service_names": ["BrowserAct", "Teable", "UnknownService"],
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "ltd_inventory_refresh"
+    assert body["kind"] == "ltd_inventory_profile"
+    assert body["structured_output_json"]["missing_services"] == ["UnknownService"]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "ltd_inventory_refresh"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.extract_account_inventory",
+        "artifact_repository",
+    ]
+
+
 def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
     client = _client(storage_backend="memory", principal_id="exec-1")
 

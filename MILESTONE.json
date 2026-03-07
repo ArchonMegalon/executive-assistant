@@ -1287,6 +1287,17 @@
       "notes": "The runtime now exposes a first-class `/v1/skills` catalog layered on top of task contracts, persisting product-facing executive metadata (`workflow_template`, memory reads/writes, authority/tool/human policy, and evaluation cases) in the existing task-contract store; `meeting_prep` is the first fully documented, smoke-tested skill slice."
     },
     {
+      "name": "ltd_inventory_refresh_skill_catalog_slice",
+      "status": "tested",
+      "scope": [
+        "ltd_inventory_skill_upsert_round_trip",
+        "browseract_inventory_skill_compile_projection",
+        "browseract_inventory_skill_runtime_identity",
+        "skill_catalog_docs_examples"
+      ],
+      "notes": "The skill catalog now also carries a BrowserAct-backed operations slice, `ltd_inventory_refresh`, which wraps the generic `tool_then_artifact` macro around `browseract.extract_account_inventory` so LTD inventory refresh runs can compile, execute, and project `skill_key` identity through structured `ltd_inventory_profile` artifacts."
+    },
+    {
       "name": "session_status_transition_api",
       "status": "tested",
       "scope": [

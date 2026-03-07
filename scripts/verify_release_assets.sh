@@ -3554,6 +3554,33 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_inventory_refresh_skill_catalog_slice")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "test_skill_catalog_can_execute_ltd_inventory_refresh_skill" "tests/test_skills.py" && \
+     grep -Fq "test_skill_catalog_can_project_ltd_inventory_refresh_runtime" "tests/smoke_runtime_api.py" && \
+     grep -Fq "ltd_inventory_refresh" "scripts/smoke_api.sh" && \
+     grep -Fq "ltd_inventory_refresh" "README.md" && \
+     grep -Fq "ltd_inventory_refresh" "RUNBOOK.md" && \
+     grep -Fq "ltd_inventory_refresh" "CHANGELOG.md" && \
+     grep -Fq "ltd_inventory_refresh" "HTTP_EXAMPLES.http" && \
+     grep -Fq '`ltd_inventory_refresh`' "SKILLS.md"; then
+    echo "ok: ltd inventory refresh skill docs and smoke coverage"
+  else
+    echo "missing: ltd inventory refresh skill docs or smoke coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: ltd inventory refresh skill milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_status_transition_api")
 assert capability["status"] == "tested"
 PY

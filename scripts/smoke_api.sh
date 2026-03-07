@@ -1395,6 +1395,26 @@ if [[ "${SKILL_FIELDS}" != "meeting_prep|artifact_then_memory_candidate|stakehol
   echo "${SKILL_PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+LTD_SKILL_JSON="$(curl -fsS -X POST "${BASE}/v1/skills" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"skill_key":"ltd_inventory_refresh","task_key":"ltd_inventory_refresh","name":"LTD Inventory Refresh","description":"Refresh BrowserAct-backed LTD account facts.","deliverable_type":"ltd_inventory_profile","default_risk_class":"low","default_approval_class":"none","workflow_template":"tool_then_artifact","allowed_tools":["browseract.extract_account_inventory","artifact_repository"],"evidence_requirements":["account_inventory"],"memory_write_policy":"none","memory_reads":["account_inventory"],"memory_writes":[],"tags":["ltd","inventory","operations"],"authority_profile_json":{"authority_class":"observe","review_class":"none"},"provider_hints_json":{"primary":["BrowserAct"],"ops":["Teable"],"output":["MarkupGo"]},"tool_policy_json":{"allowed_tools":["browseract.extract_account_inventory","artifact_repository"]},"evaluation_cases_json":[{"case_key":"ltd_inventory_refresh_golden","priority":"medium"}],"budget_policy_json":{"class":"low","pre_artifact_tool_name":"browseract.extract_account_inventory"}}')"
+LTD_SKILL_FILTER_JSON="$(curl -fsS "${BASE}/v1/skills?limit=10&provider_hint=browseract" "${AUTH_ARGS[@]}")"
+LTD_SKILL_FETCH_JSON="$(curl -fsS "${BASE}/v1/skills/ltd_inventory_refresh" "${AUTH_ARGS[@]}")"
+LTD_SKILL_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"ltd_inventory_refresh","goal":"refresh LTD inventory facts"}')"
+LTD_SKILL_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"ltd_inventory_refresh\",\"goal\":\"refresh LTD inventory facts\",\"input_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_names\":[\"BrowserAct\",\"Teable\",\"UnknownService\"],\"requested_fields\":[\"tier\",\"account_email\",\"status\"]}}")"
+LTD_SKILL_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${LTD_SKILL_EXECUTE_JSON}")"
+LTD_SKILL_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${LTD_SKILL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+LTD_SKILL_FIELDS="$(python3 -c "import json,sys; created=json.loads(sys.argv[1]); filtered=json.loads(sys.argv[2]); fetched=json.loads(sys.argv[3]); compiled=json.loads(sys.argv[4]); executed=json.loads(sys.argv[5]); session=json.loads(sys.argv[6]); steps=compiled.get('plan',{}).get('steps') or []; artifact=(session.get('artifacts') or [{}])[0]; receipts=session.get('receipts') or []; print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(created.get('skill_key',''), created.get('workflow_template',''), ','.join(sorted(row.get('skill_key','') for row in filtered)), ','.join((fetched.get('provider_hints_json') or {}).get('ops') or []), compiled.get('skill_key',''), ','.join(step.get('step_key','') for step in steps), executed.get('skill_key',''), executed.get('kind',''), ','.join((executed.get('structured_output_json') or {}).get('missing_services') or []), session.get('intent_skill_key',''), [row.get('tool_name','') for row in receipts] == ['browseract.extract_account_inventory', 'artifact_repository'], artifact.get('skill_key','')))" "${LTD_SKILL_JSON}" "${LTD_SKILL_FILTER_JSON}" "${LTD_SKILL_FETCH_JSON}" "${LTD_SKILL_PLAN_JSON}" "${LTD_SKILL_EXECUTE_JSON}" "${LTD_SKILL_SESSION_JSON}")"
+if [[ "${LTD_SKILL_FIELDS}" != "ltd_inventory_refresh|tool_then_artifact|ltd_inventory_refresh,meeting_prep|Teable|ltd_inventory_refresh|step_input_prepare,step_browseract_inventory_extract,step_artifact_save|ltd_inventory_refresh|ltd_inventory_profile|UnknownService|ltd_inventory_refresh|True|ltd_inventory_refresh" ]]; then
+  echo "expected ltd_inventory_refresh skill to project BrowserAct inventory workflow metadata and runtime identity; got ${LTD_SKILL_FIELDS}" >&2
+  echo "${LTD_SKILL_JSON}" >&2
+  echo "${LTD_SKILL_FETCH_JSON}" >&2
+  echo "${LTD_SKILL_PLAN_JSON}" >&2
+  echo "${LTD_SKILL_EXECUTE_JSON}" >&2
+  echo "${LTD_SKILL_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 echo "skills ok"
 
 echo "== smoke: plans =="

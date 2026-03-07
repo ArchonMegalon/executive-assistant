@@ -432,6 +432,35 @@ def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     assert capability["status"] == "tested"
 
 
+def test_ltd_inventory_refresh_skill_slice_is_documented_and_guarded() -> None:
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "ltd_inventory_refresh" in skills_test
+    assert "test_skill_catalog_can_execute_ltd_inventory_refresh_skill" in skills_test
+    assert "ltd_inventory_refresh" in smoke_test
+    assert "test_skill_catalog_can_project_ltd_inventory_refresh_runtime" in smoke_test
+    assert "ltd_inventory_refresh" in smoke_script
+    assert "browseract.extract_account_inventory" in smoke_script
+    assert "ltd_inventory_refresh" in readme
+    assert "ltd_inventory_refresh" in runbook
+    assert "ltd_inventory_refresh" in changelog
+    assert "ltd_inventory_refresh" in http_examples
+    assert "`ltd_inventory_refresh`" in skills_doc
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "ltd_inventory_refresh_skill_catalog_slice"
+    )
+    assert capability["status"] == "tested"
+
+
 def test_skill_provider_hints_projection_is_documented_and_guarded() -> None:
     skills_route = (ROOT / "ea/app/api/routes/skills.py").read_text(encoding="utf-8")
     skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")

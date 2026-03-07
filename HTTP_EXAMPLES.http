@@ -742,6 +742,69 @@ Content-Type: application/json
   }
 }
 
+### Skills -> upsert `ltd_inventory_refresh` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "ltd_inventory_refresh",
+  "task_key": "ltd_inventory_refresh",
+  "name": "LTD Inventory Refresh",
+  "description": "Refresh BrowserAct-backed LTD tier, email, and status facts for the local inventory tracker.",
+  "deliverable_type": "ltd_inventory_profile",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "browseract.extract_account_inventory",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "account_inventory"
+  ],
+  "memory_write_policy": "none",
+  "memory_reads": [
+    "account_inventory"
+  ],
+  "memory_writes": [],
+  "tags": [
+    "ltd",
+    "inventory",
+    "operations"
+  ],
+  "authority_profile_json": {
+    "authority_class": "observe",
+    "review_class": "none"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "BrowserAct"
+    ],
+    "ops": [
+      "Teable"
+    ],
+    "output": [
+      "MarkupGo"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "browseract.extract_account_inventory",
+      "artifact_repository"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "ltd_inventory_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "pre_artifact_tool_name": "browseract.extract_account_inventory"
+  }
+}
+
 ### Skills -> list catalog entries
 GET {{host}}/v1/skills?limit=20
 
@@ -750,6 +813,9 @@ GET {{host}}/v1/skills?limit=20&provider_hint=BrowserAct
 
 ### Skills -> fetch `meeting_prep`
 GET {{host}}/v1/skills/meeting_prep
+
+### Skills -> fetch `ltd_inventory_refresh`
+GET {{host}}/v1/skills/ltd_inventory_refresh
 
 ### Plans -> compile dispatch workflow template
 POST {{host}}/v1/plans/compile
@@ -779,6 +845,16 @@ X-EA-Principal-ID: {{principal_id}}
 {
   "task_key": "meeting_prep",
   "goal": "prepare the board meeting packet"
+}
+
+### Plans -> compile `ltd_inventory_refresh` skill via its backing task contract
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "ltd_inventory_refresh",
+  "goal": "refresh LTD inventory facts"
 }
 
 ### Task Contracts -> upsert generic tool-then-artifact workflow template (BrowserAct via reusable macro)
