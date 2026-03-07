@@ -499,7 +499,14 @@ X-EA-Principal-ID: {{principal_id}}
       "tier",
       "account_email",
       "status"
-    ]
+    ],
+    "run_url": "https://browseract.example/run",
+    "instructions": "Use stored BrowserAct credentials to verify the BrowserAct workspace tier.",
+    "account_hints_json": {
+      "BrowserAct": {
+        "workspace": "primary"
+      }
+    }
   }
 }
 
@@ -522,7 +529,14 @@ X-EA-Principal-ID: {{principal_id}}
       "tier",
       "account_email",
       "status"
-    ]
+    ],
+    "run_url": "https://browseract.example/run",
+    "instructions": "Use stored BrowserAct credentials to verify the BrowserAct and Teable workspace tiers.",
+    "account_hints_json": {
+      "Teable": {
+        "workspace": "ops"
+      }
+    }
   }
 }
 

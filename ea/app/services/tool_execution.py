@@ -126,6 +126,7 @@ class ToolExecutionService:
                             "type": "array",
                             "items": {"type": "string"},
                         },
+                        "run_url": {"type": "string"},
                         "instructions": {"type": "string"},
                         "account_hints_json": {"type": "object"},
                     },
@@ -158,6 +159,7 @@ class ToolExecutionService:
                             "type": "array",
                             "items": {"type": "string"},
                         },
+                        "run_url": {"type": "string"},
                         "instructions": {"type": "string"},
                         "account_hints_json": {"type": "object"},
                     },
@@ -441,13 +443,36 @@ class ToolExecutionService:
             binding_auth_metadata_json=binding_auth_metadata_json,
             service_name=service_name,
         )
-        if facts_json is None:
-            facts_json = self._browseract_live_extract(
-                binding_auth_metadata_json=binding_auth_metadata_json,
-                payload=payload,
-                service_name=service_name,
-                requested_fields=requested_fields,
+        live_discovery_error = ""
+        should_try_live = facts_json is None
+        if not should_try_live and requested_fields:
+            should_try_live = any(
+                not self._browseract_fact_present((facts_json or {}).get(key))
+                for key in requested_fields
             )
+        if should_try_live:
+            live_facts_json: dict[str, object] | None
+            try:
+                live_facts_json = self._browseract_live_extract(
+                    binding_auth_metadata_json=binding_auth_metadata_json,
+                    payload=payload,
+                    service_name=service_name,
+                    requested_fields=requested_fields,
+                )
+            except ToolExecutionError as exc:
+                live_discovery_error = str(exc or "").strip()
+                live_facts_json = None
+                if facts_json is None and not allow_missing:
+                    raise
+            if live_facts_json is not None:
+                if facts_json is None:
+                    facts_json = live_facts_json
+                else:
+                    merged_facts_json = {str(key): value for key, value in facts_json.items()}
+                    for key, value in live_facts_json.items():
+                        if self._browseract_fact_present(value):
+                            merged_facts_json[str(key)] = value
+                    facts_json = merged_facts_json
         verification_source = "connector_metadata"
         if facts_json is None:
             if not allow_missing:
@@ -484,6 +509,14 @@ class ToolExecutionService:
             discovery_status = "missing"
         else:
             discovery_status = "complete" if resolved_requested_fields and not missing_fields else "partial"
+        live_instructions = str(payload.get("instructions") or binding_auth_metadata_json.get("instructions") or "").strip()
+        account_hints_json = dict(payload.get("account_hints_json") or {})
+        requested_run_url = str(
+            payload.get("run_url")
+            or binding_auth_metadata_json.get("browseract_run_url")
+            or binding_auth_metadata_json.get("run_url")
+            or ""
+        ).strip()
         normalized_text = self._browseract_summary_text(
             service_name=service_name,
             facts_json=normalized_facts_json,
@@ -502,6 +535,10 @@ class ToolExecutionService:
             "last_verified_at": last_verified_at,
             "account_email": account_email,
             "plan_tier": plan_tier,
+            "instructions": live_instructions,
+            "account_hints_json": account_hints_json,
+            "requested_run_url": requested_run_url,
+            "live_discovery_error": live_discovery_error,
         }
         return {
             "service_name": service_name,
@@ -513,6 +550,10 @@ class ToolExecutionService:
             "discovery_status": discovery_status,
             "verification_source": verification_source,
             "last_verified_at": last_verified_at,
+            "instructions": live_instructions,
+            "account_hints_json": account_hints_json,
+            "requested_run_url": requested_run_url,
+            "live_discovery_error": live_discovery_error,
             "normalized_text": normalized_text,
             "preview_text": artifact_preview_text(normalized_text),
             "mime_type": "text/plain",
@@ -624,6 +665,10 @@ class ToolExecutionService:
                 "discovery_status": record["discovery_status"],
                 "verification_source": record["verification_source"],
                 "last_verified_at": record["last_verified_at"],
+                "instructions": record["instructions"],
+                "account_hints_json": record["account_hints_json"],
+                "requested_run_url": record["requested_run_url"],
+                "live_discovery_error": record["live_discovery_error"],
                 "normalized_text": record["normalized_text"],
                 "preview_text": record["preview_text"],
                 "mime_type": record["mime_type"],
@@ -643,6 +688,8 @@ class ToolExecutionService:
                 "missing_fields": record["missing_fields"],
                 "discovery_status": record["discovery_status"],
                 "verification_source": record["verification_source"],
+                "requested_run_url": record["requested_run_url"],
+                "live_discovery_error": record["live_discovery_error"],
                 "tool_version": definition.version,
             },
         )
@@ -683,6 +730,9 @@ class ToolExecutionService:
             "binding_id": binding.binding_id,
             "connector_name": binding.connector_name,
             "external_account_ref": binding.external_account_ref,
+            "instructions": str(payload.get("instructions") or "").strip(),
+            "account_hints_json": dict(payload.get("account_hints_json") or {}),
+            "requested_run_url": str(payload.get("run_url") or "").strip(),
         }
         return ToolInvocationResult(
             tool_name=definition.tool_name,
@@ -695,6 +745,9 @@ class ToolExecutionService:
                 "service_names": list(service_names),
                 "services_json": services_json,
                 "missing_services": missing_services,
+                "instructions": structured_output_json["instructions"],
+                "account_hints_json": structured_output_json["account_hints_json"],
+                "requested_run_url": structured_output_json["requested_run_url"],
                 "normalized_text": normalized_text,
                 "preview_text": artifact_preview_text(normalized_text),
                 "mime_type": "text/plain",
@@ -711,6 +764,7 @@ class ToolExecutionService:
                 "principal_id": principal_id,
                 "service_names": list(service_names),
                 "missing_services": missing_services,
+                "requested_run_url": structured_output_json["requested_run_url"],
                 "tool_version": definition.version,
             },
         )

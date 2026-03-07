@@ -548,6 +548,17 @@
       "notes": "The built-in `browseract.extract_account_inventory` handler now summarizes multiple BrowserAct-backed service accounts from one scoped binding, returns structured inventory rows plus missing-service markers, and can persist that output through the generic `tool_then_artifact` macro as an `ltd_inventory_profile` artifact."
     },
     {
+      "name": "browseract_live_discovery_input_projection",
+      "status": "tested",
+      "scope": [
+        "browseract_run_url_schema_projection",
+        "browseract_live_hint_output_audit",
+        "browseract_step_input_contract_projection",
+        "browseract_http_example_live_hints"
+      ],
+      "notes": "The BrowserAct discovery slice now projects optional live-discovery inputs (`run_url`, `instructions`, and `account_hints_json`) through tool schemas, planner step input contracts, skill input schemas, direct tool outputs, and HTTP examples so BrowserAct-backed LTD verification can stay typed and auditable."
+    },
+    {
       "name": "approval_async_acceptance_contract",
       "status": "tested",
       "scope": [

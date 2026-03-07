@@ -401,6 +401,41 @@ def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smo
     assert capability["status"] == "tested"
 
 
+def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> None:
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert '"account_hints_json"' in skills_service
+    assert '"run_url"' in skills_service
+    assert '"instructions"' in skills_service
+    assert "requested_run_url" in tool_execution_tests
+    assert "account_hints_json" in tool_execution_tests
+    assert "run_url" in workflow_test
+    assert "requested_run_url" in smoke_test
+    assert "account_hints_json" in smoke_script
+    assert "Use stored BrowserAct credentials" in smoke_script
+    assert "account_hints_json" in skills_test
+    assert "run_url" in http_examples
+    assert "account_hints_json" in http_examples
+    assert "account_hints_json" in readme
+    assert "account_hints_json" in runbook
+    assert "account_hints_json" in changelog
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "browseract_live_discovery_input_projection"
+    )
+    assert capability["status"] == "tested"
+
+
 def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     skill_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")

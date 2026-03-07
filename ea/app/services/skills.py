@@ -80,6 +80,9 @@ class SkillCatalogService:
                     "service_name": {"type": "string"},
                     "service_names": {"type": "array", "items": {"type": "string"}},
                     "requested_fields": {"type": "array", "items": {"type": "string"}},
+                    "run_url": {"type": "string"},
+                    "instructions": {"type": "string"},
+                    "account_hints_json": {"type": "object"},
                 },
                 "required": required,
             }

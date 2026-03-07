@@ -204,7 +204,7 @@ class PlannerService:
             max_attempts=max_attempts,
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
-            input_keys=("binding_id", "service_name"),
+            input_keys=("binding_id", "service_name", "requested_fields", "instructions", "account_hints_json", "run_url"),
             output_keys=(
                 "service_name",
                 "facts_json",
@@ -252,7 +252,7 @@ class PlannerService:
             max_attempts=max_attempts,
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
-            input_keys=("binding_id", "service_names"),
+            input_keys=("binding_id", "service_names", "requested_fields", "instructions", "account_hints_json", "run_url"),
             output_keys=(
                 "service_names",
                 "services_json",

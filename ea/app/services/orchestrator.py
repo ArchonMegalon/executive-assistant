@@ -821,6 +821,19 @@ class RewriteOrchestrator:
             input_json["normalized_text"] = source_text
         if "text_length" not in input_json and source_text:
             input_json["text_length"] = len(source_text)
+        # BrowserAct pre-artifact flows project optional live-discovery hint fields in
+        # `input_keys`; populate empty defaults so the typed contract stays explicit
+        # without forcing callers to send every optional hint on every request.
+        optional_defaults: dict[str, object] = {
+            "requested_fields": [],
+            "service_names": [],
+            "instructions": "",
+            "account_hints_json": {},
+            "run_url": "",
+        }
+        for key, default in optional_defaults.items():
+            if key in declared_input_keys and key not in input_json:
+                input_json[key] = list(default) if isinstance(default, list) else dict(default) if isinstance(default, dict) else default
         if not str(input_json.get("content") or "").strip():
             content = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
             if content:

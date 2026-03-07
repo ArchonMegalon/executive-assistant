@@ -3290,6 +3290,35 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "browseract_live_discovery_input_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq '"account_hints_json"' "ea/app/services/skills.py" && \
+     grep -Fq '"run_url"' "ea/app/services/skills.py" && \
+     grep -Fq "requested_run_url" "tests/test_tool_execution.py" && \
+     grep -Fq "account_hints_json" "tests/test_skills.py" && \
+     grep -Fq "requested_run_url" "tests/smoke_runtime_api.py" && \
+     grep -Fq "account_hints_json" "scripts/smoke_api.sh" && \
+     grep -Fq "account_hints_json" "README.md" && \
+     grep -Fq "account_hints_json" "RUNBOOK.md" && \
+     grep -Fq "account_hints_json" "CHANGELOG.md" && \
+     grep -Fq "account_hints_json" "HTTP_EXAMPLES.http"; then
+    echo "ok: browseract live discovery input projection docs and smoke coverage"
+  else
+    echo "missing: browseract live discovery input projection docs or smoke coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: browseract live discovery input projection milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_then_memory_candidate_workflow_template")
 assert capability["status"] == "tested"
 PY

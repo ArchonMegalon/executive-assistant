@@ -2598,6 +2598,9 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
                 "binding_id": binding_id,
                 "service_name": "BrowserAct",
                 "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "Use stored BrowserAct credentials",
+                "account_hints_json": {"BrowserAct": {"workspace": "primary"}},
+                "run_url": "https://browseract.example/run",
             },
         },
     )
@@ -2608,6 +2611,9 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
     assert executed_body["output_json"]["facts_json"]["tier"] == "Tier 3"
     assert executed_body["output_json"]["account_email"] == "ops@example.com"
     assert executed_body["output_json"]["missing_fields"] == []
+    assert executed_body["output_json"]["instructions"] == "Use stored BrowserAct credentials"
+    assert executed_body["output_json"]["account_hints_json"] == {"BrowserAct": {"workspace": "primary"}}
+    assert executed_body["output_json"]["requested_run_url"] == "https://browseract.example/run"
     assert executed_body["receipt_json"]["handler_key"] == "browseract.extract_account_facts"
     assert executed_body["receipt_json"]["invocation_contract"] == "tool.v1"
 
@@ -2620,6 +2626,9 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
                 "binding_id": binding_id,
                 "service_names": ["BrowserAct", "Teable", "UnknownService"],
                 "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "Use stored BrowserAct credentials",
+                "account_hints_json": {"Teable": {"workspace": "ops"}},
+                "run_url": "https://browseract.example/run",
             },
         },
     )
@@ -2628,7 +2637,13 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
     assert inventory_body["tool_name"] == "browseract.extract_account_inventory"
     assert inventory_body["output_json"]["service_names"] == ["BrowserAct", "Teable", "UnknownService"]
     assert inventory_body["output_json"]["missing_services"] == ["UnknownService"]
+    assert inventory_body["output_json"]["instructions"] == "Use stored BrowserAct credentials"
+    assert inventory_body["output_json"]["account_hints_json"] == {"Teable": {"workspace": "ops"}}
+    assert inventory_body["output_json"]["requested_run_url"] == "https://browseract.example/run"
     assert inventory_body["output_json"]["services_json"][1]["plan_tier"] == "License Tier 4"
+    assert inventory_body["output_json"]["services_json"][1]["structured_output_json"]["account_hints_json"] == {
+        "Teable": {"workspace": "ops"}
+    }
     assert inventory_body["receipt_json"]["handler_key"] == "browseract.extract_account_inventory"
 
     contract = client.post(
@@ -2665,7 +2680,14 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
     ]
     assert plan_steps[1]["tool_name"] == "browseract.extract_account_facts"
     assert plan_steps[1]["depends_on"] == ["step_input_prepare"]
-    assert plan_steps[1]["input_keys"] == ["binding_id", "service_name"]
+    assert plan_steps[1]["input_keys"] == [
+        "binding_id",
+        "service_name",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    ]
     assert "structured_output_json" in plan_steps[1]["output_keys"]
     assert plan_steps[2]["depends_on"] == ["step_browseract_extract"]
     assert plan_steps[2]["input_keys"] == ["normalized_text", "structured_output_json", "preview_text", "mime_type"]
@@ -2739,7 +2761,14 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
         "step_browseract_extract",
         "step_artifact_save",
     ]
-    assert generic_plan_steps[0]["input_keys"] == ["binding_id", "service_name"]
+    assert generic_plan_steps[0]["input_keys"] == [
+        "binding_id",
+        "service_name",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    ]
     assert generic_plan_steps[1]["tool_name"] == "browseract.extract_account_facts"
     assert generic_plan_steps[2]["input_keys"] == [
         "normalized_text",
@@ -2806,7 +2835,14 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
         "step_browseract_inventory_extract",
         "step_artifact_save",
     ]
-    assert inventory_plan_steps[0]["input_keys"] == ["binding_id", "service_names"]
+    assert inventory_plan_steps[0]["input_keys"] == [
+        "binding_id",
+        "service_names",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    ]
     assert inventory_plan_steps[1]["tool_name"] == "browseract.extract_account_inventory"
 
     inventory_execute = client.post(

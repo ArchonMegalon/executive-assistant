@@ -186,6 +186,9 @@ def test_tool_execution_service_executes_builtin_browseract_extract_handler() ->
                 "binding_id": binding.binding_id,
                 "service_name": "BrowserAct",
                 "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "Use stored BrowserAct credentials",
+                "account_hints_json": {"BrowserAct": {"workspace": "primary"}},
+                "run_url": "https://browseract.example/run",
             },
             context_json={"principal_id": "exec-1"},
         )
@@ -198,8 +201,13 @@ def test_tool_execution_service_executes_builtin_browseract_extract_handler() ->
     assert result.output_json["account_email"] == "ops@example.com"
     assert result.output_json["missing_fields"] == []
     assert result.output_json["structured_output_json"]["verification_source"] == "connector_metadata"
+    assert result.output_json["instructions"] == "Use stored BrowserAct credentials"
+    assert result.output_json["account_hints_json"] == {"BrowserAct": {"workspace": "primary"}}
+    assert result.output_json["requested_run_url"] == "https://browseract.example/run"
+    assert result.output_json["structured_output_json"]["requested_run_url"] == "https://browseract.example/run"
     assert result.receipt_json["handler_key"] == "browseract.extract_account_facts"
     assert result.receipt_json["invocation_contract"] == "tool.v1"
+    assert result.receipt_json["requested_run_url"] == "https://browseract.example/run"
 
 
 def test_tool_execution_service_executes_builtin_browseract_inventory_handler() -> None:
@@ -243,6 +251,9 @@ def test_tool_execution_service_executes_builtin_browseract_inventory_handler() 
                 "binding_id": binding.binding_id,
                 "service_names": ["BrowserAct", "Teable", "UnknownService"],
                 "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "Use stored BrowserAct credentials",
+                "account_hints_json": {"Teable": {"workspace": "ops"}},
+                "run_url": "https://browseract.example/run",
             },
             context_json={"principal_id": "exec-1"},
         )
@@ -252,14 +263,79 @@ def test_tool_execution_service_executes_builtin_browseract_inventory_handler() 
     assert result.action_kind == "account.extract_inventory"
     assert result.output_json["service_names"] == ["BrowserAct", "Teable", "UnknownService"]
     assert result.output_json["missing_services"] == ["UnknownService"]
+    assert result.output_json["instructions"] == "Use stored BrowserAct credentials"
+    assert result.output_json["account_hints_json"] == {"Teable": {"workspace": "ops"}}
+    assert result.output_json["requested_run_url"] == "https://browseract.example/run"
     assert len(result.output_json["services_json"]) == 3
     assert result.output_json["services_json"][0]["plan_tier"] == "Tier 3"
     assert result.output_json["services_json"][1]["account_email"] == "ops@teable.example"
+    assert result.output_json["services_json"][1]["structured_output_json"]["account_hints_json"] == {
+        "Teable": {"workspace": "ops"}
+    }
     assert result.output_json["services_json"][2]["discovery_status"] == "missing"
     assert "Service: BrowserAct" in result.output_json["normalized_text"]
     assert "Service: UnknownService" in result.output_json["normalized_text"]
     assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
     assert result.receipt_json["invocation_contract"] == "tool.v1"
+    assert result.receipt_json["requested_run_url"] == "https://browseract.example/run"
+
+
+def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct", "UnknownService"]},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "BrowserAct": {
+                    "tier": "Tier 3",
+                    "account_email": "ops@example.com",
+                    "status": "activated",
+                }
+            }
+        },
+        status="enabled",
+    )
+
+    def _boom(**_: object) -> dict[str, object] | None:
+        raise ToolExecutionError("browseract_live_transport_error:offline")
+
+    monkeypatch.setattr(service, "_browseract_live_extract", _boom)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-2",
+            step_id="step-browseract-inventory-2",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "service_names": ["BrowserAct", "UnknownService"],
+                "requested_fields": ["tier", "account_email", "status"],
+                "run_url": "https://browseract.example/run",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["missing_services"] == ["UnknownService"]
+    assert result.output_json["services_json"][0]["plan_tier"] == "Tier 3"
+    assert result.output_json["services_json"][1]["discovery_status"] == "missing"
+    assert result.output_json["services_json"][1]["live_discovery_error"] == "browseract_live_transport_error:offline"
+    assert result.output_json["services_json"][1]["structured_output_json"]["live_discovery_error"] == (
+        "browseract_live_transport_error:offline"
+    )
 
 
 def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> None:

@@ -385,7 +385,14 @@ def test_planner_can_compile_browseract_extract_then_artifact_workflow_template(
     assert extract_step.tool_name == "browseract.extract_account_facts"
     assert extract_step.depends_on == ("step_input_prepare",)
     assert extract_step.authority_class == "observe"
-    assert extract_step.input_keys == ("binding_id", "service_name")
+    assert extract_step.input_keys == (
+        "binding_id",
+        "service_name",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    )
     assert "structured_output_json" in extract_step.output_keys
     artifact_step = plan.steps[2]
     assert artifact_step.tool_name == "artifact_repository"
@@ -422,7 +429,14 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
         "step_browseract_extract",
         "step_artifact_save",
     )
-    assert plan.steps[0].input_keys == ("binding_id", "service_name")
+    assert plan.steps[0].input_keys == (
+        "binding_id",
+        "service_name",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    )
     assert plan.steps[1].tool_name == "browseract.extract_account_facts"
     assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
 
@@ -456,7 +470,14 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
         "step_browseract_inventory_extract",
         "step_artifact_save",
     )
-    assert plan.steps[0].input_keys == ("binding_id", "service_names")
+    assert plan.steps[0].input_keys == (
+        "binding_id",
+        "service_names",
+        "requested_fields",
+        "instructions",
+        "account_hints_json",
+        "run_url",
+    )
     assert plan.steps[1].tool_name == "browseract.extract_account_inventory"
     assert plan.steps[1].output_keys == (
         "service_names",

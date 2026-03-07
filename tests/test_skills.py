@@ -253,6 +253,8 @@ def test_skill_catalog_can_execute_ltd_inventory_refresh_skill() -> None:
     assert fetched.status_code == 200
     fetched_body = fetched.json()
     assert fetched_body["provider_hints_json"]["ops"] == ["Teable"]
+    assert fetched_body["input_schema_json"]["properties"]["account_hints_json"]["type"] == "object"
+    assert fetched_body["input_schema_json"]["properties"]["run_url"]["type"] == "string"
     assert fetched_body["tool_policy_json"]["allowed_tools"] == [
         "browseract.extract_account_inventory",
         "artifact_repository",
