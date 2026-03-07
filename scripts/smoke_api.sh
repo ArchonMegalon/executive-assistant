@@ -1518,6 +1518,14 @@ if [[ "${EVIDENCE_PACK_FIELDS}" != "research_brief|decision_summary|evidence_pac
   echo "${EVIDENCE_PACK_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+EVIDENCE_PACK_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("execution_session_id",""))' <<<"${EVIDENCE_PACK_JSON}")"
+EVIDENCE_CANDIDATES_JSON="$(curl -fsS "${BASE}/v1/memory/candidates?limit=20" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+EVIDENCE_CANDIDATE_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); match=next((row for row in rows if row.get('source_session_id') == '${EVIDENCE_PACK_SESSION_ID}'), {}); fact=match.get('fact_json') or {}; print('{}|{}|{}|{}'.format(len(fact.get('claims') or []), len(fact.get('evidence_refs') or []), len(fact.get('open_questions') or []), bool(fact.get('evidence_pack'))))" <<<"${EVIDENCE_CANDIDATES_JSON}")"
+if [[ "${EVIDENCE_CANDIDATE_FIELDS}" != "2|2|1|True" ]]; then
+  echo "expected evidence-pack memory candidate staging to preserve claims/evidence/open questions; got ${EVIDENCE_CANDIDATE_FIELDS}" >&2
+  echo "${EVIDENCE_CANDIDATES_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 TASK_EXECUTE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_task_execute_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
 if [[ "${TASK_EXECUTE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected generic task execution principal mismatch to return 403; got ${TASK_EXECUTE_MISMATCH_CODE}" >&2

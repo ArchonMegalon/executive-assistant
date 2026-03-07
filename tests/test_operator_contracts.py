@@ -756,6 +756,27 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
     assert capability["status"] == "tested"
 
 
+def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -> None:
+    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert '"evidence_pack": artifact_structured_output_json' in orchestrator
+    assert 'fact_json["claims"]' in workflow_test
+    assert 'fact_json["evidence_refs"]' in workflow_test
+    assert "EVIDENCE_CANDIDATE_FIELDS" in smoke_script
+    assert "memory-candidate staging" in readme
+    assert "memory-candidate staging" in runbook
+    assert "memory-candidate staging" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "evidence_pack_memory_candidate_projection")
+    assert capability["status"] == "tested"
+
+
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")

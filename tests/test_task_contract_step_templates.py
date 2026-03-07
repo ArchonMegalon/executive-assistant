@@ -1528,7 +1528,7 @@ def test_planner_can_project_evidence_pack_artifact_output_template() -> None:
 
 
 def test_artifact_then_memory_candidate_evidence_pack_persists_structured_output() -> None:
-    orchestrator, _memory_runtime = _build_memory_candidate_runtime(
+    orchestrator, memory_runtime = _build_memory_candidate_runtime(
         task_key="research_brief",
         budget_policy_json={
             "class": "low",
@@ -1560,3 +1560,8 @@ def test_artifact_then_memory_candidate_evidence_pack_persists_structured_output
         "open_questions": ["Need final vendor pricing"],
         "confidence": 0.72,
     }
+    candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
+    assert candidates[0].fact_json["claims"] == ["Option A preserves margin", "Option B accelerates launch"]
+    assert candidates[0].fact_json["evidence_refs"] == ["browseract://run/123", "paper://abc"]
+    assert candidates[0].fact_json["open_questions"] == ["Need final vendor pricing"]
+    assert candidates[0].fact_json["evidence_pack"] == artifact.structured_output_json

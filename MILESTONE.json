@@ -1404,6 +1404,17 @@
         "evidence_template_docs"
       ],
       "notes": "Task contracts can now opt into `budget_policy_json.artifact_output_template=evidence_pack`, causing `step_input_prepare` to emit structured `claims`, `evidence_refs`, `open_questions`, and `confidence` metadata that persists through `step_artifact_save` as a first-class evidence envelope."
+    },
+    {
+      "name": "evidence_pack_memory_candidate_projection",
+      "status": "tested",
+      "scope": [
+        "artifact_to_memory_candidate_evidence_copy",
+        "candidate_fact_json_evidence_pack",
+        "memory_candidate_evidence_smoke",
+        "evidence_memory_docs"
+      ],
+      "notes": "When an `evidence_pack` artifact flows into `artifact_then_memory_candidate`, the staged memory candidate now also preserves `claims`, `evidence_refs`, `open_questions`, and the full evidence envelope inside `fact_json`, so downstream executive workflows can reuse the supporting facts without reparsing freeform artifact text."
     }
   ],
   "migrations": [

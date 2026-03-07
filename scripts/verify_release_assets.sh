@@ -3849,6 +3849,32 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "evidence_pack_memory_candidate_projection")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq '"evidence_pack": artifact_structured_output_json' "ea/app/services/orchestrator.py" && \
+     grep -Fq 'fact_json["claims"]' "tests/test_task_contract_step_templates.py" && \
+     grep -Fq 'fact_json["evidence_refs"]' "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "EVIDENCE_CANDIDATE_FIELDS" "scripts/smoke_api.sh" && \
+     grep -Fq "memory-candidate staging" "README.md" && \
+     grep -Fq "memory-candidate staging" "RUNBOOK.md" && \
+     grep -Fq "memory-candidate staging" "CHANGELOG.md"; then
+    echo "ok: evidence-pack memory candidate projection docs and contract coverage"
+  else
+    echo "missing: evidence-pack memory candidate projection docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: evidence-pack memory candidate projection milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_skill_identity_projection")
 assert capability["status"] == "tested"
 PY

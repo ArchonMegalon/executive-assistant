@@ -1218,11 +1218,15 @@ class RewriteOrchestrator:
         memory_write_allowed = bool(input_json.get("memory_write_allowed", session.intent.memory_write_policy != "none"))
         artifact_id = str(input_json.get("artifact_id") or "").strip()
         normalized_text = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
+        artifact_structured_output_json: dict[str, object] = {}
         if artifact_id:
             artifact = self._artifacts.get(artifact_id)
             artifact_content = str((artifact.content if artifact is not None else "") or "").strip()
             if artifact_content:
                 normalized_text = artifact_content
+            artifact_structured_output_json = dict(
+                ((artifact.structured_output_json if artifact is not None else {}) or {})
+            )
         delivery_id = str(input_json.get("delivery_id") or "").strip()
         delivery_status = str(input_json.get("status") or "").strip()
         binding_id = str(input_json.get("binding_id") or "").strip()
@@ -1250,21 +1254,31 @@ class RewriteOrchestrator:
             )
             return
         summary = normalized_text[:4000]
+        fact_json = {
+            "artifact_id": artifact_id,
+            "deliverable_type": session.intent.deliverable_type,
+            "task_key": session.intent.task_type,
+            "normalized_text": normalized_text,
+            "delivery_id": delivery_id,
+            "delivery_status": delivery_status,
+            "binding_id": binding_id,
+            "channel": channel,
+            "recipient": recipient,
+        }
+        if str(artifact_structured_output_json.get("format") or "").strip() == "evidence_pack":
+            fact_json.update(
+                {
+                    "evidence_pack": artifact_structured_output_json,
+                    "claims": list(artifact_structured_output_json.get("claims") or []),
+                    "evidence_refs": list(artifact_structured_output_json.get("evidence_refs") or []),
+                    "open_questions": list(artifact_structured_output_json.get("open_questions") or []),
+                }
+            )
         candidate = self._memory_runtime.stage_candidate(
             principal_id=session.intent.principal_id,
             category=category,
             summary=summary,
-            fact_json={
-                "artifact_id": artifact_id,
-                "deliverable_type": session.intent.deliverable_type,
-                "task_key": session.intent.task_type,
-                "normalized_text": normalized_text,
-                "delivery_id": delivery_id,
-                "delivery_status": delivery_status,
-                "binding_id": binding_id,
-                "channel": channel,
-                "recipient": recipient,
-            },
+            fact_json=fact_json,
             source_session_id=session_id,
             source_step_id=rewrite_step.step_id,
             confidence=confidence,
