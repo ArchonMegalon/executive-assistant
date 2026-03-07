@@ -66,3 +66,7 @@ def test_plan_execute_requires_text_or_input_json() -> None:
         },
     )
     assert execute.status_code == 422
+    assert any(
+        detail["type"] == "text_or_input_json_required"
+        for detail in execute.json()["error"]["details"]
+    )

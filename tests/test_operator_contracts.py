@@ -269,6 +269,7 @@ def test_unknown_workflow_templates_fail_fast_at_planner_and_api_boundaries() ->
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "unknown_workflow_template:not_real" in workflow_test
+    assert '"/v1/rewrite/artifact"' in workflow_test
     assert "_workflow_template_builders" in planner
     assert "unknown_workflow_template:" in planner
     assert "except PlanValidationError as exc" in plans_route

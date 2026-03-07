@@ -236,3 +236,28 @@ def test_api_rejects_unknown_workflow_template_metadata_with_validation_error() 
     )
     assert executed.status_code == 422
     assert executed.json()["error"]["code"] == "unknown_workflow_template:not_real"
+
+
+def test_rewrite_route_rejects_unknown_workflow_template_metadata_with_validation_error() -> None:
+    client = _api_client()
+    created = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "rewrite_text",
+            "deliverable_type": "rewrite_note",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": [],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {"class": "low", "workflow_template": "not_real"},
+        },
+    )
+    assert created.status_code == 200
+
+    rewrite = client.post(
+        "/v1/rewrite/artifact",
+        json={"text": "fail rewrite", "goal": "rewrite should fail"},
+    )
+    assert rewrite.status_code == 422
+    assert rewrite.json()["error"]["code"] == "unknown_workflow_template:not_real"
