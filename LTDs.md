@@ -90,3 +90,4 @@ Use this section to track missing tier/email/account facts discovered through th
 - The Codex session skill list is not the LTD source of truth; skills are local agent capabilities, while this file tracks your external services/accounts.
 - Product/deal tier (`License Tier 3`, `Gold Plan`, `Elite`, etc.) is separate from the workspace integration tier used to describe local wiring posture.
 - Secrets are intentionally omitted here; only inventory, status, deadlines, and local integration contracts are documented.
+- BrowserAct inventory artifacts can refresh the `## Discovery Tracking` table through `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` when a fresh structured inventory payload is available.

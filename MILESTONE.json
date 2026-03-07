@@ -1371,6 +1371,17 @@
         "skill_key_docs_examples"
       ],
       "notes": "The generic plan runtime now accepts `skill_key` directly on `POST /v1/plans/compile` and `POST /v1/plans/execute`, so product-facing clients can invoke first-class executive skills without resolving the backing `task_key` first."
+    },
+    {
+      "name": "ltd_discovery_markdown_refresh",
+      "status": "tested",
+      "scope": [
+        "browseract_inventory_to_ltd_rows",
+        "ltd_markdown_table_update",
+        "refresh_ltds_script_entrypoint",
+        "ltd_refresh_docs"
+      ],
+      "notes": "BrowserAct inventory output can now refresh the `## Discovery Tracking` table in `LTDs.md` through a dedicated script entrypoint, so discovered tier/email/status facts can be written back into the repo tracker without hand-editing each row."
     }
   ],
   "migrations": [

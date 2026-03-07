@@ -46,6 +46,8 @@ required_files=(
   "scripts/archive_tasks.sh"
   "scripts/resolve_onemin_ai_key.sh"
   "scripts/resolve_browseract_key.sh"
+  "scripts/refresh_ltds_from_inventory.py"
+  "scripts/refresh_ltds_from_inventory.sh"
   "ea/schema/20260305_v0_2_execution_ledger_kernel.sql"
   "ea/schema/20260305_v0_3_channel_runtime_kernel.sql"
   "ea/schema/20260305_v0_4_policy_decisions_kernel.sql"
@@ -3753,6 +3755,34 @@ then
   fi
 else
   echo "missing: plan skill_key entrypoint alias milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_markdown_refresh")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "update_discovery_tracking_table" "ea/app/services/ltd_inventory_markdown.py" && \
+     grep -Fq "build_discovery_updates" "ea/app/services/ltd_inventory_markdown.py" && \
+     grep -Fq "refresh_ltds_from_inventory.py" "scripts/refresh_ltds_from_inventory.sh" && \
+     grep -Fq "test_update_discovery_tracking_table_rewrites_matching_services_only" "tests/test_ltd_inventory_markdown.py" && \
+     grep -Fq "test_refresh_ltds_script_can_write_updated_markdown" "tests/test_ltd_inventory_markdown.py" && \
+     grep -Fq "refresh_ltds_from_inventory.sh" "README.md" && \
+     grep -Fq "refresh_ltds_from_inventory.sh" "RUNBOOK.md" && \
+     grep -Fq "refresh_ltds_from_inventory.sh" "CHANGELOG.md" && \
+     grep -Fq "refresh_ltds_from_inventory.sh" "LTDs.md"; then
+    echo "ok: ltd discovery markdown refresh docs and contract coverage"
+  else
+    echo "missing: ltd discovery markdown refresh docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: ltd discovery markdown refresh milestone" >&2
   missing=1
 fi
 
