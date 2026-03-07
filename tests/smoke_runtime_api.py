@@ -3223,6 +3223,146 @@ def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_
     assert candidate["source_step_id"] == steps_by_key["step_memory_candidate_stage"]["step_id"]
 
 
+def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval_over_http() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "gmail",
+            "external_account_ref": "acct-dispatch-memory",
+            "scope_json": {"scopes": ["mail.send"]},
+            "auth_metadata_json": {"provider": "google"},
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "stakeholder_dispatch_memory_candidate",
+            "deliverable_type": "stakeholder_briefing",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository", "connector.dispatch"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+                "memory_candidate_category": "stakeholder_follow_up_fact",
+                "memory_candidate_confidence": 0.8,
+                "memory_candidate_sensitivity": "internal",
+            },
+        },
+    )
+    assert contract.status_code == 200
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "stakeholder_dispatch_memory_candidate",
+            "goal": "prepare, send, and stage stakeholder follow-up memory",
+        },
+    )
+    assert compiled.status_code == 200
+    plan_steps = compiled.json()["plan"]["steps"]
+    assert [step["step_key"] for step in plan_steps] == [
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+        "step_memory_candidate_stage",
+    ]
+    assert plan_steps[4]["depends_on"] == [
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    ]
+    assert plan_steps[4]["input_keys"] == [
+        "artifact_id",
+        "normalized_text",
+        "memory_write_allowed",
+        "delivery_id",
+        "status",
+        "binding_id",
+        "channel",
+        "recipient",
+    ]
+    assert plan_steps[4]["desired_output_json"]["category"] == "stakeholder_follow_up_fact"
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "stakeholder_dispatch_memory_candidate",
+            "goal": "prepare, send, and stage stakeholder follow-up memory",
+            "input_json": {
+                "source_text": "Board context and stakeholder sensitivities.",
+                "binding_id": binding_id,
+                "channel": "email",
+                "recipient": "dispatch-memory@example.com",
+            },
+        },
+    )
+    assert execute.status_code == 202
+    execute_body = execute.json()
+    assert execute_body["status"] == "awaiting_approval"
+    assert execute_body["approval_id"]
+    session_id = execute_body["session_id"]
+
+    waiting = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert waiting.status_code == 200
+    waiting_body = waiting.json()
+    assert waiting_body["status"] == "awaiting_approval"
+    waiting_steps = {step["input_json"]["plan_step_key"]: step for step in waiting_body["steps"]}
+    assert waiting_steps["step_artifact_save"]["state"] == "completed"
+    assert waiting_steps["step_policy_evaluate"]["state"] == "completed"
+    assert waiting_steps["step_connector_dispatch"]["state"] == "waiting_approval"
+    assert waiting_steps["step_memory_candidate_stage"]["state"] == "queued"
+    assert waiting_steps["step_memory_candidate_stage"]["dependency_states"] == {
+        "step_artifact_save": "completed",
+        "step_policy_evaluate": "completed",
+        "step_connector_dispatch": "waiting_approval",
+    }
+    assert waiting_steps["step_memory_candidate_stage"]["blocked_dependency_keys"] == ["step_connector_dispatch"]
+    before_candidates = client.get("/v1/memory/candidates", params={"limit": 20, "status": "pending"})
+    assert before_candidates.status_code == 200
+    assert all(row["source_session_id"] != session_id for row in before_candidates.json())
+
+    approved = client.post(
+        f"/v1/policy/approvals/{execute_body['approval_id']}/approve",
+        json={"decided_by": "operator", "reason": "approved dispatch memory workflow"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["task_key"] == "stakeholder_dispatch_memory_candidate"
+    assert approved.json()["deliverable_type"] == "stakeholder_briefing"
+
+    done = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert done.status_code == 200
+    done_body = done.json()
+    assert done_body["status"] == "completed"
+    done_steps = {step["input_json"]["plan_step_key"]: step for step in done_body["steps"]}
+    assert done_steps["step_connector_dispatch"]["state"] == "completed"
+    assert done_steps["step_memory_candidate_stage"]["state"] == "completed"
+    candidate_id = done_steps["step_memory_candidate_stage"]["output_json"]["candidate_id"]
+    assert candidate_id
+    dispatch_receipt = next(row for row in done_body["receipts"] if row["tool_name"] == "connector.dispatch")
+    pending = client.get("/v1/delivery/outbox/pending", params={"limit": 20})
+    assert pending.status_code == 200
+    delivery = next(row for row in pending.json() if row["delivery_id"] == dispatch_receipt["target_ref"])
+    assert delivery["recipient"] == "dispatch-memory@example.com"
+    candidates = client.get("/v1/memory/candidates", params={"limit": 20, "status": "pending"})
+    assert candidates.status_code == 200
+    candidate = next(row for row in candidates.json() if row["candidate_id"] == candidate_id)
+    assert candidate["category"] == "stakeholder_follow_up_fact"
+    assert candidate["source_session_id"] == session_id
+    assert candidate["summary"] == "Board context and stakeholder sensitivities."
+    assert candidate["fact_json"]["delivery_id"] == dispatch_receipt["target_ref"]
+    assert candidate["fact_json"]["recipient"] == "dispatch-memory@example.com"
+
+
 def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_over_http() -> None:
     client = _client(storage_backend="memory", principal_id="exec-1")
 

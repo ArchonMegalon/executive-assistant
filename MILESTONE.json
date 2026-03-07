@@ -1130,6 +1130,17 @@
       "notes": "The built-in `artifact_then_memory_candidate` workflow template now has focused and API-smoke coverage too, proving task contracts can compile `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, carry `memory_write_allowed` through the queued policy step contract, and stage a pending principal-scoped memory candidate after artifact persistence."
     },
     {
+      "name": "dispatch_then_memory_candidate_workflow_template",
+      "status": "tested",
+      "scope": [
+        "artifact_then_dispatch_then_memory_candidate_compile_shape",
+        "approval_gated_dispatch_then_memory_stage",
+        "delivery_context_memory_candidate_fact",
+        "dispatch_then_memory_candidate_api_smoke"
+      ],
+      "notes": "The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now has focused and API-smoke coverage too, proving task contracts can compile `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, keep the memory step queued behind the approval-gated send, and stage a pending candidate with delivery context once dispatch completes."
+    },
+    {
       "name": "execution_queue_retry_runtime",
       "status": "tested",
       "scope": [

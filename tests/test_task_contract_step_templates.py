@@ -165,6 +165,74 @@ def _build_memory_candidate_runtime(
     return orchestrator, memory_runtime
 
 
+def _build_dispatch_memory_runtime(
+    *,
+    task_key: str = "stakeholder_dispatch_memory_candidate",
+    budget_policy_json: dict[str, object] | None = None,
+) -> tuple[RewriteOrchestrator, ChannelRuntimeService, ToolRuntimeService, MemoryRuntimeService]:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key=task_key,
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json=dict(
+            budget_policy_json
+            or {
+                "class": "low",
+                "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+                "memory_candidate_category": "stakeholder_follow_up_fact",
+                "memory_candidate_confidence": 0.8,
+                "memory_candidate_sensitivity": "internal",
+            }
+        ),
+    )
+    memory_runtime = MemoryRuntimeService(
+        candidates=InMemoryMemoryCandidateRepository(),
+        items=InMemoryMemoryItemRepository(),
+        entities=InMemoryEntityRepository(),
+        relationships=InMemoryRelationshipRepository(),
+        commitments=InMemoryCommitmentRepository(),
+        communication_policies=InMemoryCommunicationPolicyRepository(),
+        decision_windows=InMemoryDecisionWindowRepository(),
+        deadline_windows=InMemoryDeadlineWindowRepository(),
+        stakeholders=InMemoryStakeholderRepository(),
+        authority_bindings=InMemoryAuthorityBindingRepository(),
+        delivery_preferences=InMemoryDeliveryPreferenceRepository(),
+        follow_ups=InMemoryFollowUpRepository(),
+        follow_up_rules=InMemoryFollowUpRuleRepository(),
+        interruption_budgets=InMemoryInterruptionBudgetRepository(),
+    )
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    artifacts = InMemoryArtifactRepository()
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    orchestrator = RewriteOrchestrator(
+        artifacts=artifacts,
+        ledger=InMemoryExecutionLedgerRepository(),
+        approvals=InMemoryApprovalRepository(),
+        policy_repo=InMemoryPolicyDecisionRepository(),
+        policy=PolicyDecisionService(),
+        task_contracts=task_contracts,
+        planner=PlannerService(task_contracts),
+        memory_runtime=memory_runtime,
+        tool_execution=ToolExecutionService(
+            tool_runtime=tool_runtime,
+            artifacts=artifacts,
+            channel_runtime=channel_runtime,
+        ),
+    )
+    return orchestrator, channel_runtime, tool_runtime, memory_runtime
+
+
 def test_planner_can_compile_dispatch_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(
@@ -243,6 +311,56 @@ def test_planner_can_compile_memory_candidate_workflow_template() -> None:
     assert memory_step.output_keys == ("candidate_id", "candidate_status", "candidate_category")
     assert memory_step.desired_output_json["category"] == "stakeholder_briefing_fact"
     assert memory_step.desired_output_json["confidence"] == 0.7
+
+
+def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="stakeholder_dispatch_memory_candidate",
+        deliverable_type="stakeholder_briefing",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository", "connector.dispatch"),
+        evidence_requirements=("stakeholder_context",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+            "memory_candidate_category": "stakeholder_follow_up_fact",
+            "memory_candidate_confidence": 0.8,
+            "memory_candidate_sensitivity": "internal",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="stakeholder_dispatch_memory_candidate",
+        principal_id="exec-1",
+        goal="prepare, send, and stage stakeholder follow-up memory",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+        "step_memory_candidate_stage",
+    )
+    memory_step = plan.steps[4]
+    assert memory_step.step_kind == "memory_write"
+    assert memory_step.depends_on == ("step_artifact_save", "step_policy_evaluate", "step_connector_dispatch")
+    assert memory_step.input_keys == (
+        "artifact_id",
+        "normalized_text",
+        "memory_write_allowed",
+        "delivery_id",
+        "status",
+        "binding_id",
+        "channel",
+        "recipient",
+    )
+    assert memory_step.desired_output_json["category"] == "stakeholder_follow_up_fact"
+    assert plan.steps[3].tool_name == "connector.dispatch"
 
 
 def test_dispatch_workflow_template_pauses_for_approval_after_artifact_persistence() -> None:
@@ -336,6 +454,78 @@ def test_memory_candidate_workflow_template_stages_candidate_after_artifact() ->
     candidate = next(row for row in candidates if row.candidate_id == candidate_id)
     assert candidate.category == "stakeholder_briefing_fact"
     assert candidate.source_session_id == artifact.execution_session_id
+    assert candidate.summary == "Board context and stakeholder sensitivities."
+
+
+def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval() -> None:
+    orchestrator, channel_runtime, tool_runtime, memory_runtime = _build_dispatch_memory_runtime()
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-dispatch-memory",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ApprovalRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="stakeholder_dispatch_memory_candidate",
+                principal_id="exec-1",
+                goal="prepare, send, and stage stakeholder follow-up memory",
+                input_json={
+                    "source_text": "Board context and stakeholder sensitivities.",
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "memory-dispatch@example.com",
+                },
+            )
+        )
+
+    waiting = orchestrator.fetch_session(exc.value.session_id)
+    assert waiting is not None
+    assert waiting.session.status == "awaiting_approval"
+    waiting_steps = {step.input_json["plan_step_key"]: step for step in waiting.steps}
+    assert waiting_steps["step_artifact_save"].state == "completed"
+    assert waiting_steps["step_policy_evaluate"].state == "completed"
+    assert waiting_steps["step_connector_dispatch"].state == "waiting_approval"
+    assert waiting_steps["step_memory_candidate_stage"].state == "queued"
+    assert tuple(waiting_steps["step_memory_candidate_stage"].input_json["depends_on"]) == (
+        "step_artifact_save",
+        "step_policy_evaluate",
+        "step_connector_dispatch",
+    )
+    assert channel_runtime.list_pending_delivery(limit=10) == []
+    assert memory_runtime.list_candidates(limit=10, principal_id="exec-1") == []
+
+    decision = orchestrator.decide_approval(
+        exc.value.approval_id,
+        decision="approve",
+        decided_by="operator",
+        reason="approved dispatch memory template",
+    )
+    assert decision is not None
+
+    resumed = orchestrator.fetch_session(exc.value.session_id)
+    assert resumed is not None
+    resumed_steps = {step.input_json["plan_step_key"]: step for step in resumed.steps}
+    assert resumed.session.status == "completed"
+    assert resumed_steps["step_connector_dispatch"].state == "completed"
+    assert resumed_steps["step_memory_candidate_stage"].state == "completed"
+    candidate_id = resumed_steps["step_memory_candidate_stage"].output_json["candidate_id"]
+    assert candidate_id
+    pending = channel_runtime.list_pending_delivery(limit=10)
+    assert len(pending) == 1
+    assert pending[0].recipient == "memory-dispatch@example.com"
+    candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
+    candidate = next(row for row in candidates if row.candidate_id == candidate_id)
+    assert candidate.category == "stakeholder_follow_up_fact"
+    assert candidate.source_session_id == exc.value.session_id
+    assert candidate.fact_json["delivery_id"] == pending[0].delivery_id
+    assert candidate.fact_json["delivery_status"] == pending[0].status
+    assert candidate.fact_json["binding_id"] == binding.binding_id
+    assert candidate.fact_json["recipient"] == "memory-dispatch@example.com"
     assert candidate.summary == "Board context and stakeholder sensitivities."
 
 

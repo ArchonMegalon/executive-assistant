@@ -625,6 +625,53 @@ X-EA-Principal-ID: {{principal_id}}
   }
 }
 
+### Task Contracts -> upsert dispatch-then-memory workflow template (artifact -> dispatch -> memory candidate)
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_dispatch_then_memory_candidate",
+    "memory_candidate_category": "stakeholder_follow_up_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile dispatch-then-memory workflow template (`step_memory_candidate_stage` waits for the approval-backed send to finish)
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "goal": "prepare, send, and stage stakeholder follow-up memory"
+}
+
+### Plans -> execute dispatch-then-memory workflow template (expected 202 awaiting_approval, then memory stages after dispatch)
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_dispatch_memory_candidate",
+  "goal": "prepare, send, and stage stakeholder follow-up memory",
+  "input_json": {
+    "source_text": "Board context and stakeholder sensitivities.",
+    "binding_id": "{{binding_id}}",
+    "channel": "email",
+    "recipient": "dispatch-memory@example.com"
+  }
+}
+
 ### Plans -> principal mismatch (expected 403 principal_scope_mismatch)
 POST {{host}}/v1/plans/compile
 Content-Type: application/json

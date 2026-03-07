@@ -1156,6 +1156,11 @@ class RewriteOrchestrator:
         memory_write_allowed = bool(input_json.get("memory_write_allowed", session.intent.memory_write_policy != "none"))
         artifact_id = str(input_json.get("artifact_id") or "").strip()
         normalized_text = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
+        delivery_id = str(input_json.get("delivery_id") or "").strip()
+        delivery_status = str(input_json.get("status") or "").strip()
+        binding_id = str(input_json.get("binding_id") or "").strip()
+        channel = str(input_json.get("channel") or "").strip()
+        recipient = str(input_json.get("recipient") or "").strip()
         if not memory_write_allowed or session.intent.memory_write_policy == "none":
             output_json = self._validate_step_output_contract(
                 rewrite_step,
@@ -1187,6 +1192,11 @@ class RewriteOrchestrator:
                 "deliverable_type": session.intent.deliverable_type,
                 "task_key": session.intent.task_type,
                 "normalized_text": normalized_text,
+                "delivery_id": delivery_id,
+                "delivery_status": delivery_status,
+                "binding_id": binding_id,
+                "channel": channel,
+                "recipient": recipient,
             },
             source_session_id=session_id,
             source_step_id=rewrite_step.step_id,

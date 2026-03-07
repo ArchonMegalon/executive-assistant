@@ -64,6 +64,7 @@ class PlannerService:
             "rewrite": self._build_rewrite_steps,
             "artifact_then_dispatch": self._build_artifact_then_dispatch_steps,
             "artifact_then_memory_candidate": self._build_artifact_then_memory_candidate_steps,
+            "artifact_then_dispatch_then_memory_candidate": self._build_artifact_then_dispatch_then_memory_candidate_steps,
         }
 
     def _require_principal_id(self, principal_id: str) -> str:
@@ -198,11 +199,13 @@ class PlannerService:
         *,
         contract: TaskContract,
         depends_on: tuple[str, ...],
+        additional_input_keys: tuple[str, ...] = (),
     ) -> PlanStepSpec:
         metadata = dict(contract.budget_policy_json or {})
         category = str(metadata.get("memory_candidate_category") or intent.deliverable_type or "artifact_fact").strip()
         sensitivity = str(metadata.get("memory_candidate_sensitivity") or "internal").strip() or "internal"
         confidence = _policy_float(metadata.get("memory_candidate_confidence"), default=0.5)
+        input_keys = ("artifact_id", "normalized_text", "memory_write_allowed", *additional_input_keys)
         return PlanStepSpec(
             step_key="step_memory_candidate_stage",
             step_kind="memory_write",
@@ -220,7 +223,7 @@ class PlannerService:
             max_attempts=1,
             retry_backoff_seconds=0,
             depends_on=depends_on,
-            input_keys=("artifact_id", "normalized_text", "memory_write_allowed"),
+            input_keys=input_keys,
             output_keys=("candidate_id", "candidate_status", "candidate_category"),
             desired_output_json={
                 "category": category,
@@ -395,6 +398,44 @@ class PlannerService:
             depends_on=("step_artifact_save", "step_policy_evaluate"),
         )
         return (prepare_step, policy_step, artifact_step, memory_step)
+
+    def _build_artifact_then_dispatch_then_memory_candidate_steps(
+        self,
+        intent: IntentSpecV3,
+        *,
+        contract: TaskContract,
+    ) -> tuple[PlanStepSpec, ...]:
+        human_review_metadata = self._human_review_metadata(contract)
+        prepare_step = self._build_prepare_step()
+        steps: list[PlanStepSpec] = [prepare_step]
+        artifact_depends_on = ("step_input_prepare",)
+        human_review_step = self._build_human_review_step(
+            intent,
+            depends_on=("step_input_prepare",),
+            metadata=human_review_metadata,
+        )
+        if human_review_step is not None:
+            steps.append(human_review_step)
+            artifact_depends_on = ("step_human_review",)
+        steps.append(
+            self._build_artifact_save_step(
+                intent,
+                contract=contract,
+                depends_on=artifact_depends_on,
+                approval_required=False,
+            )
+        )
+        steps.append(self._build_policy_step(depends_on=("step_artifact_save",)))
+        steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+        steps.append(
+            self._build_memory_candidate_step(
+                intent,
+                contract=contract,
+                depends_on=("step_artifact_save", "step_policy_evaluate", "step_connector_dispatch"),
+                additional_input_keys=("delivery_id", "status", "binding_id", "channel", "recipient"),
+            )
+        )
+        return tuple(steps)
 
     def _workflow_template_key(self, contract: TaskContract) -> str:
         return str(contract.budget_policy_json.get("workflow_template") or "rewrite").strip().lower() or "rewrite"

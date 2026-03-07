@@ -1615,6 +1615,67 @@ if [[ "${MEMORY_TEMPLATE_CANDIDATE_FIELDS}" != "stakeholder_briefing_fact|exec-1
   echo "expected memory-candidate workflow template to stage a pending principal-scoped candidate row; got ${MEMORY_TEMPLATE_CANDIDATE_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
+DISPATCH_MEMORY_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  "${PRINCIPAL_ARGS[@]}" \
+  -d '{"connector_name":"gmail","external_account_ref":"acct-dispatch-memory","scope_json":{"scopes":["mail.send"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"
+DISPATCH_MEMORY_BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("binding_id",""))' <<<"${DISPATCH_MEMORY_BINDING_JSON}")"
+if [[ -z "${DISPATCH_MEMORY_BINDING_ID}" ]]; then
+  fail 13 "missing binding_id from dispatch-memory workflow binding response"
+fi
+curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_dispatch_memory_candidate","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository","connector.dispatch"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_dispatch_then_memory_candidate","memory_candidate_category":"stakeholder_follow_up_fact","memory_candidate_confidence":0.8,"memory_candidate_sensitivity":"internal"}}' >/dev/null
+DISPATCH_MEMORY_PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"stakeholder_dispatch_memory_candidate","goal":"prepare, send, and stage stakeholder follow-up memory"}')"
+DISPATCH_MEMORY_PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; memory=(steps[4] if len(steps) > 4 else {}); print('{}|{}|{}|{}|{}|{}|{}'.format(len(steps), ','.join((row.get('step_key') or '') for row in steps), ','.join(memory.get('depends_on') or []), ','.join(memory.get('input_keys') or []), memory.get('step_kind',''), memory.get('authority_class',''), (memory.get('desired_output_json') or {}).get('category','')))" <<<"${DISPATCH_MEMORY_PLAN_JSON}")"
+if [[ "${DISPATCH_MEMORY_PLAN_FIELDS}" != "5|step_input_prepare,step_artifact_save,step_policy_evaluate,step_connector_dispatch,step_memory_candidate_stage|step_artifact_save,step_policy_evaluate,step_connector_dispatch|artifact_id,normalized_text,memory_write_allowed,delivery_id,status,binding_id,channel,recipient|memory_write|queue|stakeholder_follow_up_fact" ]]; then
+  echo "expected dispatch-memory workflow template to compile dispatch->memory graph; got ${DISPATCH_MEMORY_PLAN_FIELDS}" >&2
+  echo "${DISPATCH_MEMORY_PLAN_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"stakeholder_dispatch_memory_candidate\",\"goal\":\"prepare, send, and stage stakeholder follow-up memory\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_MEMORY_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"dispatch-memory@example.com\"}}")"
+DISPATCH_MEMORY_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${DISPATCH_MEMORY_EXECUTE_JSON}")"
+if [[ "${DISPATCH_MEMORY_EXECUTE_FIELDS}" != "stakeholder_dispatch_memory_candidate|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+  echo "expected dispatch-memory workflow to pause behind approval; got ${DISPATCH_MEMORY_EXECUTE_FIELDS}" >&2
+  echo "${DISPATCH_MEMORY_EXECUTE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_APPROVAL_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("approval_id",""))' <<<"${DISPATCH_MEMORY_EXECUTE_JSON}")"
+DISPATCH_MEMORY_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${DISPATCH_MEMORY_EXECUTE_JSON}")"
+DISPATCH_MEMORY_WAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_MEMORY_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_MEMORY_WAITING_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; memory=steps.get('step_memory_candidate_stage') or {}; print('{}|{}|{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_artifact_save',{}).get('state',''), steps.get('step_policy_evaluate',{}).get('state',''), steps.get('step_connector_dispatch',{}).get('state',''), memory.get('state',''), ','.join(memory.get('blocked_dependency_keys') or [])))" <<<"${DISPATCH_MEMORY_WAITING_JSON}")"
+if [[ "${DISPATCH_MEMORY_WAITING_FIELDS}" != "awaiting_approval|completed|completed|waiting_approval|queued|step_connector_dispatch" ]]; then
+  echo "expected dispatch-memory workflow to keep post-dispatch memory step queued behind approval-gated send; got ${DISPATCH_MEMORY_WAITING_FIELDS}" >&2
+  echo "${DISPATCH_MEMORY_WAITING_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_PRE_CANDIDATES="$(curl -fsS "${BASE}/v1/memory/candidates?limit=20&status=pending" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${DISPATCH_MEMORY_SESSION_ID}'; print(any((row or {}).get('source_session_id') == session_id for row in rows))" )"
+if [[ "${DISPATCH_MEMORY_PRE_CANDIDATES}" != "False" ]]; then
+  echo "expected dispatch-memory workflow to avoid staging memory before approval-backed dispatch completes" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_APPROVE_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${DISPATCH_MEMORY_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"decided_by":"operator","reason":"approved dispatch memory workflow"}')"
+DISPATCH_MEMORY_APPROVE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${DISPATCH_MEMORY_APPROVE_JSON}")"
+if [[ "${DISPATCH_MEMORY_APPROVE_FIELDS}" != "stakeholder_dispatch_memory_candidate|stakeholder_briefing|approved" ]]; then
+  echo "expected dispatch-memory workflow approval decision to keep task identity; got ${DISPATCH_MEMORY_APPROVE_FIELDS}" >&2
+  echo "${DISPATCH_MEMORY_APPROVE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_MEMORY_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_MEMORY_DELIVERY_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('target_ref',''))" <<<"${DISPATCH_MEMORY_DONE_JSON}")"
+DISPATCH_MEMORY_CANDIDATE_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; print(((steps.get('step_memory_candidate_stage',{}).get('output_json') or {}).get('candidate_id','')))" <<<"${DISPATCH_MEMORY_DONE_JSON}")"
+DISPATCH_MEMORY_FINAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; memory=steps.get('step_memory_candidate_stage') or {}; receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print('{}|{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_connector_dispatch',{}).get('state',''), memory.get('state',''), (memory.get('output_json') or {}).get('candidate_category',''), dispatch.get('target_ref','')))" <<<"${DISPATCH_MEMORY_DONE_JSON}")"
+if [[ "${DISPATCH_MEMORY_FINAL_FIELDS}" != "completed|completed|completed|stakeholder_follow_up_fact|${DISPATCH_MEMORY_DELIVERY_ID}" ]]; then
+  echo "expected dispatch-memory workflow to complete dispatch before memory staging; got ${DISPATCH_MEMORY_FINAL_FIELDS}" >&2
+  echo "${DISPATCH_MEMORY_DONE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+DISPATCH_MEMORY_CANDIDATE_FIELDS="$(curl -fsS "${BASE}/v1/memory/candidates?limit=20&status=pending" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); wanted='${DISPATCH_MEMORY_CANDIDATE_ID}'; delivery_id='${DISPATCH_MEMORY_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('candidate_id') == wanted), {}); fact=row.get('fact_json') or {}; print('{}|{}|{}|{}|{}'.format(row.get('category',''), row.get('principal_id',''), fact.get('delivery_id',''), fact.get('recipient',''), row.get('summary','')))" )"
+if [[ "${DISPATCH_MEMORY_CANDIDATE_FIELDS}" != "stakeholder_follow_up_fact|exec-1|${DISPATCH_MEMORY_DELIVERY_ID}|dispatch-memory@example.com|Board context and stakeholder sensitivities." ]]; then
+  echo "expected dispatch-memory workflow to stage post-dispatch candidate with delivery context; got ${DISPATCH_MEMORY_CANDIDATE_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
 HYBRID_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \
   -d '{"connector_name":"gmail","external_account_ref":"acct-review-dispatch","scope_json":{"scopes":["mail.send"]},"auth_metadata_json":{"provider":"google"},"status":"enabled"}')"
