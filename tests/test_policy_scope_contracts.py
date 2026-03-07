@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
@@ -103,3 +104,26 @@ def test_policy_routes_hide_and_reject_cross_principal_approvals() -> None:
     )
     assert history_foreign.status_code == 403
     assert history_foreign.json()["error"]["code"] == "principal_scope_mismatch"
+
+
+@pytest.mark.parametrize("endpoint", ["approve", "deny", "expire"])
+def test_policy_decision_rejects_spoofed_decider(endpoint: str) -> None:
+    client = _client(principal_id="exec-1")
+
+    created = client.post("/v1/rewrite/artifact", json={"text": "approval scope payload"})
+    assert created.status_code == 202
+    approval_id = created.json()["approval_id"]
+
+    action_response = client.post(
+        f"/v1/policy/approvals/{approval_id}/{endpoint}",
+        json={"decided_by": "spoofed-operator", "reason": "forged decision actor"},
+    )
+    assert action_response.status_code == 403
+    assert action_response.json()["error"]["code"] == "decided_by_scope_mismatch"
+
+    own_response = client.post(
+        f"/v1/policy/approvals/{approval_id}/{endpoint}",
+        json={"reason": "trusted decision"},
+    )
+    assert own_response.status_code == 200
+    assert own_response.json()["decided_by"] == "exec-1"

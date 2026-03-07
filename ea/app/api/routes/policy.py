@@ -50,7 +50,7 @@ class ApprovalDecisionOut(BaseModel):
 
 
 class ApprovalDecisionIn(BaseModel):
-    decided_by: str = Field(min_length=1, max_length=200)
+    decided_by: str | None = Field(default=None, min_length=1, max_length=200)
     reason: str = Field(default="", max_length=1000)
 
 
@@ -146,6 +146,14 @@ def _require_scoped_approval(
         raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
     if found is None:
         raise HTTPException(status_code=404, detail="approval_not_found")
+
+
+def _resolve_decision_actor(context_principal: str, requested: str | None) -> str:
+    resolved = str(context_principal or "").strip()
+    requested_decider = str(requested or "").strip()
+    if requested_decider and requested_decider != resolved:
+        raise HTTPException(status_code=403, detail="decided_by_scope_mismatch")
+    return resolved
 
 
 @router.get("/decisions/recent")
@@ -300,10 +308,11 @@ def approve_request(
     context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
     _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
+    decided_by = _resolve_decision_actor(context.principal_id, body.decided_by)
     found = container.orchestrator.decide_approval(
         approval_id,
         decision="approve",
-        decided_by=body.decided_by,
+        decided_by=decided_by,
         reason=body.reason,
     )
     if not found:
@@ -336,10 +345,11 @@ def deny_request(
     context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
     _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
+    decided_by = _resolve_decision_actor(context.principal_id, body.decided_by)
     found = container.orchestrator.decide_approval(
         approval_id,
         decision="deny",
-        decided_by=body.decided_by,
+        decided_by=decided_by,
         reason=body.reason,
     )
     if not found:
@@ -372,9 +382,10 @@ def expire_request(
     context: RequestContext = Depends(get_request_context),
 ) -> ApprovalDecisionOut:
     _require_scoped_approval(container, approval_id=approval_id, principal_id=context.principal_id)
+    decided_by = _resolve_decision_actor(context.principal_id, body.decided_by)
     found = container.orchestrator.expire_approval(
         approval_id,
-        decided_by=body.decided_by,
+        decided_by=decided_by,
         reason=body.reason,
     )
     if not found:
