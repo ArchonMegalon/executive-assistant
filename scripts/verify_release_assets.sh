@@ -3187,6 +3187,31 @@ else
   missing=1
 fi
 
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_then_dispatch_workflow_template")
+assert capability["status"] == "tested"
+PY
+then
+  if grep -Fq "stakeholder_review_dispatch" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "step_human_review" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "review and send a stakeholder briefing" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" "README.md" && \
+     grep -Fq "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" "RUNBOOK.md" && \
+     grep -Fq "combined human-review case" "CHANGELOG.md"; then
+    echo "ok: review-then-dispatch workflow template docs"
+  else
+    echo "missing: review-then-dispatch workflow template docs" >&2
+    missing=1
+  fi
+else
+  echo "missing: review-then-dispatch workflow template milestone" >&2
+  missing=1
+fi
+
 if [[ "${missing}" -ne 0 ]]; then
   echo "release asset verification failed" >&2
   exit 1

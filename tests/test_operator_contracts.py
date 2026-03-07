@@ -283,6 +283,30 @@ def test_unknown_workflow_templates_fail_fast_at_planner_and_api_boundaries() ->
     assert capability["status"] == "tested"
 
 
+def test_review_then_dispatch_workflow_template_is_documented_and_guarded() -> None:
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "stakeholder_review_dispatch" in workflow_test
+    assert '"step_input_prepare",' in workflow_test
+    assert '"step_human_review",' in workflow_test
+    assert '"step_artifact_save",' in workflow_test
+    assert '"step_policy_evaluate",' in workflow_test
+    assert '"step_connector_dispatch",' in workflow_test
+    assert "review and send a stakeholder briefing" in workflow_test
+    assert "artifact_then_dispatch" in readme
+    assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in readme
+    assert "artifact_then_dispatch" in runbook
+    assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in runbook
+    assert "combined human-review case" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_then_dispatch_workflow_template")
+    assert capability["status"] == "tested"
+
+
 def test_principal_fallback_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     fallback_test = (ROOT / "tests/test_principal_fallback_contracts.py").read_text(encoding="utf-8")

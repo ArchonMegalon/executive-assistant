@@ -1103,6 +1103,17 @@
         "rewrite_boundary_workflow_template_validation"
       ],
       "notes": "Planner workflow templates now resolve through an explicit registry, and unknown `budget_policy_json.workflow_template` values fail fast with `unknown_workflow_template:<value>` instead of silently falling back to the default rewrite skeleton."
+    },
+    {
+      "name": "review_then_dispatch_workflow_template",
+      "status": "tested",
+      "scope": [
+        "artifact_then_dispatch_human_review_compile_shape",
+        "human_review_then_artifact_pause",
+        "human_return_then_dispatch_approval_resume",
+        "reviewed_dispatch_receipt_flow"
+      ],
+      "notes": "The built-in `artifact_then_dispatch` workflow template now has explicit coverage for the combined human-review case too, proving task-contract review metadata can insert `step_human_review` ahead of artifact persistence and still resume later into approval-backed `connector.dispatch`."
     }
   ],
   "migrations": [
