@@ -154,6 +154,17 @@ def test_readiness_service_rejects_prod_with_whitespace_api_token() -> None:
     assert reason == "prod_api_token_missing"
 
 
+def test_readiness_service_checks_token_before_dependencies_in_prod() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="PROD"),
+        storage=SimpleNamespace(backend="auto", database_url=""),
+        auth=SimpleNamespace(api_token="  \n\t"),
+    )
+    ready, reason = ReadinessService(settings).check()
+    assert ready is False
+    assert reason == "prod_api_token_missing"
+
+
 def test_readiness_service_rejects_case_variant_prod_mode_without_api_token() -> None:
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="PrOd"),

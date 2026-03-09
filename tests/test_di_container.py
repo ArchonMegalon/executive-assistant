@@ -449,6 +449,12 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
                 os.environ[key] = value
 
 
+def test_build_container_rejects_prod_mode_with_whitespace_api_token() -> None:
+    settings = _Settings(auth=_Auth(api_token="  \t"), runtime=_Runtime(mode="prod"))
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+        app_container.build_container(settings=settings)
+
+
 def test_rewrite_route_maps_tool_not_allowed_policy_denial() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = ""
