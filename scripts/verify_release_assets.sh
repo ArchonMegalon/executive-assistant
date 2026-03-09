@@ -982,7 +982,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_memory_seed_apis")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "/v1/memory/candidates" "README.md" && \
@@ -991,6 +991,7 @@ then
      grep -Fq "/v1/memory/candidates" "RUNBOOK.md" && \
      grep -Fq "/v1/memory/stakeholders" "RUNBOOK.md" && \
      grep -Fq "/v1/memory/interruption-budgets" "RUNBOOK.md" && \
+     grep -Fq 'Promoted milestone capability `principal_scoped_memory_seed_apis` to released' "CHANGELOG.md" && \
      grep -Fq "/v1/memory/candidates" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/memory/stakeholders" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/memory/interruption-budgets" "scripts/smoke_api.sh"; then

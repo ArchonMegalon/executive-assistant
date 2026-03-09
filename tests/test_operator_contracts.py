@@ -2550,9 +2550,10 @@ def test_milestone_marks_postgres_contract_matrix_tested() -> None:
     assert capability["status"] == "tested"
 
 
-def test_principal_scoped_memory_seed_surface_is_tested_and_smoked() -> None:
+def test_principal_scoped_memory_seed_surface_is_released_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2565,6 +2566,8 @@ def test_principal_scoped_memory_seed_surface_is_tested_and_smoked() -> None:
     assert "/v1/memory/stakeholders" in runbook
     assert "/v1/memory/interruption-budgets" in runbook
 
+    assert "Promoted milestone capability `principal_scoped_memory_seed_apis` to released" in changelog
+
     assert "/v1/memory/candidates" in smoke_api
     assert "/v1/memory/stakeholders" in smoke_api
     assert "/v1/memory/interruption-budgets" in smoke_api
@@ -2574,7 +2577,7 @@ def test_principal_scoped_memory_seed_surface_is_tested_and_smoked() -> None:
     assert "test_memory_interruption_budgets_principal_scope_flow" in smoke_runtime
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "principal_scoped_memory_seed_apis")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_principal_request_context_guardrails_are_documented_and_smoked() -> None:

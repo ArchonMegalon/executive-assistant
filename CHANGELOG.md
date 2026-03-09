@@ -6,6 +6,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 
 ### Changed
 - Promoted milestone capability `evidence_object_ledger_api` to released, so release/operator guards now pin first-class evidence-object materialization, `/v1/evidence/objects*` query coverage, `POST /v1/evidence/merge`, and linked docs/examples as current branch baseline behavior.
+- Promoted milestone capability `principal_scoped_memory_seed_apis` to released, so release/operator guards now pin the documented principal-scoped memory candidate, stakeholder, and interruption-budget routes as current branch baseline behavior.
 - Promoted milestone capability `ltd_discovery_api_refresh_runner` to released, so release/operator guards now pin the BrowserAct-backed `/v1/plans/execute` LTD refresh runner, inventory payload capture, smoke round-trip, and linked docs as current branch baseline behavior.
 - Promoted milestone capability `plan_skill_key_entrypoint_alias` to released, so release/operator guards now pin `POST /v1/plans/compile` plus `POST /v1/plans/execute` first-class `skill_key` entrypoint selection, validation, and docs/examples as current branch baseline behavior.
 - Promoted milestone capability `skill_identity_projection` to released, so release/operator guards now pin `POST /v1/plans/compile` plus `POST /v1/plans/execute` resolved `skill_key` projection and first-class skill round-trip coverage as current branch baseline behavior.

@@ -75,7 +75,7 @@
     },
     {
       "name": "principal_scoped_memory_seed_apis",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "memory_kernel_seed",
         "memory_candidate_promotion_api",
@@ -102,7 +102,7 @@
         "interruption_budgets_seed",
         "principal_scoped_interruption_budgets_api"
       ],
-      "notes": "Principal-scoped memory seed stores and APIs are exercised by both `tests/smoke_runtime_api.py` and the approved host smoke path (`scripts/smoke_api.sh` via `scripts/smoke_postgres.sh`), so the surface is now explicitly test-backed."
+      "notes": "Principal-scoped memory seed stores and APIs are wired as current branch baseline behavior with smoke/runtime coverage plus release/operator guards pinning the documented principal-scoped memory candidate, stakeholder, and interruption-budget routes."
     },
     {
       "name": "operator_db_visibility_and_retention",
