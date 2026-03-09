@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import builtins
 import os
+import sys
+import types
 from types import SimpleNamespace
 import warnings
 import pytest
@@ -160,3 +163,63 @@ def test_readiness_service_rejects_case_variant_prod_mode_without_api_token() ->
     ready, reason = ReadinessService(settings).check()
     assert ready is False
     assert reason == "prod_api_token_missing"
+
+
+def test_readiness_service_rejects_prod_postgres_without_database_url() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url=""),
+        auth=SimpleNamespace(api_token="secret-token"),
+    )
+    ready, reason = ReadinessService(settings).check()
+    assert ready is False
+    assert reason == "database_url_missing"
+
+
+def test_readiness_service_rejects_missing_psycopg_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_import = builtins.__import__
+
+    def _raise_for_psycopg(name: str, globals: dict, locals: dict, fromlist: tuple, level: int = 0):  # type: ignore[override]
+        if name == "psycopg":
+            raise ImportError("psycopg intentionally unavailable")
+        return original_import(name, globals, locals, fromlist, level)
+
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
+        auth=SimpleNamespace(api_token="secret-token"),
+    )
+    try:
+        monkeypatch.setattr(builtins, "__import__", _raise_for_psycopg)
+        ready, reason = ReadinessService(settings).check()
+    finally:
+        monkeypatch.setattr(builtins, "__import__", original_import)
+    assert ready is False
+    assert reason == "psycopg_missing"
+
+
+def test_readiness_service_rejects_unavailable_postgres_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BadPsycopg:
+        @staticmethod
+        def connect(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("network unreachable")
+
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
+        auth=SimpleNamespace(api_token="secret-token"),
+    )
+    fake_psycopg = types.SimpleNamespace(connect=_BadPsycopg.connect)
+    try:
+        old_psycopg = sys.modules.get("psycopg")
+        sys.modules["psycopg"] = fake_psycopg
+        ready, reason = ReadinessService(settings).check()
+    finally:
+        if old_psycopg is None:
+            sys.modules.pop("psycopg", None)
+        else:
+            sys.modules["psycopg"] = old_psycopg
+    assert ready is False
+    assert reason == "postgres_unavailable:RuntimeError"
