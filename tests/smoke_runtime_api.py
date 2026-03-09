@@ -2481,7 +2481,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         json={
             "connector_name": "gmail",
             "external_account_ref": "acct-1",
-            "scope_json": {"scopes": ["mail.readonly"]},
+            "scope_json": {"scopes": ["mail.send", "sms.send"]},
             "auth_metadata_json": {"provider": "google"},
             "status": "enabled",
         },

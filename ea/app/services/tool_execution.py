@@ -914,10 +914,6 @@ class ToolExecutionService:
             allowed_channels = tuple(sorted(CONNECTOR_DISPATCH_ALLOWED_CHANNELS))
         if not normalized_channel:
             raise ToolExecutionError("connector_dispatch_channel_required")
-        if allowed_channels and normalized_channel not in allowed_channels:
-            raise ToolExecutionError(
-                f"connector_dispatch_channel_not_allowed:{normalized_channel}:{','.join(allowed_channels)}"
-            )
         required_scopes = self._channel_dispatch_scopes(normalized_channel)
         _, binding = self._resolve_connector_binding(
             request=request,
@@ -925,6 +921,10 @@ class ToolExecutionService:
             required_input_error="connector_binding_required:connector.dispatch",
             required_scopes=required_scopes,
         )
+        if allowed_channels and normalized_channel not in allowed_channels:
+            raise ToolExecutionError(
+                f"connector_dispatch_channel_not_allowed:{normalized_channel}:{','.join(allowed_channels)}"
+            )
         recipient = str(payload.get("recipient") or "").strip()
         content = str(payload.get("content") or "")
         metadata = dict(payload.get("metadata") or {})

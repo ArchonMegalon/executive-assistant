@@ -446,7 +446,7 @@ def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_t
         principal_id="exec-1",
         connector_name="gmail",
         external_account_ref="acct-fallback-channels",
-        scope_json={"scopes": ["mail.send"]},
+        scope_json={"scopes": ["mail.send", "sms.send"]},
         auth_metadata_json={"provider": "google"},
         status="enabled",
     )
@@ -600,7 +600,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         principal_id="exec-1",
         connector_name="gmail",
         external_account_ref="acct-disallowed-channel",
-        scope_json={"scopes": ["mail.send"]},
+        scope_json={"scopes": ["mail.send", "sms.send"]},
         auth_metadata_json={"provider": "google"},
         status="enabled",
     )
@@ -627,7 +627,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         )
 
 
-def test_connector_dispatch_executor_rejects_disallowed_channel_before_scope_mismatch() -> None:
+def test_connector_dispatch_executor_prefers_scope_validation_before_channel_validation() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -652,7 +652,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel_before_scope_mis
 
     with pytest.raises(
         ToolExecutionError,
-        match="connector_dispatch_channel_not_allowed:push:email,slack,telegram",
+        match="principal_scope_mismatch",
     ):
         service.execute_invocation(
             ToolInvocationRequest(
