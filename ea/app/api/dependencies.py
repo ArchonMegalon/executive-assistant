@@ -52,6 +52,9 @@ def get_request_context(
         if provided != expected:
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True
+    elif is_prod_mode(container.settings.runtime.mode):
+        raise HTTPException(status_code=401, detail="auth_required")
+
     principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
     if not principal_id and is_prod_mode(container.settings.runtime.mode):
         raise HTTPException(status_code=401, detail="principal_required")

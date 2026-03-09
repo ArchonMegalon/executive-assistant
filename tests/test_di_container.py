@@ -33,12 +33,13 @@ class _Settings:
 class _FakeOrchestrator:
     def build_artifact(self, req: RewriteRequest) -> Artifact:
         assert req.text == "from-fake"
+        principal_id = str(req.principal_id or "").strip() or "local-user"
         return Artifact(
             artifact_id="artifact-fake",
             kind="rewrite_note",
             content="fake-content",
             execution_session_id="session-fake",
-            principal_id="local-user",
+            principal_id=principal_id,
         )
 
     def fetch_session(self, session_id: str):
@@ -301,6 +302,7 @@ def test_non_prod_mode_allows_default_principal_fallback() -> None:
 
     app = create_app()
     app.state.container = _FakeContainer()
+    app.state.container.settings = _Settings(auth=_Auth(default_principal_id="ops-fallback"))
     client = TestClient(app)
 
     response = client.post(
