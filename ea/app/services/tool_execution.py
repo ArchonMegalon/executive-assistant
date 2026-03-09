@@ -425,12 +425,27 @@ class ToolExecutionService:
         request: ToolInvocationRequest,
         payload: dict[str, object],
     ):
+        return self._resolve_connector_binding(
+            request=request,
+            payload=payload,
+            required_connector_name="browseract",
+            required_input_error="connector_binding_required:browseract.extract_account_facts",
+        )
+
+    def _resolve_connector_binding(
+        self,
+        request: ToolInvocationRequest,
+        payload: dict[str, object],
+        *,
+        required_connector_name: str | None = None,
+        required_input_error: str = "connector_binding_required:connector.dispatch",
+    ):
         principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
         if not principal_id:
             raise ToolExecutionError("principal_id_required")
         binding_id = str(payload.get("binding_id") or "").strip()
         if not binding_id:
-            raise ToolExecutionError("connector_binding_required:browseract.extract_account_facts")
+            raise ToolExecutionError(required_input_error)
         binding = self._tool_runtime.get_connector_binding(binding_id)
         if binding is None:
             raise ToolExecutionError(f"connector_binding_not_found:{binding_id}")
@@ -438,8 +453,10 @@ class ToolExecutionService:
             raise ToolExecutionError(f"connector_binding_disabled:{binding_id}")
         if binding.principal_id != principal_id:
             raise ToolExecutionError("principal_scope_mismatch")
-        if str(binding.connector_name or "").strip().lower() != "browseract":
-            raise ToolExecutionError(f"connector_binding_connector_mismatch:{binding_id}")
+        if required_connector_name:
+            expected = str(required_connector_name or "").strip().lower()
+            if str(binding.connector_name or "").strip().lower() != expected:
+                raise ToolExecutionError(f"connector_binding_connector_mismatch:{binding_id}")
         return principal_id, binding
 
     def _browseract_extract_service_record(
@@ -796,18 +813,21 @@ class ToolExecutionService:
         if self._channel_runtime is None:
             raise ToolExecutionError("channel_runtime_unavailable:connector.dispatch")
         payload = dict(request.payload_json or {})
-        binding_id = str(payload.get("binding_id") or "").strip()
-        if not binding_id:
-            raise ToolExecutionError("connector_binding_required:connector.dispatch")
-        binding = self._tool_runtime.get_connector_binding(binding_id)
-        if binding is None:
-            raise ToolExecutionError(f"connector_binding_not_found:{binding_id}")
-        if str(binding.status or "").strip().lower() != "enabled":
-            raise ToolExecutionError(f"connector_binding_disabled:{binding_id}")
-        principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
-        if principal_id and binding.principal_id != principal_id:
-            raise ToolExecutionError("principal_scope_mismatch")
+        _, binding = self._resolve_connector_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:connector.dispatch",
+        )
         channel = str(payload.get("channel") or "").strip()
+        normalized_channel = channel.lower()
+        allowed_channels = tuple(str(value or "").strip().lower() for value in definition.allowed_channels)
+        if allowed_channels:
+            if not normalized_channel:
+                raise ToolExecutionError("connector_dispatch_channel_required")
+            if normalized_channel not in allowed_channels:
+                raise ToolExecutionError(
+                    f"connector_dispatch_channel_not_allowed:{normalized_channel}:{','.join(allowed_channels)}"
+                )
         recipient = str(payload.get("recipient") or "").strip()
         content = str(payload.get("content") or "")
         metadata = dict(payload.get("metadata") or {})
