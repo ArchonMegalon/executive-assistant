@@ -32,7 +32,7 @@ from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
-from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
+from app.settings import Settings, ensure_prod_api_token_configured, ensure_storage_fallback_allowed, get_settings
 
 
 class ReadinessService:
@@ -41,6 +41,8 @@ class ReadinessService:
 
     def check(self) -> tuple[bool, str]:
         backend = str(self._settings.storage.backend or "auto").strip().lower()
+        if self._settings.runtime.mode == "prod" and not str(self._settings.auth.api_token or "").strip():
+            return False, "prod_api_token_missing"
         if self._settings.runtime.mode == "prod":
             if backend != "postgres":
                 return False, "prod_requires_postgres_backend"
@@ -90,6 +92,8 @@ class AppContainer:
 
 def build_container(settings: Settings | None = None) -> AppContainer:
     resolved = settings or get_settings()
+    if resolved.runtime.mode == "prod":
+        ensure_prod_api_token_configured(resolved)
     log = logging.getLogger("ea.container")
     try:
         artifacts = build_artifact_repo(resolved)

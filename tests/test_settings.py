@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 import warnings
 import pytest
 
+from app.container import ReadinessService
 from app.settings import get_settings
 
 
@@ -116,3 +118,14 @@ def test_default_principal_override() -> None:
     os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "exec-1"
     s = get_settings()
     assert s.auth.default_principal_id == "exec-1"
+
+
+def test_readiness_service_rejects_prod_without_api_token() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
+        auth=SimpleNamespace(api_token=""),
+    )
+    ready, reason = ReadinessService(settings).check()
+    assert ready is False
+    assert reason == "prod_api_token_missing"
