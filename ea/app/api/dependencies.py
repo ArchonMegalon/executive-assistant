@@ -27,6 +27,8 @@ def require_request_auth(
     container: AppContainer = Depends(get_container),
 ) -> None:
     expected = str(container.settings.auth.api_token or "").strip()
+    if is_prod_mode(container.settings.runtime.mode) and not expected:
+        raise HTTPException(status_code=401, detail="auth_required")
     if not expected:
         return
     provided = _extract_token(request)

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import pytest
 
 pytest.importorskip("fastapi")
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app import container as app_container
@@ -383,6 +384,23 @@ def test_prod_mode_rejects_default_principal_fallback() -> None:
     )
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "principal_required"
+
+
+def test_prod_mode_with_empty_token_rejects_auth_dependency() -> None:
+    from app.api.dependencies import require_request_auth
+
+    probe = FastAPI()
+    probe_container = _FakeContainer()
+    probe_container.settings = _Settings(auth=_Auth(api_token=""), runtime=_Runtime(mode="prod"))
+    probe.state.container = probe_container
+
+    @probe.get("/probe", dependencies=[Depends(require_request_auth)])
+    def probe_route() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    client = TestClient(probe)
+    response = client.get("/probe", headers={"Authorization": "Bearer any-token"})
+    assert response.status_code == 401
 
 
 def test_prod_mode_case_insensitive_value_rejects_default_principal_fallback() -> None:
