@@ -904,12 +904,12 @@
     },
     {
       "name": "human_task_session_ownerless_mixed_source_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_created_asc_excludes_non_ownerless",
         "session_ownerless_last_transition_desc_excludes_non_ownerless"
       ],
-      "notes": "Session-scoped `assignment_source=none` list queries now have explicit smoke/docs coverage proving both `sort=created_asc` and `sort=last_transition_desc` keep non-ownerless neighbors out while preserving ownerless ordering under mixed-source churn."
+      "notes": "Session-scoped `assignment_source=none` list queries now have explicit smoke/docs coverage proving both `sort=created_asc` and `sort=last_transition_desc` keep non-ownerless neighbors out while preserving ownerless ordering under mixed-source churn, and the release/operator guards now pin that ownerless session-list mixed-source isolation as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_sorted_queue_mixed_source_isolation",
@@ -923,12 +923,12 @@
     },
     {
       "name": "human_task_ownerless_priority_summary_mixed_source_counts",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_priority_summary_total_excludes_non_ownerless_after_churn",
         "ownerless_priority_summary_priority_counts_exclude_non_ownerless_after_churn"
       ],
-      "notes": "The ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice now has explicit smoke/docs coverage proving total and low-priority counts stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors."
+      "notes": "The ownerless `priority-summary?status=pending&assignment_state=unassigned&assignment_source=none` slice now has explicit smoke/docs coverage proving total and low-priority counts stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors, and the release/operator guards pin that ownerless mixed-source summary-count contract as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_unsorted_queue_mixed_source_isolation",
@@ -959,13 +959,13 @@
     },
     {
       "name": "human_task_assignment_history_source_filter",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_assignment_history_assignment_source_filter",
         "recommended_transition_isolation",
         "manual_vs_auto_preselected_history_views"
       ],
-      "notes": "Human task assignment history now accepts `assignment_source`, so operator tooling can isolate recommended, manual, or planner auto-preselected ownership transitions without scanning the full event chain."
+      "notes": "Human task assignment history now has release-grade smoke/docs coverage for `assignment_source`, so operator tooling can isolate recommended, manual, or planner auto-preselected ownership transitions without scanning the full event chain, and the release/operator guards now pin that task-scoped ownership-source filter contract as current branch baseline behavior."
     },
     {
       "name": "session_human_task_assignment_source_filter",
@@ -1001,13 +1001,13 @@
     },
     {
       "name": "generic_task_execution_async_contracts",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_execute_awaiting_approval",
         "plan_execute_awaiting_human",
         "generic_task_resume_shared_async_paths"
       ],
-      "notes": "Generic POST /v1/plans/execute task runs now return the same first-class awaiting-approval and awaiting-human async contract as rewrite execution, those non-rewrite task sessions resume through the shared approval and human-task endpoints, and paused generic task sessions keep the same dependency-state projection in session detail while approval or human review is still gating downstream steps."
+      "notes": "Generic POST /v1/plans/execute task runs now return the same first-class awaiting-approval and awaiting-human async contract as rewrite execution, those non-rewrite task sessions resume through the shared approval and human-task endpoints, paused generic task sessions keep the same dependency-state projection in session detail while approval or human review is still gating downstream steps, and the release/operator guards now pin that shared async workflow contract as current branch baseline behavior."
     },
     {
       "name": "plan_graph_validation",
@@ -1042,13 +1042,13 @@
     },
     {
       "name": "proof_lookup_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "receipt_lookup_task_key",
         "run_cost_lookup_task_key",
         "generic_proof_identity_without_session_expand"
       ],
-      "notes": "GET /v1/rewrite/receipts/{receipt_id} and GET /v1/rewrite/run-costs/{cost_id} now return the originating task key and deliverable type, so generic non-rewrite proof records can be inspected without fetching the full session envelope first."
+      "notes": "GET /v1/rewrite/receipts/{receipt_id} and GET /v1/rewrite/run-costs/{cost_id} now return the originating task key and deliverable type, so generic non-rewrite proof records can be inspected without fetching the full session envelope first, and release/operator guards pin that direct proof identity contract as current branch baseline behavior."
     },
     {
       "name": "session_artifact_task_identity_projection",
@@ -1082,13 +1082,13 @@
     },
     {
       "name": "session_human_task_assignment_history_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_assignment_history_task_key",
         "session_assignment_history_deliverable_type",
         "generic_session_assignment_history_identity"
       ],
-      "notes": "Inline session human-task assignment-history rows now return the originating task key and deliverable type too, so one-fetch operator session views keep non-rewrite task context in the embedded transition log."
+      "notes": "Inline session human-task assignment-history rows now return the originating task key and deliverable type too, so one-fetch operator session views keep non-rewrite task context in the embedded transition log, and release/operator guards pin that embedded session assignment-history identity contract as current branch baseline behavior."
     },
     {
       "name": "session_human_task_packet_task_identity_projection",
@@ -1135,14 +1135,14 @@
     },
     {
       "name": "task_contract_workflow_templates",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "workflow_template_metadata",
         "artifact_then_dispatch_compile_shape",
         "dispatch_workflow_approval_resume",
         "dispatch_workflow_receipt_identity"
       ],
-      "notes": "Task contracts can now compile materially different workflow skeletons through `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template persists the artifact first, evaluates the delivery gate, then resumes into `connector.dispatch` only after approval so not every task is forced through the rewrite-shaped skeleton."
+      "notes": "Task contracts can now compile materially different workflow skeletons through `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template persists the artifact first, evaluates the delivery gate, then resumes into `connector.dispatch` only after approval so not every task is forced through the rewrite-shaped skeleton, and the release/operator guards now pin that baseline dispatch-template contract as current branch behavior."
     },
     {
       "name": "browseract_extract_then_artifact_workflow_template",
@@ -1179,7 +1179,7 @@
     },
     {
       "name": "review_then_dispatch_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_then_dispatch_human_review_compile_shape",
         "human_review_then_artifact_pause",
@@ -1187,7 +1187,7 @@
         "reviewed_dispatch_receipt_flow",
         "review_then_dispatch_api_smoke"
       ],
-      "notes": "The built-in `artifact_then_dispatch` workflow template now has explicit focused-test and API-smoke coverage for the combined human-review case too, proving task-contract review metadata can insert `step_human_review` ahead of artifact persistence, resume later into approval-backed `connector.dispatch`, and queue the delivery outbox row only after both gates clear."
+      "notes": "The built-in `artifact_then_dispatch` workflow template now has explicit focused-test and API-smoke coverage for the combined human-review case too, proving task-contract review metadata can insert `step_human_review` ahead of artifact persistence, resume later into approval-backed `connector.dispatch`, queue the delivery outbox row only after both gates clear, and the release/operator guards now pin that review-then-dispatch workflow as current branch baseline behavior."
     },
     {
       "name": "artifact_then_memory_candidate_workflow_template",
@@ -1224,14 +1224,14 @@
     },
     {
       "name": "composable_post_artifact_workflow_packs",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_then_packs_template",
         "post_artifact_pack_dispatch",
         "post_artifact_pack_memory_candidate",
         "unknown_post_artifact_pack_validation"
       ],
-      "notes": "Task contracts can now opt into reusable `post_artifact_packs` through `workflow_template=artifact_then_packs`, so dispatch and memory-candidate branches compile from shared planner composition helpers instead of requiring a brand-new named workflow template for each post-artifact combination."
+      "notes": "Task contracts can now opt into reusable `post_artifact_packs` through `workflow_template=artifact_then_packs`, so dispatch and memory-candidate branches compile from shared planner composition helpers instead of requiring a brand-new named workflow template for each post-artifact combination, and the release/operator guards now pin that composable post-artifact workflow-pack contract across the existing docs, HTTP examples, and focused workflow-template tests as current branch baseline behavior."
     },
     {
       "name": "execution_queue_retry_runtime",
@@ -1266,14 +1266,14 @@
     },
     {
       "name": "delayed_retry_async_acceptance",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_queued_async_contract",
         "plan_execute_queued_async_contract",
         "approval_resume_delayed_retry_passthrough",
         "openapi_queued_async_examples"
       ],
-      "notes": "When a retryable step reschedules itself into the future (`retry_backoff_seconds>0`), rewrite and generic task execution now return the same first-class async workflow contract with `status=queued` and `next_action=poll_or_subscribe` instead of raising `queued task did not execute`; approval resumption treats that delayed retry as an async continuation instead of a runtime error too."
+      "notes": "When a retryable step reschedules itself into the future (`retry_backoff_seconds>0`), rewrite and generic task execution now return the same first-class async workflow contract with `status=queued` and `next_action=poll_or_subscribe` instead of raising `queued task did not execute`; approval resumption treats that delayed retry as an async continuation instead of a runtime error too, and release/operator guards now pin the linked README/RUNBOOK/OpenAPI examples plus focused runtime coverage as current branch baseline behavior."
     },
     {
       "name": "review_dispatch_delayed_retry_runtime",
@@ -1310,14 +1310,14 @@
     },
     {
       "name": "session_status_transition_api",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "explicit_nonterminal_session_status_updates",
         "retry_runtime_uses_status_transition",
         "postgres_status_transition_contract",
         "pause_resume_runtime_status_transition"
       ],
-      "notes": "The execution ledger now exposes a dedicated `set_session_status(...)` API for nonterminal states (`queued`, `running`, `blocked`, `awaiting_approval`, `awaiting_human`, `failed`), and the queue runtime uses that instead of overloading `complete_session(...)` for retry and pause/resume transitions."
+      "notes": "The execution ledger now exposes a dedicated `set_session_status(...)` API for nonterminal states (`queued`, `running`, `blocked`, `awaiting_approval`, `awaiting_human`, `failed`), the queue runtime uses that instead of overloading `complete_session(...)` for retry and pause/resume transitions, and the release/operator guards now pin that explicit nonterminal session-status transition contract as current branch baseline behavior."
     },
     {
       "name": "skill_provider_hints_projection",
@@ -1352,14 +1352,14 @@
     },
     {
       "name": "runtime_skill_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_intent_skill_key_projection",
         "artifact_skill_key_projection",
         "proof_row_skill_key_projection",
         "generic_task_runtime_skill_smoke"
       ],
-      "notes": "The rewrite/session inspection surface now also projects resolved skill identity: session payloads expose `intent_skill_key`, and direct artifact/receipt/run-cost rows plus embedded session artifacts/proof rows carry `skill_key` alongside `task_key`."
+      "notes": "The rewrite/session inspection surface now also projects resolved skill identity as current branch baseline behavior: session payloads expose `intent_skill_key`, and direct artifact/receipt/run-cost rows plus embedded session artifacts/proof rows carry `skill_key` alongside `task_key`, with release/operator guards pinning the linked runtime/docs/smoke coverage."
     },
     {
       "name": "plan_skill_key_entrypoint_alias",
@@ -1396,14 +1396,14 @@
     },
     {
       "name": "artifact_evidence_pack_output_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "prepare_step_evidence_envelope_projection",
         "artifact_save_evidence_envelope_persistence",
         "generic_task_evidence_pack_smoke",
         "evidence_template_docs"
       ],
-      "notes": "Task contracts can now opt into `budget_policy_json.artifact_output_template=evidence_pack`, causing `step_input_prepare` to emit structured `claims`, `evidence_refs`, `open_questions`, and `confidence` metadata that persists through `step_artifact_save` as a first-class evidence envelope."
+      "notes": "Task contracts can now opt into `budget_policy_json.artifact_output_template=evidence_pack`, causing `step_input_prepare` to emit structured `claims`, `evidence_refs`, `open_questions`, and `confidence` metadata that persists through `step_artifact_save` as a first-class evidence envelope, and the release/operator guards now pin that evidence-pack output-template contract as current branch baseline behavior."
     },
     {
       "name": "evidence_pack_memory_candidate_projection",

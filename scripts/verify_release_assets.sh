@@ -1293,7 +1293,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_async_contracts")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'same first-class `202 awaiting_approval` and `202 awaiting_human` async contract' "README.md" && \
@@ -1308,14 +1308,17 @@ then
      grep -Fq 'inspect paused human-review-backed session dependency projection' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_APPROVAL_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_HUMAN_JSON' "scripts/smoke_api.sh" && \
-     grep -Fq 'test_generic_task_execution_supports_async_approval_and_human_contracts' "tests/smoke_runtime_api.py"; then
-    echo "ok: generic task execution async contracts docs"
+     grep -Fq 'test_generic_task_execution_supports_async_approval_and_human_contracts' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'Promoted milestone capability `generic_task_execution_async_contracts` to released' "CHANGELOG.md" && \
+     grep -Fq 'shared async workflow contract' "CHANGELOG.md" && \
+     grep -Fq 'release/operator guards now pin' "CHANGELOG.md"; then
+    echo "ok: generic task execution async contracts release baseline"
   else
-    echo "missing: generic task execution async contracts docs" >&2
+    echo "missing: generic task execution async contracts release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: generic task execution async contracts milestone status" >&2
+  echo "missing: generic task execution async contracts milestone release status" >&2
   missing=1
 fi
 
@@ -1378,7 +1381,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'direct execution proof records' "README.md" && \
@@ -1387,14 +1390,18 @@ then
      grep -Fq 'fetch run cost (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
      grep -Fq 'TASK_EXECUTE_RECEIPT_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_COST_JSON' "scripts/smoke_api.sh" && \
-     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py"; then
-    echo "ok: proof lookup task identity projection docs"
+     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'Promoted milestone capability `proof_lookup_task_identity_projection` to released' "CHANGELOG.md" && \
+     grep -Fq 'release/operator guards now pin' "CHANGELOG.md" && \
+     grep -Fq 'direct receipt and run-cost `task_key` plus `deliverable_type` lookup projection' "CHANGELOG.md"; then
+    echo "ok: proof lookup task identity projection release baseline"
   else
-    echo "missing: proof lookup task identity projection docs" >&2
+    echo "missing: proof lookup task identity projection release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: proof lookup task identity projection milestone status" >&2
+  echo "missing: proof lookup task identity projection milestone release status" >&2
   missing=1
 fi
 
@@ -1481,21 +1488,24 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_history_task_identity_projection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'inline human-task assignment-history rows now carry originating task identity' "README.md" && \
      grep -Fq 'assignment-history rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
      grep -Fq 'human-task assignment-history rows include originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_HUMAN_SESSION_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py"; then
-    echo "ok: session human task assignment-history task identity docs"
+     grep -Fq 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released' "CHANGELOG.md" && \
+     grep -Fq 'release/operator guards now pin' "CHANGELOG.md" && \
+     grep -Fq 'inline session `human_task_assignment_history[]` `task_key` and `deliverable_type` projection' "CHANGELOG.md"; then
+    echo "ok: session human task assignment-history task identity release baseline"
   else
-    echo "missing: session human task assignment-history task identity docs" >&2
+    echo "missing: session human task assignment-history task identity release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: session human task assignment-history task identity milestone status" >&2
+  echo "missing: session human task assignment-history task identity milestone release status" >&2
   missing=1
 fi
 
@@ -3129,7 +3139,7 @@ capability = next(
     for entry in milestone["capabilities"]
     if entry["name"] == "human_task_session_ownerless_mixed_source_isolation"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "manual and auto-preselected neighbors too" "README.md" && \
@@ -3138,14 +3148,17 @@ then
      grep -Fq "SESSION_HUMAN_NONE_TRANSITION_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "keeping mixed-source neighbors out" "scripts/smoke_api.sh" && \
      grep -Fq "ownerless_session_created_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_session_transition_all_ids ==" "tests/smoke_runtime_api.py"; then
-    echo "ok: human task session ownerless mixed-source isolation docs"
+     grep -Fq "ownerless_session_transition_all_ids ==" "tests/smoke_runtime_api.py" && \
+     grep -Fq 'Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released' "CHANGELOG.md" && \
+     grep -Fq "release/operator guards" "CHANGELOG.md" && \
+     grep -Fq "session-list mixed-source isolation contract" "CHANGELOG.md"; then
+    echo "ok: human task session ownerless mixed-source isolation release baseline"
   else
-    echo "missing: human task session ownerless mixed-source isolation docs" >&2
+    echo "missing: human task session ownerless mixed-source isolation release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: human task session ownerless mixed-source isolation milestone" >&2
+  echo "missing: human task session ownerless mixed-source isolation milestone release status" >&2
   missing=1
 fi
 
@@ -3194,7 +3207,7 @@ capability = next(
     for entry in milestone["capabilities"]
     if entry["name"] == "human_task_ownerless_priority_summary_mixed_source_counts"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "ownerless \`priority-summary?assignment_state=unassigned&assignment_source=none\` slice is now explicitly covered after mixed-source churn" "README.md" && \
@@ -3367,14 +3380,15 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_source_filter")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`' "README.md" && \
      grep -Fq "assignment_source" "RUNBOOK.md" && \
      grep -Fq "HUMAN_HISTORY_RECOMMENDED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq 'params={"limit": 10, "assignment_source": "recommended"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended" "HTTP_EXAMPLES.http"; then
+     grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended" "HTTP_EXAMPLES.http" && \
+     grep -Fq "Promoted the human-task assignment-history source-filter slice into a released milestone capability" "CHANGELOG.md"; then
     echo "ok: human task assignment-history source filter docs"
   else
     echo "missing: human task assignment-history source filter docs" >&2
@@ -3443,7 +3457,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "task_contract_workflow_templates")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "workflow_template" "README.md" && \
@@ -3456,14 +3470,48 @@ then
      grep -Fq "step_connector_dispatch" "scripts/smoke_api.sh" && \
      grep -Fq "stakeholder_dispatch" "tests/smoke_runtime_api.py" && \
      grep -Fq "step_connector_dispatch" "tests/smoke_runtime_api.py" && \
-     grep -Fq "tests/test_task_contract_step_templates.py" "scripts/test_postgres_contracts.sh"; then
-    echo "ok: task contract workflow template docs"
+     grep -Fq "tests/test_task_contract_step_templates.py" "scripts/test_postgres_contracts.sh" && \
+     grep -Fq 'Promoted milestone capability `task_contract_workflow_templates` to released' "CHANGELOG.md" && \
+     grep -Fq "baseline dispatch-template contract" "CHANGELOG.md" && \
+     grep -Fq "release/operator guards now pin" "CHANGELOG.md"; then
+    echo "ok: task contract workflow template release baseline"
   else
-    echo "missing: task contract workflow template docs" >&2
+    echo "missing: task contract workflow template release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: task contract workflow template milestone" >&2
+  echo "missing: task contract workflow template milestone release status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "composable_post_artifact_workflow_packs")
+assert capability["status"] == "released"
+PY
+then
+  if grep -Fq "artifact_then_packs" "README.md" && \
+     grep -Fq "post_artifact_packs" "README.md" && \
+     grep -Fq "artifact_then_packs" "RUNBOOK.md" && \
+     grep -Fq "post_artifact_packs" "RUNBOOK.md" && \
+     grep -Fq "stakeholder_pack_template" "HTTP_EXAMPLES.http" && \
+     grep -Fq "artifact_then_packs" "HTTP_EXAMPLES.http" && \
+     grep -Fq "artifact_then_packs" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "unknown_post_artifact_pack:unknown_pack" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "tests/test_task_contract_step_templates.py" "scripts/test_postgres_contracts.sh" && \
+     grep -Fq 'Promoted milestone capability `composable_post_artifact_workflow_packs` to released' "CHANGELOG.md" && \
+     grep -Fq "post_artifact_packs=[dispatch,memory_candidate]" "CHANGELOG.md" && \
+     grep -Fq "release/operator guards now pin" "CHANGELOG.md"; then
+    echo "ok: composable post-artifact workflow packs release baseline"
+  else
+    echo "missing: composable post-artifact workflow packs release baseline" >&2
+    missing=1
+  fi
+else
+  echo "missing: composable post-artifact workflow packs milestone release status" >&2
   missing=1
 fi
 
@@ -3500,7 +3548,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_then_dispatch_workflow_template")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "stakeholder_review_dispatch" "tests/test_task_contract_step_templates.py" && \
@@ -3512,14 +3560,17 @@ then
      grep -Fq "hybrid@example.com" "scripts/smoke_api.sh" && \
      grep -Fq "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" "README.md" && \
      grep -Fq "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" "RUNBOOK.md" && \
-     grep -Fq "combined human-review case" "CHANGELOG.md"; then
-    echo "ok: review-then-dispatch workflow template docs and smoke coverage"
+     grep -Fq "combined human-review case" "CHANGELOG.md" && \
+     grep -Fq 'Promoted milestone capability `review_then_dispatch_workflow_template` to released' "CHANGELOG.md" && \
+     grep -Fq "release/operator guards now pin" "CHANGELOG.md" && \
+     grep -Fq "review-then-dispatch workflow" "CHANGELOG.md"; then
+    echo "ok: review-then-dispatch workflow template release baseline"
   else
-    echo "missing: review-then-dispatch workflow template docs or smoke coverage" >&2
+    echo "missing: review-then-dispatch workflow template release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: review-then-dispatch workflow template milestone" >&2
+  echo "missing: review-then-dispatch workflow template milestone release status" >&2
   missing=1
 fi
 
@@ -3790,7 +3841,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "delayed_retry_async_acceptance")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "test_execute_task_artifact_returns_queued_async_state_for_delayed_retry" "tests/test_queue_retry_contracts.py" && \
@@ -3906,24 +3957,29 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_status_transition_api")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "test_retry_scheduling_uses_explicit_session_status_transition_api" "tests/test_queue_retry_contracts.py" && \
      grep -Fq "_RecordingLedger" "tests/test_queue_retry_contracts.py" && \
+     grep -Fq 'ledger.status_updates == ["running", "queued"]' "tests/test_queue_retry_contracts.py" && \
+     grep -Fq 'ledger.completion_updates == []' "tests/test_queue_retry_contracts.py" && \
+     grep -Fq 'ledger.set_session_status(session.session_id, "awaiting_approval")' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "set_session_status" "ea/app/repositories/ledger.py" && \
      grep -Fq "set_session_status" "ea/app/repositories/ledger_postgres.py" && \
      grep -Fq "_ledger.set_session_status(" "ea/app/services/orchestrator.py" && \
+     ! grep -Fq 'complete_session(queue_item.session_id, status="queued")' "ea/app/services/orchestrator.py" && \
      grep -Fq "set_session_status(...)" "README.md" && \
      grep -Fq "set_session_status(...)" "RUNBOOK.md" && \
-     grep -Fq "set_session_status(...)" "CHANGELOG.md"; then
-    echo "ok: session-status transition api docs and contract coverage"
+     grep -Fq 'Promoted milestone capability `session_status_transition_api` to released' "CHANGELOG.md" && \
+     grep -Fq "release/operator guards now pin the explicit \`set_session_status(...)\` nonterminal session-status transition contract" "CHANGELOG.md"; then
+    echo "ok: session-status transition api release baseline"
   else
-    echo "missing: session-status transition api docs or contract coverage" >&2
+    echo "missing: session-status transition api release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: session-status transition api milestone" >&2
+  echo "missing: session-status transition api milestone release status" >&2
   missing=1
 fi
 
@@ -4114,7 +4170,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_evidence_pack_output_template")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "_artifact_output_template_key" "ea/app/services/planner.py" && \
@@ -4124,14 +4180,16 @@ then
      grep -Fq 'artifact_output_template":"evidence_pack' "scripts/smoke_api.sh" && \
      grep -Fq "artifact_output_template=evidence_pack" "README.md" && \
      grep -Fq "artifact_output_template=evidence_pack" "RUNBOOK.md" && \
-     grep -Fq "artifact_output_template=evidence_pack" "CHANGELOG.md"; then
-    echo "ok: artifact evidence-pack output template docs and contract coverage"
+     grep -Fq "artifact_output_template=evidence_pack" "CHANGELOG.md" && \
+     grep -Fq 'Promoted milestone capability `artifact_evidence_pack_output_template` to released' "CHANGELOG.md" && \
+     grep -Fq "release/operator guards now pin that evidence-pack output-template contract" "MILESTONE.json"; then
+    echo "ok: artifact evidence-pack output template release baseline"
   else
-    echo "missing: artifact evidence-pack output template docs or contract coverage" >&2
+    echo "missing: artifact evidence-pack output template release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: artifact evidence-pack output template milestone" >&2
+  echo "missing: artifact evidence-pack output template milestone release status" >&2
   missing=1
 fi
 
@@ -4199,7 +4257,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_skill_identity_projection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "intent_skill_key: str" "ea/app/api/routes/rewrite.py" && \

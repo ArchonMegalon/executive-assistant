@@ -367,6 +367,7 @@ def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -384,9 +385,39 @@ def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle
     assert "step_connector_dispatch" in smoke_api
     assert "stakeholder_dispatch" in smoke_runtime
     assert "step_connector_dispatch" in smoke_runtime
+    assert "Promoted milestone capability `task_contract_workflow_templates` to released" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "task_contract_workflow_templates")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that baseline dispatch-template contract" in capability["notes"]
+
+
+def test_composable_post_artifact_workflow_packs_are_documented_and_guarded() -> None:
+    script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "tests/test_task_contract_step_templates.py" in script
+    assert "artifact_then_packs" in workflow_test
+    assert "post_artifact_packs" in workflow_test
+    assert "unknown_post_artifact_pack:unknown_pack" in workflow_test
+    assert "artifact_then_packs" in readme
+    assert "post_artifact_packs" in readme
+    assert "artifact_then_packs" in runbook
+    assert "post_artifact_packs" in runbook
+    assert "stakeholder_pack_template" in http_examples
+    assert "artifact_then_packs" in http_examples
+    assert "Promoted milestone capability `composable_post_artifact_workflow_packs` to released" in changelog
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "composable_post_artifact_workflow_packs"
+    )
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that composable post-artifact workflow-pack contract" in capability["notes"]
 
 
 def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
@@ -691,10 +722,12 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     assert 'complete_session(queue_item.session_id, status="queued")' not in orchestrator
     assert "set_session_status(...)" in readme
     assert "set_session_status(...)" in runbook
+    assert "Promoted milestone capability `session_status_transition_api` to released" in changelog
     assert "set_session_status(...)" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "session_status_transition_api")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that explicit nonterminal session-status transition contract" in capability["notes"]
 
 
 def test_skill_identity_projection_is_documented_and_guarded() -> None:
@@ -752,7 +785,7 @@ def test_runtime_skill_identity_projection_is_documented_and_guarded() -> None:
     assert "intent_skill_key" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_skill_identity_projection")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
@@ -861,10 +894,12 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
     assert "artifact_output_template\":\"evidence_pack" in smoke_script
     assert "artifact_output_template=evidence_pack" in readme
     assert "artifact_output_template=evidence_pack" in runbook
+    assert "Promoted milestone capability `artifact_evidence_pack_output_template` to released" in changelog
     assert "artifact_output_template=evidence_pack" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_evidence_pack_output_template")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that evidence-pack output-template contract" in capability["notes"]
 
 
 def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -> None:
@@ -1034,10 +1069,12 @@ def test_review_then_dispatch_workflow_template_is_documented_and_guarded() -> N
     assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in readme
     assert "artifact_then_dispatch" in runbook
     assert "step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch" in runbook
+    assert "Promoted milestone capability `review_then_dispatch_workflow_template` to released" in changelog
     assert "combined human-review case" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "review_then_dispatch_workflow_template")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that review-then-dispatch workflow" in capability["notes"]
 
 
 def test_execution_queue_retry_runtime_is_documented_and_guarded() -> None:
@@ -1133,7 +1170,7 @@ def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
     assert "Nonzero-backoff retries now surface as a first-class `202 queued` async acceptance" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "delayed_retry_async_acceptance")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_review_dispatch_delayed_retry_runtime_is_documented_and_guarded() -> None:
@@ -1713,6 +1750,7 @@ def test_session_human_task_assignment_history_projection_is_documented_and_smok
 def test_session_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
@@ -1723,13 +1761,15 @@ def test_session_human_task_assignment_history_task_identity_projection_is_docum
     assert "human-task assignment-history rows include originating task_key and deliverable_type" in http_examples
     assert "GENERIC_HUMAN_SESSION_HISTORY_FIELDS" in smoke_api
     assert 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
+    assert "Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released" in changelog
 
     capability = next(
         entry
         for entry in milestone["capabilities"]
         if entry["name"] == "session_human_task_assignment_history_task_identity_projection"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards pin that embedded session assignment-history identity contract" in capability["notes"]
 
 
 def test_session_human_task_packet_task_identity_projection_is_documented_and_smoked() -> None:
@@ -2450,8 +2490,11 @@ def test_human_task_session_ownerless_mixed_source_isolation_is_documented_and_s
         for entry in milestone["capabilities"]
         if entry["name"] == "human_task_session_ownerless_mixed_source_isolation"
     )
-    assert capability["status"] == "tested"
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert capability["status"] == "released"
     assert "session_ownerless_created_asc_excludes_non_ownerless" in capability["scope"]
+    assert "Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released" in changelog
 
 
 def test_human_task_ownerless_sorted_queue_mixed_source_isolation_is_documented_and_smoked() -> None:
@@ -2503,7 +2546,7 @@ def test_human_task_ownerless_priority_summary_mixed_source_counts_are_documente
         for entry in milestone["capabilities"]
         if entry["name"] == "human_task_ownerless_priority_summary_mixed_source_counts"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "ownerless_priority_summary_total_excludes_non_ownerless_after_churn" in capability["scope"]
 
 
@@ -2641,7 +2684,7 @@ def test_human_task_assignment_history_source_filter_is_documented_and_smoked() 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_history_source_filter"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "recommended_transition_isolation" in capability["scope"]
 
 
@@ -2869,6 +2912,7 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2887,9 +2931,10 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     assert "GENERIC_HUMAN_JSON" in smoke_api
     assert "generic task async contracts ok" in smoke_api
     assert "test_generic_task_execution_supports_async_approval_and_human_contracts" in smoke_runtime
+    assert "Promoted milestone capability `generic_task_execution_async_contracts` to released" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_async_contracts")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "paused generic task sessions keep the same dependency-state projection" in capability["notes"]
 
 
@@ -2949,6 +2994,7 @@ def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> Non
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2961,9 +3007,11 @@ def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> Non
     assert "TASK_EXECUTE_COST_JSON" in smoke_api
     assert 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
     assert 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' in smoke_runtime
+    assert "Promoted milestone capability `proof_lookup_task_identity_projection` to released" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "proof_lookup_task_identity_projection")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards pin that direct proof identity contract" in capability["notes"]
 
 
 def test_session_artifact_task_identity_projection_is_documented_and_smoked() -> None:

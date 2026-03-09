@@ -860,6 +860,38 @@ X-EA-Principal-ID: {{principal_id}}
   "goal": "prepare and send a stakeholder briefing"
 }
 
+### Task Contracts -> upsert reusable post-artifact workflow packs template
+POST {{host}}/v1/tasks/contracts
+Content-Type: application/json
+
+{
+  "task_key": "stakeholder_pack_template",
+  "deliverable_type": "stakeholder_briefing",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "allowed_tools": ["artifact_repository", "connector.dispatch"],
+  "evidence_requirements": ["stakeholder_context"],
+  "memory_write_policy": "reviewed_only",
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "artifact_then_packs",
+    "post_artifact_packs": ["dispatch", "memory_candidate"],
+    "memory_candidate_category": "stakeholder_follow_up_fact",
+    "memory_candidate_confidence": 0.8,
+    "memory_candidate_sensitivity": "internal"
+  }
+}
+
+### Plans -> compile reusable post-artifact workflow packs template
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "task_key": "stakeholder_pack_template",
+  "goal": "prepare, send, and stage stakeholder follow-up memory"
+}
+
 ### Plans -> compile BrowserAct LTD discovery workflow template
 POST {{host}}/v1/plans/compile
 Content-Type: application/json
