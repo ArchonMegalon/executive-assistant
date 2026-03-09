@@ -2553,11 +2553,61 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         },
     )
     assert execute_bad_channel.status_code == 409
-    assert execute_bad_channel.json()["error"]["code"].startswith("connector_dispatch_channel_not_allowed:")
+    assert (
+        execute_bad_channel.json()["error"]["code"]
+        == "connector_dispatch_channel_not_allowed:sms:email,slack,telegram"
+    )
 
     mismatch = client.get("/v1/connectors/bindings", params={"principal_id": "exec-2", "limit": 10})
     assert mismatch.status_code == 403
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    browseract_execute_mismatch = client.post(
+        "/v1/tools/execute",
+        headers=_headers(principal_id="exec-2"),
+        json={
+            "tool_name": "browseract.extract_account_facts",
+            "action_kind": "account.extract",
+            "payload_json": {
+                "principal_id": "exec-1",
+                "binding_id": binding_id,
+                "service_name": "BrowserAct",
+            },
+        },
+    )
+    assert browseract_execute_mismatch.status_code == 403
+    assert browseract_execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    unsigned_client = _client(storage_backend="memory", principal_id="")
+    unsigned_binding = unsigned_client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-unsigned",
+            "scope_json": {},
+            "auth_metadata_json": {"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+            "status": "enabled",
+        },
+    )
+    assert unsigned_binding.status_code == 200
+
+    browseract_unsigned_request_principal_mismatch = unsigned_client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "browseract.extract_account_facts",
+            "action_kind": "account.extract",
+            "payload_json": {
+                "principal_id": "exec-1",
+                "binding_id": unsigned_binding.json()["binding_id"],
+                "service_name": "BrowserAct",
+            },
+        },
+    )
+    assert browseract_unsigned_request_principal_mismatch.status_code == 403
+    assert (
+        browseract_unsigned_request_principal_mismatch.json()["error"]["code"]
+        == "principal_scope_mismatch"
+    )
 
     foreign_status = client.post(
         f"/v1/connectors/bindings/{binding_id}/status",

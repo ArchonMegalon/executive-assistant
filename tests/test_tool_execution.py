@@ -831,6 +831,48 @@ def test_connector_dispatch_executor_enforces_sorted_allowed_channels_determinis
         )
 
 
+def test_connector_dispatch_executor_rejects_request_principal_mismatch_even_when_payload_principal_present() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-dispatch-request-principal-mismatch",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-dispatch-request-principal-mismatch-1",
+                step_id="step-dispatch-request-principal-mismatch-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "principal_id": "exec-1",
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-2"},
+            )
+        )
+
+
 def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_supplies_mismatch() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -920,7 +962,7 @@ def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> 
         status="enabled",
     )
 
-    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+    with pytest.raises(ToolExecutionError, match="^principal_scope_mismatch$"):
         service.execute_invocation(
             ToolInvocationRequest(
                 session_id="session-browseract-principal-mismatch-1",
