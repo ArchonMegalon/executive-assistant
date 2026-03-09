@@ -32,7 +32,7 @@ from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
-from app.settings import Settings, ensure_prod_api_token_configured, ensure_storage_fallback_allowed, get_settings
+from app.settings import Settings, ensure_prod_api_token_configured, ensure_storage_fallback_allowed, get_settings, is_prod_mode
 
 
 class ReadinessService:
@@ -41,9 +41,9 @@ class ReadinessService:
 
     def check(self) -> tuple[bool, str]:
         backend = str(self._settings.storage.backend or "auto").strip().lower()
-        if self._settings.runtime.mode == "prod" and not str(self._settings.auth.api_token or "").strip():
+        if is_prod_mode(self._settings.runtime.mode) and not str(self._settings.auth.api_token or "").strip():
             return False, "prod_api_token_missing"
-        if self._settings.runtime.mode == "prod":
+        if is_prod_mode(self._settings.runtime.mode):
             if backend != "postgres":
                 return False, "prod_requires_postgres_backend"
             if not self._settings.database_url:
@@ -92,7 +92,7 @@ class AppContainer:
 
 def build_container(settings: Settings | None = None) -> AppContainer:
     resolved = settings or get_settings()
-    if resolved.runtime.mode == "prod":
+    if is_prod_mode(resolved.runtime.mode):
         ensure_prod_api_token_configured(resolved)
     log = logging.getLogger("ea.container")
     try:

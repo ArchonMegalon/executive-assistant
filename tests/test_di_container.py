@@ -8,6 +8,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from app import container as app_container
 from app.domain.models import Artifact, RewriteRequest
 from app.services.policy import PolicyDeniedError
 
@@ -265,6 +266,12 @@ class _ProdContainer(_FakeContainer):
         self.settings = _Settings(auth=_Auth(api_token="secret-token"), runtime=_Runtime(mode="prod"))
 
 
+class _ProdContainerCaseInsensitive(_FakeContainer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.settings = _Settings(auth=_Auth(api_token="secret-token"), runtime=_Runtime(mode="PROD"))
+
+
 class _FakeDeniedContainer(_FakeContainer):
     def __init__(self) -> None:
         super().__init__()
@@ -323,6 +330,70 @@ def test_prod_mode_rejects_default_principal_fallback() -> None:
     )
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "principal_required"
+
+
+def test_prod_mode_case_insensitive_value_rejects_default_principal_fallback() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _ProdContainerCaseInsensitive()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/memory/candidates",
+        headers={"Authorization": "Bearer secret-token"},
+        json={
+            "category": "stakeholder_pref",
+            "summary": "Principal fallback blocked with case-variant prod mode",
+            "fact_json": {"source": "container-route"},
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "principal_required"
+
+
+def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+
+    class _FakeArtifactRepo:
+        pass
+
+    class _FakeTaskContracts:
+        def list_contracts(self, limit: int = 100):
+            return []
+
+    try:
+        os.environ["EA_RUNTIME_MODE"] = "PROD"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
+        os.environ["EA_LEDGER_BACKEND"] = ""
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
+        monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
+        def _raise_runtime_failure(*args, **kwargs) -> None:
+            raise RuntimeError("forced failure")
+
+        monkeypatch.setattr(app_container, "build_channel_runtime", _raise_runtime_failure)
+
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod forbids memory fallback\\(channel runtime bootstrap\\)"):
+            app_container.build_container()
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_rewrite_route_maps_tool_not_allowed_policy_denial() -> None:

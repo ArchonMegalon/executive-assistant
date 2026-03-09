@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 
 from app.container import AppContainer
+from app.settings import is_prod_mode
 
 
 def get_container(request: Request) -> AppContainer:
@@ -52,9 +53,9 @@ def get_request_context(
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True
     principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
-    if not principal_id and container.settings.runtime.mode == "prod":
+    if not principal_id and is_prod_mode(container.settings.runtime.mode):
         raise HTTPException(status_code=401, detail="principal_required")
-    if not principal_id and container.settings.runtime.mode != "prod":
+    if not principal_id and not is_prod_mode(container.settings.runtime.mode):
         principal_id = str(container.settings.auth.default_principal_id or "").strip() or "local-user"
     if not principal_id:
         raise HTTPException(status_code=401, detail="principal_required")

@@ -91,6 +91,15 @@ def test_runtime_mode_prod_disables_storage_fallback() -> None:
     assert s.storage_fallback_allowed is False
 
 
+def test_runtime_mode_case_variants_disables_storage_fallback() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "PrOd"
+    os.environ["EA_API_TOKEN"] = "super-secret"
+    s = get_settings()
+    assert s.runtime.mode == "prod"
+    assert s.storage_fallback_allowed is False
+
+
 def test_runtime_mode_prod_rejects_empty_api_token() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
@@ -134,6 +143,17 @@ def test_readiness_service_rejects_prod_without_api_token() -> None:
 def test_readiness_service_rejects_prod_with_whitespace_api_token() -> None:
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
+        auth=SimpleNamespace(api_token="  \t"),
+    )
+    ready, reason = ReadinessService(settings).check()
+    assert ready is False
+    assert reason == "prod_api_token_missing"
+
+
+def test_readiness_service_rejects_case_variant_prod_mode_without_api_token() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="PrOd"),
         storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
         auth=SimpleNamespace(api_token="  \t"),
     )

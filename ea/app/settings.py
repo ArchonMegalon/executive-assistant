@@ -114,7 +114,7 @@ class Settings:
 
     @property
     def storage_fallback_allowed(self) -> bool:
-        return self.runtime.mode != "prod"
+        return not is_prod_mode(self.runtime.mode)
 
 
 def _runtime_mode(raw: str) -> str:
@@ -122,6 +122,10 @@ def _runtime_mode(raw: str) -> str:
     if mode not in {"dev", "test", "prod"}:
         return "dev"
     return mode
+
+
+def is_prod_mode(raw: str | None) -> bool:
+    return str(raw or "").strip().lower() == "prod"
 
 
 def ensure_storage_fallback_allowed(
@@ -142,7 +146,7 @@ def ensure_storage_fallback_allowed(
 
 
 def ensure_prod_api_token_configured(settings: Settings) -> None:
-    if settings.runtime.mode != "prod":
+    if not is_prod_mode(settings.runtime.mode):
         return
     if str(settings.auth.api_token or "").strip():
         return
