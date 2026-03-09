@@ -467,6 +467,91 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         )
 
 
+def test_connector_dispatch_executor_rejects_principal_scope_mismatch() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-mismatch",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-dispatched-mismatch-1",
+                step_id="step-dispatched-mismatch-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-2"},
+            )
+        )
+
+
+def test_connector_dispatch_executor_normalizes_channel_for_allowed_channels() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-case",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-dispatched-case-1",
+            step_id="step-dispatched-case-1",
+            tool_name="connector.dispatch",
+            action_kind="delivery.send",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "channel": "EMAIL",
+                "recipient": "ops@example.com",
+                "content": "queued dispatch",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["channel"] == "email"
+    pending = channel_runtime.list_pending_delivery(limit=10)
+    assert any(row.delivery_id == result.target_ref and row.channel == "email" for row in pending)
+
+
 def test_connector_dispatch_executor_enforces_sorted_allowed_channels_deterministically() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -569,6 +654,41 @@ def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_
                     "principal_id": "exec-1",
                 },
                 context_json={},
+            )
+        )
+
+
+def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-principal-mismatch-1",
+                step_id="step-browseract-principal-mismatch-1",
+                tool_name="browseract.extract_account_facts",
+                action_kind="account.extract",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_name": "BrowserAct",
+                    "principal_id": "exec-1",
+                },
+                context_json={"principal_id": "exec-2"},
             )
         )
 

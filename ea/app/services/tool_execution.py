@@ -451,9 +451,10 @@ class ToolExecutionService:
         binding = self._tool_runtime.get_connector_binding(binding_id)
         if binding is None:
             raise ToolExecutionError(f"connector_binding_not_found:{binding_id}")
+        binding_principal_id = str(binding.principal_id or "").strip()
         if str(binding.status or "").strip().lower() != "enabled":
             raise ToolExecutionError(f"connector_binding_disabled:{binding_id}")
-        if binding.principal_id != principal_id:
+        if binding_principal_id != principal_id:
             raise ToolExecutionError("principal_scope_mismatch")
         if required_connector_name:
             expected = str(required_connector_name or "").strip().lower()
@@ -847,7 +848,7 @@ class ToolExecutionService:
         metadata = dict(payload.get("metadata") or {})
         idempotency_key = str(payload.get("idempotency_key") or "").strip()
         delivery = self._channel_runtime.queue_delivery(
-            channel=channel,
+            channel=normalized_channel,
             recipient=recipient,
             content=content,
             metadata=metadata,

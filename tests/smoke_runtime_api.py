@@ -2536,6 +2536,22 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert execute_mismatch.status_code == 403
     assert execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
+    execute_bad_channel = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "connector.dispatch",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "binding_id": binding_id,
+                "channel": "sms",
+                "recipient": "ops@example.com",
+                "content": "Should fail dispatch",
+            },
+        },
+    )
+    assert execute_bad_channel.status_code == 409
+    assert execute_bad_channel.json()["error"]["code"].startswith("connector_dispatch_channel_not_allowed:")
+
     mismatch = client.get("/v1/connectors/bindings", params={"principal_id": "exec-2", "limit": 10})
     assert mismatch.status_code == 403
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
