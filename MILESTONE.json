@@ -1202,14 +1202,14 @@
     },
     {
       "name": "dispatch_then_memory_candidate_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_then_dispatch_then_memory_candidate_compile_shape",
         "approval_gated_dispatch_then_memory_stage",
         "delivery_context_memory_candidate_fact",
         "dispatch_then_memory_candidate_api_smoke"
       ],
-      "notes": "The built-in `artifact_then_dispatch_then_memory_candidate` workflow template now has focused and API-smoke coverage too, proving task contracts can compile `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, keep the memory step queued behind the approval-gated send, and stage a pending candidate with delivery context once dispatch completes."
+      "notes": "The built-in `artifact_then_dispatch_then_memory_candidate` workflow template is implemented, documented, and pinned by release/operator guards as current branch baseline behavior, with focused and API-smoke coverage proving task contracts can compile `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage`, keep the memory step queued behind the approval-gated send, and stage a pending candidate with delivery context once dispatch completes."
     },
     {
       "name": "review_dispatch_then_memory_candidate_workflow_template",
@@ -1288,14 +1288,14 @@
     },
     {
       "name": "skill_catalog_layer",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "skill_catalog_upsert_round_trip",
         "derived_skill_from_task_contract",
         "meeting_prep_skill_compile_projection",
         "skill_catalog_api_smoke"
       ],
-      "notes": "The runtime now exposes a first-class `/v1/skills` catalog layered on top of task contracts, persisting product-facing executive metadata (`workflow_template`, memory reads/writes, authority/tool/human policy, and evaluation cases) in the existing task-contract store; `meeting_prep` is the first fully documented, smoke-tested skill slice."
+      "notes": "The runtime now exposes a first-class `/v1/skills` catalog layered on top of task contracts as current branch baseline behavior, persisting product-facing executive metadata (`workflow_template`, memory reads/writes, authority/tool/human policy, and evaluation cases) in the existing task-contract store; release/operator guards pin the docs, examples, focused skill tests, and API smoke coverage for the initial `meeting_prep` slice."
     },
     {
       "name": "ltd_inventory_refresh_skill_catalog_slice",
@@ -1374,14 +1374,14 @@
     },
     {
       "name": "ltd_discovery_markdown_refresh",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "browseract_inventory_to_ltd_rows",
         "ltd_markdown_table_update",
         "refresh_ltds_script_entrypoint",
         "ltd_refresh_docs"
       ],
-      "notes": "BrowserAct inventory output can now refresh the `## Discovery Tracking` table in `LTDs.md` through a dedicated script entrypoint, so discovered tier/email/status facts can be written back into the repo tracker without hand-editing each row."
+      "notes": "BrowserAct inventory output can now refresh the `## Discovery Tracking` table in `LTDs.md` through a dedicated script entrypoint (`refresh_ltds_from_inventory.sh`), and release/operator guards now pin `ltd_inventory_markdown` coverage plus scripts/docs so discovered tier/email/status facts are written back into the repo tracker without hand-editing each row."
     },
     {
       "name": "ltd_discovery_api_refresh_runner",

@@ -603,9 +603,10 @@ def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     assert "Skill Catalog" in skills_doc
     assert "`meeting_prep`" in skills_doc
     assert "first-class `/v1/skills` catalog" in changelog
+    assert "Promoted milestone capability `skill_catalog_layer` to released" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_catalog_layer")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_ltd_inventory_refresh_skill_slice_is_documented_and_guarded() -> None:
@@ -845,7 +846,7 @@ def test_ltd_discovery_markdown_refresh_is_documented_and_guarded() -> None:
     assert "refresh_ltds_from_inventory.sh" in ltds
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_markdown_refresh")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
@@ -979,11 +980,12 @@ def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guar
     assert "artifact_then_dispatch_then_memory_candidate" in changelog
     assert "stakeholder_dispatch_memory_candidate" in http_examples
     assert "artifact_then_dispatch_then_memory_candidate" in http_examples
+    assert "Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released" in changelog
 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "dispatch_then_memory_candidate_workflow_template"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_review_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:

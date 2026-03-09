@@ -3736,7 +3736,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "dispatch_then_memory_candidate_workflow_template")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "artifact_then_dispatch_then_memory_candidate" "tests/test_task_contract_step_templates.py" && \
@@ -3751,6 +3751,7 @@ then
      grep -Fq "artifact_then_dispatch_then_memory_candidate" "RUNBOOK.md" && \
      grep -Fq "step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" "RUNBOOK.md" && \
      grep -Fq "artifact_then_dispatch_then_memory_candidate" "CHANGELOG.md" && \
+     grep -Fq 'Promoted milestone capability `dispatch_then_memory_candidate_workflow_template` to released' "CHANGELOG.md" && \
      grep -Fq "stakeholder_dispatch_memory_candidate" "HTTP_EXAMPLES.http"; then
     echo "ok: dispatch-then-memory-candidate workflow template docs and smoke coverage"
   else
@@ -3937,7 +3938,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_catalog_layer")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "tests/test_skills.py" "scripts/test_postgres_contracts.sh" && \
@@ -3951,7 +3952,8 @@ then
      grep -Fq "/v1/skills" "HTTP_EXAMPLES.http" && \
      grep -Fq "meeting_prep" "scripts/smoke_api.sh" && \
      grep -Fq "skills ok" "scripts/smoke_api.sh" && \
-     grep -Fq 'first-class `/v1/skills` catalog' "CHANGELOG.md"; then
+     grep -Fq 'first-class `/v1/skills` catalog' "CHANGELOG.md" && \
+     grep -Fq 'Promoted milestone capability `skill_catalog_layer` to released' "CHANGELOG.md"; then
     echo "ok: skill catalog layer docs and contract coverage"
   else
     echo "missing: skill catalog layer docs or contract coverage" >&2
@@ -4151,7 +4153,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_markdown_refresh")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "update_discovery_tracking_table" "ea/app/services/ltd_inventory_markdown.py" && \
