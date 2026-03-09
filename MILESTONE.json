@@ -1022,13 +1022,13 @@
     },
     {
       "name": "step_io_contract_enforcement",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "declared_dependency_input_filtering",
         "missing_step_input_failure",
         "missing_step_output_failure"
       ],
-      "notes": "Queued step execution now only merges declared dependency inputs, missing declared inputs fail before handler execution, completed steps must emit every declared output key, and focused contract coverage keeps those runtime IO contracts pinned."
+      "notes": "Queued step execution now only merges declared dependency inputs, missing declared inputs fail before handler execution, completed steps must emit every declared output key, and release/operator guards now pin those runtime IO contracts as current branch baseline behavior."
     },
     {
       "name": "artifact_lookup_task_identity_projection",

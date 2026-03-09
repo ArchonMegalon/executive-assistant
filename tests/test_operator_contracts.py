@@ -2935,9 +2935,11 @@ def test_step_io_contracts_are_documented_and_guarded() -> None:
     assert "only merges declared dependency inputs and validates declared step outputs before completion" in readme
     assert "only merges declared dependency inputs and fails missing declared outputs before a step can complete" in runbook
     assert "only merge declared dependency inputs and now fail fast when a completed step omits any declared output key" in changelog
+    assert "Promoted milestone capability `step_io_contract_enforcement` to released" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "step_io_contract_enforcement")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin those runtime IO contracts" in capability["notes"]
 
 
 def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> None:

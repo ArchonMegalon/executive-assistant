@@ -1270,7 +1270,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "step_io_contract_enforcement")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'only merges declared dependency inputs and validates declared step outputs before completion' "README.md" && \
@@ -1279,14 +1279,16 @@ then
      grep -Fq 'tests/test_step_io_contracts.py' "scripts/test_postgres_contracts.sh" && \
      grep -Fq 'test_merged_step_input_json_filters_dependency_outputs_to_declared_input_keys' "tests/test_step_io_contracts.py" && \
      grep -Fq '_validate_step_input_contract' "ea/app/services/orchestrator.py" && \
-     grep -Fq '_validate_step_output_contract' "ea/app/services/orchestrator.py"; then
-    echo "ok: step io contract docs"
+     grep -Fq '_validate_step_output_contract' "ea/app/services/orchestrator.py" && \
+     grep -Fq 'Promoted milestone capability `step_io_contract_enforcement` to released' "CHANGELOG.md" && \
+     grep -Fq 'release/operator guards now pin those runtime IO contracts' "MILESTONE.json"; then
+    echo "ok: step io contract release baseline"
   else
-    echo "missing: step io contract docs" >&2
+    echo "missing: step io contract release baseline" >&2
     missing=1
   fi
 else
-  echo "missing: step io contract milestone status" >&2
+  echo "missing: step io contract milestone release status" >&2
   missing=1
 fi
 
