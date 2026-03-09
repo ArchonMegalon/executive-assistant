@@ -314,6 +314,25 @@ def test_non_prod_mode_allows_default_principal_fallback() -> None:
     assert response.json()["principal_id"] == "ops-fallback"
 
 
+def test_non_prod_mode_allows_default_principal_fallback_on_rewrite_route() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "rewrite-fallback"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _FakeContainer()
+    app.state.container.settings = _Settings(auth=_Auth(default_principal_id="rewrite-fallback"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/rewrite/artifact",
+        json={"text": "rewrite-fallback"},
+    )
+    assert response.status_code == 200
+    assert response.json()["principal_id"] == "rewrite-fallback"
+
+
 def test_prod_mode_rejects_missing_configured_api_token_at_request() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = "secret-token"
@@ -381,6 +400,24 @@ def test_prod_mode_rejects_default_principal_fallback() -> None:
             "summary": "Principal fallback blocked in prod",
             "fact_json": {"source": "container-route"},
         },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "principal_required"
+
+
+def test_prod_mode_rejects_default_principal_fallback_on_rewrite_route() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _ProdContainer()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/rewrite/artifact",
+        headers={"Authorization": "Bearer secret-token"},
+        json={"text": "rewrite-principal-required"},
     )
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "principal_required"
@@ -461,10 +498,10 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
             app_container.build_container()
     finally:
         for key, value in saved_env.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_build_container_rejects_prod_mode_with_whitespace_api_token() -> None:

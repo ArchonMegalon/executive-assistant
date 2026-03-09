@@ -22,13 +22,30 @@ def _extract_token(request: Request) -> str:
     return str(request.headers.get("x-api-token") or "").strip()
 
 
+def _configured_api_token(container: AppContainer) -> str:
+    return str(container.settings.auth.api_token or "").strip()
+
+
+def _is_prod_mode(container: AppContainer) -> bool:
+    return is_prod_mode(container.settings.runtime.mode)
+
+
+def _resolved_principal_id(request: Request, *, container: AppContainer) -> str:
+    principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
+    if principal_id:
+        return principal_id
+    if _is_prod_mode(container):
+        return ""
+    return str(container.settings.auth.default_principal_id or "").strip() or "local-user"
+
+
 def require_request_auth(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> None:
-    expected = str(container.settings.auth.api_token or "").strip()
-    if is_prod_mode(container.settings.runtime.mode) and not expected:
+    if _is_prod_mode(container) and not _configured_api_token(container):
         raise HTTPException(status_code=401, detail="auth_required")
+    expected = _configured_api_token(container)
     if not expected:
         return
     provided = _extract_token(request)
@@ -47,23 +64,21 @@ def get_request_context(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RequestContext:
-    expected = str(container.settings.auth.api_token or "").strip()
-    if is_prod_mode(container.settings.runtime.mode) and not expected:
+    if _is_prod_mode(container) and not _configured_api_token(container):
         raise HTTPException(status_code=401, detail="auth_required")
     authenticated = False
+    expected = _configured_api_token(container)
     if expected:
         provided = _extract_token(request)
         if provided != expected:
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True
-    elif is_prod_mode(container.settings.runtime.mode):
-        raise HTTPException(status_code=401, detail="auth_required")
-
-    principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
-    if not principal_id and is_prod_mode(container.settings.runtime.mode):
+    elif _is_prod_mode(container):
         raise HTTPException(status_code=401, detail="principal_required")
-    if not principal_id and not is_prod_mode(container.settings.runtime.mode):
-        principal_id = str(container.settings.auth.default_principal_id or "").strip() or "local-user"
+
+    principal_id = _resolved_principal_id(request, container=container)
+    if not principal_id and _is_prod_mode(container):
+        raise HTTPException(status_code=401, detail="principal_required")
     if not principal_id:
         raise HTTPException(status_code=401, detail="principal_required")
     return RequestContext(principal_id=principal_id, authenticated=authenticated)
