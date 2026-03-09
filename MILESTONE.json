@@ -106,7 +106,7 @@
     },
     {
       "name": "operator_db_visibility_and_retention",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "db_size_visibility",
         "db_size_schema_filter",
@@ -118,7 +118,7 @@
         "db_retention_table_filters",
         "support_bundle_db_size_snapshot"
       ],
-      "notes": "Operator scripts explain DB size, retention, and pgdata footprint and are checked by release-asset and operator contract tests."
+      "notes": "Operator DB size, retention, and support-bundle snapshot flows are documented as current branch baseline behavior, and release/operator guards now pin the schema/sort/prefix/min filters, retention profiles/table filters, and DB-size support-bundle linkage."
     },
     {
       "name": "smoke_and_release_gate_bundle",
@@ -165,11 +165,11 @@
     },
     {
       "name": "support_bundle_pgdata_attribution",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "support_bundle_pgdata_volume_attribution"
       ],
-      "notes": "Support bundles now capture expected volume/mount details plus live `ea-db` mount inspection output for pgdata investigations."
+      "notes": "Support bundles now document and expose `ea_pgdata` volume attribution as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK usage plus captured expected volume, mount, and live `ea-db` inspection output."
     },
     {
       "name": "external_action_policy_api_exposure",
@@ -200,12 +200,12 @@
     },
     {
       "name": "receipt_and_run_cost_lookup_api_exposure",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_receipt_fetch_api",
         "rewrite_run_cost_fetch_api"
       ],
-      "notes": "Execution proof records now have direct HTTP lookup routes, and both in-process tests and the approved host smoke path assert them."
+      "notes": "Execution proof records now have direct HTTP lookup routes as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke-path receipt and run-cost fetch coverage."
     },
     {
       "name": "approval_resume_execution",
@@ -236,7 +236,7 @@
     },
     {
       "name": "principal_request_context_guardrails",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "x_ea_principal_header",
         "default_principal_env",
@@ -245,7 +245,7 @@
         "principal_scope_mismatch_403",
         "foreign_connector_status_hidden"
       ],
-      "notes": "Principal-scoped connector and memory routes now derive scope from request context, fall back to `EA_DEFAULT_PRINCIPAL_ID`, reject caller-supplied mismatches with `403 principal_scope_mismatch`, and hide foreign connector updates."
+      "notes": "Principal-scoped connector and memory routes now derive scope from request context as current branch baseline behavior, fall back to `EA_DEFAULT_PRINCIPAL_ID`, reject caller-supplied mismatches with `403 principal_scope_mismatch`, hide foreign connector updates, and are pinned by release/operator guards across the linked docs/examples plus approved smoke coverage."
     },
     {
       "name": "principal_scoped_rewrite_and_plan_routes",
@@ -283,7 +283,7 @@
     },
     {
       "name": "typed_step_handler_gateway",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_three_step_plan",
         "step_input_prepare_handler",
@@ -291,7 +291,7 @@
         "step_artifact_save_handler",
         "inline_multi_step_queue_drain"
       ],
-      "notes": "The rewrite scaffold now compiles and executes a typed three-step queue path (`step_input_prepare`, `step_policy_evaluate`, `step_artifact_save`) through explicit handlers instead of a thin artifact-save-only execution path."
+      "notes": "The rewrite scaffold now exposes the typed three-step queue path (`step_input_prepare`, `step_policy_evaluate`, `step_artifact_save`) as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK guidance plus planner and smoke coverage for the explicit handler gateway."
     },
     {
       "name": "planner_dependency_graph_projection",
@@ -326,13 +326,13 @@
     },
     {
       "name": "queued_policy_step_audit_truthfulness",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "queued_policy_decision_event",
         "input_prepared_before_policy_decision",
         "approval_pause_from_runtime_policy_step"
       ],
-      "notes": "Policy evaluation is now executed and recorded from the queued `step_policy_evaluate` handler after `input_prepared`, so approval/block audit trails reflect runtime step order instead of preflight bookkeeping."
+      "notes": "Policy evaluation is now executed and recorded from the queued `step_policy_evaluate` handler after `input_prepared` as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK wording plus smoke/runtime ordering coverage for truthful queued policy-step audit trails."
     },
     {
       "name": "human_task_dependency_input_merge",
@@ -368,13 +368,13 @@
     },
     {
       "name": "human_review_payload_artifact_override",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "returned_payload_final_text",
         "artifact_save_parent_step_override",
         "reviewer_edited_artifact_content"
       ],
-      "notes": "When a compiled human-review step returns `returned_payload_json.final_text`, the downstream artifact-save step now persists that reviewer-edited text instead of the original source input."
+      "notes": "When a compiled human-review step returns `returned_payload_json.final_text`, the downstream artifact-save step now persists that reviewer-edited text instead of the original source input as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK wording plus approved smoke/runtime coverage for the reviewer-edited artifact override."
     },
     {
       "name": "planner_human_review_operational_metadata",
@@ -411,14 +411,14 @@
     },
     {
       "name": "human_task_operator_assignment_hints",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_routing_hints_projection",
         "session_human_task_routing_hints_projection",
         "suggested_operator_ids",
         "auto_assign_operator_id"
       ],
-      "notes": "Human task payloads now compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements so specialized operators can be suggested or preselected directly on each packet without a separate backlog scan."
+      "notes": "Human task payloads now compute reviewer routing hints from active operator profiles, rubric-derived skill tags, and trust-tier requirements as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK guidance plus approved smoke and Postgres contract coverage for `routing_hints_json`, `suggested_operator_ids`, `recommended_operator_id`, and `auto_assign_operator_id`."
     },
     {
       "name": "human_task_recommended_assignment_action",
@@ -452,14 +452,14 @@
     },
     {
       "name": "human_task_assignment_provenance_fields",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "assigned_at_storage",
         "assigned_by_actor_id_storage",
         "assignment_provenance_api_projection",
         "assignment_provenance_event_payloads"
       ],
-      "notes": "Human task packets now persist `assigned_at` and `assigned_by_actor_id` so current reviewer ownership is timestamped and attributed across manual assignment, claim, return, and planner auto-preselection paths."
+      "notes": "Human task packets now persist `assigned_at` and `assigned_by_actor_id` as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK guidance plus approved smoke and Postgres provenance coverage across manual assignment, claim, return, and planner auto-preselection paths."
     },
     {
       "name": "human_task_assignment_history_api",
@@ -516,14 +516,14 @@
     },
     {
       "name": "connector_dispatch_binding_scope_guardrails",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "connector_binding_required",
         "connector_binding_enabled_check",
         "principal_scoped_dispatch_execution",
         "dispatch_pre_side_effect_guard"
       ],
-      "notes": "`connector.dispatch` now requires an enabled connector binding in the caller's principal scope before `/v1/tools/execute` queues delivery, preventing foreign-scope or unbound dispatch attempts from producing side effects."
+      "notes": "`connector.dispatch` now requires an enabled connector binding in the caller's principal scope before `/v1/tools/execute` queues delivery as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK/examples plus approved smoke/runtime and tool-execution coverage for foreign-scope or unbound pre-side-effect dispatch rejection."
     },
     {
       "name": "browseract_account_facts_tool_execution_slice",
@@ -560,14 +560,14 @@
     },
     {
       "name": "approval_async_acceptance_contract",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_artifact_202_response",
         "approval_id_session_id_acceptance_payload",
         "awaiting_approval_status_contract",
         "poll_or_subscribe_next_action"
       ],
-      "notes": "Approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe`, making the paused workflow state explicit at the API boundary."
+      "notes": "Approval-required rewrite requests now return `202 Accepted` with `session_id`, `approval_id`, `status=awaiting_approval`, and `next_action=poll_or_subscribe` as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK/examples plus approved smoke/runtime coverage for that async acceptance contract."
     },
     {
       "name": "human_task_packets_kernel",
@@ -603,13 +603,13 @@
     },
     {
       "name": "human_task_operator_backlog_endpoints",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_backlog_route",
         "human_task_mine_route",
         "claim_assigns_operator_queue"
       ],
-      "notes": "Operators now have direct pending-backlog and assigned-queue endpoints on top of the filtered human task store, and the smoke path asserts that claim actions surface immediately in those views."
+      "notes": "Operators now have direct pending-backlog and assigned-queue endpoints as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke coverage proving claim actions surface immediately in those backlog and mine views."
     },
     {
       "name": "human_task_operator_assignment",
@@ -647,13 +647,13 @@
     },
     {
       "name": "human_task_last_transition_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_sort_param",
         "human_task_backlog_sort_param",
         "last_transition_desc_runtime_ordering"
       ],
-      "notes": "Human task list/backlog endpoints now accept `sort=last_transition_desc` so operator queues can order pending work by the freshest ownership change instead of default repository order."
+      "notes": "Human task list/backlog endpoints now accept `sort=last_transition_desc` so operator queues can order pending work by the freshest ownership change instead of default repository order, and release/operator guards pin that freshest-transition queue ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_sla_sorting",
@@ -687,13 +687,13 @@
     },
     {
       "name": "human_task_created_asc_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_created_asc_sort_param",
         "human_task_backlog_created_asc_sort_param",
         "human_task_operator_fifo_queue_ordering"
       ],
-      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=created_asc` so operators can request an explicit oldest-created FIFO queue order without relying on SLA fields or repository defaults."
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=created_asc` as current branch baseline behavior, and release/operator guards pin the linked README/RUNBOOK/examples plus approved smoke coverage for explicit oldest-created FIFO queue ordering without relying on SLA fields or repository defaults."
     },
     {
       "name": "human_task_priority_created_sorting",
@@ -727,13 +727,13 @@
     },
     {
       "name": "human_task_priority_summary",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_priority_summary_endpoint",
         "priority_band_count_projection",
         "priority_summary_assignment_state_filter"
       ],
-      "notes": "Human task queues now expose `GET /v1/human/tasks/priority-summary`, returning per-band counts plus `total` and `highest_priority` so operators can choose a queue filter strategy before opening a backlog view."
+      "notes": "Human task queues now expose `GET /v1/human/tasks/priority-summary` as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke coverage for per-band counts, `total`, `highest_priority`, and unassigned summary filtering before operators open the backlog."
     },
     {
       "name": "human_task_assigned_priority_summary",
@@ -767,12 +767,12 @@
     },
     {
       "name": "human_task_priority_summary_mixed_source_non_ownerless_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "manual_summary_after_ownerless_churn",
         "auto_preselected_summary_after_ownerless_churn"
       ],
-      "notes": "Manual and planner auto-preselected assignment-source summary slices now have explicit approved smoke/docs coverage proving extra ownerless rows do not contaminate non-ownerless counts under mixed-source churn."
+      "notes": "Manual and planner auto-preselected assignment-source summary slices now have explicit approved smoke/docs coverage as current branch baseline behavior, and release/operator guards pin that extra ownerless rows do not contaminate non-ownerless counts under mixed-source churn."
     },
     {
       "name": "human_task_assignment_source_queue_filters",
@@ -786,13 +786,13 @@
     },
     {
       "name": "human_task_ownerless_assignment_source_alias",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_ownerless_source_alias",
         "human_task_unassigned_ownerless_source_alias",
         "ownerless_priority_summary_assignment_source_alias"
       ],
-      "notes": "Human task source-filtered queue views now accept `assignment_source=none` for ownerless pending packets, so unassigned backlogs and ownerless summary slices no longer require empty-string request handling."
+      "notes": "Human task source-filtered queue views now accept `assignment_source=none` for ownerless pending packets as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke and Postgres coverage for that ownerless-source alias contract without requiring empty-string request handling."
     },
     {
       "name": "human_task_ownerless_session_history_alias",
@@ -823,12 +823,12 @@
     },
     {
       "name": "human_task_ownerless_backlog_last_transition_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_backlog_last_transition_desc_ordering",
         "ownerless_backlog_newest_first_triage"
       ],
-      "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=last_transition_desc`, preserving newest-first triage order even when every row only carries the initial creation transition."
+      "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=last_transition_desc`, preserving newest-first triage order even when every row only carries the initial creation transition, and the release/operator guards now pin that ownerless backlog newest-first ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_unassigned_last_transition_sort",
@@ -859,12 +859,12 @@
     },
     {
       "name": "human_task_ownerless_list_last_transition_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_list_last_transition_desc_ordering",
         "ownerless_list_backlog_unassigned_transition_alignment"
       ],
-      "notes": "The general pending list now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, keeping its newest-first untouched-ownerless ordering aligned with backlog and unassigned queue slices."
+      "notes": "The general pending list now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none&sort=last_transition_desc`, keeping its newest-first untouched-ownerless ordering aligned with backlog and unassigned queue slices, and the release/operator guards now pin that ownerless pending-list newest-first ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_session_ownerless_created_sort",
