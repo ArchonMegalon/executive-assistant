@@ -5234,7 +5234,7 @@ def test_ready_fails_when_postgres_backend_without_database_url() -> None:
     assert ready.json()["error"]["code"].startswith("not_ready:")
 
 
-def test_prod_ready_fails_when_postgres_backend_not_configured() -> None:
+def test_prod_ready_fails_when_postgres_backend_database_url_missing() -> None:
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
@@ -5245,7 +5245,7 @@ def test_prod_ready_fails_when_postgres_backend_not_configured() -> None:
     try:
         os.environ["EA_RUNTIME_MODE"] = "prod"
         os.environ["EA_API_TOKEN"] = "secret-token"
-        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
         os.environ.pop("EA_LEDGER_BACKEND", None)
         os.environ.pop("DATABASE_URL", None)
 
@@ -5254,7 +5254,7 @@ def test_prod_ready_fails_when_postgres_backend_not_configured() -> None:
         client = TestClient(create_app())
         ready = client.get("/health/ready")
         assert ready.status_code == 503
-        assert ready.json()["error"]["code"] == "not_ready:prod_requires_postgres_backend"
+        assert ready.json()["error"]["code"] == "not_ready:database_url_missing"
     finally:
         for key, value in saved_env.items():
             if value is None:
