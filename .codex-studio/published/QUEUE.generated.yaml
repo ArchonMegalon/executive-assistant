@@ -1,0 +1,39 @@
+mode: replace
+items:
+- Promote milestone capability:policy_plane_principal_scope_enforcement
+- Fix `connector.dispatch` so the declared tool schema matches executor requirements
+  by making `binding_id` explicit, deciding `idempotency_key` policy, and adding schema-versus-executor
+  contract tests.
+- Unify connector binding resolution so BrowserAct and `connector.dispatch` both require
+  an exact request `principal_id`, reject scope mismatches, and enforce `allowed_channels`
+  at execution time with deterministic errors and tests.
+- Tighten production auth and startup guardrails so prod refuses empty API token configuration
+  and only allows default-principal fallback outside prod, with readiness and dependency
+  tests.
+- Freeze current execution behavior with replay or snapshot coverage, then extract
+  operator routing and queue claim or retry or lease logic out of `orchestrator.py`
+  into dedicated execution services without changing behavior.
+- Continue the orchestrator split by extracting step dependency or execution, approval
+  pause or resume, and human-task routing seams behind a thinner orchestration facade.
+- Split `tool_execution.py` into adapter-focused modules for artifact handling, BrowserAct
+  extraction, and connector dispatch, and remove hidden in-memory dependency fallback
+  from the service constructor.
+- Add memory reasoning services for context packs, promotion, conflicts, and commitment
+  risk so the runtime can synthesize task-ready context from the existing memory substrate.
+- Make worker topology explicit in compose with `ea-api`, `ea-worker`, and `ea-scheduler`,
+  improve worker logging and idle backoff, split the giant smoke runtime API file,
+  and trim the root README into a runtime-first guide.
+- Promote milestone capability:artifact_principal_ownership_projection
+- Promote milestone capability:planner_human_task_branch_projection
+- Promote milestone capability:planner_human_task_auto_preselection
+- Promote milestone capability:browseract_account_inventory_tool_execution_slice
+- Promote milestone capability:human_task_assignment_state_visibility
+- Promote milestone capability:human_task_priority_filters
+- Promote milestone capability:human_task_ownerless_backlog_alias
+- Promote milestone capability:session_ownerless_projection_created_order
+- Promote milestone capability:session_scoped_human_task_assignment_source_filters
+- Promote milestone capability:async_queue_projection_task_identity
+- Promote milestone capability:plan_step_operational_semantics_projection
+- Promote milestone capability:tool_then_artifact_workflow_template
+- Promote milestone capability:inline_retry_drain_runtime
+- Promote milestone capability:skill_provider_hint_filtering

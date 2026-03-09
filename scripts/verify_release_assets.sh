@@ -234,6 +234,34 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "policy_plane_principal_scope_enforcement")
+assert capability["status"] == "released"
+PY
+then
+  if grep -Fq "Principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes treat body/query \`principal_id\` as compatibility input only; mismatches against the request principal fail with \`403 principal_scope_mismatch\`." "README.md" && \
+     grep -Fq "| GET | \`/v1/policy/decisions/recent\` | \`200\` | \`403 principal_scope_mismatch\`, \`404 session_not_found\` when \`session_id\` is scoped to another principal |" "RUNBOOK.md" && \
+     grep -Fq "| POST | \`/v1/policy/evaluate\` | \`200\` | validation \`422\`, \`403 principal_scope_mismatch\` |" "RUNBOOK.md" && \
+     grep -Fq "| GET | \`/v1/policy/approvals/history\` | \`200\` | \`403 principal_scope_mismatch\`, \`404 session_not_found\` when \`session_id\` is scoped to another principal" "RUNBOOK.md" && \
+     grep -Fq "POLICY_EVAL_SCOPE_MISMATCH_REASON" "scripts/smoke_api.sh" && \
+     grep -Fq 'foreign_approve.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
+     grep -Fq 'history_foreign.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
+     grep -Fq "decided_by_scope_mismatch" "tests/test_policy_scope_contracts.py" && \
+     grep -Fq "policy_plane_principal_scope_enforcement" "CHANGELOG.md"; then
+    echo "ok: policy plane principal-scope release coverage"
+  else
+    echo "missing: policy plane principal-scope release coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: policy plane principal-scope milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_lookup_api_exposure")
 assert capability["status"] == "released"
 PY

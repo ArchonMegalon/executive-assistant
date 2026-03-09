@@ -5,6 +5,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 ## 2026-03-06
 
 ### Changed
+- Promoted milestone capability `policy_plane_principal_scope_enforcement` to released, so release/operator guards now pin the existing policy-plane principal-scope docs plus smoke and focused approval-scope coverage as current branch baseline behavior.
 - Promoted milestone capability `step_io_contract_enforcement` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused contract coverage proving queued step execution only merges declared dependency inputs and fails missing declared outputs before completion as current branch baseline behavior.
 - Promoted milestone capability `session_human_task_assignment_history_projection` to released, so release/operator guards now pin inline session `human_task_assignment_history[]` assignment-history visibility as current branch baseline behavior.
 - Promoted milestone capability `human_task_review_contract_metadata` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus smoke, planner, and focused Postgres review-contract metadata coverage as current branch baseline behavior.

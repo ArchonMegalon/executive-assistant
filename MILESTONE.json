@@ -182,13 +182,13 @@
     },
     {
       "name": "policy_plane_principal_scope_enforcement",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "policy_evaluate_principal_scope",
         "policy_audit_principal_scope",
         "approval_mutation_principal_scope"
       ],
-      "notes": "The policy plane now resolves body `principal_id` against request context, filters decision/pending/history views to the effective principal, and rejects foreign-principal approval mutations with `403 principal_scope_mismatch`."
+      "notes": "The policy plane now resolves body `principal_id` against request context, filters decision/pending/history views to the effective principal, rejects foreign-principal approval mutations with `403 principal_scope_mismatch`, and is pinned by release/operator guards across the existing docs, smoke coverage, and focused policy-scope tests."
     },
     {
       "name": "artifact_lookup_api_exposure",
