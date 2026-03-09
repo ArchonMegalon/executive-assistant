@@ -25,6 +25,10 @@ from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
 
+CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS = ("binding_id", "channel", "recipient", "content")
+CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS = ("metadata", "idempotency_key")
+CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY = "optional_passthrough"
+
 
 class ToolExecutionError(RuntimeError):
     pass
@@ -186,8 +190,9 @@ class ToolExecutionService:
                 version="v1",
                 input_schema_json={
                     "type": "object",
-                    "required": ["channel", "recipient", "content"],
+                    "required": list(CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS),
                     "properties": {
+                        "binding_id": {"type": "string"},
                         "channel": {"type": "string"},
                         "recipient": {"type": "string"},
                         "content": {"type": "string"},
@@ -199,7 +204,11 @@ class ToolExecutionService:
                     "type": "object",
                     "required": ["delivery_id", "status", "tool_name", "action_kind"],
                 },
-                policy_json={"builtin": True, "action_kind": "delivery.send"},
+                policy_json={
+                    "builtin": True,
+                    "action_kind": "delivery.send",
+                    "idempotency_key_policy": CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
+                },
                 allowed_channels=("email", "slack", "telegram"),
                 approval_default="manager",
                 enabled=True,

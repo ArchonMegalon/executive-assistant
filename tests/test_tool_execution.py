@@ -11,7 +11,13 @@ from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
-from app.services.tool_execution import ToolExecutionError, ToolExecutionService
+from app.services.tool_execution import (
+    CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
+    CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS,
+    CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS,
+    ToolExecutionError,
+    ToolExecutionService,
+)
 from app.services.tool_runtime import ToolRuntimeService
 
 
@@ -246,6 +252,134 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
     assert result.receipt_json["invocation_contract"] == "tool.v1"
     pending = channel_runtime.list_pending_delivery(limit=10)
     assert any(row.delivery_id == result.target_ref for row in pending)
+
+
+def test_connector_dispatch_builtin_schema_matches_executor_contract() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=ChannelRuntimeService(
+            observations=InMemoryObservationEventRepository(),
+            outbox=InMemoryDeliveryOutboxRepository(),
+        ),
+    )
+
+    tool = tool_runtime.get_tool("connector.dispatch")
+
+    assert service is not None
+    assert tool is not None
+    assert tuple(tool.input_schema_json.get("required") or ()) == CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS
+    assert set(CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS).issubset(tool.input_schema_json["properties"])
+    assert set(CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS).issubset(tool.input_schema_json["properties"])
+    assert tool.policy_json["idempotency_key_policy"] == CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "expected_error"),
+    [
+        ("binding_id", "connector_binding_required:connector.dispatch"),
+    ],
+)
+def test_connector_dispatch_executor_required_fields_match_declared_schema(
+    missing_field: str,
+    expected_error: str,
+) -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-required-contract",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+    payload = {
+        "binding_id": binding.binding_id,
+        "channel": "email",
+        "recipient": "ops@example.com",
+        "content": "queued dispatch",
+    }
+    payload.pop(missing_field)
+
+    tool = tool_runtime.get_tool("connector.dispatch")
+
+    assert tool is not None
+    assert missing_field in tuple(tool.input_schema_json.get("required") or ())
+    with pytest.raises(ToolExecutionError, match=expected_error):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-contract-1",
+                step_id="step-contract-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json=payload,
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-optional-idem",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    tool = tool_runtime.get_tool("connector.dispatch")
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-optional-idem-1",
+            step_id="step-optional-idem-1",
+            tool_name="connector.dispatch",
+            action_kind="delivery.send",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "queued dispatch",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert tool is not None
+    assert "idempotency_key" not in tuple(tool.input_schema_json.get("required") or ())
+    assert tool.policy_json["idempotency_key_policy"] == CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY
+    assert result.output_json["idempotency_key"] == ""
+    pending = channel_runtime.list_pending_delivery(limit=10)
+    assert any(row.delivery_id == result.target_ref and row.idempotency_key == "" for row in pending)
 
 
 def test_tool_execution_service_executes_builtin_browseract_extract_handler() -> None:

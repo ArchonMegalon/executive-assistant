@@ -5,6 +5,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 ## 2026-03-06
 
 ### Changed
+- The built-in `connector.dispatch` tool definition now explicitly requires `binding_id`, declares `idempotency_key` as an optional passthrough policy, and is pinned by focused schema-versus-executor contract tests so the registry schema cannot drift from the execution handler silently.
 - Promoted milestone capability `policy_plane_principal_scope_enforcement` to released, so release/operator guards now pin the existing policy-plane principal-scope docs plus smoke and focused approval-scope coverage as current branch baseline behavior.
 - Promoted milestone capability `step_io_contract_enforcement` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused contract coverage proving queued step execution only merges declared dependency inputs and fails missing declared outputs before completion as current branch baseline behavior.
 - Promoted milestone capability `session_human_task_assignment_history_projection` to released, so release/operator guards now pin inline session `human_task_assignment_history[]` assignment-history visibility as current branch baseline behavior.
