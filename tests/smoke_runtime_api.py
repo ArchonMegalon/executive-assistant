@@ -2558,6 +2558,38 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         == "connector_dispatch_channel_not_allowed:sms:email,slack,telegram"
     )
 
+    readonly_binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "gmail",
+            "external_account_ref": "ops-readonly",
+            "scope_json": {"scopes": ["mail.readonly"]},
+            "auth_metadata_json": {"provider": "google"},
+            "status": "enabled",
+        },
+    )
+    assert readonly_binding.status_code == 200
+
+    execute_scope_mismatch = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "connector.dispatch",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "principal_id": "exec-1",
+                "binding_id": readonly_binding.json()["binding_id"],
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "Should fail scope validation",
+            },
+        },
+    )
+    assert execute_scope_mismatch.status_code == 403
+    assert execute_scope_mismatch.json()["error"]["code"] == (
+        "connector_binding_scope_mismatch:"
+        f"{readonly_binding.json()['binding_id']}:email,email.send,mail,mail.send,send.mail"
+    )
+
     mismatch = client.get("/v1/connectors/bindings", params={"principal_id": "exec-2", "limit": 10})
     assert mismatch.status_code == 403
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
@@ -2577,6 +2609,34 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     )
     assert browseract_execute_mismatch.status_code == 403
     assert browseract_execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+    browseract_binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-primary",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+            "status": "enabled",
+        },
+    )
+    assert browseract_binding.status_code == 200
+
+    browseract_scope_mismatch = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "browseract.extract_account_facts",
+            "action_kind": "account.extract",
+            "payload_json": {
+                "binding_id": browseract_binding.json()["binding_id"],
+                "service_name": "Teable",
+            },
+        },
+    )
+    assert browseract_scope_mismatch.status_code == 403
+    assert browseract_scope_mismatch.json()["error"]["code"] == (
+        f"connector_binding_scope_mismatch:{browseract_binding.json()['binding_id']}:teable"
+    )
 
     unsigned_client = _client(storage_backend="memory", principal_id="")
     unsigned_binding = unsigned_client.post(

@@ -141,7 +141,7 @@ def execute_tool(
         detail = str(exc or "tool_execution_failed")
         if detail.startswith("tool_not_registered:") or detail.startswith("connector_binding_not_found:"):
             status_code = 404
-        elif detail == "principal_scope_mismatch":
+        elif detail == "principal_scope_mismatch" or detail.startswith("connector_binding_scope_mismatch:"):
             status_code = 403
         elif detail.startswith("connector_binding_required:") or detail == "tool_name_required":
             status_code = 400

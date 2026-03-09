@@ -1205,7 +1205,7 @@ def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_err
     )
 
 
-def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
+def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -1248,6 +1248,10 @@ def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
     assert str(exc.value) == (
         f"connector_binding_scope_mismatch:{binding.binding_id}:email,email.send,mail,mail.send,send.mail"
     )
+
+
+def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
+    test_tool_execution_service_rejects_foreign_connector_binding_scope()
 
 
 def test_tool_execution_service_rejects_foreign_browseract_binding_scope() -> None:
