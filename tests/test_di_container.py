@@ -286,6 +286,23 @@ def test_routes_use_app_state_container_dependency() -> None:
     assert resp.json()["content"] == "fake-content"
 
 
+def test_non_prod_mode_allows_default_principal_fallback() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _FakeContainer()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/rewrite/artifact",
+        json={"text": "fallback-principal"},
+    )
+    assert response.status_code == 200
+    assert response.json()["principal_id"] == "local-user"
+
+
 def test_prod_mode_rejects_default_principal_fallback() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = "secret-token"

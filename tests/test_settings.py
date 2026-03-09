@@ -129,3 +129,14 @@ def test_readiness_service_rejects_prod_without_api_token() -> None:
     ready, reason = ReadinessService(settings).check()
     assert ready is False
     assert reason == "prod_api_token_missing"
+
+
+def test_readiness_service_rejects_prod_with_whitespace_api_token() -> None:
+    settings = SimpleNamespace(
+        runtime=SimpleNamespace(mode="prod"),
+        storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
+        auth=SimpleNamespace(api_token="  \t"),
+    )
+    ready, reason = ReadinessService(settings).check()
+    assert ready is False
+    assert reason == "prod_api_token_missing"
