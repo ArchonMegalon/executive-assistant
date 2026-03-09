@@ -2500,6 +2500,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": binding_id,
                 "channel": "email",
                 "recipient": "ops@example.com",
@@ -2525,6 +2526,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": binding_id,
                 "channel": "email",
                 "recipient": "ops@example.com",
@@ -2542,6 +2544,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": binding_id,
                 "channel": "sms",
                 "recipient": "ops@example.com",
@@ -2611,6 +2614,7 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": binding_id,
                 "service_name": "BrowserAct",
                 "requested_fields": ["tier", "account_email", "status"],
@@ -2639,6 +2643,7 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
             "tool_name": "browseract.extract_account_inventory",
             "action_kind": "account.extract_inventory",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": binding_id,
                 "service_names": ["BrowserAct", "Teable", "UnknownService"],
                 "requested_fields": ["tier", "account_email", "status"],

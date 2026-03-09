@@ -234,6 +234,7 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
             action_kind="delivery.send",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "channel": "email",
                 "recipient": "ops@example.com",
                 "content": "queued dispatch",
@@ -311,6 +312,7 @@ def test_connector_dispatch_executor_required_fields_match_declared_schema(
     )
     payload = {
         "binding_id": binding.binding_id,
+        "principal_id": "exec-1",
         "channel": "email",
         "recipient": "ops@example.com",
         "content": "queued dispatch",
@@ -366,6 +368,7 @@ def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -
             action_kind="delivery.send",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "channel": "email",
                 "recipient": "ops@example.com",
                 "content": "queued dispatch",
@@ -458,6 +461,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
                 action_kind="delivery.send",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "channel": "sms",
                     "recipient": "ops@example.com",
                     "content": "blocked dispatch",
@@ -499,6 +503,7 @@ def test_connector_dispatch_executor_rejects_principal_scope_mismatch() -> None:
                 action_kind="delivery.send",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "channel": "email",
                     "recipient": "ops@example.com",
                     "content": "blocked dispatch",
@@ -539,6 +544,7 @@ def test_connector_dispatch_executor_normalizes_channel_for_allowed_channels() -
             action_kind="delivery.send",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "channel": "EMAIL",
                 "recipient": "ops@example.com",
                 "content": "queued dispatch",
@@ -614,6 +620,7 @@ def test_connector_dispatch_executor_enforces_sorted_allowed_channels_determinis
                 action_kind="delivery.send",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "channel": "push",
                     "recipient": "ops@example.com",
                     "content": "blocked dispatch",
@@ -727,6 +734,7 @@ def test_tool_execution_service_executes_builtin_browseract_extract_handler() ->
             action_kind="account.extract",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "service_name": "BrowserAct",
                 "requested_fields": ["tier", "account_email", "status"],
                 "instructions": "Use stored BrowserAct credentials",
@@ -792,6 +800,7 @@ def test_tool_execution_service_executes_builtin_browseract_inventory_handler() 
             action_kind="account.extract_inventory",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "service_names": ["BrowserAct", "Teable", "UnknownService"],
                 "requested_fields": ["tier", "account_email", "status"],
                 "instructions": "Use stored BrowserAct credentials",
@@ -864,6 +873,7 @@ def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_err
             action_kind="account.extract_inventory",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "service_names": ["BrowserAct", "UnknownService"],
                 "requested_fields": ["tier", "account_email", "status"],
                 "run_url": "https://browseract.example/run",
@@ -881,7 +891,7 @@ def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_err
     )
 
 
-def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> None:
+def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -899,12 +909,15 @@ def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> Non
         principal_id="exec-1",
         connector_name="gmail",
         external_account_ref="acct-1",
-        scope_json={"scopes": ["mail.send"]},
+        scope_json={"scopes": ["mail.readonly"]},
         auth_metadata_json={"provider": "google"},
         status="enabled",
     )
 
-    with pytest.raises(ToolExecutionError, match="principal_scope_mismatch"):
+    with pytest.raises(
+        ToolExecutionError,
+        match=r"connector_binding_scope_mismatch:.*:email,email.send,mail.send,send.mail",
+    ):
         service.execute_invocation(
             ToolInvocationRequest(
                 session_id="session-3",
@@ -913,11 +926,12 @@ def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> Non
                 action_kind="delivery.send",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "channel": "email",
                     "recipient": "ops@example.com",
                     "content": "blocked dispatch",
                 },
-                context_json={"principal_id": "exec-2"},
+                context_json={"principal_id": "exec-1"},
             )
         )
 
@@ -949,6 +963,7 @@ def test_tool_execution_service_rejects_foreign_browseract_binding_scope() -> No
                 action_kind="account.extract",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "service_name": "BrowserAct",
                 },
                 context_json={"principal_id": "exec-2"},
@@ -1021,6 +1036,7 @@ def test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_de
             action_kind="delivery.send",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "channel": "email",
                 "recipient": "ops@example.com",
                 "content": "self-healed dispatch",
@@ -1063,6 +1079,7 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_definition
             action_kind="account.extract",
             payload_json={
                 "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
                 "service_name": "BrowserAct",
             },
             context_json={"principal_id": "exec-1"},

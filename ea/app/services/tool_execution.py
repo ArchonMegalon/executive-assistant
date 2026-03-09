@@ -28,6 +28,11 @@ ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInv
 CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS = ("binding_id", "channel", "recipient", "content")
 CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS = ("metadata", "idempotency_key")
 CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY = "optional_passthrough"
+CONNECTOR_CHANNEL_SCOPE_REQUIREMENTS = {
+    "email": ("mail.send", "email.send", "send.mail"),
+    "slack": ("chat.write", "chat.post", "slack.send", "slack.post"),
+    "telegram": ("telegram.send", "telegram.post", "send.telegram"),
+}
 
 
 class ToolExecutionError(RuntimeError):
@@ -441,10 +446,16 @@ class ToolExecutionService:
         *,
         required_connector_name: str | None = None,
         required_input_error: str = "connector_binding_required:connector.dispatch",
+        required_scopes: tuple[str, ...] | None = None,
     ):
         principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
         if not principal_id:
             raise ToolExecutionError("principal_id_required")
+        supplied_principal_id = str(payload.get("principal_id") or "").strip()
+        if not supplied_principal_id:
+            raise ToolExecutionError("principal_id_required")
+        if supplied_principal_id != principal_id:
+            raise ToolExecutionError("principal_scope_mismatch")
         binding_id = str(payload.get("binding_id") or "").strip()
         if not binding_id:
             raise ToolExecutionError(required_input_error)
@@ -460,7 +471,48 @@ class ToolExecutionService:
             expected = str(required_connector_name or "").strip().lower()
             if str(binding.connector_name or "").strip().lower() != expected:
                 raise ToolExecutionError(f"connector_binding_connector_mismatch:{binding_id}")
+        requested_scopes = self._normalized_connector_scopes(required_scopes or ())
+        if requested_scopes:
+            configured_scopes = self._configured_connector_scopes(binding.scope_json)
+            if not set(requested_scopes).intersection(configured_scopes):
+                raise ToolExecutionError(
+                    f"connector_binding_scope_mismatch:{binding_id}:{','.join(requested_scopes)}"
+                )
         return principal_id, binding
+
+    def _normalized_connector_scopes(self, scopes: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
+        normalized = {str(scope or "").strip().lower() for scope in scopes}
+        return tuple(sorted(value for value in normalized if value))
+
+    def _configured_connector_scopes(self, scope_json: dict[str, object]) -> tuple[str, ...]:
+        raw = scope_json.get("scopes")
+        values = ()
+        if isinstance(raw, (list, tuple)):
+            values = tuple(str(value or "").strip() for value in raw)
+        return self._normalised_scopes(values)
+
+    def _channel_dispatch_scopes(self, channel: str) -> tuple[str, ...]:
+        normalized_channel = str(channel or "").strip().lower()
+        return self._normalised_scopes(CONNECTOR_CHANNEL_SCOPE_REQUIREMENTS.get(normalized_channel, (normalized_channel + ".send",))
+
+    def _normalised_scopes(self, scopes: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
+        normalized: set[str] = set()
+        for scope in scopes:
+            value = str(scope or "").strip().lower()
+            if not value:
+                continue
+            normalized.add(value)
+            if value.startswith("channel:"):
+                normalized.add(value.split(":", 1)[-1])
+            if value == "mail.send":
+                normalized.update(("email", "email.send"))
+            if value == "chat.post":
+                normalized.update(("slack", "chat.write"))
+            if value == "telegram.send":
+                normalized.add("telegram")
+            if value.endswith(".send"):
+                normalized.add(value.rsplit(".", 1)[0])
+        return tuple(sorted(normalized))
 
     def _normalized_allowed_channels(self, definition: ToolDefinition) -> tuple[str, ...]:
         values = {str(raw or "").strip().lower() for raw in definition.allowed_channels}
@@ -835,6 +887,14 @@ class ToolExecutionService:
         )
         channel = str(payload.get("channel") or "").strip()
         normalized_channel = channel.lower()
+        required_scopes = self._channel_dispatch_scopes(normalized_channel)
+        _, binding = self._resolve_connector_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:connector.dispatch",
+            required_scopes=required_scopes,
+            required_connector_name=None,
+        )
         allowed_channels = self._normalized_allowed_channels(definition)
         if allowed_channels:
             if not normalized_channel:
