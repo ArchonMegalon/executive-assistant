@@ -27,6 +27,7 @@ ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInv
 
 CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS = ("binding_id", "channel", "recipient", "content")
 CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS = ("metadata", "idempotency_key")
+CONNECTOR_DISPATCH_ALLOWED_CHANNELS = ("email", "slack", "telegram")
 CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY = "optional_passthrough"
 CONNECTOR_CHANNEL_SCOPE_REQUIREMENTS = {
     "email": ("mail.send", "email.send", "send.mail"),
@@ -214,7 +215,7 @@ class ToolExecutionService:
                     "action_kind": "delivery.send",
                     "idempotency_key_policy": CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
                 },
-                allowed_channels=("email", "slack", "telegram"),
+                allowed_channels=CONNECTOR_DISPATCH_ALLOWED_CHANNELS,
                 approval_default="manager",
                 enabled=True,
             )
@@ -909,6 +910,8 @@ class ToolExecutionService:
         channel = str(payload.get("channel") or "").strip()
         normalized_channel = channel.lower()
         allowed_channels = self._normalized_allowed_channels(definition)
+        if not allowed_channels:
+            allowed_channels = tuple(sorted(CONNECTOR_DISPATCH_ALLOWED_CHANNELS))
         if not normalized_channel:
             raise ToolExecutionError("connector_dispatch_channel_required")
         if allowed_channels and normalized_channel not in allowed_channels:

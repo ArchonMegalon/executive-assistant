@@ -428,6 +428,77 @@ def test_connector_dispatch_executor_accepts_missing_payload_principal_when_requ
     assert result.receipt_json["principal_id"] == "exec-1"
 
 
+def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_tool_definition_is_missing_it() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-fallback-channels",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+    tool_runtime.upsert_tool(
+        tool_name="connector.dispatch",
+        version="v1",
+        input_schema_json={
+            "type": "object",
+            "required": ["binding_id", "channel", "recipient", "content"],
+            "properties": {
+                "binding_id": {"type": "string"},
+                "channel": {"type": "string"},
+                "recipient": {"type": "string"},
+                "content": {"type": "string"},
+            },
+        },
+        output_schema_json={
+            "type": "object",
+            "required": ["delivery_id", "status", "tool_name", "action_kind"],
+        },
+        policy_json={
+            "builtin": True,
+            "action_kind": "delivery.send",
+            "idempotency_key_policy": CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
+        },
+        allowed_channels=(),
+        approval_default="manager",
+        enabled=True,
+    )
+
+    with pytest.raises(
+        ToolExecutionError,
+        match="connector_dispatch_channel_not_allowed:sms:email,slack,telegram",
+    ):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-channel-fallback-1",
+                step_id="step-channel-fallback-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                    "channel": "sms",
+                    "recipient": "ops@example.com",
+                    "content": "blocked by fallback channels",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
 def test_connector_dispatch_executor_rejects_missing_principal_id() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -884,7 +955,7 @@ def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
         status="enabled",
     )
 
-    with pytest.raises(ToolExecutionError, match="connector_binding_scope_mismatch:.*:teable"):
+    with pytest.raises(ToolExecutionError) as exc:
         service.execute_invocation(
             ToolInvocationRequest(
                 session_id="session-browseract-scope-mismatch-1",
@@ -898,6 +969,7 @@ def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
                 context_json={"principal_id": "exec-1"},
             )
         )
+    assert str(exc.value) == f"connector_binding_scope_mismatch:{binding.binding_id}:teable"
 
 
 def test_tool_execution_service_executes_builtin_browseract_extract_handler() -> None:
@@ -1114,10 +1186,7 @@ def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
         status="enabled",
     )
 
-    with pytest.raises(
-        ToolExecutionError,
-        match=r"connector_binding_scope_mismatch:.*:email,email.send,mail.send,send.mail",
-    ):
+    with pytest.raises(ToolExecutionError) as exc:
         service.execute_invocation(
             ToolInvocationRequest(
                 session_id="session-3",
@@ -1134,6 +1203,9 @@ def test_tool_execution_service_rejects_connector_scope_mismatch() -> None:
                 context_json={"principal_id": "exec-1"},
             )
         )
+    assert str(exc.value) == (
+        f"connector_binding_scope_mismatch:{binding.binding_id}:email,email.send,mail,mail.send,send.mail"
+    )
 
 
 def test_tool_execution_service_rejects_foreign_browseract_binding_scope() -> None:
