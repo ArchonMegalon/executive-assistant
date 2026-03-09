@@ -5173,8 +5173,74 @@ def test_auth_allow_and_deny() -> None:
     assert health.status_code == 200
 
 
+def test_prod_mode_rejects_default_principal_fallback() -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+    try:
+        os.environ["EA_RUNTIME_MODE"] = "prod"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ.pop("EA_LEDGER_BACKEND", None)
+        os.environ.pop("DATABASE_URL", None)
+
+        from app.api.app import create_app
+
+        client = TestClient(create_app())
+        response = client.post(
+            "/v1/memory/candidates",
+            headers={"Authorization": "Bearer secret-token"},
+            json={
+                "category": "stakeholder_pref",
+                "summary": "Principal fallback blocked in prod",
+                "fact_json": {"source": "smoke"},
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "principal_required"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_ready_fails_when_postgres_backend_without_database_url() -> None:
     client = _client(storage_backend="postgres", database_url="")
     ready = client.get("/health/ready")
     assert ready.status_code == 503
     assert ready.json()["error"]["code"].startswith("not_ready:")
+
+
+def test_prod_ready_fails_when_postgres_backend_not_configured() -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+    try:
+        os.environ["EA_RUNTIME_MODE"] = "prod"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ.pop("EA_LEDGER_BACKEND", None)
+        os.environ.pop("DATABASE_URL", None)
+
+        from app.api.app import create_app
+
+        client = TestClient(create_app())
+        ready = client.get("/health/ready")
+        assert ready.status_code == 503
+        assert ready.json()["error"]["code"] == "not_ready:prod_requires_postgres_backend"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

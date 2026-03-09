@@ -137,6 +137,14 @@ def ensure_storage_fallback_allowed(
     raise RuntimeError(message)
 
 
+def ensure_prod_api_token_configured(settings: Settings) -> None:
+    if settings.runtime.mode != "prod":
+        return
+    if str(settings.auth.api_token or "").strip():
+        return
+    raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set")
+
+
 def get_settings() -> Settings:
     app_name = (os.environ.get("EA_APP_NAME") or "ea-rewrite").strip() or "ea-rewrite"
     app_version = (os.environ.get("EA_APP_VERSION") or "0.3.0").strip() or "0.3.0"
@@ -172,7 +180,7 @@ def get_settings() -> Settings:
     approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
     default_list_limit = max(1, min(500, _to_int(os.environ.get("EA_CHANNEL_DEFAULT_LIMIT") or "50", 50)))
 
-    return Settings(
+    settings = Settings(
         core=CoreSettings(
             app_name=app_name,
             app_version=app_version,
@@ -196,3 +204,5 @@ def get_settings() -> Settings:
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
     )
+    ensure_prod_api_token_configured(settings)
+    return settings

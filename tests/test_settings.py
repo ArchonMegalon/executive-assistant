@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import warnings
+import pytest
 
 from app.settings import get_settings
 
@@ -82,9 +83,17 @@ def test_policy_threshold_overrides() -> None:
 def test_runtime_mode_prod_disables_storage_fallback() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "super-secret"
     s = get_settings()
     assert s.runtime.mode == "prod"
     assert s.storage_fallback_allowed is False
+
+
+def test_runtime_mode_prod_rejects_empty_api_token() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+        _ = get_settings()
 
 
 def test_runtime_mode_unknown_defaults_to_dev() -> None:
