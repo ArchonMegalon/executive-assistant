@@ -4457,6 +4457,110 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
     assert body_after["steps"][3]["state"] == "completed"
 
 
+def test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "research_brief",
+            "deliverable_type": "decision_summary",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["decision_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "artifact_then_memory_candidate",
+                "artifact_output_template": "evidence_pack",
+                "evidence_pack_confidence": 0.72,
+            },
+        },
+    )
+    assert contract.status_code == 200
+
+    first = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "research_brief",
+            "goal": "prepare an evidence-backed brief",
+            "input_json": {
+                "source_text": "Market conditions suggest two viable options.",
+                "claims": ["Option A preserves margin", "Option B accelerates launch"],
+                "evidence_refs": ["browseract://run/123", "paper://abc"],
+                "open_questions": ["Need final vendor pricing"],
+            },
+        },
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+
+    second = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "research_brief",
+            "goal": "prepare an evidence-backed brief",
+            "input_json": {
+                "source_text": "Support load may fall if the simpler option ships first.",
+                "claims": ["Option C reduces support load"],
+                "evidence_refs": ["paper://abc", "call://ops-review"],
+                "open_questions": ["Need service staffing forecast"],
+                "confidence": 0.58,
+            },
+        },
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+
+    listed = client.get(
+        "/v1/evidence/objects",
+        params={"limit": 10, "artifact_id": first_body["artifact_id"], "principal_id": "exec-1"},
+    )
+    assert listed.status_code == 200
+    rows = listed.json()
+    assert len(rows) == 1
+    assert rows[0]["artifact_id"] == first_body["artifact_id"]
+    assert rows[0]["claims"] == ["Option A preserves margin", "Option B accelerates launch"]
+    assert rows[0]["evidence_refs"] == ["browseract://run/123", "paper://abc"]
+    assert rows[0]["citation_handle"].startswith("evidence://")
+    first_evidence_id = rows[0]["evidence_id"]
+
+    ref_list = client.get("/v1/evidence/objects", params={"limit": 10, "evidence_ref": "paper://abc"})
+    assert ref_list.status_code == 200
+    ref_ids = {row["artifact_id"] for row in ref_list.json()}
+    assert first_body["artifact_id"] in ref_ids
+    assert second_body["artifact_id"] in ref_ids
+
+    fetched = client.get(f"/v1/evidence/objects/{first_evidence_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["artifact_id"] == first_body["artifact_id"]
+
+    second_evidence_id = next(
+        row["evidence_id"] for row in ref_list.json() if row["artifact_id"] == second_body["artifact_id"]
+    )
+    merged = client.post(
+        "/v1/evidence/merge",
+        json={"principal_id": "exec-1", "evidence_ids": [first_evidence_id, second_evidence_id]},
+    )
+    assert merged.status_code == 200
+    merged_body = merged.json()
+    assert merged_body["format"] == "evidence_pack"
+    assert merged_body["claims"] == [
+        "Option A preserves margin",
+        "Option B accelerates launch",
+        "Option C reduces support load",
+    ]
+    assert merged_body["evidence_refs"] == ["browseract://run/123", "paper://abc", "call://ops-review"]
+    assert merged_body["open_questions"] == ["Need final vendor pricing", "Need service staffing forecast"]
+    assert merged_body["source_artifact_ids"] == [first_body["artifact_id"], second_body["artifact_id"]]
+    assert len(merged_body["citation_handles"]) == 2
+
+    mismatch = client.get("/v1/evidence/objects", params={"limit": 10, "principal_id": "exec-2"})
+    assert mismatch.status_code == 403
+    assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+
 def test_memory_candidate_promotion_flow() -> None:
     client = _client(storage_backend="memory")
 

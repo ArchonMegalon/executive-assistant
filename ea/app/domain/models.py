@@ -37,6 +37,35 @@ class Artifact:
     attachments_json: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class EvidenceObject:
+    evidence_id: str
+    principal_id: str
+    artifact_id: str
+    execution_session_id: str
+    artifact_kind: str
+    summary: str
+    claims: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
+    confidence: float = 0.5
+    citation_handle: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class EvidenceMergeResult:
+    summary: str
+    claims: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
+    open_questions: tuple[str, ...]
+    confidence: float
+    source_evidence_ids: tuple[str, ...]
+    source_artifact_ids: tuple[str, ...]
+    citation_handles: tuple[str, ...]
+
+
 def artifact_preview_text(content: str, *, limit: int = 160) -> str:
     normalized = str(content or "")
     if len(normalized) <= limit:
@@ -52,6 +81,14 @@ def artifact_body_ref(artifact: Artifact) -> str:
     return str(artifact.body_ref or "").strip() or str(artifact.storage_handle or "").strip() or artifact_storage_handle(
         artifact.artifact_id
     )
+
+
+def evidence_object_id(artifact_id: str) -> str:
+    return f"evidence-{str(artifact_id or '').strip()}"
+
+
+def evidence_citation_handle(evidence_id: str) -> str:
+    return f"evidence://{str(evidence_id or '').strip()}"
 
 
 def normalize_artifact(artifact: Artifact) -> Artifact:

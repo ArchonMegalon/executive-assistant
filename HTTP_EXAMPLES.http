@@ -3,6 +3,7 @@
 @principal_id = exec-1
 @session_id = replace_me
 @artifact_id = replace_me
+@evidence_id = replace_me
 @receipt_id = replace_me
 @cost_id = replace_me
 @delivery_id = replace_me
@@ -61,6 +62,24 @@ X-EA-Principal-ID: {{principal_id}}
 ### Rewrite -> fetch artifact (includes principal_id ownership, originating task_key/deliverable_type, plus preview_text and storage_handle, plus mime_type, body_ref, and structured attachment metadata)
 GET {{host}}/v1/rewrite/artifacts/{{artifact_id}}
 X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> list materialized evidence-pack rows by artifact
+GET {{host}}/v1/evidence/objects?artifact_id={{artifact_id}}&principal_id={{principal_id}}&limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> fetch one evidence row
+GET {{host}}/v1/evidence/objects/{{evidence_id}}
+X-EA-Principal-ID: {{principal_id}}
+
+### Evidence -> merge cited evidence rows back into an evidence pack
+POST {{host}}/v1/evidence/merge
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "principal_id": "{{principal_id}}",
+  "evidence_ids": ["{{evidence_id}}"]
+}
 
 ### Rewrite -> fetch receipt (includes originating task_key and deliverable_type)
 GET {{host}}/v1/rewrite/receipts/{{receipt_id}}

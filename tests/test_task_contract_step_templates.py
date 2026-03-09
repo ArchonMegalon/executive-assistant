@@ -17,6 +17,7 @@ from app.repositories.decision_windows import InMemoryDecisionWindowRepository
 from app.repositories.deadline_windows import InMemoryDeadlineWindowRepository
 from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepository
 from app.repositories.entities import InMemoryEntityRepository
+from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.follow_ups import InMemoryFollowUpRepository
 from app.repositories.follow_up_rules import InMemoryFollowUpRuleRepository
 from app.repositories.interruption_budgets import InMemoryInterruptionBudgetRepository
@@ -29,6 +30,7 @@ from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
+from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.orchestrator import HumanTaskRequiredError, RewriteOrchestrator
 from app.services.planner import PlannerService
@@ -86,6 +88,7 @@ def _build_dispatch_runtime(
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
+    evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
     orchestrator = RewriteOrchestrator(
         artifacts=artifacts,
         ledger=InMemoryExecutionLedgerRepository(),
@@ -98,6 +101,7 @@ def _build_dispatch_runtime(
             tool_runtime=tool_runtime,
             artifacts=artifacts,
             channel_runtime=channel_runtime,
+            evidence_runtime=evidence_runtime,
         ),
     )
     return orchestrator, channel_runtime, tool_runtime
@@ -145,6 +149,7 @@ def _build_memory_candidate_runtime(
         interruption_budgets=InMemoryInterruptionBudgetRepository(),
     )
     artifacts = InMemoryArtifactRepository()
+    evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
     orchestrator = RewriteOrchestrator(
         artifacts=artifacts,
         ledger=InMemoryExecutionLedgerRepository(),
@@ -160,6 +165,7 @@ def _build_memory_candidate_runtime(
                 connector_bindings=InMemoryConnectorBindingRepository(),
             ),
             artifacts=artifacts,
+            evidence_runtime=evidence_runtime,
         ),
     )
     return orchestrator, memory_runtime
@@ -1513,6 +1519,7 @@ def test_planner_can_project_evidence_pack_artifact_output_template() -> None:
 
     prepare_step = plan.steps[0]
     artifact_step = plan.steps[2]
+    memory_step = plan.steps[3]
     assert prepare_step.output_keys == (
         "normalized_text",
         "text_length",
@@ -1525,6 +1532,9 @@ def test_planner_can_project_evidence_pack_artifact_output_template() -> None:
     assert "structured_output_json" in artifact_step.input_keys
     assert "preview_text" in artifact_step.input_keys
     assert "mime_type" in artifact_step.input_keys
+    assert artifact_step.output_keys == ("artifact_id", "receipt_id", "cost_id", "evidence_object_id", "citation_handle")
+    assert "evidence_object_id" in memory_step.input_keys
+    assert "citation_handle" in memory_step.input_keys
 
 
 def test_artifact_then_memory_candidate_evidence_pack_persists_structured_output() -> None:
@@ -1565,3 +1575,5 @@ def test_artifact_then_memory_candidate_evidence_pack_persists_structured_output
     assert candidates[0].fact_json["evidence_refs"] == ["browseract://run/123", "paper://abc"]
     assert candidates[0].fact_json["open_questions"] == ["Need final vendor pricing"]
     assert candidates[0].fact_json["evidence_pack"] == artifact.structured_output_json
+    assert candidates[0].fact_json["evidence_object_id"].startswith("evidence-")
+    assert candidates[0].fact_json["citation_handle"].startswith("evidence://evidence-")

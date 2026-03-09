@@ -122,7 +122,7 @@
     },
     {
       "name": "smoke_and_release_gate_bundle",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "api_smoke_tests",
         "ci_smoke_workflow",
@@ -140,7 +140,7 @@
         "release_preflight_bundle",
         "docs_verify_alias"
       ],
-      "notes": "Local and CI smoke gates cover memory, Postgres, legacy migration, help-contract, and release-asset verification flows."
+      "notes": "Local and CI smoke gates cover memory, Postgres, legacy migration, help-contract, release-asset verification, and release-operator parity as current branch baseline behavior."
     },
     {
       "name": "postgres_contract_matrix",
@@ -157,11 +157,11 @@
     },
     {
       "name": "rewrite_policy_disallowed_tool_api_coverage",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_tool_contract_denial_api"
       ],
-      "notes": "HTTP-level coverage now asserts that rewrite contracts denying `artifact_repository` return `policy_denied:tool_not_allowed`."
+      "notes": "HTTP-level coverage asserts that rewrite contracts denying `artifact_repository` return `policy_denied:tool_not_allowed`, and the release/operator guards now pin that denial contract as current branch baseline behavior."
     },
     {
       "name": "support_bundle_pgdata_attribution",
@@ -173,12 +173,12 @@
     },
     {
       "name": "external_action_policy_api_exposure",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "policy_external_action_api_coverage",
         "policy_step_action_metadata_projection"
       ],
-      "notes": "HTTP policy evaluation now exposes external-send approval checks directly, echoes the evaluated `step_kind|authority_class|review_class` contract, and matches the queued runtime policy step's action-aware decision path."
+      "notes": "HTTP policy evaluation now exposes external-send approval checks directly, echoes the evaluated `step_kind|authority_class|review_class` contract, matches the queued runtime policy step's action-aware decision path, and is pinned by release/operator guards as current branch baseline behavior."
     },
     {
       "name": "policy_plane_principal_scope_enforcement",
@@ -192,11 +192,11 @@
     },
     {
       "name": "artifact_lookup_api_exposure",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_artifact_fetch_api"
       ],
-      "notes": "Rewrite artifacts can now be fetched directly over HTTP, with README/RUNBOOK examples plus approved smoke-path coverage keeping the durable artifact store observable."
+      "notes": "Rewrite artifacts can now be fetched directly over HTTP, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke-path lookup contract as current branch baseline behavior."
     },
     {
       "name": "receipt_and_run_cost_lookup_api_exposure",
@@ -209,11 +209,11 @@
     },
     {
       "name": "approval_resume_execution",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "approved_rewrite_inline_resume"
       ],
-      "notes": "Approving a paused rewrite now resumes the existing execution step and completes artifact/receipt/run-cost persistence instead of leaving the session stranded in an intermediate state."
+      "notes": "Approving a paused rewrite now resumes the existing execution step and completes artifact/receipt/run-cost persistence instead of leaving the session stranded in an intermediate state, and the release/operator guards pin that approval-resume contract as current branch baseline behavior."
     },
     {
       "name": "execution_queue_inline_worker",
@@ -227,12 +227,12 @@
     },
     {
       "name": "runtime_mode_fail_fast_storage",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "runtime_mode_prod",
         "storage_fallback_guard"
       ],
-      "notes": "Setting `EA_RUNTIME_MODE=prod` now forces durable Postgres boot, rejects memory/auto fallback degradation, and is asserted by the approved Postgres smoke path."
+      "notes": "Setting `EA_RUNTIME_MODE=prod` now forces durable Postgres boot, rejects memory/auto fallback degradation, and is pinned by the approved Postgres smoke path plus release/operator guards as current branch baseline behavior."
     },
     {
       "name": "principal_request_context_guardrails",
@@ -249,7 +249,7 @@
     },
     {
       "name": "principal_scoped_rewrite_and_plan_routes",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_route_principal_derivation",
         "rewrite_session_fetch_scope_guard",
@@ -273,13 +273,13 @@
     },
     {
       "name": "session_principal_scoped_human_task_routes",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_create_session_principal_guard",
         "human_task_session_list_principal_guard",
         "cross_principal_session_attach_block"
       ],
-      "notes": "Session-bound human task creation and `GET /v1/human/tasks?session_id=...` now enforce that the request principal matches the linked execution session principal, rejecting foreign-principal attach/list attempts with `403 principal_scope_mismatch`."
+      "notes": "Session-bound human task creation and `GET /v1/human/tasks?session_id=...` now enforce that the request principal matches the linked execution session principal, rejecting foreign-principal attach/list attempts with `403 principal_scope_mismatch`, and the release/operator guards now pin that session-thread boundary as current branch baseline behavior."
     },
     {
       "name": "typed_step_handler_gateway",
@@ -295,14 +295,14 @@
     },
     {
       "name": "planner_dependency_graph_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_step_dependencies",
         "plan_step_input_keys",
         "plan_step_output_keys",
         "approval_target_step_alignment"
       ],
-      "notes": "Planner output now exposes dependency/input/output metadata for each rewrite step, and approval pauses on the actual approval-gated step after the non-side-effect prefix has already completed."
+      "notes": "Planner output now exposes dependency/input/output metadata for each rewrite step, approval pauses on the actual approval-gated step after the non-side-effect prefix has already completed, and the release/operator guards pin that dependency-aware projection as current branch baseline behavior."
     },
     {
       "name": "dependency_aware_execution_scheduler",
@@ -317,12 +317,12 @@
     },
     {
       "name": "single_dependency_parent_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "parent_step_id_single_dependency_only",
         "join_step_parent_null"
       ],
-      "notes": "Runtime-created session steps now derive `parent_step_id` only from actual single-dependency edges, keeping multi-prerequisite joins parentless while `dependency_keys` and `dependency_states` carry the real graph shape."
+      "notes": "Runtime-created session steps now derive `parent_step_id` only from actual single-dependency edges, keeping multi-prerequisite joins parentless while `dependency_keys` and `dependency_states` carry the real graph shape, and the release/operator guards pin that truthful ancestry projection as current branch baseline behavior."
     },
     {
       "name": "queued_policy_step_audit_truthfulness",
@@ -336,13 +336,13 @@
     },
     {
       "name": "human_task_dependency_input_merge",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_dependency_input_merge",
         "normalized_text_to_human_packet",
         "dependency_text_length_projection"
       ],
-      "notes": "Queued human-review step execution now merges dependency outputs into the created packet input, so normalized text, source text, and text length follow the dependency graph instead of relying only on parent-step context."
+      "notes": "Queued human-review step execution now merges dependency outputs into the created packet input, so normalized text, source text, and text length follow the dependency graph instead of relying only on parent-step context, and release/operator guards pin that dependency-fed packet-input contract as current branch baseline behavior."
     },
     {
       "name": "planner_human_task_branch_projection",
@@ -357,14 +357,14 @@
     },
     {
       "name": "runtime_human_task_step_execution",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "rewrite_awaiting_human_acceptance_contract",
         "compiled_step_human_review_runtime",
         "human_task_step_pause_resume",
         "artifact_step_after_human_return"
       ],
-      "notes": "Rewrite execution now auto-runs compiled `step_human_review` plan nodes into real human task packets, returns `202 awaiting_human` while the queue pauses, and resumes the remaining steps when the packet is returned."
+      "notes": "Rewrite execution now auto-runs compiled `step_human_review` plan nodes into real human task packets, returns `202 awaiting_human` while the queue pauses, resumes the remaining steps when the packet is returned, and that pause/resume contract is pinned as current branch baseline behavior."
     },
     {
       "name": "human_review_payload_artifact_override",
@@ -378,14 +378,14 @@
     },
     {
       "name": "planner_human_review_operational_metadata",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_review_priority_projection",
         "human_review_sla_minutes_projection",
         "human_review_desired_output_projection",
         "runtime_review_packet_sla_priority"
       ],
-      "notes": "Task contracts can now project `priority`, relative SLA minutes, and `desired_output_json` onto compiled `step_human_review` nodes, and the runtime-created human task packet consumes that metadata directly for reviewer routing semantics."
+      "notes": "Task contracts can now project `priority`, relative SLA minutes, and `desired_output_json` onto compiled `step_human_review` nodes, the runtime-created human task packet consumes that metadata directly for reviewer routing semantics, and the release/operator guards pin that planner-to-runtime metadata contract as current branch baseline behavior."
     },
     {
       "name": "human_task_review_contract_metadata",
@@ -400,14 +400,14 @@
     },
     {
       "name": "operator_profile_specialized_backlog_routing",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "operator_profile_storage",
         "operator_role_skill_metadata",
         "backlog_operator_match_filter",
         "trust_tier_routing_gate"
       ],
-      "notes": "Principal-scoped operator profiles now persist `roles`, `skill_tags`, and `trust_tier`, and backlog views can filter pending human tasks to only the work a given reviewer profile is specialized and trusted to handle."
+      "notes": "Principal-scoped operator profiles now persist `roles`, `skill_tags`, and `trust_tier`, and the current branch baseline pins specialized backlog reads so pending human tasks only appear for reviewers whose profile matches the required role, skill tags, and trust tier."
     },
     {
       "name": "human_task_operator_assignment_hints",
@@ -422,7 +422,7 @@
     },
     {
       "name": "human_task_recommended_assignment_action",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "assign_route_optional_operator_id",
         "auto_assign_operator_id_consumption",
@@ -442,13 +442,13 @@
     },
     {
       "name": "human_task_assignment_source_visibility",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "assignment_source_storage",
         "assignment_source_api_projection",
         "manual_recommended_auto_preselected_labels"
       ],
-      "notes": "Human task packets now persist `assignment_source` so session/operator projections can distinguish manual assignment, route-level recommended assignment, and planner auto-preselection after later claim/return transitions."
+      "notes": "Human task packets now persist `assignment_source` so session/operator projections can distinguish manual assignment, route-level recommended assignment, and planner auto-preselection after later claim/return transitions, and release/operator guards now pin that source-visibility contract as current branch baseline behavior."
     },
     {
       "name": "human_task_assignment_provenance_fields",
@@ -463,13 +463,13 @@
     },
     {
       "name": "human_task_assignment_history_api",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "task_scoped_assignment_history_route",
         "ledger_backed_reassignment_audit",
         "recommended_manual_transition_sequence"
       ],
-      "notes": "Human task ownership transitions are now queryable via `GET /v1/human/tasks/{human_task_id}/assignment-history`, which filters the linked execution ledger down to `created`, `assigned`, `claimed`, and `returned` events so reassignment provenance survives current-state overwrites."
+      "notes": "Human task ownership transitions are now queryable via `GET /v1/human/tasks/{human_task_id}/assignment-history`, which filters the linked execution ledger down to `created`, `assigned`, `claimed`, and `returned` events so reassignment provenance survives current-state overwrites, and the release/operator guards now pin that route-level audit contract as current branch baseline behavior."
     },
     {
       "name": "session_human_task_assignment_history_projection",
@@ -483,17 +483,17 @@
     },
     {
       "name": "human_task_assignment_history_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "event_name_history_filter",
         "assigned_operator_history_filter",
         "assigned_by_actor_history_filter"
       ],
-      "notes": "The task-scoped assignment-history route now accepts `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` so operator tooling can isolate specific reassignment, claim, or return transitions without scanning the full chain."
+      "notes": "The task-scoped assignment-history route now accepts `event_name`, `assigned_operator_id`, and `assigned_by_actor_id` so operator tooling can isolate specific reassignment, claim, or return transitions without scanning the full chain, and the release/operator guards now pin those direct history filters as current branch baseline behavior."
     },
     {
       "name": "registry_backed_tool_execution_service",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "tool_execution_service",
         "artifact_repository_builtin_registration",
@@ -501,18 +501,18 @@
         "tool_v1_receipt_contract",
         "shared_tool_runtime_bootstrap"
       ],
-      "notes": "Tool-call rewrite steps now execute through a reusable `ToolExecutionService` backed by the tool registry, the built-in `artifact_repository` handler is registered automatically, missing built-in tool definitions self-heal before runtime execution fails, and receipts/events expose normalized invocation metadata."
+      "notes": "Tool-call rewrite steps now execute through a reusable `ToolExecutionService` backed by the tool registry, the built-in `artifact_repository` handler is registered automatically, missing built-in tool definitions self-heal before runtime execution fails, and the release/operator guards pin the normalized `tool.v1` receipt contract plus built-in registry bootstrap behavior as current branch baseline behavior."
     },
     {
       "name": "connector_dispatch_tool_execution_slice",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "connector_dispatch_builtin_registration",
         "tools_execute_route",
         "delivery_outbox_queue_dispatch",
         "tool_v1_dispatch_receipts"
       ],
-      "notes": "The built-in `connector.dispatch` handler is now wired into `ToolExecutionService`, exposed through `POST /v1/tools/execute`, and queues delivery outbox rows while returning normalized `tool.v1` receipt metadata."
+      "notes": "The built-in `connector.dispatch` handler is now wired into `ToolExecutionService`, exposed through `POST /v1/tools/execute`, queues delivery outbox rows while returning normalized `tool.v1` receipt metadata, and is pinned by release/operator guards as current branch baseline behavior."
     },
     {
       "name": "connector_dispatch_binding_scope_guardrails",
@@ -527,14 +527,14 @@
     },
     {
       "name": "browseract_account_facts_tool_execution_slice",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "browseract_builtin_registration",
         "browseract_connector_binding_fact_resolution",
         "browseract_structured_output_projection",
         "browseract_tool_v1_receipts"
       ],
-      "notes": "The built-in `browseract.extract_account_facts` handler is now wired into `ToolExecutionService`, exposed through `POST /v1/tools/execute`, and resolves BrowserAct-backed tier/email/status facts from a scoped connector binding while returning normalized `tool.v1` receipt metadata."
+      "notes": "The built-in `browseract.extract_account_facts` handler is now wired into `ToolExecutionService`, exposed through `POST /v1/tools/execute`, resolves BrowserAct-backed tier/email/status facts from a scoped connector binding while returning normalized `tool.v1` receipt metadata, and is pinned by release/operator guards as current branch baseline behavior."
     },
     {
       "name": "browseract_account_inventory_tool_execution_slice",
@@ -549,14 +549,14 @@
     },
     {
       "name": "browseract_live_discovery_input_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "browseract_run_url_schema_projection",
         "browseract_live_hint_output_audit",
         "browseract_step_input_contract_projection",
         "browseract_http_example_live_hints"
       ],
-      "notes": "The BrowserAct discovery slice now projects optional live-discovery inputs (`run_url`, `instructions`, and `account_hints_json`) through tool schemas, planner step input contracts, skill input schemas, direct tool outputs, and HTTP examples so BrowserAct-backed LTD verification can stay typed and auditable."
+      "notes": "The BrowserAct discovery slice now projects optional live-discovery inputs (`run_url`, `instructions`, and `account_hints_json`) through tool schemas, planner step input contracts, skill input schemas, direct tool outputs, and HTTP examples, and release/operator guards now pin that audited live-hint projection as current branch baseline behavior."
     },
     {
       "name": "approval_async_acceptance_contract",
@@ -571,14 +571,14 @@
     },
     {
       "name": "human_task_packets_kernel",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_storage_kernel",
         "human_task_session_linkage",
         "human_task_claim_return_api",
         "returned_from_human_ledger_events"
       ],
-      "notes": "Principal-scoped human task packets can now be created, listed, claimed, and returned over HTTP while staying linked to execution sessions/steps and surfacing in session projections plus host smoke and Postgres contract coverage."
+      "notes": "Principal-scoped human task packets can now be created, listed, claimed, and returned over HTTP while staying linked to execution sessions/steps and surfacing in session projections plus host smoke and Postgres contract coverage, and the release/operator guards now pin that packet lifecycle as current branch baseline behavior."
     },
     {
       "name": "human_task_pause_resume_session_flow",
@@ -593,13 +593,13 @@
     },
     {
       "name": "human_task_operator_queue_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_role_required_filter",
         "human_task_assigned_operator_filter",
         "human_task_overdue_only_filter"
       ],
-      "notes": "Human task queue listings now support role, assigned-operator, and overdue-SLA filters across both HTTP smoke coverage and the Postgres repository contract matrix."
+      "notes": "Human task queue listings now support role, assigned-operator, and overdue-SLA filters across both HTTP smoke coverage and the Postgres repository contract matrix, and the release/operator guards now pin that operator queue filtering contract as current branch baseline behavior."
     },
     {
       "name": "human_task_operator_backlog_endpoints",
@@ -613,13 +613,13 @@
     },
     {
       "name": "human_task_operator_assignment",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_assign_route",
         "pending_assignment_owner_field",
         "human_task_assigned_event"
       ],
-      "notes": "Operator ownership can now be assigned explicitly while a human task remains pending, and the session ledger records `human_task_assigned` before later claim/return transitions."
+      "notes": "Operator ownership can now be assigned explicitly while a human task remains pending, and the session ledger records `human_task_assigned` before later claim/return transitions as current branch baseline behavior pinned by release/operator guards."
     },
     {
       "name": "human_task_assignment_state_visibility",
@@ -635,7 +635,7 @@
     },
     {
       "name": "human_task_last_transition_summary_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "last_transition_event_name_field",
         "last_transition_assignment_state_field",
@@ -643,7 +643,7 @@
         "last_transition_actor_projection",
         "session_and_queue_row_summary"
       ],
-      "notes": "Human task list/detail/session rows now expose compact `last_transition_*` fields derived from the latest ownership event so operator UIs can triage the newest reassignment, claim, or return state without fetching the full assignment-history chain."
+      "notes": "Human task list/detail/session rows now expose compact `last_transition_*` fields derived from the latest ownership event so operator UIs can triage the newest reassignment, claim, or return state without fetching the full assignment-history chain, and release/operator guards pin that summary projection as current branch baseline behavior."
     },
     {
       "name": "human_task_last_transition_sorting",
@@ -657,13 +657,13 @@
     },
     {
       "name": "human_task_sla_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_sla_sort_param",
         "human_task_backlog_sla_sort_param",
         "sla_due_at_asc_runtime_ordering"
       ],
-      "notes": "Human task list/backlog endpoints now accept `sort=sla_due_at_asc` so operator queues can order pending work by the earliest pending SLA instead of default repository order."
+      "notes": "Human task list/backlog endpoints now accept `sort=sla_due_at_asc` so operator queues can order pending work by the earliest pending SLA instead of default repository order, and release/operator guards pin that SLA-first backlog ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_sla_transition_combined_sorting",
@@ -677,13 +677,13 @@
     },
     {
       "name": "human_task_unscheduled_fallback_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "sla_sort_no_sla_created_fallback",
         "combined_sort_no_sla_created_fallback",
         "unscheduled_backlog_stability"
       ],
-      "notes": "SLA-oriented human task queue sorts now fall back to oldest-created ordering for rows without `sla_due_at`, keeping unscheduled backlog stable even when newer packets are reassigned."
+      "notes": "SLA-oriented human task queue sorts now fall back to oldest-created ordering for rows without `sla_due_at`, keeping unscheduled backlog stable even when newer packets are reassigned, and release/operator guards pin that unscheduled fallback behavior as current branch baseline behavior."
     },
     {
       "name": "human_task_created_asc_sorting",
@@ -697,13 +697,13 @@
     },
     {
       "name": "human_task_priority_created_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_priority_sort_param",
         "human_task_backlog_priority_sort_param",
         "priority_band_fifo_queue_ordering"
       ],
-      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=priority_desc_created_asc` so urgent and high packets stay ahead of normal work while each priority band preserves oldest-created FIFO ordering."
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept `sort=priority_desc_created_asc` so urgent and high packets stay ahead of normal work while each priority band preserves oldest-created FIFO ordering, and release/operator guards pin that priority-banded FIFO queue ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_priority_filters",
@@ -717,13 +717,13 @@
     },
     {
       "name": "human_task_multi_priority_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_multi_priority_filter",
         "human_task_backlog_multi_priority_filter",
         "combined_priority_band_queue_views"
       ],
-      "notes": "Human task list/backlog/unassigned/mine endpoints now accept comma-separated `priority` filters such as `urgent,high`, so operators can pull combined priority-band queues without client-side request merging."
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept comma-separated `priority` filters such as `urgent,high`, so operators can pull combined priority-band queues without client-side request merging, and release/operator guards pin that combined priority-band queue contract as current branch baseline behavior."
     },
     {
       "name": "human_task_priority_summary",
@@ -737,7 +737,7 @@
     },
     {
       "name": "human_task_assigned_priority_summary",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "priority_summary_assigned_operator_filter",
         "mine_queue_priority_band_projection",
@@ -757,13 +757,13 @@
     },
     {
       "name": "human_task_priority_summary_assignment_source_filter",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "priority_summary_assignment_source_filter",
         "manual_vs_auto_preselected_pending_projection",
         "pending_assignment_source_load_split"
       ],
-      "notes": "Human task priority summaries now accept `assignment_source`, so dashboards can separate manual, recommended, and planner auto-preselected pending work without fetching the full queue."
+      "notes": "Human task priority summaries now accept `assignment_source`, so dashboards can separate manual, recommended, and planner auto-preselected pending work without fetching the full queue, and the release/operator guards pin that assignment-source load split as current branch baseline behavior."
     },
     {
       "name": "human_task_priority_summary_mixed_source_non_ownerless_isolation",
@@ -776,13 +776,13 @@
     },
     {
       "name": "human_task_assignment_source_queue_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_assignment_source_filter",
         "human_task_backlog_assignment_source_filter",
         "human_task_mine_assignment_source_filter"
       ],
-      "notes": "Human task list, backlog, and mine queue views now accept `assignment_source`, so operators can open the same manual, recommended, or planner auto-preselected pending slice surfaced by the summary endpoint."
+      "notes": "Human task list, backlog, and mine queue views now accept `assignment_source`, so operators can open the same manual, recommended, or planner auto-preselected pending slice surfaced by the summary endpoint, and the release/operator guards pin that queue filtering contract as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_assignment_source_alias",
@@ -796,12 +796,12 @@
     },
     {
       "name": "human_task_ownerless_session_history_alias",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_assignment_history_ownerless_source_alias",
         "session_human_task_ownerless_source_alias"
       ],
-      "notes": "Task assignment-history and session detail filters now accept `assignment_source=none`, so ownerless creation-only transitions and current ownerless packets use the same alias contract as the direct queue views."
+      "notes": "Task assignment-history and session detail filters now accept `assignment_source=none`, so ownerless creation-only transitions and current ownerless packets use the same alias contract as the direct queue views, and the release/operator guards now pin that alias behavior as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_backlog_alias",
@@ -814,12 +814,12 @@
     },
     {
       "name": "human_task_ownerless_backlog_created_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_backlog_created_asc_fifo",
         "ownerless_backlog_sort_contract"
       ],
-      "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=created_asc`, preserving oldest-created FIFO ordering when operators triage untouched ownerless work."
+      "notes": "Ownerless backlog slices now have explicit smoke/docs coverage for `sort=created_asc`, preserving oldest-created FIFO ordering when operators triage untouched ownerless work, and the release/operator guards now pin that FIFO ownerless backlog sorting as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_backlog_last_transition_sort",
@@ -832,12 +832,12 @@
     },
     {
       "name": "human_task_ownerless_unassigned_last_transition_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_unassigned_last_transition_desc_ordering",
         "ownerless_unassigned_backlog_sort_alignment"
       ],
-      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=last_transition_desc`, keeping its newest-first ordering aligned with the backlog slice."
+      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=last_transition_desc`, keeping its newest-first ordering aligned with the backlog slice, and the release/operator guards now pin that ownerless unassigned newest-first ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_unassigned_created_sort",
@@ -850,12 +850,12 @@
     },
     {
       "name": "human_task_ownerless_list_created_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_list_created_asc_fifo",
         "ownerless_list_backlog_unassigned_created_alignment"
       ],
-      "notes": "The general pending list now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none&sort=created_asc`, keeping its oldest-first ownerless ordering aligned with backlog and unassigned queue slices."
+      "notes": "The general pending list now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none&sort=created_asc`, keeping its oldest-first ownerless ordering aligned with backlog and unassigned queue slices, and the release/operator guards now pin that ownerless pending-list FIFO ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_list_last_transition_sort",
@@ -868,21 +868,21 @@
     },
     {
       "name": "human_task_session_ownerless_created_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_created_asc_fifo",
         "session_ownerless_global_queue_created_alignment"
       ],
-      "notes": "Session-scoped list queries now have explicit smoke/docs coverage for `session_id=<id>&assignment_source=none&sort=created_asc`, keeping per-session ownerless FIFO ordering aligned with the global queue views."
+      "notes": "Session-scoped list queries now have explicit smoke/docs coverage for `session_id=<id>&assignment_source=none&sort=created_asc`, keeping per-session ownerless FIFO ordering aligned with the global queue views, and the release/operator guards now pin that ownerless session FIFO ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_session_ownerless_last_transition_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_last_transition_desc_ordering",
         "session_ownerless_global_queue_transition_alignment"
       ],
-      "notes": "Session-scoped list queries now have explicit smoke/docs coverage for `session_id=<id>&assignment_source=none&sort=last_transition_desc`, keeping per-session untouched-ownerless newest-first ordering aligned with the global queue views."
+      "notes": "Session-scoped list queries now have explicit smoke/docs coverage for `session_id=<id>&assignment_source=none&sort=last_transition_desc`, keeping per-session untouched-ownerless newest-first ordering aligned with the global queue views, and the release/operator guards now pin that ownerless session newest-first ordering as current branch baseline behavior."
     },
     {
       "name": "session_ownerless_projection_created_order",
@@ -895,12 +895,12 @@
     },
     {
       "name": "session_ownerless_projection_mixed_source_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_projection_current_rows_exclude_non_ownerless",
         "session_ownerless_projection_history_keeps_empty_source_prefix"
       ],
-      "notes": "The filtered `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving current `human_tasks` stay ownerless-only while inline empty-source creation history remains oldest-first even after manual and auto-preselected neighbors coexist."
+      "notes": "The filtered `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving current `human_tasks` stay ownerless-only while inline empty-source creation history remains oldest-first even after manual and auto-preselected neighbors coexist, and the release/operator guards pin that mixed-source ownerless session-detail isolation as current branch baseline behavior."
     },
     {
       "name": "human_task_session_ownerless_mixed_source_isolation",
@@ -913,13 +913,13 @@
     },
     {
       "name": "human_task_ownerless_sorted_queue_mixed_source_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_backlog_sorted_excludes_non_ownerless",
         "ownerless_unassigned_sorted_excludes_non_ownerless",
         "ownerless_list_sorted_excludes_non_ownerless"
       ],
-      "notes": "Ownerless backlog, unassigned, and general pending sorted queue slices now have explicit smoke/docs coverage proving both `sort=created_asc` and `sort=last_transition_desc` keep non-ownerless neighbors out while preserving ownerless ordering under mixed-source churn."
+      "notes": "Ownerless backlog, unassigned, and general pending sorted queue slices now have explicit smoke/docs coverage proving both `sort=created_asc` and `sort=last_transition_desc` keep non-ownerless neighbors out while preserving ownerless ordering under mixed-source churn, and the release/operator guards pin that mixed-source ownerless sorted queue isolation as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_priority_summary_mixed_source_counts",
@@ -932,13 +932,13 @@
     },
     {
       "name": "human_task_ownerless_unsorted_queue_mixed_source_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_list_unsorted_excludes_non_ownerless_after_churn",
         "ownerless_backlog_unsorted_excludes_non_ownerless_after_churn",
         "ownerless_unassigned_unsorted_excludes_non_ownerless_after_churn"
       ],
-      "notes": "Unsorted ownerless list, backlog, and unassigned queue slices now have explicit smoke/docs coverage proving multi-row `assignment_source=none` fetches stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors."
+      "notes": "Unsorted ownerless list, backlog, and unassigned queue slices now have explicit smoke/docs coverage proving multi-row `assignment_source=none` fetches stay ownerless-only after mixed-source churn introduces manual and auto-preselected neighbors, and the release/operator guards now pin that mixed-source ownerless unsorted queue isolation as current branch baseline behavior."
     },
     {
       "name": "human_task_session_ownerless_unsorted_mixed_source_isolation",
@@ -950,12 +950,12 @@
     },
     {
       "name": "session_ownerless_projection_mixed_source_counts",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_projection_current_count_after_churn",
         "session_ownerless_projection_history_longer_than_current_after_churn"
       ],
-      "notes": "The mixed-source `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving the current `human_tasks` slice stays at two ownerless rows while inline empty-source history remains longer than the current ownerless slice."
+      "notes": "The mixed-source `human_task_assignment_source=none` session-detail projection now has explicit smoke/docs coverage proving the current `human_tasks` slice stays at two ownerless rows while inline empty-source history remains longer than the current ownerless slice, and the release/operator guards now pin that ownerless count contract as current branch baseline behavior."
     },
     {
       "name": "human_task_assignment_history_source_filter",
@@ -969,13 +969,13 @@
     },
     {
       "name": "session_human_task_assignment_source_filter",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_human_task_assignment_source_filter",
         "manual_session_task_slice",
         "auto_preselected_session_task_slice"
       ],
-      "notes": "Rewrite session detail now accepts `human_task_assignment_source`, narrowing `human_tasks` and inline assignment history down to one ownership source without client-side filtering."
+      "notes": "Rewrite session detail now has release-grade smoke/docs coverage for `human_task_assignment_source`, narrowing `human_tasks` and inline assignment history down to one ownership source without client-side filtering, and the release/operator guards pin that session-detail ownership-source contract as current branch baseline behavior."
     },
     {
       "name": "session_scoped_human_task_assignment_source_filters",
@@ -989,7 +989,7 @@
     },
     {
       "name": "generic_task_execution_runtime",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_execute_route",
         "non_rewrite_task_contract_runtime",
@@ -997,7 +997,7 @@
         "structured_task_input_json",
         "task_context_refs"
       ],
-      "notes": "POST /v1/plans/execute now runs non-rewrite task-contract keys through the same queue-backed graph runtime as rewrite execution, accepts structured `input_json` plus `context_refs` alongside the legacy `text` convenience field, and preserves task identity plus deliverable type while enforcing the request principal contract."
+      "notes": "POST /v1/plans/execute now runs non-rewrite task-contract keys through the same queue-backed graph runtime as rewrite execution, accepts structured `input_json` plus `context_refs` alongside the legacy `text` convenience field, preserves task identity plus deliverable type while enforcing the request principal contract, and is pinned by release/operator guards as current branch baseline behavior."
     },
     {
       "name": "generic_task_execution_async_contracts",
@@ -1011,14 +1011,14 @@
     },
     {
       "name": "plan_graph_validation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "duplicate_step_key_rejection",
         "unknown_dependency_rejection",
         "dependency_cycle_rejection",
         "pre_session_plan_validation"
       ],
-      "notes": "Planner and orchestrator startup now reject duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins, and focused contract coverage keeps those graph-validation failures pinned."
+      "notes": "Planner and orchestrator startup now reject duplicate step keys, unknown dependency keys, and dependency cycles before queue execution or session creation begins, and release/operator guards keep those graph-validation failures pinned as current branch baseline behavior."
     },
     {
       "name": "step_io_contract_enforcement",
@@ -1032,13 +1032,13 @@
     },
     {
       "name": "artifact_lookup_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_lookup_task_key",
         "artifact_lookup_deliverable_type",
         "generic_artifact_identity_without_session_expand"
       ],
-      "notes": "GET /v1/rewrite/artifacts/{artifact_id} now returns the originating task key and deliverable type, so generic non-rewrite artifact runs can be inspected without fetching the full session envelope first."
+      "notes": "GET /v1/rewrite/artifacts/{artifact_id} now returns the originating task key and deliverable type, so generic non-rewrite artifact runs can be inspected without fetching the full session envelope first, and release/operator guards pin that direct artifact identity contract as current branch baseline behavior."
     },
     {
       "name": "proof_lookup_task_identity_projection",
@@ -1052,13 +1052,13 @@
     },
     {
       "name": "session_artifact_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_artifact_task_key",
         "session_artifact_deliverable_type",
         "generic_session_artifact_identity"
       ],
-      "notes": "Inline session artifact rows now return the originating task key and deliverable type too, so the main session envelope stays self-describing for generic non-rewrite runs."
+      "notes": "Inline session artifact rows now return the originating task key and deliverable type too, so the main session envelope stays self-describing for generic non-rewrite runs, and release/operator guards pin that session-level artifact identity contract as current branch baseline behavior."
     },
     {
       "name": "async_queue_projection_task_identity",
@@ -1072,13 +1072,13 @@
     },
     {
       "name": "human_task_assignment_history_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_assignment_history_task_key",
         "human_task_assignment_history_deliverable_type",
         "generic_assignment_history_identity_before_completion"
       ],
-      "notes": "Direct human-task assignment-history rows now return the originating task key and deliverable type too, so operator transition logs stay self-describing for generic paused task runs."
+      "notes": "Direct human-task assignment-history rows now return the originating task key and deliverable type too, so operator transition logs stay self-describing for generic paused task runs, and release/operator guards pin that audit projection as current branch baseline behavior."
     },
     {
       "name": "session_human_task_assignment_history_task_identity_projection",
@@ -1092,7 +1092,7 @@
     },
     {
       "name": "session_human_task_packet_task_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_human_task_task_key",
         "session_human_task_deliverable_type",
@@ -1117,7 +1117,7 @@
     },
     {
       "name": "artifact_preview_handle_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "direct_artifact_preview_text",
         "direct_artifact_storage_handle",
@@ -1131,7 +1131,7 @@
         "session_artifact_body_ref",
         "plan_execute_artifact_preview_handle"
       ],
-      "notes": "Direct artifact reads, inline session artifact rows, and generic task execution responses now project mime type, preview text, stable storage handle, durable body ref, and structured attachment metadata so clients can treat artifacts as real metadata-plus-handle envelopes without losing inline content."
+      "notes": "Direct artifact reads, inline session artifact rows, and generic task execution responses now project mime type, preview text, stable storage handle, durable body ref, and structured attachment metadata so clients can treat artifacts as real metadata-plus-handle envelopes without losing inline content, and release/operator guards pin that envelope as current branch baseline behavior."
     },
     {
       "name": "task_contract_workflow_templates",
@@ -1146,14 +1146,14 @@
     },
     {
       "name": "browseract_extract_then_artifact_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "browseract_extract_compile_shape",
         "browseract_extract_structured_artifact_projection",
         "browseract_extract_receipt_identity",
         "browseract_extract_workflow_api_smoke"
       ],
-      "notes": "Task contracts can now also compile `workflow_template=browseract_extract_then_artifact`, producing `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can persist tier/email/status facts into a structured artifact through the queue runtime."
+      "notes": "Task contracts can now also compile `workflow_template=browseract_extract_then_artifact`, producing `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can persist tier/email/status facts into a structured artifact through the queue runtime, and release/operator guards pin that workflow shape plus structured artifact projection as current branch baseline behavior."
     },
     {
       "name": "tool_then_artifact_workflow_template",
@@ -1168,7 +1168,7 @@
     },
     {
       "name": "workflow_template_registry_validation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "planner_template_registry",
         "unknown_workflow_template_compile_failure",
@@ -1191,14 +1191,14 @@
     },
     {
       "name": "artifact_then_memory_candidate_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_then_memory_candidate_compile_shape",
         "policy_memory_write_contract_projection",
         "memory_candidate_runtime_stage",
         "memory_candidate_workflow_api_smoke"
       ],
-      "notes": "The built-in `artifact_then_memory_candidate` workflow template now has focused and API-smoke coverage too, proving task contracts can compile `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, carry `memory_write_allowed` through the queued policy step contract, and stage a pending principal-scoped memory candidate after artifact persistence."
+      "notes": "The built-in `artifact_then_memory_candidate` workflow template is implemented, documented, and pinned by release/operator guards as current branch baseline behavior, proving task contracts compile `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, carry `memory_write_allowed` through the queued policy step contract, and stage a pending principal-scoped memory candidate after artifact persistence."
     },
     {
       "name": "dispatch_then_memory_candidate_workflow_template",
@@ -1213,7 +1213,7 @@
     },
     {
       "name": "review_dispatch_then_memory_candidate_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_review_dispatch_memory_compile_shape",
         "awaiting_human_then_awaiting_approval_progression",
@@ -1235,14 +1235,14 @@
     },
     {
       "name": "execution_queue_retry_runtime",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "failure_strategy_retry_runtime",
         "queue_row_retry_reschedule",
         "retry_attempt_count_projection",
         "retry_terminal_failure_fallback"
       ],
-      "notes": "Queued step failures now honor `failure_strategy=retry` plus `max_attempts` and `retry_backoff_seconds`: the runtime reuses the same queue row, records `step_retry_scheduled`, delays the next lease through `next_attempt_at`, and only marks the session failed once the retry budget is exhausted."
+      "notes": "Queued step failures now honor `failure_strategy=retry` plus `max_attempts` and `retry_backoff_seconds`: the runtime reuses the same queue row, records `step_retry_scheduled`, delays the next lease through `next_attempt_at`, and only marks the session failed once the retry budget is exhausted; release/operator guards now pin that retry contract as current branch baseline behavior."
     },
     {
       "name": "inline_retry_drain_runtime",
@@ -1256,13 +1256,13 @@
     },
     {
       "name": "contract_retry_policy_metadata",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_retry_policy_compile",
         "dispatch_retry_policy_compile",
         "compiled_artifact_retry_runtime"
       ],
-      "notes": "Task contracts can now tune the built-in artifact and dispatch retry posture directly from `budget_policy_json`: `artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds` compile onto `step_artifact_save`, `dispatch_*` compiles onto `step_connector_dispatch`, and focused runtime coverage proves compiled artifact retries execute through the queue runtime."
+      "notes": "Task contracts can now tune the built-in artifact and dispatch retry posture directly from `budget_policy_json`: `artifact_failure_strategy|artifact_max_attempts|artifact_retry_backoff_seconds` compile onto `step_artifact_save`, `dispatch_*` compiles onto `step_connector_dispatch`, and release/operator guards now pin that compiled retry-policy metadata as current branch baseline behavior."
     },
     {
       "name": "delayed_retry_async_acceptance",
@@ -1277,14 +1277,14 @@
     },
     {
       "name": "review_dispatch_delayed_retry_runtime",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "review_then_dispatch_retry_compile",
         "human_review_then_dispatch_retry_runtime",
         "approval_resumed_dispatch_retry_queue",
         "review_dispatch_retry_http_smoke"
       ],
-      "notes": "The built-in review-then-dispatch workflow now preserves compiled `dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds` metadata on `step_connector_dispatch`, and focused plus HTTP-smoke coverage prove a delayed post-approval dispatch retry leaves the session queued behind `next_attempt_at` instead of erroring once the human-review gate has already cleared."
+      "notes": "The built-in review-then-dispatch workflow now preserves compiled `dispatch_failure_strategy|dispatch_max_attempts|dispatch_retry_backoff_seconds` metadata on `step_connector_dispatch`, and release/operator guards pin the focused plus HTTP-smoke contract proving a delayed post-approval dispatch retry leaves the session queued behind `next_attempt_at` instead of erroring once the human-review gate has already cleared."
     },
     {
       "name": "skill_catalog_layer",
@@ -1299,14 +1299,14 @@
     },
     {
       "name": "ltd_inventory_refresh_skill_catalog_slice",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ltd_inventory_skill_upsert_round_trip",
         "browseract_inventory_skill_compile_projection",
         "browseract_inventory_skill_runtime_identity",
         "skill_catalog_docs_examples"
       ],
-      "notes": "The skill catalog now also carries a BrowserAct-backed operations slice, `ltd_inventory_refresh`, which wraps the generic `tool_then_artifact` macro around `browseract.extract_account_inventory` so LTD inventory refresh runs can compile, execute, and project `skill_key` identity through structured `ltd_inventory_profile` artifacts."
+      "notes": "The skill catalog now also carries a BrowserAct-backed operations slice, `ltd_inventory_refresh`, which wraps the generic `tool_then_artifact` macro around `browseract.extract_account_inventory` so LTD inventory refresh runs can compile, execute, and project `skill_key` identity through structured `ltd_inventory_profile` artifacts; release/operator guards now pin the BrowserAct-backed docs/examples plus compile/execute/runtime identity path as current branch baseline behavior."
     },
     {
       "name": "session_status_transition_api",
@@ -1321,7 +1321,7 @@
     },
     {
       "name": "skill_provider_hints_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "skill_catalog_provider_hints_round_trip",
         "meeting_prep_provider_hints_smoke",
@@ -1341,14 +1341,14 @@
     },
     {
       "name": "skill_identity_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_compile_skill_key_projection",
         "plan_execute_skill_key_projection",
         "skill_catalog_execute_round_trip",
         "openapi_async_skill_identity_examples"
       ],
-      "notes": "The plan/task execution surface now projects the resolved `skill_key` alongside `task_key`, so product-facing executive capability identity travels with compile and execute responses instead of living only in the separate skill catalog."
+      "notes": "The plan/task execution surface now projects the resolved `skill_key` alongside `task_key`, and the release/operator guards pin that compile plus execute identity contract as current branch baseline behavior instead of leaving product-facing executive capability identity only in the separate skill catalog."
     },
     {
       "name": "runtime_skill_identity_projection",
@@ -1363,14 +1363,14 @@
     },
     {
       "name": "plan_skill_key_entrypoint_alias",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_compile_skill_key_selector",
         "plan_execute_skill_key_selector",
         "skill_catalog_round_trip_alias",
         "skill_key_docs_examples"
       ],
-      "notes": "The generic plan runtime now accepts `skill_key` directly on `POST /v1/plans/compile` and `POST /v1/plans/execute`, so product-facing clients can invoke first-class executive skills without resolving the backing `task_key` first."
+      "notes": "The generic plan runtime now accepts `skill_key` directly on `POST /v1/plans/compile` and `POST /v1/plans/execute`, and the release/operator guards pin the selector alias, mismatch validation, first-class skill round-trip coverage, and docs/examples as current branch baseline behavior."
     },
     {
       "name": "ltd_discovery_markdown_refresh",
@@ -1385,14 +1385,14 @@
     },
     {
       "name": "ltd_discovery_api_refresh_runner",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ltd_inventory_skill_execute_runner",
         "inventory_payload_capture",
         "smoke_api_round_trip_refresh",
         "ltd_runner_docs"
       ],
-      "notes": "A dedicated `refresh_ltds_via_api` runner can now execute the BrowserAct-backed `ltd_inventory_refresh` skill through the local `/v1/plans/execute` API, optionally save the returned structured inventory payload, and rewrite `LTDs.md` directly from that live skill output."
+      "notes": "A dedicated `refresh_ltds_via_api` runner can now execute the BrowserAct-backed `ltd_inventory_refresh` skill through the local `/v1/plans/execute` API, optionally save the returned structured inventory payload, rewrite `LTDs.md` directly from that live skill output, and is pinned by release/operator guards as current branch baseline behavior."
     },
     {
       "name": "artifact_evidence_pack_output_template",
@@ -1407,7 +1407,7 @@
     },
     {
       "name": "evidence_pack_memory_candidate_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "artifact_to_memory_candidate_evidence_copy",
         "candidate_fact_json_evidence_pack",
@@ -1415,6 +1415,18 @@
         "evidence_memory_docs"
       ],
       "notes": "When an `evidence_pack` artifact flows into `artifact_then_memory_candidate`, the staged memory candidate now also preserves `claims`, `evidence_refs`, `open_questions`, and the full evidence envelope inside `fact_json`, so downstream executive workflows can reuse the supporting facts without reparsing freeform artifact text."
+    },
+    {
+      "name": "evidence_object_ledger_api",
+      "status": "released",
+      "scope": [
+        "artifact_save_evidence_object_materialization",
+        "evidence_object_query_api",
+        "evidence_object_merge_api",
+        "citation_handle_projection",
+        "evidence_postgres_contracts"
+      ],
+      "notes": "Evidence-pack artifacts now also materialize first-class evidence rows with stable `citation_handle` values, `GET /v1/evidence/objects*` can query them by principal/artifact/session/reference, `POST /v1/evidence/merge` can combine selected rows back into a reusable evidence pack without reparsing artifact JSON, and the release/operator guards pin that surface as current branch baseline behavior."
     }
   ],
   "migrations": [

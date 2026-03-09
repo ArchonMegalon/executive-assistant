@@ -1526,6 +1526,41 @@ if [[ "${EVIDENCE_CANDIDATE_FIELDS}" != "2|2|1|True" ]]; then
   echo "${EVIDENCE_CANDIDATES_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+EVIDENCE_PACK_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${EVIDENCE_PACK_JSON}")"
+EVIDENCE_PACK_TWO_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d '{"task_key":"research_brief","goal":"prepare an evidence-backed brief","input_json":{"source_text":"Support load may fall if the simpler option ships first.","claims":["Option C reduces support load"],"evidence_refs":["paper://abc","call://ops-review"],"open_questions":["Need service staffing forecast"],"confidence":0.58}}')"
+EVIDENCE_PACK_TWO_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${EVIDENCE_PACK_TWO_JSON}")"
+EVIDENCE_OBJECTS_JSON="$(curl -fsS "${BASE}/v1/evidence/objects?artifact_id=${EVIDENCE_PACK_ARTIFACT_ID}&principal_id=${PRINCIPAL_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+EVIDENCE_OBJECT_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); row=(rows or [{}])[0]; print('{}|{}|{}|{}|{}|{}'.format(row.get('artifact_id',''), len(row.get('claims') or []), len(row.get('evidence_refs') or []), len(row.get('open_questions') or []), row.get('confidence',''), str(row.get('citation_handle','')).startswith('evidence://')))" <<<"${EVIDENCE_OBJECTS_JSON}")"
+if [[ "${EVIDENCE_OBJECT_FIELDS}" != "${EVIDENCE_PACK_ARTIFACT_ID}|2|2|1|0.72|True" ]]; then
+  echo "expected evidence object query to expose materialized evidence-pack rows with citation handles; got ${EVIDENCE_OBJECT_FIELDS}" >&2
+  echo "${EVIDENCE_OBJECTS_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+EVIDENCE_OBJECT_ID="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); print((rows or [{}])[0].get('evidence_id',''))" <<<"${EVIDENCE_OBJECTS_JSON}")"
+EVIDENCE_REF_ROWS_JSON="$(curl -fsS "${BASE}/v1/evidence/objects?evidence_ref=paper://abc&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+EVIDENCE_REF_ARTIFACT_IDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); print('|'.join(sorted(row.get('artifact_id','') for row in rows if row.get('artifact_id'))))" <<<"${EVIDENCE_REF_ROWS_JSON}")"
+if [[ "${EVIDENCE_REF_ARTIFACT_IDS}" != "$(printf '%s\n%s\n' "${EVIDENCE_PACK_ARTIFACT_ID}" "${EVIDENCE_PACK_TWO_ARTIFACT_ID}" | sort | paste -sd'|' -)" ]]; then
+  echo "expected evidence reference query to find both cited artifacts; got ${EVIDENCE_REF_ARTIFACT_IDS}" >&2
+  echo "${EVIDENCE_REF_ROWS_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+EVIDENCE_OBJECT_FETCH_JSON="$(curl -fsS "${BASE}/v1/evidence/objects/${EVIDENCE_OBJECT_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+EVIDENCE_OBJECT_FETCH_ARTIFACT="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${EVIDENCE_OBJECT_FETCH_JSON}")"
+if [[ "${EVIDENCE_OBJECT_FETCH_ARTIFACT}" != "${EVIDENCE_PACK_ARTIFACT_ID}" ]]; then
+  echo "expected direct evidence-object lookup to resolve the original artifact; got ${EVIDENCE_OBJECT_FETCH_ARTIFACT}" >&2
+  echo "${EVIDENCE_OBJECT_FETCH_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+EVIDENCE_OBJECT_TWO_ID="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); match=next((row for row in rows if row.get('artifact_id') == '${EVIDENCE_PACK_TWO_ARTIFACT_ID}'), {}); print(match.get('evidence_id',''))" <<<"${EVIDENCE_REF_ROWS_JSON}")"
+EVIDENCE_MERGE_JSON="$(curl -fsS -X POST "${BASE}/v1/evidence/merge" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+  -d "{\"principal_id\":\"${PRINCIPAL_ID}\",\"evidence_ids\":[\"${EVIDENCE_OBJECT_ID}\",\"${EVIDENCE_OBJECT_TWO_ID}\"]}")"
+EVIDENCE_MERGE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('format',''), len(body.get('claims') or []), len(body.get('evidence_refs') or []), len(body.get('open_questions') or []), len(body.get('source_artifact_ids') or []), len(body.get('citation_handles') or [])))" <<<"${EVIDENCE_MERGE_JSON}")"
+if [[ "${EVIDENCE_MERGE_FIELDS}" != "evidence_pack|3|3|2|2|2" ]]; then
+  echo "expected evidence merge to combine claims, references, and citations without artifact reparsing; got ${EVIDENCE_MERGE_FIELDS}" >&2
+  echo "${EVIDENCE_MERGE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 TASK_EXECUTE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_task_execute_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
 if [[ "${TASK_EXECUTE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected generic task execution principal mismatch to return 403; got ${TASK_EXECUTE_MISMATCH_CODE}" >&2

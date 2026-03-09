@@ -1,6 +1,7 @@
 from app.api.routes.channels import router as channels_router
 from app.api.routes.connectors import router as connectors_router
 from app.api.routes.delivery import router as delivery_router
+from app.api.routes.evidence import router as evidence_router
 from app.api.routes.health import router as health_router
 from app.api.routes.memory import router as memory_router
 from app.api.routes.observations import router as observations_router
@@ -14,6 +15,7 @@ __all__ = [
     "channels_router",
     "connectors_router",
     "delivery_router",
+    "evidence_router",
     "health_router",
     "memory_router",
     "observations_router",

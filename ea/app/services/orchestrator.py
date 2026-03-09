@@ -47,6 +47,7 @@ from app.repositories.policy_decisions import InMemoryPolicyDecisionRepository, 
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 from app.services.planner import PlannerService
+from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
@@ -1274,6 +1275,12 @@ class RewriteOrchestrator:
                     "open_questions": list(artifact_structured_output_json.get("open_questions") or []),
                 }
             )
+        evidence_object_id = str(input_json.get("evidence_object_id") or "").strip()
+        citation_handle = str(input_json.get("citation_handle") or "").strip()
+        if evidence_object_id:
+            fact_json["evidence_object_id"] = evidence_object_id
+        if citation_handle:
+            fact_json["citation_handle"] = citation_handle
         candidate = self._memory_runtime.stage_candidate(
             principal_id=session.intent.principal_id,
             category=category,
@@ -2627,6 +2634,7 @@ def build_default_orchestrator(
     artifacts: ArtifactRepository | None = None,
     task_contracts: TaskContractService | None = None,
     planner: PlannerService | None = None,
+    evidence_runtime: EvidenceRuntimeService | None = None,
     memory_runtime: MemoryRuntimeService | None = None,
     tool_execution: ToolExecutionService | None = None,
 ) -> RewriteOrchestrator:
@@ -2639,6 +2647,7 @@ def build_default_orchestrator(
     artifact_repo = artifacts or build_artifact_repo(resolved)
     task_contract_service = task_contracts or build_task_contract_service(resolved)
     planner_service = planner or PlannerService(task_contract_service)
+    evidence_service = evidence_runtime or build_evidence_runtime(resolved)
     memory_service = memory_runtime or build_memory_runtime(resolved)
     policy = PolicyDecisionService(
         max_rewrite_chars=resolved.policy.max_rewrite_chars,
@@ -2655,5 +2664,5 @@ def build_default_orchestrator(
         task_contracts=task_contract_service,
         planner=planner_service,
         memory_runtime=memory_service,
-        tool_execution=tool_execution or ToolExecutionService(artifacts=artifact_repo),
+        tool_execution=tool_execution or ToolExecutionService(artifacts=artifact_repo, evidence_runtime=evidence_service),
     )

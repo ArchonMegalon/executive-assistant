@@ -4,25 +4,31 @@ from fastapi import Depends, FastAPI
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
-from app.api.routes.channels import router as channels_router
-from app.api.routes.connectors import router as connectors_router
-from app.api.routes.delivery import router as delivery_router
-from app.api.routes.health import router as health_router
-from app.api.routes.human import router as human_router
-from app.api.routes.memory import router as memory_router
-from app.api.routes.observations import router as observations_router
-from app.api.routes.plans import router as plans_router
-from app.api.routes.policy import router as policy_router
-from app.api.routes.rewrite import router as rewrite_router
-from app.api.routes.skills import router as skills_router
-from app.api.routes.task_contracts import router as task_contracts_router
-from app.api.routes.tools import router as tools_router
+from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.settings import get_settings
 
 
 def create_app() -> FastAPI:
     s = get_settings()
+    if inline_sync_handlers_enabled():
+        # Local/test compatibility: some environments cannot wake the event loop
+        # from AnyIO worker threads, so sync handlers must execute inline.
+        install_inline_threadpool_compat()
+    from app.api.routes.channels import router as channels_router
+    from app.api.routes.connectors import router as connectors_router
+    from app.api.routes.delivery import router as delivery_router
+    from app.api.routes.evidence import router as evidence_router
+    from app.api.routes.health import router as health_router
+    from app.api.routes.human import router as human_router
+    from app.api.routes.memory import router as memory_router
+    from app.api.routes.observations import router as observations_router
+    from app.api.routes.plans import router as plans_router
+    from app.api.routes.policy import router as policy_router
+    from app.api.routes.rewrite import router as rewrite_router
+    from app.api.routes.skills import router as skills_router
+    from app.api.routes.task_contracts import router as task_contracts_router
+    from app.api.routes.tools import router as tools_router
     app = FastAPI(title=s.app_name, version=s.app_version)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
@@ -31,6 +37,7 @@ def create_app() -> FastAPI:
     app.include_router(channels_router, dependencies=auth_dependency)
     app.include_router(human_router, dependencies=auth_dependency)
     app.include_router(memory_router, dependencies=auth_dependency)
+    app.include_router(evidence_router, dependencies=auth_dependency)
     app.include_router(observations_router, dependencies=auth_dependency)
     app.include_router(delivery_router, dependencies=auth_dependency)
     app.include_router(connectors_router, dependencies=auth_dependency)

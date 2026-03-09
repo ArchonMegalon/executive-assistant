@@ -168,6 +168,7 @@ class PlannerService:
             key = str(value or "").strip()
             if key and key not in input_keys:
                 input_keys += (key,)
+        output_keys = ("artifact_id", "receipt_id", "cost_id", *self._artifact_evidence_output_keys(contract))
         return PlanStepSpec(
             step_key="step_artifact_save",
             step_kind="tool_call",
@@ -186,7 +187,7 @@ class PlannerService:
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
             input_keys=input_keys,
-            output_keys=("artifact_id", "receipt_id", "cost_id"),
+            output_keys=output_keys,
         )
 
     def _build_browseract_extract_step(
@@ -334,6 +335,11 @@ class PlannerService:
     def _artifact_envelope_input_keys(self, contract: TaskContract) -> tuple[str, ...]:
         if self._artifact_output_template_key(contract) == "evidence_pack":
             return ("structured_output_json", "preview_text", "mime_type")
+        return ()
+
+    def _artifact_evidence_output_keys(self, contract: TaskContract) -> tuple[str, ...]:
+        if self._artifact_output_template_key(contract) == "evidence_pack":
+            return ("evidence_object_id", "citation_handle")
         return ()
 
     def _build_pre_artifact_tool_then_artifact_steps(
@@ -655,10 +661,17 @@ class PlannerService:
             steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
         if "memory_candidate" in packs:
             memory_depends_on = ["step_artifact_save", "step_policy_evaluate"]
-            additional_input_keys: tuple[str, ...] = ()
+            additional_input_keys: tuple[str, ...] = self._artifact_evidence_output_keys(contract)
             if "dispatch" in packs:
                 memory_depends_on.append("step_connector_dispatch")
-                additional_input_keys = ("delivery_id", "status", "binding_id", "channel", "recipient")
+                additional_input_keys = (
+                    "delivery_id",
+                    "status",
+                    "binding_id",
+                    "channel",
+                    "recipient",
+                    *self._artifact_evidence_output_keys(contract),
+                )
             steps.append(
                 self._build_memory_candidate_step(
                     intent,
@@ -704,6 +717,7 @@ class PlannerService:
             intent,
             contract=contract,
             depends_on=("step_artifact_save", "step_policy_evaluate"),
+            additional_input_keys=self._artifact_evidence_output_keys(contract),
         )
         steps: list[PlanStepSpec] = [prepare_step, policy_step, artifact_step, memory_step]
         packs = pack_keys or self._resolve_post_artifact_packs(contract, fallback=("memory_candidate",))

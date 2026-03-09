@@ -5,15 +5,17 @@ import uuid
 
 import pytest
 
-from app.domain.models import IntentSpecV3, PolicyDecision, TaskContract, TaskExecutionRequest, now_utc_iso
+from app.domain.models import Artifact, IntentSpecV3, PolicyDecision, TaskContract, TaskExecutionRequest, now_utc_iso
 from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.approvals_postgres import PostgresApprovalRepository
+from app.repositories.evidence_objects_postgres import PostgresEvidenceObjectRepository
 from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.operator_profiles_postgres import PostgresOperatorProfileRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.planner import PlannerService
 from app.services.task_contracts import TaskContractService
 
@@ -153,6 +155,61 @@ def test_postgres_task_contracts_upsert_get_and_list() -> None:
 
     listed = repo.list_all(limit=20)
     assert any(entry.task_key == task_key for entry in listed)
+
+
+def test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows() -> None:
+    runtime = EvidenceRuntimeService(PostgresEvidenceObjectRepository(_db_url()))
+    first = runtime.record_artifact(
+        Artifact(
+            artifact_id=f"artifact-{uuid.uuid4()}",
+            kind="decision_summary",
+            content="Market conditions suggest two viable options.",
+            execution_session_id=f"session-{uuid.uuid4()}",
+            principal_id="exec-1",
+            structured_output_json={
+                "format": "evidence_pack",
+                "claims": ["Option A preserves margin", "Option B accelerates launch"],
+                "evidence_refs": ["browseract://run/123", "paper://abc"],
+                "open_questions": ["Need final vendor pricing"],
+                "confidence": 0.72,
+            },
+        )
+    )
+    second = runtime.record_artifact(
+        Artifact(
+            artifact_id=f"artifact-{uuid.uuid4()}",
+            kind="decision_summary",
+            content="Support load may fall if the simpler option ships first.",
+            execution_session_id=f"session-{uuid.uuid4()}",
+            principal_id="exec-1",
+            structured_output_json={
+                "format": "evidence_pack",
+                "claims": ["Option C reduces support load"],
+                "evidence_refs": ["paper://abc", "call://ops-review"],
+                "open_questions": ["Need service staffing forecast"],
+                "confidence": 0.58,
+            },
+        )
+    )
+
+    assert first is not None
+    assert second is not None
+    fetched = runtime.get_object(first.evidence_id, principal_id="exec-1")
+    assert fetched is not None
+    assert fetched.artifact_id == first.artifact_id
+
+    listed = runtime.list_objects(limit=10, principal_id="exec-1", evidence_ref="paper://abc")
+    listed_ids = {row.evidence_id for row in listed}
+    assert first.evidence_id in listed_ids
+    assert second.evidence_id in listed_ids
+
+    merged = runtime.merge_objects([first.evidence_id, second.evidence_id], principal_id="exec-1")
+    assert merged.claims == (
+        "Option A preserves margin",
+        "Option B accelerates launch",
+        "Option C reduces support load",
+    )
+    assert merged.evidence_refs == ("browseract://run/123", "paper://abc", "call://ops-review")
 
 
 def test_postgres_orchestrator_executes_non_rewrite_task_contract() -> None:

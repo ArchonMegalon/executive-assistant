@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.models import ToolInvocationRequest
+from app.domain.models import Artifact, ToolInvocationRequest
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
+from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
+from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.tool_execution import ToolExecutionError, ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService
 
@@ -47,6 +49,102 @@ def test_tool_execution_service_executes_builtin_artifact_repository_handler() -
     assert saved is not None
     assert saved.content == "draft note"
     assert saved.principal_id == "exec-1"
+
+
+def test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts() -> None:
+    artifacts = InMemoryArtifactRepository()
+    evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=artifacts,
+        evidence_runtime=evidence_runtime,
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-evidence-1",
+            step_id="step-evidence-1",
+            tool_name="artifact_repository",
+            action_kind="artifact.save",
+            payload_json={
+                "source_text": "Market conditions suggest two viable options.",
+                "expected_artifact": "decision_summary",
+                "structured_output_json": {
+                    "format": "evidence_pack",
+                    "claims": ["Option A preserves margin", "Option B accelerates launch"],
+                    "evidence_refs": ["browseract://run/123", "paper://abc"],
+                    "open_questions": ["Need final vendor pricing"],
+                    "confidence": 0.72,
+                },
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["evidence_object_id"] == f"evidence-{result.target_ref}"
+    assert result.output_json["citation_handle"] == f"evidence://evidence-{result.target_ref}"
+    listed = evidence_runtime.list_objects(limit=10, principal_id="exec-1")
+    assert len(listed) == 1
+    assert listed[0].artifact_id == result.target_ref
+    assert listed[0].claims == ("Option A preserves margin", "Option B accelerates launch")
+    assert listed[0].evidence_refs == ("browseract://run/123", "paper://abc")
+
+
+def test_evidence_runtime_merges_materialized_evidence_objects_without_reparsing_artifact_body() -> None:
+    evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
+    first = evidence_runtime.record_artifact(
+        Artifact(
+            artifact_id="artifact-evidence-1",
+            kind="decision_summary",
+            content="Market conditions suggest two viable options.",
+            execution_session_id="session-evidence-1",
+            principal_id="exec-1",
+            structured_output_json={
+                "format": "evidence_pack",
+                "claims": ["Option A preserves margin", "Option B accelerates launch"],
+                "evidence_refs": ["browseract://run/123", "paper://abc"],
+                "open_questions": ["Need final vendor pricing"],
+                "confidence": 0.72,
+            },
+        )
+    )
+    second = evidence_runtime.record_artifact(
+        Artifact(
+            artifact_id="artifact-evidence-2",
+            kind="decision_summary",
+            content="Support load may fall if the simpler option ships first.",
+            execution_session_id="session-evidence-2",
+            principal_id="exec-1",
+            structured_output_json={
+                "format": "evidence_pack",
+                "claims": ["Option C reduces support load"],
+                "evidence_refs": ["paper://abc", "call://ops-review"],
+                "open_questions": ["Need service staffing forecast"],
+                "confidence": 0.58,
+            },
+        )
+    )
+
+    assert first is not None
+    assert second is not None
+    merged = evidence_runtime.merge_objects([first.evidence_id, second.evidence_id], principal_id="exec-1")
+
+    assert merged.claims == (
+        "Option A preserves margin",
+        "Option B accelerates launch",
+        "Option C reduces support load",
+    )
+    assert merged.evidence_refs == ("browseract://run/123", "paper://abc", "call://ops-review")
+    assert merged.open_questions == ("Need final vendor pricing", "Need service staffing forecast")
+    assert merged.source_artifact_ids == ("artifact-evidence-1", "artifact-evidence-2")
+    assert merged.citation_handles == (
+        "evidence://evidence-artifact-evidence-1",
+        "evidence://evidence-artifact-evidence-2",
+    )
 
 
 def test_tool_execution_service_rejects_disabled_tools() -> None:

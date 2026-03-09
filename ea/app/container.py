@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-
 from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.commitments import InMemoryCommitmentRepository
@@ -12,6 +11,7 @@ from app.repositories.deadline_windows import InMemoryDeadlineWindowRepository
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.delivery_preferences import InMemoryDeliveryPreferenceRepository
 from app.repositories.entities import InMemoryEntityRepository
+from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.follow_ups import InMemoryFollowUpRepository
 from app.repositories.follow_up_rules import InMemoryFollowUpRuleRepository
 from app.repositories.interruption_budgets import InMemoryInterruptionBudgetRepository
@@ -23,6 +23,7 @@ from app.repositories.relationships import InMemoryRelationshipRepository
 from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
+from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.orchestrator import RewriteOrchestrator, build_artifact_repo, build_default_orchestrator
 from app.services.planner import PlannerService
@@ -79,6 +80,7 @@ class AppContainer:
     channel_runtime: ChannelRuntimeService
     tool_runtime: ToolRuntimeService
     tool_execution: ToolExecutionService
+    evidence_runtime: EvidenceRuntimeService
     memory_runtime: MemoryRuntimeService
     task_contracts: TaskContractService
     skills: SkillCatalogService
@@ -136,6 +138,12 @@ def build_container(settings: Settings | None = None) -> AppContainer:
             interruption_budgets=InMemoryInterruptionBudgetRepository(),
         )
     try:
+        evidence_runtime = build_evidence_runtime(settings=resolved)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(resolved, "evidence runtime bootstrap", exc)
+        log.warning("evidence runtime bootstrap failed, using in-memory fallback: %s", exc)
+        evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
+    try:
         tool_runtime = build_tool_runtime(settings=resolved)
     except Exception as exc:
         ensure_storage_fallback_allowed(resolved, "tool runtime bootstrap", exc)
@@ -148,6 +156,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         tool_runtime=tool_runtime,
         artifacts=artifacts,
         channel_runtime=channel_runtime,
+        evidence_runtime=evidence_runtime,
     )
     try:
         orchestrator = build_default_orchestrator(
@@ -155,6 +164,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
             artifacts=artifacts,
             task_contracts=task_contracts,
             planner=planner,
+            evidence_runtime=evidence_runtime,
             memory_runtime=memory_runtime,
             tool_execution=tool_execution,
         )
@@ -178,6 +188,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         channel_runtime=channel_runtime,
         tool_runtime=tool_runtime,
         tool_execution=tool_execution,
+        evidence_runtime=evidence_runtime,
         memory_runtime=memory_runtime,
         task_contracts=task_contracts,
         skills=skills,

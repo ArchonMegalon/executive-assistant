@@ -20,6 +20,7 @@ from app.repositories.artifacts import ArtifactRepository, InMemoryArtifactRepos
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
+from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -36,9 +37,11 @@ class ToolExecutionService:
         tool_runtime: ToolRuntimeService | None = None,
         artifacts: ArtifactRepository | None = None,
         channel_runtime: ChannelRuntimeService | None = None,
+        evidence_runtime: EvidenceRuntimeService | None = None,
     ) -> None:
         self._artifacts = artifacts or InMemoryArtifactRepository()
         self._channel_runtime = channel_runtime
+        self._evidence_runtime = evidence_runtime
         self._tool_runtime = tool_runtime or ToolRuntimeService(
             tool_registry=InMemoryToolRegistryRepository(),
             connector_bindings=InMemoryConnectorBindingRepository(),
@@ -586,6 +589,9 @@ class ToolExecutionService:
             attachments_json=dict(payload.get("attachments_json") or {}),
         ))
         self._artifacts.save(artifact)
+        evidence_object = self._evidence_runtime.record_artifact(artifact) if self._evidence_runtime is not None else None
+        evidence_object_id = str(evidence_object.evidence_id if evidence_object is not None else "")
+        citation_handle = str(evidence_object.citation_handle if evidence_object is not None else "")
         return ToolInvocationResult(
             tool_name=definition.tool_name,
             action_kind=str(request.action_kind or "artifact.save") or "artifact.save",
@@ -603,6 +609,8 @@ class ToolExecutionService:
                 "plan_id": plan_id,
                 "plan_step_key": plan_step_key,
                 "principal_id": artifact.principal_id,
+                "evidence_object_id": evidence_object_id,
+                "citation_handle": citation_handle,
                 "tool_name": definition.tool_name,
                 "action_kind": str(request.action_kind or "artifact.save") or "artifact.save",
             },
@@ -616,6 +624,8 @@ class ToolExecutionService:
                 "plan_id": plan_id,
                 "plan_step_key": plan_step_key,
                 "principal_id": artifact.principal_id,
+                "evidence_object_id": evidence_object_id,
+                "citation_handle": citation_handle,
                 "tool_version": definition.version,
             },
             artifacts=(artifact,),
