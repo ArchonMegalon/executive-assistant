@@ -514,6 +514,51 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         )
 
 
+def test_connector_dispatch_executor_rejects_disallowed_channel_before_scope_mismatch() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-disallowed-channel-no-scope",
+        scope_json={"scopes": ["mail.readonly"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(
+        ToolExecutionError,
+        match="connector_dispatch_channel_not_allowed:push:email,slack,telegram",
+    ):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-disallowed-channel-before-scope-1",
+                step_id="step-disallowed-channel-before-scope-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                    "channel": "push",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
 def test_connector_dispatch_executor_rejects_principal_scope_mismatch() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
