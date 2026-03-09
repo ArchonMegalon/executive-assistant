@@ -385,6 +385,49 @@ def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -
     assert any(row.delivery_id == result.target_ref and row.idempotency_key == "" for row in pending)
 
 
+def test_connector_dispatch_executor_accepts_missing_payload_principal_when_request_principal_present() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-optional-principal",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-optional-principal-1",
+            step_id="step-optional-principal-1",
+            tool_name="connector.dispatch",
+            action_kind="delivery.send",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "queued dispatch",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["status"] == "queued"
+    assert result.receipt_json["principal_id"] == "exec-1"
+
+
 def test_connector_dispatch_executor_rejects_missing_principal_id() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -665,6 +708,42 @@ def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_
         )
 
 
+def test_browseract_tool_dispatch_accepts_missing_payload_principal_when_request_principal_present() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-principal-optional-1",
+            step_id="step-browseract-principal-optional-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.receipt_json["principal_id"] == "exec-1"
+    assert result.output_json["service_name"] == "BrowserAct"
+
+
 def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -696,6 +775,40 @@ def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> 
                     "principal_id": "exec-1",
                 },
                 context_json={"principal_id": "exec-2"},
+            )
+        )
+
+
+def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="connector_binding_scope_mismatch:.*:teable"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-scope-mismatch-1",
+                step_id="step-browseract-scope-mismatch-1",
+                tool_name="browseract.extract_account_facts",
+                action_kind="account.extract",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_name": "Teable",
+                },
+                context_json={"principal_id": "exec-1"},
             )
         )
 

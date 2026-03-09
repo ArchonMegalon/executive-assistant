@@ -431,13 +431,40 @@ class ToolExecutionService:
         payload: dict[str, object],
         *,
         required_input_error: str = "connector_binding_required:browseract.extract_account_facts",
+        required_scopes: tuple[str, ...] | None = None,
     ):
-        return self._resolve_connector_binding(
+        principal_id, binding = self._resolve_connector_binding(
             request=request,
             payload=payload,
             required_connector_name="browseract",
             required_input_error=required_input_error,
         )
+        requested_scopes = self._normalized_connector_scopes(required_scopes or ())
+        if requested_scopes:
+            configured_scopes = self._normalised_scopes(
+                self._browseract_configured_service_names(
+                    binding_auth_metadata_json=dict(binding.auth_metadata_json or {}),
+                    binding_scope_json=dict(binding.scope_json or {}),
+                )
+            )
+            if not set(requested_scopes).intersection(configured_scopes):
+                raise ToolExecutionError(
+                    f"connector_binding_scope_mismatch:{binding.binding_id}:{','.join(requested_scopes)}"
+                )
+        return principal_id, binding
+
+    def _resolve_connector_binding_principal(
+        self,
+        request: ToolInvocationRequest,
+        payload: dict[str, object],
+    ) -> str:
+        request_principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
+        if not request_principal_id:
+            raise ToolExecutionError("principal_id_required")
+        supplied_principal_id = str(payload.get("principal_id") or "").strip()
+        if supplied_principal_id and supplied_principal_id != request_principal_id:
+            raise ToolExecutionError("principal_scope_mismatch")
+        return request_principal_id
 
     def _resolve_connector_binding(
         self,
@@ -448,14 +475,7 @@ class ToolExecutionService:
         required_input_error: str = "connector_binding_required:connector.dispatch",
         required_scopes: tuple[str, ...] | None = None,
     ):
-        principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
-        if not principal_id:
-            raise ToolExecutionError("principal_id_required")
-        supplied_principal_id = str(payload.get("principal_id") or "").strip()
-        if not supplied_principal_id:
-            raise ToolExecutionError("principal_id_required")
-        if supplied_principal_id != principal_id:
-            raise ToolExecutionError("principal_scope_mismatch")
+        principal_id = self._resolve_connector_binding_principal(request, payload)
         binding_id = str(payload.get("binding_id") or "").strip()
         if not binding_id:
             raise ToolExecutionError(required_input_error)
@@ -493,7 +513,9 @@ class ToolExecutionService:
 
     def _channel_dispatch_scopes(self, channel: str) -> tuple[str, ...]:
         normalized_channel = str(channel or "").strip().lower()
-        return self._normalised_scopes(CONNECTOR_CHANNEL_SCOPE_REQUIREMENTS.get(normalized_channel, (normalized_channel + ".send",))
+        return self._normalised_scopes(
+            CONNECTOR_CHANNEL_SCOPE_REQUIREMENTS.get(normalized_channel, (normalized_channel + ".send",))
+        )
 
     def _normalised_scopes(self, scopes: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
         normalized: set[str] = set()
@@ -722,12 +744,15 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
+        service_name = str(payload.get("service_name") or "").strip()
         principal_id, binding = self._resolve_browseract_binding(
             request,
             payload,
             required_input_error="connector_binding_required:browseract.extract_account_facts",
+            required_scopes=(service_name,)
+            if service_name
+            else None,
         )
-        service_name = str(payload.get("service_name") or "").strip()
         if not service_name:
             raise ToolExecutionError("service_name_required:browseract.extract_account_facts")
         requested_fields = self._browseract_requested_fields(payload)
@@ -799,13 +824,14 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
+        service_names = self._browseract_requested_service_names(payload)
         principal_id, binding = self._resolve_browseract_binding(
             request,
             payload,
             required_input_error="connector_binding_required:browseract.extract_account_inventory",
+            required_scopes=tuple(service_names),
         )
         requested_fields = self._browseract_requested_fields(payload)
-        service_names = self._browseract_requested_service_names(payload)
         if not service_names:
             service_names = self._browseract_configured_service_names(
                 binding_auth_metadata_json=dict(binding.auth_metadata_json or {}),
@@ -880,11 +906,6 @@ class ToolExecutionService:
         if self._channel_runtime is None:
             raise ToolExecutionError("channel_runtime_unavailable:connector.dispatch")
         payload = dict(request.payload_json or {})
-        _, binding = self._resolve_connector_binding(
-            request=request,
-            payload=payload,
-            required_input_error="connector_binding_required:connector.dispatch",
-        )
         channel = str(payload.get("channel") or "").strip()
         normalized_channel = channel.lower()
         required_scopes = self._channel_dispatch_scopes(normalized_channel)
@@ -893,7 +914,6 @@ class ToolExecutionService:
             payload=payload,
             required_input_error="connector_binding_required:connector.dispatch",
             required_scopes=required_scopes,
-            required_connector_name=None,
         )
         allowed_channels = self._normalized_allowed_channels(definition)
         if allowed_channels:
