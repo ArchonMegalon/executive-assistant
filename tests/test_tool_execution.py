@@ -385,7 +385,7 @@ def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -
     assert any(row.delivery_id == result.target_ref and row.idempotency_key == "" for row in pending)
 
 
-def test_connector_dispatch_executor_accepts_missing_payload_principal_when_request_principal_present() -> None:
+def test_connector_dispatch_executor_rejects_missing_payload_principal_even_when_request_principal_present() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -408,24 +408,22 @@ def test_connector_dispatch_executor_accepts_missing_payload_principal_when_requ
         status="enabled",
     )
 
-    result = service.execute_invocation(
-        ToolInvocationRequest(
-            session_id="session-optional-principal-1",
-            step_id="step-optional-principal-1",
-            tool_name="connector.dispatch",
-            action_kind="delivery.send",
-            payload_json={
-                "binding_id": binding.binding_id,
-                "channel": "email",
-                "recipient": "ops@example.com",
-                "content": "queued dispatch",
-            },
-            context_json={"principal_id": "exec-1"},
+    with pytest.raises(ToolExecutionError, match="principal_id_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-optional-principal-1",
+                step_id="step-optional-principal-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                    "content": "queued dispatch",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
         )
-    )
-
-    assert result.output_json["status"] == "queued"
-    assert result.receipt_json["principal_id"] == "exec-1"
 
 
 def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_tool_definition_is_missing_it() -> None:
@@ -908,7 +906,7 @@ def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_
         )
 
 
-def test_browseract_tool_dispatch_accepts_missing_payload_principal_when_request_principal_present() -> None:
+def test_browseract_tool_dispatch_rejects_missing_payload_principal_even_when_request_principal_present() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -926,22 +924,20 @@ def test_browseract_tool_dispatch_accepts_missing_payload_principal_when_request
         status="enabled",
     )
 
-    result = service.execute_invocation(
-        ToolInvocationRequest(
-            session_id="session-browseract-principal-optional-1",
-            step_id="step-browseract-principal-optional-1",
-            tool_name="browseract.extract_account_facts",
-            action_kind="account.extract",
-            payload_json={
-                "binding_id": binding.binding_id,
-                "service_name": "BrowserAct",
-            },
-            context_json={"principal_id": "exec-1"},
+    with pytest.raises(ToolExecutionError, match="principal_id_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-principal-optional-1",
+                step_id="step-browseract-principal-optional-1",
+                tool_name="browseract.extract_account_facts",
+                action_kind="account.extract",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_name": "BrowserAct",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
         )
-    )
-
-    assert result.receipt_json["principal_id"] == "exec-1"
-    assert result.output_json["service_name"] == "BrowserAct"
 
 
 def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> None:

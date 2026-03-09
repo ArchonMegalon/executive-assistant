@@ -463,7 +463,9 @@ class ToolExecutionService:
         if not request_principal_id:
             raise ToolExecutionError("principal_id_required")
         supplied_principal_id = str(payload.get("principal_id") or "").strip()
-        if supplied_principal_id and supplied_principal_id != request_principal_id:
+        if not supplied_principal_id:
+            raise ToolExecutionError("principal_id_required")
+        if supplied_principal_id != request_principal_id:
             raise ToolExecutionError("principal_scope_mismatch")
         return request_principal_id
 

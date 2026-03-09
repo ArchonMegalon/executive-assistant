@@ -1259,7 +1259,7 @@ if [[ -z "${BINDING_ID}" ]]; then
 fi
 TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \
-  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"tool-runtime smoke dispatch\",\"metadata\":{\"source\":\"tool-execute\"},\"idempotency_key\":\"tool-dispatch-smoke-1\"}}")"
+  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${EA_PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"tool-runtime smoke dispatch\",\"metadata\":{\"source\":\"tool-execute\"},\"idempotency_key\":\"tool-dispatch-smoke-1\"}}")"
 TOOL_EXEC_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; out=body.get('output_json') or {}; print('{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('status',''), out.get('binding_id',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${TOOL_EXEC_JSON}")"
 if [[ "${TOOL_EXEC_FIELDS}" != "connector.dispatch|queued|${BINDING_ID}|connector.dispatch|tool.v1" ]]; then
   echo "expected connector.dispatch execute route to queue delivery with scoped binding and normalized receipt contract; got ${TOOL_EXEC_FIELDS}" >&2
@@ -1279,7 +1279,7 @@ if [[ "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
 fi
 TOOL_EXEC_MISMATCH_CODE="$(curl -sS -o /tmp/ea_tool_exec_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" \
-  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"blocked dispatch\"}}")"
+  -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${EA_PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"blocked dispatch\"}}")"
 if [[ "${TOOL_EXEC_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for foreign principal tool execution; got ${TOOL_EXEC_MISMATCH_CODE}" >&2
   cat /tmp/ea_tool_exec_mismatch_resp.json >&2 || true
@@ -1315,7 +1315,7 @@ if [[ -z "${BROWSERACT_BINDING_ID}" ]]; then
 fi
 BROWSERACT_TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \
-  -d "{\"tool_name\":\"browseract.extract_account_facts\",\"action_kind\":\"account.extract\",\"payload_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"BrowserAct\":{\"workspace\":\"primary\"}},\"run_url\":\"https://browseract.example/run\"}}")"
+  -d "{\"tool_name\":\"browseract.extract_account_facts\",\"action_kind\":\"account.extract\",\"payload_json\":{\"principal_id\":\"${EA_PRINCIPAL_ID}\",\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"BrowserAct\":{\"workspace\":\"primary\"}},\"run_url\":\"https://browseract.example/run\"}}")"
 BROWSERACT_TOOL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); out=body.get('output_json') or {}; receipt=body.get('receipt_json') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('service_name',''), (out.get('facts_json') or {}).get('tier',''), out.get('account_email',''), out.get('requested_run_url',''), out.get('instructions',''), bool(out.get('account_hints_json')), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${BROWSERACT_TOOL_EXEC_JSON}")"
 if [[ "${BROWSERACT_TOOL_FIELDS}" != "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com|https://browseract.example/run|Use stored BrowserAct credentials|True|browseract.extract_account_facts|tool.v1" ]]; then
   echo "expected browseract.extract_account_facts to resolve configured service facts through the shared tool plane; got ${BROWSERACT_TOOL_FIELDS}" >&2
@@ -1324,7 +1324,7 @@ if [[ "${BROWSERACT_TOOL_FIELDS}" != "browseract.extract_account_facts|BrowserAc
 fi
 BROWSERACT_INVENTORY_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   "${PRINCIPAL_ARGS[@]}" \
-  -d "{\"tool_name\":\"browseract.extract_account_inventory\",\"action_kind\":\"account.extract_inventory\",\"payload_json\":{\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_names\":[\"BrowserAct\",\"Teable\",\"UnknownService\"],\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"Teable\":{\"workspace\":\"ops\"}},\"run_url\":\"https://browseract.example/run\"}}")"
+  -d "{\"tool_name\":\"browseract.extract_account_inventory\",\"action_kind\":\"account.extract_inventory\",\"payload_json\":{\"principal_id\":\"${EA_PRINCIPAL_ID}\",\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_names\":[\"BrowserAct\",\"Teable\",\"UnknownService\"],\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"Teable\":{\"workspace\":\"ops\"}},\"run_url\":\"https://browseract.example/run\"}}")"
 BROWSERACT_INVENTORY_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); out=body.get('output_json') or {}; services=out.get('services_json') or []; receipt=body.get('receipt_json') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('tool_name',''), ','.join(out.get('service_names') or []), ','.join(out.get('missing_services') or []), (services[1].get('plan_tier','') if len(services) > 1 else ''), (services[2].get('discovery_status','') if len(services) > 2 else ''), out.get('requested_run_url',''), out.get('instructions',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${BROWSERACT_INVENTORY_JSON}")"
 if [[ "${BROWSERACT_INVENTORY_FIELDS}" != "browseract.extract_account_inventory|BrowserAct,Teable,UnknownService|UnknownService|License Tier 4|missing|https://browseract.example/run|Use stored BrowserAct credentials|browseract.extract_account_inventory|tool.v1" ]]; then
   echo "expected browseract.extract_account_inventory to summarize multiple configured service accounts through the shared tool plane; got ${BROWSERACT_INVENTORY_FIELDS}" >&2

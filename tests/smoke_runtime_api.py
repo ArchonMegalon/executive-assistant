@@ -2628,6 +2628,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
+                "principal_id": "exec-1",
                 "binding_id": browseract_binding.json()["binding_id"],
                 "service_name": "Teable",
             },
@@ -2663,10 +2664,10 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             },
         },
     )
-    assert browseract_unsigned_request_principal_mismatch.status_code == 403
+    assert browseract_unsigned_request_principal_mismatch.status_code == 400
     assert (
         browseract_unsigned_request_principal_mismatch.json()["error"]["code"]
-        == "principal_scope_mismatch"
+        == "principal_id_required"
     )
 
     foreign_status = client.post(

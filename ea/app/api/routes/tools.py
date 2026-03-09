@@ -143,7 +143,10 @@ def execute_tool(
             status_code = 404
         elif detail == "principal_scope_mismatch" or detail.startswith("connector_binding_scope_mismatch:"):
             status_code = 403
-        elif detail.startswith("connector_binding_required:") or detail == "tool_name_required":
+        elif (
+            detail.startswith("connector_binding_required:")
+            or detail in {"tool_name_required", "principal_id_required", "connector_dispatch_channel_required"}
+        ):
             status_code = 400
         else:
             status_code = 409
