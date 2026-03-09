@@ -96,6 +96,14 @@ def test_runtime_mode_prod_rejects_empty_api_token() -> None:
         _ = get_settings()
 
 
+def test_runtime_mode_prod_rejects_whitespace_api_token() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "   \t\n"
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+        _ = get_settings()
+
+
 def test_runtime_mode_unknown_defaults_to_dev() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "unknown-mode"

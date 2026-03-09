@@ -5200,6 +5200,33 @@ def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
                 os.environ[key] = value
 
 
+def test_prod_mode_rejects_blank_api_token_at_startup() -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+    try:
+        os.environ["EA_RUNTIME_MODE"] = "prod"
+        os.environ["EA_API_TOKEN"] = "  \t"
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
+        os.environ.pop("EA_LEDGER_BACKEND", None)
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        from app.api.app import create_app
+
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+            TestClient(create_app())
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_ready_fails_when_postgres_backend_without_database_url() -> None:
     client = _client(storage_backend="postgres", database_url="")
     ready = client.get("/health/ready")
