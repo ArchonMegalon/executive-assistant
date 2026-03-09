@@ -131,7 +131,11 @@ def ensure_storage_fallback_allowed(
 ) -> None:
     if settings.storage_fallback_allowed:
         return
-    message = f"EA_RUNTIME_MODE=prod forbids memory fallback ({reason})"
+    if exc is not None:
+        message = str(exc)
+        if message.startswith("EA_RUNTIME_MODE=prod forbids memory fallback"):
+            raise exc
+    message = f"EA_RUNTIME_MODE=prod forbids memory fallback({reason})"
     if exc is not None:
         raise RuntimeError(message) from exc
     raise RuntimeError(message)
