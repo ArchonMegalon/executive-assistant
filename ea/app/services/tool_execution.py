@@ -424,12 +424,14 @@ class ToolExecutionService:
         self,
         request: ToolInvocationRequest,
         payload: dict[str, object],
+        *,
+        required_input_error: str = "connector_binding_required:browseract.extract_account_facts",
     ):
         return self._resolve_connector_binding(
             request=request,
             payload=payload,
             required_connector_name="browseract",
-            required_input_error="connector_binding_required:browseract.extract_account_facts",
+            required_input_error=required_input_error,
         )
 
     def _resolve_connector_binding(
@@ -458,6 +460,10 @@ class ToolExecutionService:
             if str(binding.connector_name or "").strip().lower() != expected:
                 raise ToolExecutionError(f"connector_binding_connector_mismatch:{binding_id}")
         return principal_id, binding
+
+    def _normalized_allowed_channels(self, definition: ToolDefinition) -> tuple[str, ...]:
+        values = {str(raw or "").strip().lower() for raw in definition.allowed_channels}
+        return tuple(sorted(value for value in values if value))
 
     def _browseract_extract_service_record(
         self,
@@ -663,7 +669,11 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        principal_id, binding = self._resolve_browseract_binding(request, payload)
+        principal_id, binding = self._resolve_browseract_binding(
+            request,
+            payload,
+            required_input_error="connector_binding_required:browseract.extract_account_facts",
+        )
         service_name = str(payload.get("service_name") or "").strip()
         if not service_name:
             raise ToolExecutionError("service_name_required:browseract.extract_account_facts")
@@ -736,7 +746,11 @@ class ToolExecutionService:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        principal_id, binding = self._resolve_browseract_binding(request, payload)
+        principal_id, binding = self._resolve_browseract_binding(
+            request,
+            payload,
+            required_input_error="connector_binding_required:browseract.extract_account_inventory",
+        )
         requested_fields = self._browseract_requested_fields(payload)
         service_names = self._browseract_requested_service_names(payload)
         if not service_names:
@@ -820,7 +834,7 @@ class ToolExecutionService:
         )
         channel = str(payload.get("channel") or "").strip()
         normalized_channel = channel.lower()
-        allowed_channels = tuple(str(value or "").strip().lower() for value in definition.allowed_channels)
+        allowed_channels = self._normalized_allowed_channels(definition)
         if allowed_channels:
             if not normalized_channel:
                 raise ToolExecutionError("connector_dispatch_channel_required")

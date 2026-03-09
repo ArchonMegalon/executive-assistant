@@ -467,6 +467,112 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         )
 
 
+def test_connector_dispatch_executor_enforces_sorted_allowed_channels_deterministically() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-disallowed-channel-order",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+    tool_runtime.upsert_tool(
+        tool_name="connector.dispatch",
+        version="v1",
+        input_schema_json={
+            "type": "object",
+            "required": ["binding_id", "channel", "recipient", "content"],
+            "properties": {
+                "binding_id": {"type": "string"},
+                "channel": {"type": "string"},
+                "recipient": {"type": "string"},
+                "content": {"type": "string"},
+                "metadata": {"type": "object"},
+            },
+        },
+        output_schema_json={
+            "type": "object",
+            "required": ["delivery_id", "status", "tool_name", "action_kind"],
+        },
+        policy_json={
+            "builtin": True,
+            "action_kind": "delivery.send",
+            "idempotency_key_policy": CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
+        },
+        allowed_channels=("telegram", "email", "slack"),
+        approval_default="manager",
+        enabled=True,
+    )
+
+    with pytest.raises(
+        ToolExecutionError,
+        match="connector_dispatch_channel_not_allowed:push:email,slack,telegram",
+    ):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-disallowed-channel-order-1",
+                step_id="step-disallowed-channel-order-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "channel": "push",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_supplies_mismatch() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}}},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_id_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-principal-missing-1",
+                step_id="step-browseract-principal-missing-1",
+                tool_name="browseract.extract_account_facts",
+                action_kind="account.extract",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_name": "BrowserAct",
+                    "principal_id": "exec-1",
+                },
+                context_json={},
+            )
+        )
+
+
 def test_tool_execution_service_executes_builtin_browseract_extract_handler() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
