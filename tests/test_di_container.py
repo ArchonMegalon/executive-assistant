@@ -443,16 +443,63 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
             app_container.build_container()
     finally:
         for key, value in saved_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 
 def test_build_container_rejects_prod_mode_with_whitespace_api_token() -> None:
     settings = _Settings(auth=_Auth(api_token="  \t"), runtime=_Runtime(mode="prod"))
     with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
         app_container.build_container(settings=settings)
+
+
+def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+
+    class _FakeArtifactRepo:
+        pass
+
+    class _FakeTaskContracts:
+        def list_contracts(self, limit: int = 100):
+            return []
+
+    class _FakeChannelRuntime:
+        pass
+
+    try:
+        os.environ["EA_RUNTIME_MODE"] = "PROD"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
+        os.environ["EA_LEDGER_BACKEND"] = ""
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
+        monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
+        monkeypatch.setattr(app_container, "build_channel_runtime", lambda **kwargs: _FakeChannelRuntime())
+
+        def _raise_runtime_failure(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced failure")
+
+        monkeypatch.setattr(app_container, "build_memory_runtime", _raise_runtime_failure)
+
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod forbids memory fallback\\(memory runtime bootstrap\\)"):
+            app_container.build_container()
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_rewrite_route_maps_tool_not_allowed_policy_denial() -> None:
