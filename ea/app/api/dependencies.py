@@ -46,6 +46,8 @@ def get_request_context(
     container: AppContainer = Depends(get_container),
 ) -> RequestContext:
     expected = str(container.settings.auth.api_token or "").strip()
+    if is_prod_mode(container.settings.runtime.mode) and not expected:
+        raise HTTPException(status_code=401, detail="auth_required")
     authenticated = False
     if expected:
         provided = _extract_token(request)

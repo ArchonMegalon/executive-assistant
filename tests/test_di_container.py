@@ -313,6 +313,31 @@ def test_non_prod_mode_allows_default_principal_fallback() -> None:
     assert response.json()["principal_id"] == "ops-fallback"
 
 
+def test_prod_mode_rejects_missing_configured_api_token_at_request() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _FakeContainer()
+    app.state.container.settings = _Settings(
+        auth=_Auth(api_token=""),
+        runtime=_Runtime(mode="prod"),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/memory/candidates",
+        json={
+            "category": "stakeholder_pref",
+            "summary": "Missing token should fail in prod",
+            "fact_json": {"source": "container-route"},
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_required"
+
+
 def test_prod_mode_rejects_blank_api_token_startup() -> None:
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
