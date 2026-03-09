@@ -5173,7 +5173,7 @@ def test_auth_allow_and_deny() -> None:
     assert health.status_code == 200
 
 
-def test_prod_mode_rejects_default_principal_fallback() -> None:
+def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
@@ -5190,18 +5190,8 @@ def test_prod_mode_rejects_default_principal_fallback() -> None:
 
         from app.api.app import create_app
 
-        client = TestClient(create_app())
-        response = client.post(
-            "/v1/memory/candidates",
-            headers={"Authorization": "Bearer secret-token"},
-            json={
-                "category": "stakeholder_pref",
-                "summary": "Principal fallback blocked in prod",
-                "fact_json": {"source": "smoke"},
-            },
-        )
-        assert response.status_code == 401
-        assert response.json()["error"]["code"] == "principal_required"
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod forbids memory fallback\(artifacts configured for memory\)"):
+            TestClient(create_app())
     finally:
         for key, value in saved_env.items():
             if value is None:

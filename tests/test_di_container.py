@@ -19,8 +19,14 @@ class _Auth:
 
 
 @dataclass(frozen=True)
+class _Runtime:
+    mode: str = "dev"
+
+
+@dataclass(frozen=True)
 class _Settings:
     auth: _Auth = _Auth()
+    runtime: _Runtime = _Runtime()
 
 
 class _FakeOrchestrator:
@@ -253,6 +259,12 @@ class _FakeContainer:
         self.readiness = _FakeReadiness()
 
 
+class _ProdContainer(_FakeContainer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.settings = _Settings(auth=_Auth(api_token="secret-token"), runtime=_Runtime(mode="prod"))
+
+
 class _FakeDeniedContainer(_FakeContainer):
     def __init__(self) -> None:
         super().__init__()
@@ -272,6 +284,28 @@ def test_routes_use_app_state_container_dependency() -> None:
     assert resp.status_code == 200
     assert resp.json()["artifact_id"] == "artifact-fake"
     assert resp.json()["content"] == "fake-content"
+
+
+def test_prod_mode_rejects_default_principal_fallback() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _ProdContainer()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/memory/candidates",
+        headers={"Authorization": "Bearer secret-token"},
+        json={
+            "category": "stakeholder_pref",
+            "summary": "Principal fallback blocked in prod",
+            "fact_json": {"source": "container-route"},
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "principal_required"
 
 
 def test_rewrite_route_maps_tool_not_allowed_policy_denial() -> None:
