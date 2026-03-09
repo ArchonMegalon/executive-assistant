@@ -474,11 +474,8 @@ class ToolExecutionService:
         required_connector_name: str | None = None,
         required_input_error: str = "connector_binding_required:connector.dispatch",
         required_scopes: tuple[str, ...] | None = None,
-        request_principal_id: str | None = None,
     ):
-        principal_id = str(request_principal_id or "").strip()
-        if not principal_id:
-            principal_id = self._resolve_connector_binding_principal(request, payload)
+        principal_id = self._resolve_connector_binding_principal(request, payload)
         binding_id = str(payload.get("binding_id") or "").strip()
         if not binding_id:
             raise ToolExecutionError(required_input_error)
@@ -909,7 +906,6 @@ class ToolExecutionService:
         if self._channel_runtime is None:
             raise ToolExecutionError("channel_runtime_unavailable:connector.dispatch")
         payload = dict(request.payload_json or {})
-        request_principal_id = self._resolve_connector_binding_principal(request, payload)
         channel = str(payload.get("channel") or "").strip()
         normalized_channel = channel.lower()
         allowed_channels = self._normalized_allowed_channels(definition)
@@ -925,7 +921,6 @@ class ToolExecutionService:
             payload=payload,
             required_input_error="connector_binding_required:connector.dispatch",
             required_scopes=required_scopes,
-            request_principal_id=request_principal_id,
         )
         recipient = str(payload.get("recipient") or "").strip()
         content = str(payload.get("content") or "")

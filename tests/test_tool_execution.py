@@ -469,6 +469,48 @@ def test_connector_dispatch_executor_rejects_missing_principal_id() -> None:
         )
 
 
+def test_connector_dispatch_executor_rejects_context_principal_id_missing_even_if_payload_principal_present() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="gmail",
+        external_account_ref="acct-missing-context-principal",
+        scope_json={"scopes": ["mail.send"]},
+        auth_metadata_json={"provider": "google"},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="principal_id_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-missing-context-principal-1",
+                step_id="step-missing-context-principal-1",
+                tool_name="connector.dispatch",
+                action_kind="delivery.send",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                    "channel": "email",
+                    "recipient": "ops@example.com",
+                    "content": "blocked dispatch",
+                },
+                context_json={},
+            )
+        )
+
+
 def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
