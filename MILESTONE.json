@@ -144,7 +144,7 @@
     },
     {
       "name": "postgres_contract_matrix",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "postgres_artifact_contracts",
         "postgres_channel_runtime_contracts",
@@ -153,7 +153,7 @@
         "postgres_task_contract_contracts",
         "postgres_contract_ci_matrix"
       ],
-      "notes": "The host-side Postgres contract runner and CI job now cover artifacts, channel runtime, approvals, policy decisions, and task contracts beyond smoke-only API flows."
+      "notes": "The host-side Postgres contract runner and CI job cover artifacts, channel runtime, approvals, policy decisions, and task contracts beyond smoke-only API flows, and release/operator guards now pin that matrix as current branch baseline behavior."
     },
     {
       "name": "rewrite_policy_disallowed_tool_api_coverage",
@@ -217,13 +217,13 @@
     },
     {
       "name": "execution_queue_inline_worker",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "execution_queue_kernel",
         "inline_queue_drain",
         "worker_queue_drain"
       ],
-      "notes": "Rewrite execution now persists durable execution-queue rows, exposes queue state in session projections, drains queued work inline for API requests, and lets non-API runner roles lease queued work as workers."
+      "notes": "Rewrite execution now persists durable execution-queue rows, exposes queue state in session projections, drains queued work inline for API requests, and lets non-API runner roles lease queued work as workers; release/operator guards now pin that inline-drain and worker-lease contract as current branch baseline behavior."
     },
     {
       "name": "runtime_mode_fail_fast_storage",
@@ -306,14 +306,14 @@
     },
     {
       "name": "dependency_aware_execution_scheduler",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ready_step_selection_from_depends_on",
         "join_waits_for_all_dependencies",
         "approval_resume_uses_ready_step_resolution",
         "paused_session_queue_leasing"
       ],
-      "notes": "Queue advancement now enqueues the full ready set from satisfied `depends_on` edges instead of parent-linked step order, and queue leasing skips paused sessions so joins wait for all prerequisites while approval resume still uses the same dependency-aware scheduler."
+      "notes": "Queue advancement now enqueues the full ready set from satisfied `depends_on` edges instead of parent-linked step order, and queue leasing skips paused sessions so joins wait for all prerequisites while approval resume still uses the same dependency-aware scheduler; release/operator guards now pin that dependency-aware ready-set scheduling contract as current branch baseline behavior."
     },
     {
       "name": "single_dependency_parent_projection",
@@ -389,14 +389,14 @@
     },
     {
       "name": "human_task_review_contract_metadata",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_review_authority_required_projection",
         "human_review_why_human_projection",
         "human_review_quality_rubric_projection",
         "durable_human_task_review_contract_fields"
       ],
-      "notes": "Compiled `step_human_review` nodes and direct human task packets now carry explicit `authority_required`, `why_human`, and `quality_rubric_json` metadata, backed by durable storage and exposed in plan/session/operator projections."
+      "notes": "Compiled `step_human_review` nodes and direct human task packets now carry explicit `authority_required`, `why_human`, and `quality_rubric_json` metadata, backed by durable storage and exposed in plan/session/operator projections, and release/operator guards now pin that review-contract metadata as current branch baseline behavior."
     },
     {
       "name": "operator_profile_specialized_backlog_routing",
@@ -473,7 +473,7 @@
     },
     {
       "name": "session_human_task_assignment_history_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_assignment_history_projection",
         "inline_reassignment_audit_chain",
@@ -582,14 +582,14 @@
     },
     {
       "name": "human_task_pause_resume_session_flow",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "awaiting_human_session_state",
         "waiting_human_step_state",
         "human_task_resume_session_on_return",
         "session_resumed_from_human_task_event"
       ],
-      "notes": "Human task packets can now explicitly reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back."
+      "notes": "Human task packets can now explicitly reopen a linked step into `waiting_human`, move the session to `awaiting_human`, and resume the step/session when the returned packet is posted back. The release/operator guards now pin that pause/resume flow as current branch baseline behavior."
     },
     {
       "name": "human_task_operator_queue_filters",
@@ -667,13 +667,13 @@
     },
     {
       "name": "human_task_sla_transition_combined_sorting",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_combined_sort_param",
         "human_task_backlog_combined_sort_param",
         "sla_due_at_asc_last_transition_desc_runtime_ordering"
       ],
-      "notes": "Human task list/backlog endpoints now accept `sort=sla_due_at_asc_last_transition_desc` so operator queues can break same-SLA ties by the freshest ownership churn instead of default repository order."
+      "notes": "Human task list/backlog endpoints now accept `sort=sla_due_at_asc_last_transition_desc` so operator queues can break same-SLA ties by the freshest ownership churn instead of default repository order, and release/operator guards now pin that combined sort behavior as current branch baseline behavior."
     },
     {
       "name": "human_task_unscheduled_fallback_sorting",
@@ -747,7 +747,7 @@
     },
     {
       "name": "human_task_operator_matched_priority_summary",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "priority_summary_operator_profile_filter",
         "role_skill_trust_filtered_backlog_counts",
@@ -841,12 +841,12 @@
     },
     {
       "name": "human_task_ownerless_unassigned_created_sort",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "ownerless_unassigned_created_asc_fifo",
         "ownerless_unassigned_backlog_created_alignment"
       ],
-      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=created_asc`, keeping its oldest-first FIFO ordering aligned with the backlog slice."
+      "notes": "The direct ownerless unassigned queue now has explicit smoke/docs coverage for `sort=created_asc`, keeping its oldest-first FIFO ordering aligned with the backlog slice, and the release/operator guards now pin that ownerless unassigned oldest-first ordering as current branch baseline behavior."
     },
     {
       "name": "human_task_ownerless_list_created_sort",
@@ -942,7 +942,7 @@
     },
     {
       "name": "human_task_session_ownerless_unsorted_mixed_source_isolation",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_unsorted_excludes_non_ownerless_after_churn"
       ],
