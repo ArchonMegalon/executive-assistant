@@ -14,6 +14,10 @@ IdempotencyKeyFn = Callable[[str, str], str]
 
 
 class ExecutionQueueRuntimeService:
+    @staticmethod
+    def default_step_id_to_retry_key(session_id: str, step_id: str) -> str:
+        return f"rewrite:{str(session_id or '').strip()}:{str(step_id or '').strip()}"
+
     def __init__(
         self,
         *,

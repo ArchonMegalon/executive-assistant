@@ -158,6 +158,38 @@ def _snapshot_queue_state(snapshot):
     }
 
 
+def _snapshot_human_routing_state(snapshot):
+    return {
+        "session_status": snapshot.session.status,
+        "session_events": [row.name for row in snapshot.events],
+        "human_tasks": [
+            {
+                "human_task_id": row.human_task_id,
+                "status": row.status,
+                "assignment_state": row.assignment_state,
+                "assignment_source": row.assignment_source,
+                "assigned_operator_id": row.assigned_operator_id,
+                "resume_session_on_return": row.resume_session_on_return,
+            }
+            for row in snapshot.human_tasks
+        ],
+    }
+
+
+def _build_operator_route_snapshot_orchestrator():
+    ledger = InMemoryExecutionLedgerRepository()
+    orchestrator = RewriteOrchestrator(ledger=ledger)
+    orchestrator.upsert_operator_profile(
+        principal_id="exec-1",
+        operator_id="operator-1",
+        display_name="Operator One",
+        roles=("reviewer",),
+        skill_tags=("policy",),
+        trust_tier="standard",
+    )
+    return orchestrator, ledger
+
+
 def test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds() -> None:
     calls = {"count": 0}
 
@@ -174,7 +206,7 @@ def test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds() -> No
         )
 
     orchestrator, ledger = _build_retry_orchestrator(handler)
-    session, _, queue_item = _start_retry_step(
+    session, step, queue_item = _start_retry_step(
         orchestrator,
         ledger,
         max_attempts=2,
@@ -877,3 +909,76 @@ def test_run_next_queue_item_leased_retry_flow_preserves_queue_snapshot() -> Non
     assert snapshot_after_completion["queue_items"][-1]["lease_owner"] == ""
     assert snapshot_after_completion["steps"][-1]["state"] == "completed"
     assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
+
+
+def test_operator_routing_snapshot_is_stable_for_claim_and_return() -> None:
+    orchestrator, ledger = _build_operator_route_snapshot_orchestrator()
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id="exec-1",
+            goal="operator routing snapshot lock",
+            task_type="human_review",
+            deliverable_type="review_packet",
+            risk_class="low",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    task = orchestrator.create_human_task(
+        session_id=session.session_id,
+        principal_id="exec-1",
+        task_type="human_review",
+        role_required="reviewer",
+        brief="snapshot route review",
+        authority_required="observe",
+        quality_rubric_json={"checks": ["evidence", "privacy"]},
+        input_json={"source_text": "snapshot operator payload"},
+        desired_output_json={"format": "review_packet"},
+    )
+
+    baseline = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert baseline["session_status"] == "running"
+    assert baseline["human_tasks"][0]["status"] == "pending"
+    assert baseline["human_tasks"][0]["assignment_state"] == "unassigned"
+    assert baseline["human_tasks"][0]["assignment_source"] == ""
+    assert "human_task_created" in baseline["session_events"]
+
+    claimed = orchestrator.claim_human_task(
+        task.human_task_id,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        assigned_by_actor_id="op-webhook",
+    )
+    assert claimed is not None
+    after_claim = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_claim["human_tasks"][0]["status"] == "claimed"
+    assert after_claim["human_tasks"][0]["assignment_state"] == "claimed"
+    assert after_claim["human_tasks"][0]["assigned_operator_id"] == "operator-1"
+    assert "human_task_claimed" in after_claim["session_events"]
+
+    assigned = orchestrator.assign_human_task(
+        task.human_task_id,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        assignment_source="manual",
+        assigned_by_actor_id="op-assign",
+    )
+    assert assigned is not None
+    after_assign = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_assign["human_tasks"][0]["assignment_source"] == "manual"
+    assert "human_task_assigned" in after_assign["session_events"]
+
+    returned = orchestrator.return_human_task(
+        task.human_task_id,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        resolution="needs_rework",
+        returned_payload_json={"notes": "needs context"},
+        provenance_json={"reviewer": "operator-1"},
+    )
+    assert returned is not None
+    after_return = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_return["human_tasks"][0]["status"] == "returned"
+    assert after_return["human_tasks"][0]["assignment_source"] == "manual"
+    assert "human_task_returned" in after_return["session_events"]

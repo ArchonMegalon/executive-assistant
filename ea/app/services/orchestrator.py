@@ -132,7 +132,7 @@ class RewriteOrchestrator:
             update_step=self._ledger.update_step,
             set_session_status=self._ledger.set_session_status,
             append_event=self._ledger.append_event,
-            step_id_to_retry_key=self._queue_idempotency_key,
+            step_id_to_retry_key=ExecutionQueueRuntimeService.default_step_id_to_retry_key,
         )
         self._queue_service = queue_service or ExecutionQueueService(
             lease_queue_item=self._ledger.lease_queue_item,
@@ -386,9 +386,6 @@ class RewriteOrchestrator:
         if tool_name == "artifact_repository":
             return "artifact.save"
         return tool_name or "artifact.save"
-
-    def _queue_idempotency_key(self, session_id: str, step_id: str) -> str:
-        return f"rewrite:{session_id}:{step_id}"
 
     def _delayed_retry_queue_item(
         self,
