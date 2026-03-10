@@ -1,14 +1,29 @@
 from __future__ import annotations
 
-from app.domain.models import ExecutionQueueItem, ExecutionSessionSnapshot, HumanTask
+from app.domain.models import (
+    ExecutionEvent,
+    ExecutionQueueItem,
+    ExecutionSession,
+    ExecutionSessionSnapshot,
+    HumanTask,
+    OperatorProfile,
+)
+from app.repositories.human_tasks import _parse_assignment_source_filter
 from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFacade
+from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.human_task_routing_runtime_service import HumanTaskRoutingService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
+from typing import Callable
 
 
 class ExecutionQueueClaimLeaseService:
-    def __init__(self, runtime: ExecutionQueueRuntimeFacade) -> None:
+    def __init__(
+        self,
+        runtime: ExecutionQueueRuntimeFacade,
+        queue_runtime: ExecutionQueueRuntimeService,
+    ) -> None:
         self._runtime = runtime
+        self._queue_runtime = queue_runtime
 
     def delayed_retry_queue_item(self, snapshot: ExecutionSessionSnapshot) -> ExecutionQueueItem | None:
         return self._runtime.delayed_retry_queue_item(snapshot)
@@ -101,6 +116,28 @@ class ExecutionQueueClaimLeaseService:
     ):
         return self._runtime.run_next_queue_item(lease_owner=lease_owner)
 
+    def execute_next_ready_step(
+        self,
+        session_id: str,
+        *,
+        lease_owner: str = "inline",
+        missing_step_error: str,
+        stop_before_step_id: str | None = None,
+    ):
+        next_step = self.next_ready_step(session_id, stop_before_step_id=stop_before_step_id)
+        if next_step is None:
+            raise RuntimeError(missing_step_error)
+        queue_item = self._queue_runtime.enqueue_rewrite_step(session_id, next_step.step_id)
+        artifact = self.run_queue_item(
+            queue_item.queue_id,
+            lease_owner=lease_owner,
+            stop_before_step_id=stop_before_step_id,
+        )
+        drained_artifact = self.drain_session_inline(session_id, stop_before_step_id=stop_before_step_id)
+        if drained_artifact is not None:
+            return drained_artifact
+        return artifact
+
 
 class ExecutionOperatorRoutingService:
     def __init__(
@@ -108,9 +145,21 @@ class ExecutionOperatorRoutingService:
         *,
         human_task_routing: HumanTaskRoutingService,
         operator_task_routing: OperatorTaskRoutingService,
+        fetch_human_task: Callable[[str], HumanTask | None],
+        list_human_tasks_for_session: Callable[[str, int], list[HumanTask]],
+        list_human_tasks_for_principal: Callable[..., list[HumanTask]],
+        count_human_tasks_by_priority: Callable[..., dict[str, int]],
+        fetch_session_for_principal: Callable[[str, str], ExecutionSession | None],
+        fetch_operator_profile: Callable[[str, str], OperatorProfile | None],
     ) -> None:
         self._human_task_routing = human_task_routing
         self._operator_task_routing = operator_task_routing
+        self._fetch_human_task = fetch_human_task
+        self._list_human_tasks_for_session = list_human_tasks_for_session
+        self._list_human_tasks_for_principal = list_human_tasks_for_principal
+        self._count_human_tasks_by_priority = count_human_tasks_by_priority
+        self._fetch_session_for_principal = fetch_session_for_principal
+        self._fetch_operator_profile = fetch_operator_profile
 
     def required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
         return self._human_task_routing.required_skill_tags(row)
@@ -222,3 +271,194 @@ class ExecutionOperatorRoutingService:
             returned_payload_json=returned_payload_json,
             provenance_json=provenance_json,
         )
+
+    def fetch_human_task(self, human_task_id: str, principal_id: str) -> HumanTask | None:
+        found = self._fetch_human_task(human_task_id)
+        if found is None or found.principal_id != str(principal_id or ""):
+            return None
+        return self.decorate_human_task(found)
+
+    def list_human_tasks(
+        self,
+        *,
+        principal_id: str,
+        session_id: str | None = None,
+        status: str | None = None,
+        role_required: str | None = None,
+        priority: str | None = None,
+        assigned_operator_id: str | None = None,
+        assignment_state: str | None = None,
+        assignment_source: str | None = None,
+        operator_id: str | None = None,
+        overdue_only: bool = False,
+        limit: int = 50,
+        sort: str | None = None,
+    ) -> list[HumanTask]:
+        resolved_operator_id = str(operator_id or "").strip()
+        session = str(session_id or "").strip()
+        if session:
+            if self._fetch_session_for_principal(session, principal_id) is None:
+                return []
+            rows = self._list_human_tasks_for_session(session, limit=max(limit, 1))
+            rows = self.filter_human_task_rows(
+                rows,
+                principal_id=principal_id,
+                status=status,
+                role_required=role_required,
+                priority=priority,
+                assigned_operator_id=assigned_operator_id,
+                assignment_state=assignment_state,
+                assignment_source=assignment_source,
+                overdue_only=overdue_only,
+            )
+            decorated = [self.decorate_human_task(row) for row in rows]
+            if not resolved_operator_id:
+                return self.sort_human_tasks(decorated, sort=sort)
+            profile = self._fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+            if profile is None:
+                return []
+            return self.sort_human_tasks(
+                [row for row in decorated if self.operator_matches_human_task(profile, row)],
+                sort=sort,
+            )
+
+        rows = self._list_human_tasks_for_principal(
+            principal_id,
+            status=status,
+            role_required=role_required,
+            priority=priority,
+            assigned_operator_id=assigned_operator_id,
+            assignment_state=assignment_state,
+            assignment_source=assignment_source,
+            overdue_only=overdue_only,
+            limit=limit,
+        )
+        if not resolved_operator_id:
+            return self.sort_human_tasks(
+                [self.decorate_human_task(row) for row in rows],
+                sort=sort,
+            )
+        profile = self._fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+        if profile is None:
+            return []
+        return self.sort_human_tasks(
+            [
+                self.decorate_human_task(row)
+                for row in rows
+                if self.operator_matches_human_task(profile, row)
+            ],
+            sort=sort,
+        )
+
+    def summarize_human_task_priorities(
+        self,
+        *,
+        principal_id: str,
+        status: str = "pending",
+        role_required: str | None = None,
+        operator_id: str | None = None,
+        assigned_operator_id: str | None = None,
+        assignment_state: str | None = None,
+        assignment_source: str | None = None,
+        overdue_only: bool = False,
+    ) -> dict[str, object]:
+        resolved_operator_id = str(operator_id or "").strip()
+        requested_assignment_source = str(assignment_source or "").strip()
+        if resolved_operator_id:
+            profile = self._fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+            if profile is None:
+                counts: dict[str, int] = {}
+            else:
+                rows = self._list_human_tasks_for_principal(
+                    principal_id,
+                    status=status,
+                    role_required=role_required,
+                    assigned_operator_id=assigned_operator_id,
+                    assignment_state=assignment_state,
+                    assignment_source=assignment_source,
+                    overdue_only=overdue_only,
+                    limit=0,
+                )
+                counts = {}
+                for row in rows:
+                    if not self.operator_matches_human_task(profile, row):
+                        continue
+                    key = str(row.priority or "").strip().lower() or "normal"
+                    counts[key] = counts.get(key, 0) + 1
+        else:
+            counts = self._count_human_tasks_by_priority(
+                principal_id,
+                status=status,
+                role_required=role_required,
+                assigned_operator_id=assigned_operator_id,
+                assignment_state=assignment_state,
+                assignment_source=assignment_source,
+                overdue_only=overdue_only,
+            )
+        normalized = {
+            "urgent": int(counts.get("urgent", 0)),
+            "high": int(counts.get("high", 0)),
+            "normal": int(counts.get("normal", 0)),
+            "low": int(counts.get("low", 0)),
+        }
+        extra = {
+            key: int(value)
+            for key, value in counts.items()
+            if key not in normalized
+        }
+        ordered = {**normalized, **dict(sorted(extra.items()))}
+        highest_priority = next(
+            (key for key in ("urgent", "high", "normal", "low") if ordered.get(key, 0) > 0),
+            "",
+        )
+        return {
+            "status": status,
+            "role_required": str(role_required or ""),
+            "operator_id": resolved_operator_id,
+            "assigned_operator_id": str(assigned_operator_id or ""),
+            "assignment_state": str(assignment_state or ""),
+            "assignment_source": requested_assignment_source,
+            "overdue_only": bool(overdue_only),
+            "counts_json": ordered,
+            "total": sum(ordered.values()),
+            "highest_priority": highest_priority,
+        }
+
+    def list_human_task_assignment_history(
+        self,
+        human_task_id: str,
+        *,
+        principal_id: str,
+        event_name: str | None = None,
+        assigned_operator_id: str | None = None,
+        assigned_by_actor_id: str | None = None,
+        assignment_source: str | None = None,
+        limit: int = 100,
+    ) -> list[ExecutionEvent]:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return []
+        event_filter = str(event_name or "").strip()
+        operator_filter = str(assigned_operator_id or "").strip()
+        actor_filter = str(assigned_by_actor_id or "").strip()
+        has_source_filter, source_filter = _parse_assignment_source_filter(assignment_source)
+        rows = self.human_task_assignment_events(found)
+        if event_filter:
+            rows = [event for event in rows if event.name == event_filter]
+        if operator_filter:
+            rows = [
+                event
+                for event in rows
+                if str((event.payload or {}).get("assigned_operator_id") or (event.payload or {}).get("operator_id") or "")
+                == operator_filter
+            ]
+        if actor_filter:
+            rows = [
+                event for event in rows if str((event.payload or {}).get("assigned_by_actor_id") or "") == actor_filter
+            ]
+        if has_source_filter:
+            rows = [event for event in rows if str((event.payload or {}).get("assignment_source") or "") == source_filter]
+        n = max(1, min(500, int(limit or 100)))
+        if len(rows) <= n:
+            return rows
+        return rows[-n:]

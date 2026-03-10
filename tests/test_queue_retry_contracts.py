@@ -685,6 +685,68 @@ def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> 
     assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
 
 
+def test_execute_next_ready_step_can_drains_retry_flow_from_service_boundary() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_failure")
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    artifact = orchestrator._queue_claim_lease_service.execute_next_ready_step(
+        session.session_id,
+        lease_owner="inline",
+        missing_step_error=f"next step missing for session: {session.session_id}",
+    )
+    assert artifact is None
+
+    snapshot_after_completion = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_completion["session_status"] == "completed"
+    assert snapshot_after_completion["queue_items"][-1]["state"] == "done"
+    assert snapshot_after_completion["queue_items"][-1]["attempt_count"] == 2
+    assert snapshot_after_completion["steps"][-1]["state"] == "completed"
+    assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
+    assert calls["count"] == 2
+
+
+def test_execute_next_ready_step_raises_without_ready_step() -> None:
+    orchestrator, ledger = _build_retry_orchestrator(lambda request, definition: None)
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id="exec-1",
+            goal="no-step snapshot replay",
+            task_type="none",
+            deliverable_type="note",
+            risk_class="low",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+
+    with pytest.raises(RuntimeError, match=f"next step missing for session: {session.session_id}"):
+        orchestrator._queue_claim_lease_service.execute_next_ready_step(
+            session.session_id,
+            lease_owner="inline",
+            missing_step_error=f"next step missing for session: {session.session_id}",
+        )
+
+
 def test_run_next_queue_item_leased_retry_flow_preserves_queue_snapshot() -> None:
     calls = {"count": 0}
 

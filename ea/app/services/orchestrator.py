@@ -168,7 +168,7 @@ class RewriteOrchestrator:
             fetch_session_events=self._ledger.events_for,
         )
         operator_task_routing_service = operator_task_routing or OperatorTaskRoutingService(
-            fetch_human_task=self.fetch_human_task,
+            fetch_human_task=self._human_tasks.get,
             claim_human_task=self._human_tasks.claim,
             assign_human_task=self._human_tasks.assign,
             return_human_task=self._human_tasks.return_task,
@@ -186,8 +186,17 @@ class RewriteOrchestrator:
         self._operator_routing_service = ExecutionOperatorRoutingService(
             human_task_routing=human_task_routing_service,
             operator_task_routing=operator_task_routing_service,
+            fetch_human_task=self._human_tasks.get,
+            list_human_tasks_for_session=self._human_tasks.list_for_session,
+            list_human_tasks_for_principal=self._human_tasks.list_for_principal,
+            count_human_tasks_by_priority=self._human_tasks.count_by_priority_for_principal,
+            fetch_session_for_principal=self.fetch_session_for_principal,
+            fetch_operator_profile=self.fetch_operator_profile,
         )
-        self._queue_claim_lease_service = ExecutionQueueClaimLeaseService(self._queue_runtime_facade)
+        self._queue_claim_lease_service = ExecutionQueueClaimLeaseService(
+            self._queue_runtime_facade,
+            self._queue_runtime,
+        )
 
     def _default_goal_for_task(self, task_key: str) -> str:
         key = str(task_key or "").strip() or "rewrite_text"
@@ -1190,14 +1199,11 @@ class RewriteOrchestrator:
                 )
             )
             step_ids_by_key[str(plan_step.step_key or "")] = created_steps[-1].step_id
-        next_step = self._queue_claim_lease_service.next_ready_step(session.session_id)
-        if next_step is None:
-            raise RuntimeError(f"task queue did not resolve a ready step: {session.session_id}")
-        queue_item = self._queue_runtime.enqueue_rewrite_step(session.session_id, next_step.step_id)
-        artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
-        drained_artifact = self._queue_claim_lease_service.drain_session_inline(session.session_id)
-        if drained_artifact is not None:
-            artifact = drained_artifact
+        artifact = self._queue_claim_lease_service.execute_next_ready_step(
+            session.session_id,
+            lease_owner="inline",
+            missing_step_error=f"task queue did not resolve a ready step: {session.session_id}",
+        )
         snapshot = self.fetch_session(session.session_id)
         if snapshot is not None:
             self._raise_for_async_snapshot_state(snapshot)
@@ -1208,7 +1214,7 @@ class RewriteOrchestrator:
                     return snapshot.artifacts[-1]
         if artifact is not None:
             return artifact
-        raise RuntimeError(f"queued task did not execute: {queue_item.queue_id}")
+        raise RuntimeError(f"queued task did not execute: {session.session_id}")
 
     def build_artifact(self, req: RewriteRequest) -> Artifact:
         return self.execute_task_artifact(
@@ -1406,10 +1412,10 @@ class RewriteOrchestrator:
         return self._operator_routing_service.decorate_human_task(row)
 
     def fetch_human_task(self, human_task_id: str, *, principal_id: str) -> HumanTask | None:
-        row = self._human_tasks.get(human_task_id)
-        if row is None or row.principal_id != str(principal_id or ""):
-            return None
-        return self._operator_routing_service.decorate_human_task(row)
+        return self._operator_routing_service.fetch_human_task(
+            human_task_id,
+            principal_id=principal_id,
+        )
 
     def list_human_tasks(
         self,
@@ -1427,61 +1433,18 @@ class RewriteOrchestrator:
         limit: int = 50,
         sort: str | None = None,
     ) -> list[HumanTask]:
-        session = str(session_id or "").strip()
-        if session:
-            found = self._ledger.get_session(session)
-            if found is None:
-                return []
-            self._require_session_principal_alignment(found, principal_id=principal_id)
-            rows = self._human_tasks.list_for_session(session, limit=max(limit, 1))
-            rows = self._operator_routing_service.filter_human_task_rows(
-                rows,
-                principal_id=principal_id,
-                status=status,
-                role_required=role_required,
-                priority=priority,
-                assigned_operator_id=assigned_operator_id,
-                assignment_state=assignment_state,
-                assignment_source=assignment_source,
-                overdue_only=overdue_only,
-            )
-            decorated = [self._operator_routing_service.decorate_human_task(row) for row in rows]
-            resolved_operator_id = str(operator_id or "").strip()
-            if not resolved_operator_id:
-                return self._operator_routing_service.sort_human_tasks(decorated, sort=sort)
-            profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
-            if profile is None:
-                return []
-            return self._operator_routing_service.sort_human_tasks(
-                [row for row in decorated if self._operator_routing_service.operator_matches_human_task(profile, row)],
-                sort=sort,
-            )
-        rows = self._human_tasks.list_for_principal(
-            principal_id,
+        return self._operator_routing_service.list_human_tasks(
+            principal_id=principal_id,
+            session_id=session_id,
             status=status,
             role_required=role_required,
             priority=priority,
             assigned_operator_id=assigned_operator_id,
             assignment_state=assignment_state,
             assignment_source=assignment_source,
+            operator_id=operator_id,
             overdue_only=overdue_only,
             limit=limit,
-        )
-        resolved_operator_id = str(operator_id or "").strip()
-        if not resolved_operator_id:
-            return self._operator_routing_service.sort_human_tasks(
-                [self._operator_routing_service.decorate_human_task(row) for row in rows],
-                sort=sort,
-            )
-        profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
-        if profile is None:
-            return []
-        return self._operator_routing_service.sort_human_tasks(
-            [
-                self._operator_routing_service.decorate_human_task(row)
-                for row in rows
-                if self._operator_routing_service.operator_matches_human_task(profile, row)
-            ],
             sort=sort,
         )
 
@@ -1497,64 +1460,16 @@ class RewriteOrchestrator:
         assignment_source: str | None = None,
         overdue_only: bool = False,
     ) -> dict[str, object]:
-        resolved_operator_id = str(operator_id or "").strip()
-        requested_assignment_source = str(assignment_source or "").strip()
-        if resolved_operator_id:
-            profile = self.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
-            if profile is None:
-                counts: dict[str, int] = {}
-            else:
-                rows = self._human_tasks.list_for_principal(
-                    principal_id,
-                    status=status,
-                    role_required=role_required,
-                    assigned_operator_id=assigned_operator_id,
-                    assignment_state=assignment_state,
-                    assignment_source=assignment_source,
-                    overdue_only=overdue_only,
-                    limit=0,
-                )
-                counts = {}
-                for row in rows:
-                    if not self._operator_routing_service.operator_matches_human_task(profile, row):
-                        continue
-                    key = str(row.priority or "").strip().lower() or "normal"
-                    counts[key] = counts.get(key, 0) + 1
-        else:
-            counts = self._human_tasks.count_by_priority_for_principal(
-                principal_id,
-                status=status,
-                role_required=role_required,
-                assigned_operator_id=assigned_operator_id,
-                assignment_state=assignment_state,
-                assignment_source=assignment_source,
-                overdue_only=overdue_only,
-            )
-        normalized = {
-            "urgent": int(counts.get("urgent", 0)),
-            "high": int(counts.get("high", 0)),
-            "normal": int(counts.get("normal", 0)),
-            "low": int(counts.get("low", 0)),
-        }
-        extra = {
-            key: int(value)
-            for key, value in counts.items()
-            if key not in normalized
-        }
-        ordered = {**normalized, **dict(sorted(extra.items()))}
-        highest_priority = next((key for key in ("urgent", "high", "normal", "low") if ordered.get(key, 0) > 0), "")
-        return {
-            "status": status,
-            "role_required": str(role_required or ""),
-            "operator_id": resolved_operator_id,
-            "assigned_operator_id": str(assigned_operator_id or ""),
-            "assignment_state": str(assignment_state or ""),
-            "assignment_source": requested_assignment_source,
-            "overdue_only": bool(overdue_only),
-            "counts_json": ordered,
-            "total": sum(ordered.values()),
-            "highest_priority": highest_priority,
-        }
+        return self._operator_routing_service.summarize_human_task_priorities(
+            principal_id=principal_id,
+            status=status,
+            role_required=role_required,
+            operator_id=operator_id,
+            assigned_operator_id=assigned_operator_id,
+            assignment_state=assignment_state,
+            assignment_source=assignment_source,
+            overdue_only=overdue_only,
+        )
 
     def list_human_task_assignment_history(
         self,
@@ -1567,39 +1482,15 @@ class RewriteOrchestrator:
         assignment_source: str | None = None,
         limit: int = 100,
     ) -> list[ExecutionEvent]:
-        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
-        if found is None:
-            return []
-        n = max(1, min(500, int(limit or 100)))
-        event_filter = str(event_name or "").strip()
-        operator_filter = str(assigned_operator_id or "").strip()
-        actor_filter = str(assigned_by_actor_id or "").strip()
-        has_source_filter, source_filter = _parse_assignment_source_filter(assignment_source)
-        rows = self._operator_routing_service.human_task_assignment_events(found)
-        if event_filter:
-            rows = [event for event in rows if event.name == event_filter]
-        if operator_filter:
-            rows = [
-                event
-                for event in rows
-                if str((event.payload or {}).get("assigned_operator_id") or (event.payload or {}).get("operator_id") or "")
-                == operator_filter
-            ]
-        if actor_filter:
-            rows = [
-                event
-                for event in rows
-                if str((event.payload or {}).get("assigned_by_actor_id") or "") == actor_filter
-            ]
-        if has_source_filter:
-            rows = [
-                event
-                for event in rows
-                if str((event.payload or {}).get("assignment_source") or "") == source_filter
-            ]
-        if len(rows) <= n:
-            return rows
-        return rows[-n:]
+        return self._operator_routing_service.list_human_task_assignment_history(
+            human_task_id,
+            principal_id=principal_id,
+            event_name=event_name,
+            assigned_operator_id=assigned_operator_id,
+            assigned_by_actor_id=assigned_by_actor_id,
+            assignment_source=assignment_source,
+            limit=limit,
+        )
 
     def upsert_operator_profile(
         self,
@@ -1652,18 +1543,12 @@ class RewriteOrchestrator:
         operator_id: str,
         assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
-        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
-        if found is None:
-            return None
-        updated = self._operator_routing_service.claim_human_task(
+        return self._operator_routing_service.claim_human_task(
             human_task_id,
             principal_id=principal_id,
             operator_id=operator_id,
             assigned_by_actor_id=assigned_by_actor_id,
         )
-        if updated is None:
-            return None
-        return self._operator_routing_service.decorate_human_task(updated)
 
     def assign_human_task(
         self,
@@ -1674,19 +1559,13 @@ class RewriteOrchestrator:
         assignment_source: str = "manual",
         assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
-        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
-        if found is None:
-            return None
-        updated = self._operator_routing_service.assign_human_task(
+        return self._operator_routing_service.assign_human_task(
             human_task_id,
             principal_id=principal_id,
             operator_id=operator_id,
             assignment_source=assignment_source,
             assigned_by_actor_id=assigned_by_actor_id,
         )
-        if updated is None:
-            return None
-        return self._operator_routing_service.decorate_human_task(updated)
 
     def return_human_task(
         self,
@@ -1842,22 +1721,19 @@ class RewriteOrchestrator:
                 {"approval_id": request.approval_id, "step_id": request.step_id},
             )
             if updated_step is not None:
-                next_step = self._queue_claim_lease_service.next_ready_step(request.session_id)
-                if next_step is None:
-                    raise RuntimeError(f"approved queue item did not resolve a ready step: {request.session_id}")
-                queue_item = self._queue_runtime.enqueue_rewrite_step(request.session_id, next_step.step_id)
-                artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
-                drained_artifact = self._queue_claim_lease_service.drain_session_inline(request.session_id)
-                if drained_artifact is not None:
-                    artifact = drained_artifact
-                if artifact is None:
-                    snapshot = self.fetch_session(request.session_id)
-                    if snapshot is not None:
-                        if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
-                            return request, decision_row
-                        if self._delayed_retry_queue_item(snapshot) is not None:
-                            return request, decision_row
-                    raise RuntimeError(f"approved queue item did not execute: {queue_item.queue_id}")
+                self._queue_claim_lease_service.execute_next_ready_step(
+                    request.session_id,
+                    lease_owner="inline",
+                    missing_step_error=f"approved queue item did not resolve a ready step: {request.session_id}",
+                )
+                snapshot = self.fetch_session(request.session_id)
+                if snapshot is None:
+                    return request, decision_row
+                if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
+                    return request, decision_row
+                if self._delayed_retry_queue_item(snapshot) is not None:
+                    return request, decision_row
+                raise RuntimeError(f"approved queue item did not execute: {request.session_id}")
         else:
             self._ledger.update_step(
                 request.step_id,
