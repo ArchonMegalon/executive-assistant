@@ -1342,7 +1342,7 @@
     },
     {
       "name": "skill_provider_hint_filtering",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "skills_api_provider_hint_query",
         "meeting_prep_provider_hint_smoke",

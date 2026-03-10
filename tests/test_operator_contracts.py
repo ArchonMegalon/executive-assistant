@@ -698,7 +698,7 @@ def test_skill_provider_hint_filtering_is_documented_and_guarded() -> None:
     assert "provider_hint=BrowserAct" in skills_doc
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "skill_provider_hint_filtering")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_session_status_transition_api_is_documented_and_guarded() -> None:
