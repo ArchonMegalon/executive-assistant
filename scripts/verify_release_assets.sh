@@ -1361,7 +1361,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_lookup_task_identity_projection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'originating task key and deliverable type' "README.md" && \
@@ -3870,8 +3870,8 @@ PY
 then
   if grep -Fq "test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion" "tests/test_queue_retry_contracts.py" && \
      grep -Fq "test_approval_resume_drains_zero_backoff_retries_inline_to_completion" "tests/test_queue_retry_contracts.py" && \
-     grep -Fq "_drain_session_inline(" "ea/app/services/orchestrator.py" && \
-     grep -Fq "_next_eligible_queue_item_for_session" "ea/app/services/orchestrator.py" && \
+     grep -Fq "drain_session_inline(" "ea/app/services/execution_queue_service.py" && \
+     grep -Fq "_next_eligible_queue_item_for_session" "ea/app/services/execution_queue_service.py" && \
      grep -Fq "zero-backoff retries now keep draining same-session queue work inline" "README.md" && \
      grep -Fq "retry_backoff_seconds=0" "RUNBOOK.md" && \
      grep -Fq "Zero-backoff retries now keep draining the same session inline" "CHANGELOG.md"; then

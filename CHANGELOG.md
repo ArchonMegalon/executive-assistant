@@ -5,6 +5,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 ## 2026-03-10
 
 ### Changed
+- Promoted milestone capability `inline_retry_drain_runtime` to released, so release/operator guards now pin the existing README/RUNBOOK wording plus focused retry-contract coverage proving immediately eligible `retry_backoff_seconds=0` queue rows keep draining the same session inline across create, approval-resume, and human-return entrypoints as current branch baseline behavior.
 - Promoted milestone capability `tool_then_artifact_workflow_template` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke/runtime coverage proving BrowserAct account-discovery and inventory-refresh task contracts both route through the shared generic `tool_then_artifact` planner macro as current branch baseline behavior.
 - Promoted milestone capability `async_queue_projection_task_identity` to released, so release/operator guards now pin that self-describing async queue identity contract across the existing README/RUNBOOK/examples plus approved smoke coverage proving approval and human-task queue/detail payloads keep originating `task_key` and `deliverable_type` visible as current branch baseline behavior.
 - Promoted milestone capability `session_scoped_human_task_assignment_source_filters` to released, so release/operator guards now pin the existing README/RUNBOOK/examples plus approved smoke coverage proving session-scoped `assignment_source=<source>` queue filtering remains current branch baseline behavior.

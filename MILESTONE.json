@@ -1257,13 +1257,13 @@
     },
     {
       "name": "inline_retry_drain_runtime",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "zero_backoff_retry_drain",
         "create_path_inline_retry_completion",
         "approval_resume_inline_retry_completion"
       ],
-      "notes": "If a retry-scheduled queue row is already immediately eligible (`retry_backoff_seconds=0`), the inline create/approval/human-return flows now keep draining that same session until it reaches completion, pause, or terminal failure instead of surfacing an intermediate `queued task did not execute` error."
+      "notes": "If a retry-scheduled queue row is already immediately eligible (`retry_backoff_seconds=0`), the inline create/approval/human-return flows now keep draining that same session until it reaches completion, pause, or terminal failure instead of surfacing an intermediate `queued task did not execute` error; release/operator guards now pin that zero-backoff inline retry contract as current branch baseline behavior."
     },
     {
       "name": "contract_retry_policy_metadata",

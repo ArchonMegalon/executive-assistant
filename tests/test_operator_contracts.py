@@ -539,7 +539,7 @@ def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smo
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "browseract_account_inventory_tool_execution_slice"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> None:
@@ -1104,7 +1104,7 @@ def test_execution_queue_retry_runtime_is_documented_and_guarded() -> None:
 
 def test_inline_retry_drain_runtime_is_documented_and_guarded() -> None:
     retry_test = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    queue_service = (ROOT / "ea/app/services/execution_queue_service.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -1112,8 +1112,8 @@ def test_inline_retry_drain_runtime_is_documented_and_guarded() -> None:
 
     assert "test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion" in retry_test
     assert "test_approval_resume_drains_zero_backoff_retries_inline_to_completion" in retry_test
-    assert "_drain_session_inline(" in orchestrator
-    assert "_next_eligible_queue_item_for_session" in orchestrator
+    assert "drain_session_inline(" in queue_service
+    assert "_next_eligible_queue_item_for_session" in queue_service
     assert "zero-backoff retries now keep draining same-session queue work inline" in readme
     assert "retry_backoff_seconds=0" in runbook
     assert "Zero-backoff retries now keep draining the same session inline" in changelog
