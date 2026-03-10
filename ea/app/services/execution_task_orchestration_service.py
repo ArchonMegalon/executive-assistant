@@ -16,6 +16,7 @@ from app.domain.models import (
 from app.repositories.ledger import ExecutionLedgerRepository
 from app.services.planner import PlannerService
 from app.services.task_contracts import TaskContractService
+from app.services.execution_async_state_service import ExecutionAsyncStateService
 
 
 class ExecutionTaskOrchestrationService:
@@ -27,14 +28,14 @@ class ExecutionTaskOrchestrationService:
         task_contracts: TaskContractService | None,
         execute_next_ready_step: Callable[[str], Artifact | None],
         fetch_session_snapshot: Callable[[str], object | None],
-        raise_for_async_snapshot_state: Callable[[object], None],
+        async_state_service: ExecutionAsyncStateService,
     ) -> None:
         self._ledger = ledger
         self._planner = planner
         self._task_contracts = task_contracts
         self._execute_next_ready_step = execute_next_ready_step
         self._fetch_session_snapshot = fetch_session_snapshot
-        self._raise_for_async_snapshot_state = raise_for_async_snapshot_state
+        self._async_state_service = async_state_service
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
@@ -63,7 +64,7 @@ class ExecutionTaskOrchestrationService:
         artifact = self._execute_next_ready_step(session.session_id)
         snapshot = self._fetch_session_snapshot(session.session_id)
         if snapshot is not None:
-            self._raise_for_async_snapshot_state(snapshot)
+            self._async_state_service.raise_for_snapshot_state(snapshot)
             session_row = getattr(snapshot, "session", None)
             if session_row is not None and getattr(session_row, "status", "") == "completed":
                 if artifact is not None:

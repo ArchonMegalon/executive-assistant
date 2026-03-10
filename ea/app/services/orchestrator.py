@@ -50,6 +50,7 @@ from app.services.memory_runtime import MemoryRuntimeService, build_memory_runti
 from app.services.execution_queue_service import ExecutionQueueService
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFacade
+from app.services.execution_async_state_service import ExecutionAsyncStateService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_approval_resume_service import ExecutionApprovalResumeService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
@@ -230,6 +231,15 @@ class RewriteOrchestrator:
             fetch_session=self.fetch_session,
             delayed_retry_queue_item=self._queue_claim_lease_service.delayed_retry_queue_item,
         )
+        self._async_state_service = ExecutionAsyncStateService(
+            list_pending_approvals=self._approvals.list_pending,
+            list_recent_policy_decisions=self._policy_repo.list_recent,
+            delayed_retry_queue_item=self._queue_claim_lease_service.delayed_retry_queue_item,
+            raise_human_task_required=self._raise_human_task_required,
+            raise_approval_required=self._raise_approval_required,
+            raise_policy_denied=self._raise_policy_denied,
+            raise_async_execution_queued=self._raise_async_execution_queued,
+        )
         self._human_task_step_service = ExecutionHumanTaskStepService(
             get_session=self._ledger.get_session,
             merged_step_input_json=self._step_dependency_service.merged_step_input_json,
@@ -247,7 +257,7 @@ class RewriteOrchestrator:
             append_tool_receipt=self._ledger.append_tool_receipt,
             append_run_cost=self._ledger.append_run_cost,
             set_session_status=self._ledger.set_session_status,
-            approval_target_step_for_session=self._approval_target_step_for_session,
+            approval_target_step_for_session=self._step_dependency_service.approval_target_step_for_session,
             step_dependency_service=self._step_dependency_service,
             approval_pause_service=self._approval_pause_service,
             human_task_step_service=self._human_task_step_service,
@@ -270,7 +280,7 @@ class RewriteOrchestrator:
                 missing_step_error=f"task queue did not resolve a ready step: {session_id}",
             ),
             fetch_session_snapshot=self.fetch_session,
-            raise_for_async_snapshot_state=self._raise_for_async_snapshot_state,
+            async_state_service=self._async_state_service,
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
@@ -313,34 +323,7 @@ class RewriteOrchestrator:
         return self._queue_claim_lease_service.delayed_retry_queue_item(snapshot)
 
     def _raise_for_async_snapshot_state(self, snapshot: ExecutionSessionSnapshot) -> None:
-        if snapshot.session.status == "awaiting_human":
-            human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
-            raise HumanTaskRequiredError(
-                session_id=snapshot.session.session_id,
-                human_task_id=human_task_id,
-                status=snapshot.session.status,
-            )
-        if snapshot.session.status == "awaiting_approval":
-            approval_request = next(
-                (row for row in self._approvals.list_pending(limit=100) if row.session_id == snapshot.session.session_id),
-                None,
-            )
-            raise ApprovalRequiredError(
-                session_id=snapshot.session.session_id,
-                approval_id=approval_request.approval_id if approval_request is not None else "",
-                status=snapshot.session.status,
-            )
-        if snapshot.session.status == "blocked":
-            decision = next(iter(self._policy_repo.list_recent(limit=1, session_id=snapshot.session.session_id)), None)
-            reason = str(decision.reason if decision is not None else "") or "policy_denied"
-            raise PolicyDeniedError(reason)
-        delayed_retry = self._delayed_retry_queue_item(snapshot)
-        if delayed_retry is not None:
-            raise AsyncExecutionQueuedError(
-                session_id=snapshot.session.session_id,
-                status="queued",
-                next_attempt_at=delayed_retry.next_attempt_at,
-            )
+        self._async_state_service.raise_for_snapshot_state(snapshot)
 
     def _complete_input_prepare_step(self, session_id: str, rewrite_step: ExecutionStep) -> None:
         self._step_runtime_service.complete_input_prepare_step(session_id, rewrite_step)
@@ -365,17 +348,6 @@ class RewriteOrchestrator:
     def _merged_step_input_json(self, session_id: str, rewrite_step: ExecutionStep) -> dict[str, object]:
         return self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
 
-    def _approval_target_step_for_session(self, session_id: str) -> ExecutionStep | None:
-        steps = self._ledger.steps_for(session_id)
-        return next(
-            (
-                row
-                for row in reversed(steps)
-                if bool((row.input_json or {}).get("approval_required")) or row.step_kind == "tool_call"
-            ),
-            steps[0] if steps else None,
-        )
-
     def _complete_policy_evaluate_step(self, session_id: str, rewrite_step: ExecutionStep) -> None:
         self._step_runtime_service.complete_policy_evaluate_step(session_id, rewrite_step)
 
@@ -393,6 +365,35 @@ class RewriteOrchestrator:
 
     def _step_dependency_keys(self, row: ExecutionStep) -> tuple[str, ...]:
         return self._step_dependency_service.step_dependency_keys(row)
+
+    def _raise_human_task_required(self, snapshot: ExecutionSessionSnapshot) -> None:
+        human_task_id = snapshot.human_tasks[-1].human_task_id if snapshot.human_tasks else ""
+        raise HumanTaskRequiredError(
+            session_id=snapshot.session.session_id,
+            human_task_id=human_task_id,
+            status=snapshot.session.status,
+        )
+
+    def _raise_approval_required(self, snapshot: ExecutionSessionSnapshot, approval_id: str) -> None:
+        raise ApprovalRequiredError(
+            session_id=snapshot.session.session_id,
+            approval_id=approval_id,
+            status=snapshot.session.status,
+        )
+
+    def _raise_policy_denied(self, reason: str) -> None:
+        raise PolicyDeniedError(reason)
+
+    def _raise_async_execution_queued(
+        self,
+        snapshot: ExecutionSessionSnapshot,
+        next_attempt_at: str | None,
+    ) -> None:
+        raise AsyncExecutionQueuedError(
+            session_id=snapshot.session.session_id,
+            status="queued",
+            next_attempt_at=next_attempt_at,
+        )
 
     def _dependency_lookup(self, steps: list[ExecutionStep]) -> dict[str, ExecutionStep]:
         return self._step_dependency_service.dependency_lookup(steps)

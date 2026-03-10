@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.domain.models import Artifact, ExecutionStep, HumanTask, IntentSpecV3, PolicyDecision, ToolInvocationResult
+from app.services.execution_async_state_service import ExecutionAsyncStateService
 from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
@@ -100,6 +101,33 @@ def test_execution_step_dependency_service_merges_dependency_outputs_and_filters
     assert merged["normalized_text"] == "Prepared text"
     assert merged["source_text"] == "Prepared text"
     assert "leaked" not in merged
+
+
+def test_execution_step_dependency_service_selects_latest_approval_target_step() -> None:
+    prepare = _step(
+        step_id="step-prepare",
+        step_kind="system_task",
+        state="completed",
+        input_json={"plan_step_key": "step_input_prepare"},
+    )
+    tool = _step(
+        step_id="step-tool",
+        step_kind="tool_call",
+        state="queued",
+        input_json={"plan_step_key": "step_tool"},
+    )
+    human = _step(
+        step_id="step-human",
+        step_kind="human_task",
+        state="queued",
+        input_json={"plan_step_key": "step_human", "approval_required": True},
+    )
+    service = ExecutionStepDependencyService(
+        get_step=lambda step_id: None,
+        steps_for_session=lambda session_id: [prepare, tool, human],
+    )
+
+    assert service.approval_target_step_for_session("session-1") == human
 
 
 def test_execution_approval_pause_service_updates_waiting_step_and_session() -> None:
@@ -493,7 +521,7 @@ def test_execution_task_orchestration_service_materializes_plan_steps_and_return
             (),
             {"session": type("SnapshotSession", (), {"status": "completed"})(), "artifacts": [artifact]},
         )(),
-        raise_for_async_snapshot_state=lambda snapshot: None,
+        async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
     )
 
     result = service.execute_task_artifact(
@@ -566,7 +594,7 @@ def test_execution_task_orchestration_service_returns_snapshot_artifact_when_inl
             (),
             {"session": type("SnapshotSession", (), {"status": "completed"})(), "artifacts": [artifact]},
         )(),
-        raise_for_async_snapshot_state=lambda snapshot: None,
+        async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
     )
 
     result = service.execute_task_artifact(
@@ -585,3 +613,32 @@ def test_execution_task_orchestration_service_returns_snapshot_artifact_when_inl
     )
 
     assert result == artifact
+
+
+def test_execution_async_state_service_raises_approval_with_matching_request() -> None:
+    snapshot = type(
+        "SnapshotStub",
+        (),
+        {
+            "session": type("SessionStub", (), {"session_id": "session-1", "status": "awaiting_approval"})(),
+            "human_tasks": [],
+        },
+    )()
+    approvals = [
+        type("ApprovalStub", (), {"approval_id": "approval-1", "session_id": "session-1"})(),
+        type("ApprovalStub", (), {"approval_id": "approval-2", "session_id": "session-2"})(),
+    ]
+    raised: list[tuple[str, str]] = []
+    service = ExecutionAsyncStateService(
+        list_pending_approvals=lambda limit: approvals,
+        list_recent_policy_decisions=lambda limit, session_id=None: [],
+        delayed_retry_queue_item=lambda snapshot: None,
+        raise_human_task_required=lambda snapshot: None,
+        raise_approval_required=lambda snapshot, approval_id: raised.append((snapshot.session.session_id, approval_id)),
+        raise_policy_denied=lambda reason: None,
+        raise_async_execution_queued=lambda snapshot, next_attempt_at: None,
+    )
+
+    service.raise_for_snapshot_state(snapshot)
+
+    assert raised == [("session-1", "approval-1")]

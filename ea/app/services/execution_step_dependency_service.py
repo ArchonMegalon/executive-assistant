@@ -51,6 +51,17 @@ class ExecutionStepDependencyService:
                 resolved.append(parent_step)
         return resolved
 
+    def approval_target_step_for_session(self, session_id: str) -> ExecutionStep | None:
+        steps = self._steps_for_session(session_id)
+        return next(
+            (
+                row
+                for row in reversed(steps)
+                if bool((row.input_json or {}).get("approval_required")) or row.step_kind == "tool_call"
+            ),
+            steps[0] if steps else None,
+        )
+
     def declared_step_input_keys(self, rewrite_step: ExecutionStep) -> tuple[str, ...]:
         raw = (rewrite_step.input_json or {}).get("input_keys") or ()
         if isinstance(raw, (list, tuple)):
