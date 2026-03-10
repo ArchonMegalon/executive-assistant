@@ -658,6 +658,7 @@ def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> 
     snapshot_after_retry = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
     assert snapshot_after_retry["session_status"] == "queued"
     assert snapshot_after_retry["queue_items"][0]["state"] == "queued"
+    assert snapshot_after_retry["queue_items"][0]["lease_owner"] == "worker"
     assert snapshot_after_retry["queue_items"][0]["attempt_count"] == 1
     assert snapshot_after_retry["queue_items"][0]["last_error"] == "temporary_failure"
     assert snapshot_after_retry["steps"][-1]["step_id"] == step.step_id
@@ -679,5 +680,6 @@ def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> 
     ]
     assert snapshot_after_completion["queue_items"][-1]["state"] == "done"
     assert snapshot_after_completion["queue_items"][-1]["attempt_count"] == 2
+    assert snapshot_after_completion["queue_items"][-1]["lease_owner"] == ""
     assert snapshot_after_completion["steps"][-1]["state"] == "completed"
     assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2

@@ -52,6 +52,10 @@ from app.services.memory_runtime import MemoryRuntimeService, build_memory_runti
 from app.services.execution_queue_service import ExecutionQueueService
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFacade
+from app.services.execution_runtime_services import (
+    ExecutionOperatorRoutingService,
+    ExecutionQueueClaimLeaseService,
+)
 from app.services.human_task_routing_runtime_service import HumanTaskRoutingService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
@@ -155,7 +159,7 @@ class RewriteOrchestrator:
         self._queue_runtime_facade = ExecutionQueueRuntimeFacade(
             queue_service=self._queue_service,
         )
-        self._human_task_routing_service = HumanTaskRoutingService(
+        human_task_routing_service = HumanTaskRoutingService(
             list_profiles_for_principal=lambda principal_id: self._operator_profiles.list_for_principal(
                 principal_id=principal_id,
                 status="active",
@@ -163,7 +167,7 @@ class RewriteOrchestrator:
             ),
             fetch_session_events=self._ledger.events_for,
         )
-        self._operator_task_routing_service = operator_task_routing or OperatorTaskRoutingService(
+        operator_task_routing_service = operator_task_routing or OperatorTaskRoutingService(
             fetch_human_task=self.fetch_human_task,
             claim_human_task=self._human_tasks.claim,
             assign_human_task=self._human_tasks.assign,
@@ -175,35 +179,42 @@ class RewriteOrchestrator:
             append_event=self._ledger.append_event,
             queue_next_step_after=self._queue_runtime_facade.queue_next_step_after,
             drain_session_inline=self._queue_runtime_facade.drain_session_inline,
-            decorate_human_task=self._human_task_routing_service.decorate_human_task,
+            decorate_human_task=human_task_routing_service.decorate_human_task,
         )
+        self._human_task_routing_service = human_task_routing_service
+        self._operator_task_routing_service = operator_task_routing_service
+        self._operator_routing_service = ExecutionOperatorRoutingService(
+            human_task_routing=human_task_routing_service,
+            operator_task_routing=operator_task_routing_service,
+        )
+        self._queue_claim_lease_service = ExecutionQueueClaimLeaseService(self._queue_runtime_facade)
 
     def _required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
-        return self._human_task_routing_service.required_skill_tags(row)
+        return self._operator_routing_service.required_skill_tags(row)
 
     def _required_trust_rank(self, authority_required: str) -> int:
-        return self._human_task_routing_service.required_trust_rank(authority_required)
+        return self._operator_routing_service.required_trust_rank(authority_required)
 
     def _required_trust_tier(self, authority_required: str) -> str:
-        return self._human_task_routing_service.required_trust_tier(authority_required)
+        return self._operator_routing_service.required_trust_tier(authority_required)
 
     def _operator_match_details(self, profile: OperatorProfile, row: HumanTask) -> dict[str, object]:
-        return self._human_task_routing_service.operator_match_details(profile, row)
+        return self._operator_routing_service.operator_match_details(profile, row)
 
     def _build_human_task_routing_hints(self, row: HumanTask) -> dict[str, object]:
-        return self._human_task_routing_service.build_human_task_routing_hints(row)
+        return self._operator_routing_service.build_human_task_routing_hints(row)
 
     def _human_task_assignment_events(self, row: HumanTask) -> list[ExecutionEvent]:
-        return self._human_task_routing_service.human_task_assignment_events(row)
+        return self._operator_routing_service.human_task_assignment_events(row)
 
     def _build_human_task_last_transition_summary(self, row: HumanTask) -> dict[str, object]:
-        return self._human_task_routing_service.build_human_task_last_transition_summary(row)
+        return self._operator_routing_service.build_human_task_last_transition_summary(row)
 
     def _decorate_human_task(self, row: HumanTask) -> HumanTask:
-        return self._human_task_routing_service.decorate_human_task(row)
+        return self._operator_routing_service.decorate_human_task(row)
 
     def _sort_human_tasks(self, rows: list[HumanTask], *, sort: str | None = None) -> list[HumanTask]:
-        return self._human_task_routing_service.sort_human_tasks(rows, sort=sort)
+        return self._operator_routing_service.sort_human_tasks(rows, sort=sort)
 
     def _filter_human_task_rows(
         self,
@@ -218,7 +229,7 @@ class RewriteOrchestrator:
         assignment_source: str | None = None,
         overdue_only: bool = False,
     ) -> list[HumanTask]:
-        return self._human_task_routing_service.filter_human_task_rows(
+        return self._operator_routing_service.filter_human_task_rows(
             rows,
             principal_id=principal_id,
             status=status,
@@ -405,7 +416,7 @@ class RewriteOrchestrator:
         self,
         snapshot: ExecutionSessionSnapshot,
     ) -> ExecutionQueueItem | None:
-        return self._queue_runtime_facade.delayed_retry_queue_item(snapshot)
+        return self._queue_claim_lease_service.delayed_retry_queue_item(snapshot)
 
     def _raise_for_async_snapshot_state(self, snapshot: ExecutionSessionSnapshot) -> None:
         if snapshot.session.status == "awaiting_human":
@@ -1053,13 +1064,13 @@ class RewriteOrchestrator:
         return lookup
 
     def _active_queue_step_ids(self, session_id: str) -> set[str]:
-        return self._queue_runtime_facade.active_queue_step_ids(session_id)
+        return self._queue_claim_lease_service.active_queue_step_ids(session_id)
 
     def _queue_item_is_eligible_now(self, row: ExecutionQueueItem) -> bool:
-        return self._queue_runtime_facade.queue_item_is_eligible_now(row)
+        return self._queue_claim_lease_service.queue_item_is_eligible_now(row)
 
     def _next_eligible_queue_item_for_session(self, session_id: str) -> ExecutionQueueItem | None:
-        return self._queue_runtime_facade.next_eligible_queue_item_for_session(session_id)
+        return self._queue_claim_lease_service.next_eligible_queue_item_for_session(session_id)
 
     def _drain_session_inline(
         self,
@@ -1067,7 +1078,7 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        return self._queue_runtime_facade.drain_session_inline(
+        return self._queue_claim_lease_service.drain_session_inline(
             session_id,
             stop_before_step_id=stop_before_step_id,
         )
@@ -1078,7 +1089,7 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> list[ExecutionStep]:
-        return self._queue_runtime_facade.ready_steps(
+        return self._queue_claim_lease_service.ready_steps(
             session_id,
             stop_before_step_id=stop_before_step_id,
         )
@@ -1089,7 +1100,7 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> ExecutionStep | None:
-        return self._queue_runtime_facade.next_ready_step(
+        return self._queue_claim_lease_service.next_ready_step(
             session_id,
             stop_before_step_id=stop_before_step_id,
         )
@@ -1102,7 +1113,7 @@ class RewriteOrchestrator:
         lease_owner: str,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        return self._queue_runtime_facade.queue_next_step_after(
+        return self._queue_claim_lease_service.queue_next_step_after(
             session_id,
             step_id,
             lease_owner=lease_owner,
@@ -1115,7 +1126,7 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        return self._queue_runtime_facade.execute_leased_queue_item(
+        return self._queue_claim_lease_service.execute_leased_queue_item(
             queue_item,
             stop_before_step_id=stop_before_step_id,
         )
@@ -1127,14 +1138,14 @@ class RewriteOrchestrator:
         lease_owner: str = "inline",
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        return self._queue_runtime_facade.run_queue_item(
+        return self._queue_claim_lease_service.run_queue_item(
             queue_id,
             lease_owner=lease_owner,
             stop_before_step_id=stop_before_step_id,
         )
 
     def run_next_queue_item(self, *, lease_owner: str = "worker") -> Artifact | None:
-        return self._queue_runtime_facade.run_next_queue_item(lease_owner=lease_owner)
+        return self._queue_claim_lease_service.run_next_queue_item(lease_owner=lease_owner)
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
@@ -1704,7 +1715,7 @@ class RewriteOrchestrator:
         return rows[-n:]
 
     def _operator_matches_human_task(self, profile: OperatorProfile, row: HumanTask) -> bool:
-        return self._human_task_routing_service.operator_matches_human_task(profile, row)
+        return self._operator_routing_service.operator_matches_human_task(profile, row)
 
     def upsert_operator_profile(
         self,
@@ -1760,7 +1771,7 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._operator_task_routing_service.claim_human_task(
+        updated = self._operator_routing_service.claim_human_task(
             human_task_id,
             principal_id=principal_id,
             operator_id=operator_id,
@@ -1782,7 +1793,7 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._operator_task_routing_service.assign_human_task(
+        updated = self._operator_routing_service.assign_human_task(
             human_task_id,
             principal_id=principal_id,
             operator_id=operator_id,
@@ -1806,7 +1817,7 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        return self._operator_task_routing_service.return_human_task(
+        return self._operator_routing_service.return_human_task(
             found,
             principal_id=principal_id,
             operator_id=operator_id,
