@@ -8,6 +8,11 @@ from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.tool_execution_artifact_adapter import ArtifactRepositoryToolAdapter
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
+from app.services.tool_execution_artifact_registry import register_builtin_artifact_repository
+from app.services.tool_execution_browseract_registry import (
+    register_builtin_browseract_extract,
+    register_builtin_browseract_inventory,
+)
 from app.services.tool_execution_common import (
     CONNECTOR_DISPATCH_ALLOWED_CHANNELS,
     CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
@@ -16,6 +21,7 @@ from app.services.tool_execution_common import (
     ToolExecutionError,
 )
 from app.services.tool_execution_connector_dispatch_adapter import ConnectorDispatchToolAdapter
+from app.services.tool_execution_connector_dispatch_registry import register_builtin_connector_dispatch
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -85,123 +91,30 @@ class ToolExecutionService:
             self._register_builtin_connector_dispatch()
 
     def _register_builtin_artifact_repository(self) -> None:
-        if self._tool_runtime.get_tool("artifact_repository") is None:
-            self._tool_runtime.upsert_tool(
-                tool_name="artifact_repository",
-                version="v1",
-                input_schema_json={
-                    "type": "object",
-                    "required": ["source_text"],
-                    "properties": {
-                        "source_text": {"type": "string"},
-                        "expected_artifact": {"type": "string"},
-                        "plan_id": {"type": "string"},
-                        "plan_step_key": {"type": "string"},
-                    },
-                },
-                output_schema_json={
-                    "type": "object",
-                    "required": ["artifact_id", "artifact_kind", "tool_name", "action_kind"],
-                },
-                policy_json={"builtin": True, "action_kind": "artifact.save"},
-                approval_default="none",
-                enabled=True,
-            )
-        self.register_handler("artifact_repository", self._artifact_adapter.execute)
+        # Artifact tool outputs preserve evidence_object_id and citation_handle when materialized.
+        register_builtin_artifact_repository(
+            tool_runtime=self._tool_runtime,
+            register_handler=self.register_handler,
+            artifact_adapter=self._artifact_adapter,
+        )
 
     def _register_builtin_browseract_extract(self) -> None:
-        if self._tool_runtime.get_tool("browseract.extract_account_facts") is None:
-            self._tool_runtime.upsert_tool(
-                tool_name="browseract.extract_account_facts",
-                version="v1",
-                input_schema_json={
-                    "type": "object",
-                    "required": ["binding_id", "service_name"],
-                    "properties": {
-                        "binding_id": {"type": "string"},
-                        "service_name": {"type": "string"},
-                        "requested_fields": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "run_url": {"type": "string"},
-                        "instructions": {"type": "string"},
-                        "account_hints_json": {"type": "object"},
-                    },
-                },
-                output_schema_json={
-                    "type": "object",
-                    "required": ["service_name", "facts_json", "missing_fields", "tool_name", "action_kind"],
-                },
-                policy_json={"builtin": True, "action_kind": "account.extract"},
-                approval_default="none",
-                enabled=True,
-            )
-        self.register_handler("browseract.extract_account_facts", self._browseract_adapter.execute_extract)
+        register_builtin_browseract_extract(
+            tool_runtime=self._tool_runtime,
+            register_handler=self.register_handler,
+            browseract_adapter=self._browseract_adapter,
+        )
 
     def _register_builtin_browseract_inventory(self) -> None:
-        if self._tool_runtime.get_tool("browseract.extract_account_inventory") is None:
-            self._tool_runtime.upsert_tool(
-                tool_name="browseract.extract_account_inventory",
-                version="v1",
-                input_schema_json={
-                    "type": "object",
-                    "required": ["binding_id"],
-                    "properties": {
-                        "binding_id": {"type": "string"},
-                        "service_names": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "requested_fields": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "run_url": {"type": "string"},
-                        "instructions": {"type": "string"},
-                        "account_hints_json": {"type": "object"},
-                    },
-                },
-                output_schema_json={
-                    "type": "object",
-                    "required": ["service_names", "services_json", "tool_name", "action_kind"],
-                },
-                policy_json={"builtin": True, "action_kind": "account.extract_inventory"},
-                approval_default="none",
-                enabled=True,
-            )
-        self.register_handler("browseract.extract_account_inventory", self._browseract_adapter.execute_inventory)
+        register_builtin_browseract_inventory(
+            tool_runtime=self._tool_runtime,
+            register_handler=self.register_handler,
+            browseract_adapter=self._browseract_adapter,
+        )
 
     def _register_builtin_connector_dispatch(self) -> None:
-        if self._connector_dispatch_adapter.channel_runtime is None:
-            return
-        if self._tool_runtime.get_tool("connector.dispatch") is None:
-            self._tool_runtime.upsert_tool(
-                tool_name="connector.dispatch",
-                version="v1",
-                input_schema_json={
-                    "type": "object",
-                    "required": list(CONNECTOR_DISPATCH_REQUIRED_INPUT_FIELDS),
-                    "properties": {
-                        "binding_id": {"type": "string"},
-                        "channel": {"type": "string"},
-                        "recipient": {"type": "string"},
-                        "content": {"type": "string"},
-                        "metadata": {"type": "object"},
-                        "idempotency_key": {"type": "string"},
-                    },
-                },
-                output_schema_json={
-                    "type": "object",
-                    "required": ["delivery_id", "status", "tool_name", "action_kind"],
-                },
-                policy_json={
-                    "builtin": True,
-                    "action_kind": "delivery.send",
-                    "idempotency_key_policy": CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
-                },
-                allowed_channels=CONNECTOR_DISPATCH_ALLOWED_CHANNELS,
-                approval_default="manager",
-                enabled=True,
-            )
-        self.register_handler("connector.dispatch", self._connector_dispatch_adapter.execute)
+        register_builtin_connector_dispatch(
+            tool_runtime=self._tool_runtime,
+            register_handler=self.register_handler,
+            connector_dispatch_adapter=self._connector_dispatch_adapter,
+        )

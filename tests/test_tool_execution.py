@@ -11,6 +11,7 @@ from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
+from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
 from app.services.tool_execution import (
     CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
     CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS,
@@ -1402,3 +1403,46 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_definition
 
     assert result.tool_name == "browseract.extract_account_facts"
     assert tool_runtime.get_tool("browseract.extract_account_facts") is not None
+
+
+def test_rewrite_orchestrator_without_explicit_tool_runtime_does_not_hide_in_memory_fallback() -> None:
+    orchestrator = RewriteOrchestrator()
+
+    with pytest.raises(RuntimeError, match="tool_execution_unconfigured"):
+        orchestrator._tool_execution.execute_invocation(  # type: ignore[attr-defined]
+            ToolInvocationRequest(
+                session_id="session-unconfigured-tool-1",
+                step_id="step-unconfigured-tool-1",
+                tool_name="artifact_repository",
+                action_kind="artifact.save",
+                payload_json={"source_text": "draft note"},
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_build_default_orchestrator_uses_explicit_tool_runtime_for_tool_execution() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+
+    orchestrator = build_default_orchestrator(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        evidence_runtime=EvidenceRuntimeService(InMemoryEvidenceObjectRepository()),
+    )
+
+    result = orchestrator._tool_execution.execute_invocation(  # type: ignore[attr-defined]
+        ToolInvocationRequest(
+            session_id="session-builder-tool-1",
+            step_id="step-builder-tool-1",
+            tool_name="artifact_repository",
+            action_kind="artifact.save",
+            payload_json={"source_text": "built with explicit tool runtime"},
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "artifact_repository"
+    assert tool_runtime.get_tool("artifact_repository") is not None
