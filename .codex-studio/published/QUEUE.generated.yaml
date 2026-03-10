@@ -33,5 +33,4 @@ items:
 - Promote milestone capability:session_scoped_human_task_assignment_source_filters
 - Promote milestone capability:async_queue_projection_task_identity
 - Promote milestone capability:tool_then_artifact_workflow_template
-- Promote milestone capability:inline_retry_drain_runtime
 - Promote milestone capability:skill_provider_hint_filtering
