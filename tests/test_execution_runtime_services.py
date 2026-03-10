@@ -5,6 +5,7 @@ from app.services.execution_approval_pause_service import ExecutionApprovalPause
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
+from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
 
 
 def _step(
@@ -438,3 +439,144 @@ def test_execution_step_runtime_service_completes_tool_step_and_persists_receipt
         "append_event",
         ("session-1", "artifact_persisted", {"artifact_id": "artifact-1", "artifact_kind": "rewrite_note", "plan_id": "", "plan_step_key": ""}),
     )
+
+
+def test_execution_task_orchestration_service_materializes_plan_steps_and_returns_direct_artifact() -> None:
+    events: list[tuple[str, str, dict[str, object]]] = []
+    started_steps: list[tuple[str, str | None, dict[str, object]]] = []
+    session = type(
+        "SessionStub",
+        (),
+        {
+            "session_id": "session-1",
+            "intent": IntentSpecV3(
+                principal_id="exec-1",
+                goal="goal",
+                task_type="rewrite_text",
+                deliverable_type="rewrite_note",
+                risk_class="low",
+                approval_class="none",
+                budget_class="low",
+            ),
+        },
+    )()
+    artifact = Artifact(
+        artifact_id="artifact-1",
+        kind="rewrite_note",
+        content="Done",
+        execution_session_id="session-1",
+        principal_id="exec-1",
+    )
+    service = ExecutionTaskOrchestrationService(
+        ledger=type(
+            "LedgerStub",
+            (),
+            {
+                "start_session": lambda self, intent: session,
+                "append_event": lambda self, session_id, name, payload: events.append((session_id, name, payload)),
+                "start_step": lambda self, session_id, step_kind, parent_step_id=None, input_json=None, **kwargs: started_steps.append(
+                    (step_kind, parent_step_id, dict(input_json or {}))
+                )
+                or type("StepStub", (), {"step_id": f"step-{len(started_steps)}"})(),
+            },
+        )(),
+        planner=None,
+        task_contracts=None,
+        execute_next_ready_step=lambda session_id: artifact,
+        fetch_session_snapshot=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {"session": type("SnapshotSession", (), {"status": "completed"})(), "artifacts": [artifact]},
+        )(),
+        raise_for_async_snapshot_state=lambda snapshot: None,
+    )
+
+    result = service.execute_task_artifact(
+        type(
+            "TaskReq",
+            (),
+            {
+                "task_key": "rewrite_text",
+                "principal_id": "exec-1",
+                "goal": "",
+                "text": "Prepared text",
+                "context_refs": (),
+                "input_json": {},
+            },
+        )()
+    )
+
+    assert result == artifact
+    assert [event[1] for event in events] == ["intent_compiled", "plan_compiled"]
+    assert len(started_steps) == 3
+    assert started_steps[1][1] == "step-1"
+    assert started_steps[2][1] == "step-2"
+    assert started_steps[0][2]["source_text"] == "Prepared text"
+    assert started_steps[2][2]["action_kind"] == "artifact.save"
+
+
+def test_execution_task_orchestration_service_returns_snapshot_artifact_when_inline_execute_finishes_without_direct_result() -> None:
+    artifact = Artifact(
+        artifact_id="artifact-2",
+        kind="rewrite_note",
+        content="Done",
+        execution_session_id="session-2",
+        principal_id="exec-1",
+    )
+    session = type(
+        "SessionStub",
+        (),
+        {
+            "session_id": "session-2",
+            "intent": IntentSpecV3(
+                principal_id="exec-1",
+                goal="goal",
+                task_type="rewrite_text",
+                deliverable_type="rewrite_note",
+                risk_class="low",
+                approval_class="none",
+                budget_class="low",
+            ),
+        },
+    )()
+    service = ExecutionTaskOrchestrationService(
+        ledger=type(
+            "LedgerStub",
+            (),
+            {
+                "start_session": lambda self, intent: session,
+                "append_event": lambda self, session_id, name, payload: None,
+                "start_step": lambda self, session_id, step_kind, parent_step_id=None, input_json=None, **kwargs: type(
+                    "StepStub",
+                    (),
+                    {"step_id": f"{step_kind}-{parent_step_id or 'root'}"},
+                )(),
+            },
+        )(),
+        planner=None,
+        task_contracts=None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session_snapshot=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {"session": type("SnapshotSession", (), {"status": "completed"})(), "artifacts": [artifact]},
+        )(),
+        raise_for_async_snapshot_state=lambda snapshot: None,
+    )
+
+    result = service.execute_task_artifact(
+        type(
+            "TaskReq",
+            (),
+            {
+                "task_key": "rewrite_text",
+                "principal_id": "exec-1",
+                "goal": "",
+                "text": "Prepared text",
+                "context_refs": (),
+                "input_json": {},
+            },
+        )()
+    )
+
+    assert result == artifact
