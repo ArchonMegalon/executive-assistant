@@ -3477,7 +3477,7 @@ milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(
     entry for entry in milestone["capabilities"] if entry["name"] == "session_scoped_human_task_assignment_source_filters"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'session_id=<id>&assignment_source=<source>' "README.md" && \
