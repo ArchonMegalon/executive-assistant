@@ -885,6 +885,44 @@ def test_execute_next_ready_step_can_drains_retry_flow_from_service_boundary() -
     assert calls["count"] == 2
 
 
+def test_queue_next_step_after_public_wrapper_preserves_service_snapshot_contract() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_failure")
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, _queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    assert orchestrator._queue_next_step_after(
+        session.session_id,
+        step.step_id,
+        lease_owner="worker",
+    ) is None
+
+    snapshot_after_completion = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_completion["session_status"] == "completed"
+    assert snapshot_after_completion["queue_items"][-1]["state"] == "done"
+    assert snapshot_after_completion["queue_items"][-1]["attempt_count"] == 2
+    assert snapshot_after_completion["steps"][-1]["state"] == "completed"
+    assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
+    assert calls["count"] == 2
+
+
 def test_execute_next_ready_step_raises_without_ready_step() -> None:
     orchestrator, ledger = _build_retry_orchestrator(lambda request, definition: None)
     session = ledger.start_session(
