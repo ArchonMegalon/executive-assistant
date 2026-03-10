@@ -2647,6 +2647,7 @@ def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smo
 def test_session_ownerless_projection_created_order_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
@@ -2659,11 +2660,12 @@ def test_session_ownerless_projection_created_order_is_documented_and_smoked() -
     assert "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]" in smoke_runtime
     assert "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]" in smoke_runtime
     assert "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" in http_examples
+    assert "Promoted milestone capability `session_ownerless_projection_created_order` to released" in changelog
 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "session_ownerless_projection_created_order"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "session_ownerless_projection_human_tasks_created_asc" in capability["scope"]
 
 

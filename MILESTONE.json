@@ -897,12 +897,12 @@
     },
     {
       "name": "session_ownerless_projection_created_order",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_ownerless_projection_human_tasks_created_asc",
         "session_ownerless_projection_history_created_asc"
       ],
-      "notes": "Rewrite session detail now has explicit smoke/docs coverage for `human_task_assignment_source=none`, keeping both filtered ownerless `human_tasks` rows and inline assignment-history rows in oldest-first order when multiple ownerless packets exist."
+      "notes": "Rewrite session detail now exposes `human_task_assignment_source=none` as current branch baseline behavior, with explicit smoke/docs coverage keeping both filtered ownerless `human_tasks` rows and inline assignment-history rows in oldest-first order when multiple ownerless packets exist."
     },
     {
       "name": "session_ownerless_projection_mixed_source_isolation",

@@ -3369,7 +3369,7 @@ milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(
     entry for entry in milestone["capabilities"] if entry["name"] == "session_ownerless_projection_created_order"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "human_task_assignment_source=none" "README.md" && \
@@ -3378,7 +3378,8 @@ then
      grep -Fq 'params={"human_task_assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
      grep -Fq "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]" "tests/smoke_runtime_api.py" && \
      grep -Fq "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]" "tests/smoke_runtime_api.py" && \
-     grep -Fq "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" "HTTP_EXAMPLES.http"; then
+     grep -Fq "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" "HTTP_EXAMPLES.http" && \
+     grep -Fq 'Promoted milestone capability `session_ownerless_projection_created_order` to released' "CHANGELOG.md"; then
     echo "ok: session ownerless projection created order docs"
   else
     echo "missing: session ownerless projection created order docs" >&2
