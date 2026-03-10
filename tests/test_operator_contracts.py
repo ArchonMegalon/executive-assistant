@@ -1244,7 +1244,7 @@ def test_artifact_principal_ownership_docs_and_milestone_cover_explicit_scope() 
     assert "principal_id ownership" in http_examples
     assert "explicit `principal_id` ownership" in changelog
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "artifact_principal_ownership_projection")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_step_parent_projection_contracts_are_wired_into_focused_contract_bundle() -> None:
