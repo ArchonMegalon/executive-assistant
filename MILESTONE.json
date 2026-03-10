@@ -990,13 +990,13 @@
     },
     {
       "name": "session_scoped_human_task_assignment_source_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "session_scoped_manual_queue_slice",
         "session_scoped_auto_preselected_queue_slice",
         "human_task_list_session_assignment_source_filter"
       ],
-      "notes": "Human task list queries now have approved smoke/docs coverage for combining `session_id` and `assignment_source`, so one session-scoped queue fetch can isolate manual or planner auto-preselected packets without client-side filtering."
+      "notes": "Human task list queries now have release-grade smoke/docs coverage for combining `session_id` and `assignment_source`, so one session-scoped queue fetch can isolate manual or planner auto-preselected packets without client-side filtering, and the release/operator guards now pin that session-scoped ownership-source queue contract as current branch baseline behavior."
     },
     {
       "name": "generic_task_execution_runtime",
