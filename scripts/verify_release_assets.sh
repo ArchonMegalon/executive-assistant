@@ -3865,7 +3865,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "inline_retry_drain_runtime")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "test_execute_task_artifact_drains_zero_backoff_retries_inline_to_completion" "tests/test_queue_retry_contracts.py" && \

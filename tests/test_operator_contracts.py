@@ -1119,7 +1119,7 @@ def test_inline_retry_drain_runtime_is_documented_and_guarded() -> None:
     assert "Zero-backoff retries now keep draining the same session inline" in changelog
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "inline_retry_drain_runtime")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_contract_retry_policy_metadata_is_documented_and_guarded() -> None:
