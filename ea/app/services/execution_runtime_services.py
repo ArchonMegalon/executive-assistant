@@ -7,6 +7,7 @@ from app.services.execution_operator_profile_service import ExecutionOperatorPro
 from app.services.execution_operator_routing_service import ExecutionOperatorRoutingService
 from app.services.execution_queue_claim_lease_service import ExecutionQueueClaimLeaseService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
+from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "ExecutionOperatorRoutingService",
     "ExecutionQueueClaimLeaseService",
     "ExecutionStepDependencyService",
+    "ExecutionStepRuntimeService",
     "ExecutionTaskOrchestrationService",
 ]

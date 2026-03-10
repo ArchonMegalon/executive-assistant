@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.domain.models import Artifact, ExecutionStep, HumanTask, IntentSpecV3, PolicyDecision, ToolInvocationResult
+from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
@@ -65,6 +66,10 @@ def _human_task(**overrides: object) -> HumanTask:
     }
     base.update(overrides)
     return HumanTask(**base)
+
+
+def test_execution_runtime_services_exports_execution_step_runtime_service() -> None:
+    assert ExportedExecutionStepRuntimeService is ExecutionStepRuntimeService
 
 
 def test_execution_step_dependency_service_merges_dependency_outputs_and_filters_by_declared_inputs() -> None:
