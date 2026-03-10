@@ -1281,7 +1281,7 @@ then
      grep -Fq 'tests/test_plan_graph_validation_contracts.py' "scripts/test_postgres_contracts.sh" && \
      grep -Fq 'test_validate_plan_spec_rejects_unknown_dependency_keys' "tests/test_plan_graph_validation_contracts.py" && \
      grep -Fq 'validate_plan_spec(plan)' "ea/app/services/planner.py" && \
-     grep -Fq 'validate_plan_spec(plan)' "ea/app/services/orchestrator.py"; then
+     grep -Fq 'validate_plan_spec(plan)' "ea/app/services/execution_task_orchestration_service.py"; then
     echo "ok: plan graph validation docs"
   else
     echo "missing: plan graph validation docs" >&2
@@ -1739,7 +1739,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_step_operational_semantics_projection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`' "README.md" && \
@@ -1750,7 +1750,9 @@ then
      grep -Fq 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' "tests/smoke_runtime_api.py" && \
      grep -Fq 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' "tests/smoke_runtime_api.py" && \
      grep -Fq 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'plan.steps[2].authority_class == "draft"' "tests/test_planner.py"; then
+     grep -Fq 'plan.steps[2].authority_class == "draft"' "tests/test_planner.py" && \
+     grep -Fq 'plan.steps[2].owner == "human"' "tests/test_planner.py" && \
+     grep -Fq 'plan.steps[2].timeout_budget_seconds == 3600' "tests/test_planner.py"; then
     echo "ok: plan step operational semantics docs"
   else
     echo "missing: plan step operational semantics docs" >&2
@@ -2053,7 +2055,7 @@ assert "claimed_and_returned_assignment_projection" in visibility_capability["sc
 assert "release/operator guards now pin that assignment-state visibility contract" in visibility_capability["notes"]
 assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 review_contract_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_review_contract_metadata")
-assert review_contract_capability["status"] == "tested"
+assert review_contract_capability["status"] == "released"
 assert "ea/schema/20260305_v0_27_human_task_review_contract.sql" in milestone["migrations"]
 operator_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "operator_profile_specialized_backlog_routing")
 assert operator_capability["status"] == "released"
@@ -2098,7 +2100,7 @@ then
      grep -Fq "human task mine endpoint" "scripts/smoke_api.sh" && \
      grep -Fq 'Promoted milestone capability `human_task_operator_backlog_endpoints` to released' "CHANGELOG.md" && \
      grep -Fq "human_task_assignment_state_visibility" "CHANGELOG.md" && \
-     grep -Fq "assignment_state projection across unassigned, assigned, claimed, and returned visibility" "CHANGELOG.md" && \
+     grep -Fq 'Promoted milestone capability `human_task_assignment_state_visibility` to released' "CHANGELOG.md" && \
      grep -Fq "pre-assigned task" "scripts/smoke_api.sh" && \
      grep -Fq "human task unassigned endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "assigned-only backlog endpoint" "scripts/smoke_api.sh" && \
@@ -2553,7 +2555,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_unscheduled_fallback_sorting")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "fall back to oldest-created ordering for tasks without \`sla_due_at\`" "README.md" && \
@@ -2639,7 +2641,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_filters")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "accept \`priority=<level>\` filters" "README.md" && \
@@ -3158,7 +3160,7 @@ capability = next(
     for entry in milestone["capabilities"]
     if entry["name"] == "human_task_session_ownerless_last_transition_sort"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "session_id=<id>&assignment_source=none&sort=last_transition_desc" "README.md" && \
@@ -4046,12 +4048,12 @@ then
      grep -Fq 'ledger.set_session_status(session.session_id, "awaiting_approval")' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "set_session_status" "ea/app/repositories/ledger.py" && \
      grep -Fq "set_session_status" "ea/app/repositories/ledger_postgres.py" && \
-     grep -Fq "_ledger.set_session_status(" "ea/app/services/orchestrator.py" && \
-     ! grep -Fq 'complete_session(queue_item.session_id, status="queued")' "ea/app/services/orchestrator.py" && \
+     grep -Fq '_set_session_status(session_id, "awaiting_approval")' "ea/app/services/execution_approval_pause_service.py" && \
      grep -Fq "set_session_status(...)" "README.md" && \
      grep -Fq "set_session_status(...)" "RUNBOOK.md" && \
      grep -Fq 'Promoted milestone capability `session_status_transition_api` to released' "CHANGELOG.md" && \
-     grep -Fq "release/operator guards now pin the explicit \`set_session_status(...)\` nonterminal session-status transition contract" "CHANGELOG.md"; then
+     grep -Fq "release/operator guards now pin that explicit nonterminal session-status transition contract" "MILESTONE.json" && \
+     grep -Fq "set_session_status(...)" "CHANGELOG.md"; then
     echo "ok: session-status transition api release baseline"
   else
     echo "missing: session-status transition api release baseline" >&2
@@ -4195,9 +4197,10 @@ capability = next(entry for entry in milestone["capabilities"] if entry["name"] 
 assert capability["status"] == "released"
 PY
 then
-  if grep -Fq "update_discovery_tracking_table" "ea/app/services/ltd_inventory_markdown.py" && \
+  if grep -Fq "DISCOVERY_TRACKING_HEADING" "ea/app/services/ltd_inventory_markdown.py" && \
      grep -Fq "build_discovery_updates" "ea/app/services/ltd_inventory_markdown.py" && \
      grep -Fq "refresh_ltds_from_inventory.py" "scripts/refresh_ltds_from_inventory.sh" && \
+     grep -Fq "update_discovery_tracking_table" "scripts/refresh_ltds_from_inventory.py" && \
      grep -Fq "test_update_discovery_tracking_table_rewrites_matching_services_only" "tests/test_ltd_inventory_markdown.py" && \
      grep -Fq "test_refresh_ltds_script_can_write_updated_markdown" "tests/test_ltd_inventory_markdown.py" && \
      grep -Fq "refresh_ltds_from_inventory.sh" "README.md" && \
@@ -4227,6 +4230,7 @@ then
      grep -Fq "extract_inventory_output_json" "ea/app/services/ltd_inventory_api.py" && \
      grep -Fq "refresh_ltds_via_api.py" "scripts/refresh_ltds_via_api.sh" && \
      grep -Fq "/v1/plans/execute" "scripts/refresh_ltds_via_api.py" && \
+     grep -Fq "update_discovery_tracking_table" "scripts/refresh_ltds_via_api.py" && \
      grep -Fq "test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown" "tests/test_ltd_inventory_api.py" && \
      grep -Fq "refresh_ltds_via_api.sh" "scripts/smoke_api.sh" && \
      grep -Fq "refresh_ltds_via_api.sh" "README.md" && \
@@ -4253,7 +4257,8 @@ assert capability["status"] == "released"
 PY
 then
   if grep -Fq "_artifact_output_template_key" "ea/app/services/planner.py" && \
-     grep -Fq '"format": "evidence_pack"' "ea/app/services/orchestrator.py" && \
+     grep -Fq "artifact_output_template" "ea/app/services/planner.py" && \
+     grep -Fq '"format": "evidence_pack"' "ea/app/services/execution_step_runtime_service.py" && \
      grep -Fq "test_planner_can_project_evidence_pack_artifact_output_template" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output" "tests/test_task_contract_step_templates.py" && \
      grep -Fq 'artifact_output_template":"evidence_pack' "scripts/smoke_api.sh" && \
@@ -4281,7 +4286,7 @@ capability = next(entry for entry in milestone["capabilities"] if entry["name"] 
 assert capability["status"] == "released"
 PY
 then
-  if grep -Fq '"evidence_pack": artifact_structured_output_json' "ea/app/services/orchestrator.py" && \
+  if grep -Fq '"evidence_pack": artifact_structured_output_json' "ea/app/services/execution_step_runtime_service.py" && \
      grep -Fq 'fact_json["claims"]' "tests/test_task_contract_step_templates.py" && \
      grep -Fq 'fact_json["evidence_refs"]' "tests/test_task_contract_step_templates.py" && \
      grep -Fq "EVIDENCE_CANDIDATE_FIELDS" "scripts/smoke_api.sh" && \
@@ -4310,7 +4315,7 @@ PY
 then
   if grep -Fq 'prefix="/v1/evidence"' "ea/app/api/routes/evidence.py" && \
      grep -Fq "merge_objects(" "ea/app/services/evidence_runtime.py" && \
-     grep -Fq '"evidence_object_id"' "ea/app/services/tool_execution.py" && \
+     grep -Fq '"evidence_object_id"' "ea/app/services/tool_execution_artifact_adapter.py" && \
      grep -Fq "test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts" "tests/test_tool_execution.py" && \
      grep -Fq "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows" "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" "tests/smoke_runtime_api.py" && \

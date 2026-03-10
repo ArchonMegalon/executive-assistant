@@ -338,7 +338,7 @@ def test_plan_graph_validation_contracts_are_wired_into_focused_contract_bundle(
     validation_test = (ROOT / "tests/test_plan_graph_validation_contracts.py").read_text(encoding="utf-8")
     domain_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    task_orchestration = (ROOT / "ea/app/services/execution_task_orchestration_service.py").read_text(encoding="utf-8")
 
     assert "tests/test_plan_graph_validation_contracts.py" in script
     assert "unknown_dependency:step_policy_evaluate:step_missing" in validation_test
@@ -346,7 +346,7 @@ def test_plan_graph_validation_contracts_are_wired_into_focused_contract_bundle(
     assert "dependency_cycle:step_input_prepare" in validation_test
     assert "PlanValidationError" in domain_models
     assert "validate_plan_spec(plan)" in planner
-    assert "validate_plan_spec(plan)" in orchestrator
+    assert "validate_plan_spec(plan)" in task_orchestration
 
 
 def test_step_io_contracts_are_wired_into_focused_contract_bundle() -> None:
@@ -719,8 +719,7 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     assert 'ledger.set_session_status(session.session_id, "awaiting_approval")' in postgres_contract_test
     assert "def set_session_status(" in ledger_repo
     assert "def set_session_status(" in ledger_postgres
-    assert "_ledger.set_session_status(" in orchestrator
-    assert 'complete_session(queue_item.session_id, status="queued")' not in orchestrator
+    assert '_set_session_status(session_id, "awaiting_approval")' in approval_pause_service
     assert "set_session_status(...)" in readme
     assert "set_session_status(...)" in runbook
     assert "Promoted milestone capability `session_status_transition_api` to released" in changelog
@@ -879,7 +878,7 @@ def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
 
 def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> None:
     planner = (ROOT / "ea/app/services/planner.py").read_text(encoding="utf-8")
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    runtime_service = (ROOT / "ea/app/services/execution_step_runtime_service.py").read_text(encoding="utf-8")
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -889,7 +888,7 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
 
     assert "_artifact_output_template_key" in planner
     assert "artifact_output_template" in planner
-    assert "\"format\": \"evidence_pack\"" in orchestrator
+    assert "\"format\": \"evidence_pack\"" in runtime_service
     assert "test_planner_can_project_evidence_pack_artifact_output_template" in workflow_test
     assert "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output" in workflow_test
     assert "artifact_output_template\":\"evidence_pack" in smoke_script
@@ -904,7 +903,7 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
 
 
 def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -> None:
-    orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    runtime_service = (ROOT / "ea/app/services/execution_step_runtime_service.py").read_text(encoding="utf-8")
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -912,7 +911,7 @@ def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
-    assert '"evidence_pack": artifact_structured_output_json' in orchestrator
+    assert '"evidence_pack": artifact_structured_output_json' in runtime_service
     assert 'fact_json["claims"]' in workflow_test
     assert 'fact_json["evidence_refs"]' in workflow_test
     assert "EVIDENCE_CANDIDATE_FIELDS" in smoke_script
@@ -928,7 +927,7 @@ def test_evidence_pack_memory_candidate_projection_is_documented_and_guarded() -
 def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
     router = (ROOT / "ea/app/api/routes/evidence.py").read_text(encoding="utf-8")
     runtime = (ROOT / "ea/app/services/evidence_runtime.py").read_text(encoding="utf-8")
-    tool_execution = (ROOT / "ea/app/services/tool_execution.py").read_text(encoding="utf-8")
+    tool_execution = (ROOT / "ea/app/services/tool_execution_artifact_adapter.py").read_text(encoding="utf-8")
     tool_test = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
