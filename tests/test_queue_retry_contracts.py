@@ -146,7 +146,7 @@ def test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds() -> No
         )
 
     orchestrator, ledger = _build_retry_orchestrator(handler)
-    session, step, queue_item = _start_retry_step(
+    session, _, queue_item = _start_retry_step(
         orchestrator,
         ledger,
         max_attempts=2,
