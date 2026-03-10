@@ -508,7 +508,7 @@ def test_tool_then_artifact_workflow_template_is_documented_and_guarded() -> Non
     assert '"pre_artifact_tool_name": "browseract.extract_account_facts"' in http_examples
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "tool_then_artifact_workflow_template")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smoked() -> None:

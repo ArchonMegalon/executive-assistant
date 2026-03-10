@@ -1168,14 +1168,14 @@
     },
     {
       "name": "tool_then_artifact_workflow_template",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "generic_pre_artifact_tool_macro",
         "browseract_tool_then_artifact_compile_shape",
         "browseract_tool_then_artifact_runtime_projection",
         "unsupported_pre_artifact_tool_validation"
       ],
-      "notes": "Task contracts can now also compile the generic `workflow_template=tool_then_artifact` macro with `budget_policy_json.pre_artifact_tool_name=<tool>`, and the first supported slice proves BrowserAct account discovery now routes through shared pre-artifact tool composition instead of another one-off workflow builder."
+      "notes": "Task contracts can now also compile the generic `workflow_template=tool_then_artifact` macro with `budget_policy_json.pre_artifact_tool_name=<tool>`, and release/operator guards now pin the existing docs, examples, and smoke/runtime coverage proving BrowserAct account discovery and inventory refresh both route through the shared pre-artifact tool composition instead of one-off workflow builders."
     },
     {
       "name": "workflow_template_registry_validation",
