@@ -159,11 +159,14 @@ class RewriteOrchestrator:
             queue_for_session=self._ledger.queue_for_session,
             get_session=self._ledger.get_session,
             get_step=self._ledger.get_step,
+            steps_for=self._ledger.steps_for,
             update_step=self._ledger.update_step,
             append_event=self._ledger.append_event,
             complete_queue_item=self._ledger.complete_queue_item,
             fail_queue_item=self._ledger.fail_queue_item,
+            complete_session=self._ledger.complete_session,
             set_session_status=self._ledger.set_session_status,
+            enqueue_step=self._enqueue_rewrite_step,
             execute_step=self._execute_step_handler,
             continue_session_queue=self._queue_next_step_after,
             schedule_retry=self._schedule_step_retry,
@@ -1360,17 +1363,13 @@ class RewriteOrchestrator:
         return lookup
 
     def _active_queue_step_ids(self, session_id: str) -> set[str]:
-        return {
-            row.step_id
-            for row in self._ledger.queue_for_session(session_id)
-            if str(row.state or "") in {"queued", "leased"}
-        }
+        return self._queue_service.active_queue_step_ids(session_id)
 
     def _queue_item_is_eligible_now(self, row: ExecutionQueueItem) -> bool:
-        return self._queue_service._queue_item_is_eligible_now(row)
+        return self._queue_service.queue_item_is_eligible_now(row)
 
     def _next_eligible_queue_item_for_session(self, session_id: str) -> ExecutionQueueItem | None:
-        return self._queue_service._next_eligible_queue_item_for_session(session_id)
+        return self._queue_service.next_eligible_queue_item_for_session(session_id)
 
     def _drain_session_inline(
         self,
@@ -1378,18 +1377,10 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        artifact: Artifact | None = None
-        while True:
-            queue_item = self._next_eligible_queue_item_for_session(session_id)
-            if queue_item is None:
-                return artifact
-            result = self.run_queue_item(
-                queue_item.queue_id,
-                lease_owner="inline",
-                stop_before_step_id=stop_before_step_id,
-            )
-            if result is not None:
-                artifact = result
+        return self._queue_service.drain_session_inline(
+            session_id,
+            stop_before_step_id=stop_before_step_id,
+        )
 
     def _ready_steps(
         self,
@@ -1397,30 +1388,10 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> list[ExecutionStep]:
-        steps = self._ledger.steps_for(session_id)
-        if not steps:
-            return []
-        dependency_lookup = self._dependency_lookup(steps)
-        active_queue_step_ids = self._active_queue_step_ids(session_id)
-        blocked_step_id = str(stop_before_step_id or "").strip()
-        ready_steps: list[ExecutionStep] = []
-        for row in steps:
-            if row.state != "queued":
-                continue
-            if blocked_step_id and row.step_id == blocked_step_id:
-                continue
-            if row.step_id in active_queue_step_ids:
-                continue
-            dependency_keys = self._step_dependency_keys(row)
-            if not dependency_keys:
-                ready_steps.append(row)
-                continue
-            if all(
-                (dependency_lookup.get(key) is not None and dependency_lookup[key].state == "completed")
-                for key in dependency_keys
-            ):
-                ready_steps.append(row)
-        return ready_steps
+        return self._queue_service.ready_steps(
+            session_id,
+            stop_before_step_id=stop_before_step_id,
+        )
 
     def _next_ready_step(
         self,
@@ -1428,10 +1399,10 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> ExecutionStep | None:
-        ready_steps = self._ready_steps(session_id, stop_before_step_id=stop_before_step_id)
-        if not ready_steps:
-            return None
-        return ready_steps[0]
+        return self._queue_service.next_ready_step(
+            session_id,
+            stop_before_step_id=stop_before_step_id,
+        )
 
     def _queue_next_step_after(
         self,
@@ -1441,34 +1412,12 @@ class RewriteOrchestrator:
         lease_owner: str,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        steps = self._ledger.steps_for(session_id)
-        if not any(row.step_id == step_id for row in steps):
-            raise RuntimeError(f"step missing from session order: {step_id}")
-        session = self._ledger.get_session(session_id)
-        if session is not None and str(session.status or "") in {"awaiting_approval", "awaiting_human", "blocked"}:
-            return None
-        ready_steps = self._ready_steps(session_id, stop_before_step_id=stop_before_step_id)
-        if not ready_steps:
-            if steps and all(row.state == "completed" for row in steps):
-                self._ledger.complete_session(session_id, status="completed")
-                self._ledger.append_event(session_id, "session_completed", {"status": "completed"})
-            return None
-        queue_items = [self._enqueue_rewrite_step(session_id, row.step_id) for row in ready_steps]
-        if lease_owner == "inline":
-            artifact: Artifact | None = None
-            for queue_item in queue_items:
-                result = self.run_queue_item(
-                    queue_item.queue_id,
-                    lease_owner="inline",
-                    stop_before_step_id=stop_before_step_id,
-                )
-                if result is not None:
-                    artifact = result
-                session = self._ledger.get_session(session_id)
-                if session is not None and str(session.status or "") in {"awaiting_approval", "awaiting_human", "blocked"}:
-                    break
-            return artifact
-        return None
+        return self._queue_service.queue_next_step_after(
+            session_id,
+            step_id,
+            lease_owner=lease_owner,
+            stop_before_step_id=stop_before_step_id,
+        )
 
     def _execute_leased_queue_item(
         self,
