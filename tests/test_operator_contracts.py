@@ -2285,6 +2285,7 @@ def test_human_task_ownerless_backlog_alias_is_documented_and_smoked() -> None:
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "assignment_state=unassigned&assignment_source=none" in readme
@@ -2292,11 +2293,14 @@ def test_human_task_ownerless_backlog_alias_is_documented_and_smoked() -> None:
     assert "HUMAN_OWNERLESS_BACKLOG_JSON" in smoke_api
     assert 'params={"assignment_state": "unassigned", "assignment_source": "none"}' in smoke_runtime
     assert "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" in http_examples
+    assert "Promoted milestone capability `human_task_ownerless_backlog_alias` to released" in changelog
+    assert "release/operator guards" in changelog
+    assert "ownerless backlog and unassigned queue slices stay aligned" in changelog
 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_alias"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "human_task_backlog_ownerless_source_alias" in capability["scope"]
 
 

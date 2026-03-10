@@ -816,12 +816,12 @@
     },
     {
       "name": "human_task_ownerless_backlog_alias",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_backlog_ownerless_source_alias",
         "ownerless_backlog_unassigned_slice_alignment"
       ],
-      "notes": "The direct pending backlog now has explicit smoke/docs coverage for `assignment_state=unassigned&assignment_source=none`, keeping the general backlog and unassigned-only view aligned on ownerless queue slices."
+      "notes": "The direct pending backlog now treats `assignment_state=unassigned&assignment_source=none` as current branch baseline behavior, and release/operator guards pin the existing smoke/docs coverage so backlog and unassigned-only ownerless queue slices stay aligned."
     },
     {
       "name": "human_task_ownerless_backlog_created_sort",

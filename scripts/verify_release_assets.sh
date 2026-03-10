@@ -2922,14 +2922,15 @@ milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(
     entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_alias"
 )
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq "assignment_state=unassigned&assignment_source=none" "README.md" && \
      grep -Fq "assignment_state=unassigned&assignment_source=none" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_BACKLOG_JSON" "scripts/smoke_api.sh" && \
      grep -Fq 'params={"assignment_state": "unassigned", "assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" "HTTP_EXAMPLES.http"; then
+     grep -Fq "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" "HTTP_EXAMPLES.http" && \
+     grep -Fq 'Promoted milestone capability `human_task_ownerless_backlog_alias` to released' "CHANGELOG.md"; then
     echo "ok: human task ownerless backlog alias docs"
   else
     echo "missing: human task ownerless backlog alias docs" >&2
