@@ -61,6 +61,7 @@ from app.services.execution_step_dependency_service import ExecutionStepDependen
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
 from app.services.human_task_routing_runtime_service import HumanTaskRoutingService
+from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
@@ -135,6 +136,9 @@ class RewriteOrchestrator:
         self._task_contracts = task_contracts
         self._planner = planner
         self._memory_runtime = memory_runtime
+        self._memory_reasoning_service = (
+            MemoryReasoningService(self._memory_runtime) if self._memory_runtime is not None else None
+        )
         self._tool_execution = tool_execution or (
             ToolExecutionService(
                 tool_runtime=tool_runtime,
@@ -295,13 +299,19 @@ class RewriteOrchestrator:
             ),
             fetch_session_snapshot=self.fetch_session,
             async_state_service=self._async_state_service,
+            memory_reasoning_service=self._memory_reasoning_service,
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
         return self._task_orchestration_service.default_goal_for_task(task_key)
 
     def _normalized_task_input_json(self, req: TaskExecutionRequest) -> dict[str, object]:
-        return self._task_orchestration_service.normalized_task_input_json(req)
+        return self._task_orchestration_service.normalized_task_input_json(
+            req,
+            principal_id=req.principal_id,
+            task_key=req.task_key,
+            goal=req.goal,
+        )
 
     def _legacy_parent_step_id(
         self,

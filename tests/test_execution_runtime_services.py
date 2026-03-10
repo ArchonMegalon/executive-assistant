@@ -5,9 +5,11 @@ from app.services.execution_async_state_service import ExecutionAsyncStateServic
 from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
+from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
+from app.services.memory_reasoning_service import ContextPack
 
 
 def _step(
@@ -128,6 +130,24 @@ def test_execution_step_dependency_service_selects_latest_approval_target_step()
     )
 
     assert service.approval_target_step_for_session("session-1") == human
+
+
+def test_execution_queue_runtime_service_passes_keyword_idempotency_key() -> None:
+    calls: list[tuple[str, str, str]] = []
+    service = ExecutionQueueRuntimeService(
+        enqueue_step=lambda session_id, step_id, *, idempotency_key: calls.append((session_id, step_id, idempotency_key))
+        or type("QueueItemStub", (), {"queue_id": "queue-1", "state": "queued"})(),
+        retry_queue_item=lambda queue_id, last_error=None, next_attempt_at=None: None,
+        update_step=lambda step_id, **kwargs: None,
+        set_session_status=lambda session_id, status: None,
+        append_event=lambda session_id, name, payload: None,
+        step_id_to_retry_key=lambda session_id, step_id: f"retry:{session_id}:{step_id}",
+    )
+
+    queue_item = service.enqueue_rewrite_step("session-1", "step-1")
+
+    assert queue_item.queue_id == "queue-1"
+    assert calls == [("session-1", "step-1", "retry:session-1:step-1")]
 
 
 def test_execution_approval_pause_service_updates_waiting_step_and_session() -> None:
@@ -613,6 +633,52 @@ def test_execution_task_orchestration_service_returns_snapshot_artifact_when_inl
     )
 
     assert result == artifact
+
+
+def test_execution_task_orchestration_service_adds_context_pack_to_task_input() -> None:
+    service = ExecutionTaskOrchestrationService(
+        ledger=type("LedgerStub", (), {})(),
+        planner=None,
+        task_contracts=None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session_snapshot=lambda session_id: None,
+        async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
+        memory_reasoning_service=type(
+            "ReasoningStub",
+            (),
+            {
+                "build_context_pack": lambda self, **kwargs: ContextPack(
+                    principal_id=kwargs["principal_id"],
+                    task_key=kwargs["task_key"],
+                    goal=kwargs["goal"],
+                    context_refs=kwargs["context_refs"],
+                    summary="1 active commitment",
+                )
+            },
+        )(),
+    )
+
+    payload = service.normalized_task_input_json(
+        type(
+            "TaskReq",
+            (),
+            {
+                "task_key": "rewrite_text",
+                "principal_id": "exec-1",
+                "goal": "Draft board follow-up",
+                "text": "Prepared text",
+                "context_refs": ("memory:item:item-1",),
+                "input_json": {},
+            },
+        )(),
+        principal_id="exec-1",
+        task_key="rewrite_text",
+        goal="Draft board follow-up",
+    )
+
+    assert payload["context_pack"]["principal_id"] == "exec-1"
+    assert payload["context_pack"]["task_key"] == "rewrite_text"
+    assert payload["context_pack"]["context_refs"] == ["memory:item:item-1"]
 
 
 def test_execution_async_state_service_raises_approval_with_matching_request() -> None:

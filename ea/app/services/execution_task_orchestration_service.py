@@ -14,6 +14,7 @@ from app.domain.models import (
     validate_plan_spec,
 )
 from app.repositories.ledger import ExecutionLedgerRepository
+from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.planner import PlannerService
 from app.services.task_contracts import TaskContractService
 from app.services.execution_async_state_service import ExecutionAsyncStateService
@@ -29,6 +30,7 @@ class ExecutionTaskOrchestrationService:
         execute_next_ready_step: Callable[[str], Artifact | None],
         fetch_session_snapshot: Callable[[str], object | None],
         async_state_service: ExecutionAsyncStateService,
+        memory_reasoning_service: MemoryReasoningService | None = None,
     ) -> None:
         self._ledger = ledger
         self._planner = planner
@@ -36,6 +38,7 @@ class ExecutionTaskOrchestrationService:
         self._execute_next_ready_step = execute_next_ready_step
         self._fetch_session_snapshot = fetch_session_snapshot
         self._async_state_service = async_state_service
+        self._memory_reasoning_service = memory_reasoning_service
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
@@ -54,7 +57,12 @@ class ExecutionTaskOrchestrationService:
         session = self._ledger.start_session(intent)
         correlation_id = str(uuid.uuid4())
         self._append_plan_events(session, intent, plan)
-        task_input_json = self.normalized_task_input_json(req)
+        task_input_json = self.normalized_task_input_json(
+            req,
+            principal_id=principal_id,
+            task_key=task_key,
+            goal=goal,
+        )
         self._start_plan_steps(
             session=session,
             plan=plan,
@@ -82,7 +90,14 @@ class ExecutionTaskOrchestrationService:
             return "rewrite supplied text into an artifact"
         return f"execute {key} into an artifact"
 
-    def normalized_task_input_json(self, req: TaskExecutionRequest) -> dict[str, object]:
+    def normalized_task_input_json(
+        self,
+        req: TaskExecutionRequest,
+        *,
+        principal_id: str | None = None,
+        task_key: str | None = None,
+        goal: str | None = None,
+    ) -> dict[str, object]:
         payload = {str(key): value for key, value in dict(req.input_json or {}).items() if str(key).strip()}
         context_refs = tuple(str(value or "").strip() for value in (req.context_refs or ()) if str(value or "").strip())
         text_alias = str(req.text or "").strip()
@@ -97,6 +112,15 @@ class ExecutionTaskOrchestrationService:
             payload["text_length"] = len(effective_text)
         if context_refs:
             payload["context_refs"] = list(context_refs)
+        resolved_principal = str(principal_id or req.principal_id or "").strip()
+        resolved_task_key = str(task_key or req.task_key or "").strip() or "rewrite_text"
+        if self._memory_reasoning_service is not None and resolved_principal:
+            payload["context_pack"] = self._memory_reasoning_service.build_context_pack(
+                principal_id=resolved_principal,
+                task_key=resolved_task_key,
+                goal=str(goal or req.goal or "").strip(),
+                context_refs=context_refs,
+            ).as_dict()
         return payload
 
     def require_effective_principal(self, principal_id: str) -> str:

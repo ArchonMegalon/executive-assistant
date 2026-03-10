@@ -22,6 +22,21 @@ def _client(*, principal_id: str = "exec-1") -> TestClient:
 
 def test_plan_execute_accepts_structured_input_json_and_context_refs() -> None:
     client = _client()
+    candidate = client.post(
+        "/v1/memory/candidates/stage",
+        json={
+            "category": "stakeholder_pref",
+            "summary": "Alex prefers concise updates",
+            "fact_json": {"tone": "concise"},
+        },
+    )
+    assert candidate.status_code == 200
+    promoted = client.post(
+        f"/v1/memory/candidates/{candidate.json()['candidate_id']}/promote",
+        json={"reviewer": "operator-1"},
+    )
+    assert promoted.status_code == 200
+    item_id = promoted.json()["item"]["item_id"]
 
     execute = client.post(
         "/v1/plans/execute",
@@ -33,7 +48,7 @@ def test_plan_execute_accepts_structured_input_json_and_context_refs() -> None:
                 "channel": "email",
                 "stakeholder_ref": "alex-exec",
             },
-            "context_refs": ["thread:board-prep", "memory:item:stakeholder-brief"],
+            "context_refs": ["thread:board-prep", f"memory:item:{item_id}"],
         },
     )
     assert execute.status_code == 200
@@ -51,7 +66,49 @@ def test_plan_execute_accepts_structured_input_json_and_context_refs() -> None:
     assert prepare_step["input_json"]["normalized_text"] == "Structured workflow input."
     assert prepare_step["input_json"]["channel"] == "email"
     assert prepare_step["input_json"]["stakeholder_ref"] == "alex-exec"
-    assert prepare_step["input_json"]["context_refs"] == ["thread:board-prep", "memory:item:stakeholder-brief"]
+    assert prepare_step["input_json"]["context_refs"] == ["thread:board-prep", f"memory:item:{item_id}"]
+    assert prepare_step["input_json"]["context_pack"]["principal_id"] == "exec-1"
+    assert prepare_step["input_json"]["context_pack"]["memory_items"][0]["item_id"] == item_id
+    assert prepare_step["input_json"]["context_pack"]["unresolved_refs"] == ["thread:board-prep"]
+
+
+def test_memory_context_pack_route_returns_reasoned_pack() -> None:
+    client = _client()
+    candidate = client.post(
+        "/v1/memory/candidates/stage",
+        json={
+            "category": "commitment",
+            "summary": "Send board follow-up",
+            "fact_json": {"due_at": "2026-03-10T09:00:00+00:00", "status": "open"},
+            "confidence": 0.9,
+        },
+    )
+    assert candidate.status_code == 200
+    runtime = client.app.state.container.memory_runtime
+    runtime.upsert_commitment(
+        principal_id="exec-1",
+        title="Send board follow-up",
+        details="Needs send",
+        status="open",
+        priority="high",
+        due_at="2026-03-10T08:00:00+00:00",
+    )
+
+    response = client.post(
+        "/v1/memory/context-pack",
+        json={
+            "task_key": "rewrite_text",
+            "goal": "Draft board follow-up",
+            "context_refs": ["thread:board-prep"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["principal_id"] == "exec-1"
+    assert body["task_key"] == "rewrite_text"
+    assert body["unresolved_refs"] == ["thread:board-prep"]
+    assert body["promotion_signals"][0]["candidate_id"] == candidate.json()["candidate_id"]
+    assert any(row["risk_type"] == "commitment_deadline" for row in body["commitment_risks"])
 
 
 def test_plan_execute_requires_text_or_input_json() -> None:

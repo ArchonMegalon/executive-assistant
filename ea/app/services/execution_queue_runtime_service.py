@@ -5,7 +5,7 @@ from typing import Callable
 
 from app.domain.models import ExecutionQueueItem, ExecutionStep
 
-EnqueueStepFn = Callable[[str, str, str], ExecutionQueueItem]
+EnqueueStepFn = Callable[..., ExecutionQueueItem]
 RetryQueueItemFn = Callable[[str, str | None, str], ExecutionQueueItem]
 UpdateStepFn = Callable[[str, ...], ExecutionStep | None]
 SetSessionStatusFn = Callable[[str, str], object]
@@ -94,7 +94,11 @@ class ExecutionQueueRuntimeService:
         return True
 
     def enqueue_rewrite_step(self, session_id: str, step_id: str) -> ExecutionQueueItem:
-        queue_item = self._enqueue_step(session_id, step_id, self._step_id_to_retry_key(session_id, step_id))
+        queue_item = self._enqueue_step(
+            session_id,
+            step_id,
+            idempotency_key=self._step_id_to_retry_key(session_id, step_id),
+        )
         self._append_event(
             session_id,
             "step_enqueued",

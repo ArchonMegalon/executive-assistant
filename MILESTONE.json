@@ -105,6 +105,17 @@
       "notes": "Principal-scoped memory seed stores and APIs are wired as current branch baseline behavior with smoke/runtime coverage plus release/operator guards pinning the documented principal-scoped memory candidate, stakeholder, and interruption-budget routes."
     },
     {
+      "name": "memory_reasoning_context_packs",
+      "status": "wired",
+      "scope": [
+        "context_pack_reasoning",
+        "memory_candidate_promotion_signals",
+        "memory_conflict_detection",
+        "commitment_risk_projection"
+      ],
+      "notes": "The runtime now synthesizes task-ready context packs from principal-scoped memory items, stakeholders, commitments, deadlines, follow-ups, authority bindings, and policies; exposes `/v1/memory/context-pack`; and injects the synthesized context pack into plan-execution bootstrap input with direct in-process verification."
+    },
+    {
       "name": "operator_db_visibility_and_retention",
       "status": "released",
       "scope": [

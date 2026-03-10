@@ -1,4 +1,5 @@
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
+from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
 from app.services.planner import PlannerService
@@ -13,6 +14,7 @@ __all__ = [
     "PolicyDecisionService",
     "PolicyDeniedError",
     "RewriteOrchestrator",
+    "MemoryReasoningService",
     "MemoryRuntimeService",
     "PlannerService",
     "TaskContractService",
