@@ -3255,7 +3255,7 @@ def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_branch_projection"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_runtime_human_task_step_execution_is_documented_and_released() -> None:
