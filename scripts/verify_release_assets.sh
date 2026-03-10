@@ -2044,9 +2044,10 @@ assert backlog_capability["status"] == "released"
 assignment_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_operator_assignment")
 assert assignment_capability["status"] == "released"
 visibility_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_state_visibility")
-assert visibility_capability["status"] == "tested"
+assert visibility_capability["status"] == "released"
 assert "human_task_assignment_state_field" in visibility_capability["scope"]
 assert "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
+assert "release/operator guards now pin that assignment-state visibility contract" in visibility_capability["notes"]
 assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 review_contract_capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_review_contract_metadata")
 assert review_contract_capability["status"] == "tested"
@@ -2086,16 +2087,20 @@ then
      grep -Fq "v0_28 operator profiles kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "human_tasks" "scripts/db_status.sh" && \
      grep -Fq "human tasks ok" "scripts/smoke_api.sh" && \
+     grep -Fq "assignment_state" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_human|True|True" "scripts/smoke_api.sh" && \
      grep -Fq "role/overdue human task queue filter" "scripts/smoke_api.sh" && \
      grep -Fq "assigned-operator human task queue filter" "scripts/smoke_api.sh" && \
      grep -Fq "human task backlog endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "human task mine endpoint" "scripts/smoke_api.sh" && \
      grep -Fq 'Promoted milestone capability `human_task_operator_backlog_endpoints` to released' "CHANGELOG.md" && \
+     grep -Fq "human_task_assignment_state_visibility" "CHANGELOG.md" && \
+     grep -Fq "assignment_state projection across unassigned, assigned, claimed, and returned visibility" "CHANGELOG.md" && \
      grep -Fq "pre-assigned task" "scripts/smoke_api.sh" && \
      grep -Fq "human task unassigned endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "assigned-only backlog endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/human/tasks" "tests/smoke_runtime_api.py" && \
+     grep -Fq 'assignment_state="unassigned"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "test_postgres_human_tasks_create_claim_return_and_list" "tests/test_postgres_contract_matrix_integration.py"; then
     echo "ok: human task packet kernel docs"
   else

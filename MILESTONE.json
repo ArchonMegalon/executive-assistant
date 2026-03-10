@@ -634,7 +634,7 @@
     },
     {
       "name": "human_task_assignment_state_visibility",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_assignment_state_field",
         "human_task_unassigned_route",
@@ -642,7 +642,7 @@
         "assigned_vs_unassigned_pending_backlog",
         "claimed_and_returned_assignment_projection"
       ],
-      "notes": "Human task payloads now persist and project explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) so operator backlogs and session views can distinguish assignment lifecycle state without inferring it from generic pending status plus owner fields."
+      "notes": "Human task payloads now persist and project explicit `assignment_state` values (`unassigned`, `assigned`, `claimed`, `returned`) so operator backlogs and session views can distinguish assignment lifecycle state without inferring it from generic pending status plus owner fields, and the release/operator guards now pin that assignment-state visibility contract as current branch baseline behavior."
     },
     {
       "name": "human_task_last_transition_summary_projection",

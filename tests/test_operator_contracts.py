@@ -1544,9 +1544,10 @@ def test_operator_profile_specialized_backlog_routing_is_documented_and_released
     visibility_capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_assignment_state_visibility"
     )
-    assert visibility_capability["status"] == "tested"
+    assert visibility_capability["status"] == "released"
     assert "human_task_assignment_state_field" in visibility_capability["scope"]
     assert "claimed_and_returned_assignment_projection" in visibility_capability["scope"]
+    assert "release/operator guards now pin that assignment-state visibility contract" in visibility_capability["notes"]
     assert "ea/schema/20260305_v0_26_human_task_assignment_state.sql" in milestone["migrations"]
 
 
