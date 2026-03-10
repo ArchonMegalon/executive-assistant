@@ -49,6 +49,8 @@ from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 from app.services.planner import PlannerService
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
+from app.services.execution_queue_service import ExecutionQueueService
+from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
@@ -137,6 +139,8 @@ class RewriteOrchestrator:
         planner: PlannerService | None = None,
         memory_runtime: MemoryRuntimeService | None = None,
         tool_execution: ToolExecutionService | None = None,
+        queue_service: ExecutionQueueService | None = None,
+        operator_task_routing: OperatorTaskRoutingService | None = None,
     ) -> None:
         self._artifacts = artifacts or InMemoryArtifactRepository()
         self._ledger = ledger or InMemoryExecutionLedgerRepository()
@@ -149,6 +153,27 @@ class RewriteOrchestrator:
         self._planner = planner
         self._memory_runtime = memory_runtime
         self._tool_execution = tool_execution or ToolExecutionService(artifacts=self._artifacts)
+        self._queue_service = queue_service or ExecutionQueueService(
+            lease_queue_item=self._ledger.lease_queue_item,
+            lease_next_queue_item=self._ledger.lease_next_queue_item,
+            queue_for_session=self._ledger.queue_for_session,
+            get_session=self._ledger.get_session,
+            get_step=self._ledger.get_step,
+            update_step=self._ledger.update_step,
+            append_event=self._ledger.append_event,
+            complete_queue_item=self._ledger.complete_queue_item,
+            fail_queue_item=self._ledger.fail_queue_item,
+            set_session_status=self._ledger.set_session_status,
+            execute_step=self._execute_step_handler,
+            continue_session_queue=self._queue_next_step_after,
+            schedule_retry=self._schedule_step_retry,
+        )
+        self._operator_task_routing_service = operator_task_routing or OperatorTaskRoutingService(
+            fetch_human_task=self.fetch_human_task,
+            claim_human_task=self._human_tasks.claim,
+            assign_human_task=self._human_tasks.assign,
+            append_event=self._ledger.append_event,
+        )
 
     def _required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
         return tuple(
@@ -1342,36 +1367,10 @@ class RewriteOrchestrator:
         }
 
     def _queue_item_is_eligible_now(self, row: ExecutionQueueItem) -> bool:
-        now = datetime.now(timezone.utc)
-        state = str(row.state or "")
-        if state == "queued":
-            if row.next_attempt_at:
-                try:
-                    if datetime.fromisoformat(row.next_attempt_at) > now:
-                        return False
-                except ValueError:
-                    return False
-            return True
-        if state == "leased" and row.lease_expires_at:
-            try:
-                return datetime.fromisoformat(row.lease_expires_at) <= now
-            except ValueError:
-                return False
-        return False
+        return self._queue_service._queue_item_is_eligible_now(row)
 
     def _next_eligible_queue_item_for_session(self, session_id: str) -> ExecutionQueueItem | None:
-        session = self._ledger.get_session(session_id)
-        if session is None or str(session.status or "") not in {"queued", "running"}:
-            return None
-        eligible = sorted(
-            (
-                row
-                for row in self._ledger.queue_for_session(session_id)
-                if self._queue_item_is_eligible_now(row)
-            ),
-            key=lambda row: (str(row.created_at or ""), str(row.queue_id or "")),
-        )
-        return eligible[0] if eligible else None
+        return self._queue_service._next_eligible_queue_item_for_session(session_id)
 
     def _drain_session_inline(
         self,
@@ -1477,67 +1476,10 @@ class RewriteOrchestrator:
         *,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        step = self._ledger.get_step(queue_item.step_id)
-        if step is None:
-            self._ledger.fail_queue_item(queue_item.queue_id, last_error="step_not_found")
-            raise RuntimeError(f"queued step missing: {queue_item.step_id}")
-        self._ledger.set_session_status(queue_item.session_id, "running")
-        running_step = self._ledger.update_step(
-            step.step_id,
-            state="running",
-            error_json={},
-            attempt_count=queue_item.attempt_count,
-        )
-        if running_step is None:
-            self._ledger.fail_queue_item(queue_item.queue_id, last_error="step_not_found")
-            raise RuntimeError(f"unable to mark step running: {queue_item.step_id}")
-        self._ledger.append_event(
-            queue_item.session_id,
-            "step_execution_started",
-            {
-                "queue_id": queue_item.queue_id,
-                "step_id": queue_item.step_id,
-                "lease_owner": queue_item.lease_owner,
-                "attempt_count": queue_item.attempt_count,
-            },
-        )
-        try:
-            artifact = self._execute_step_handler(queue_item.session_id, running_step)
-        except Exception as exc:
-            if self._schedule_step_retry(queue_item, running_step, exc):
-                return None
-            self._ledger.fail_queue_item(queue_item.queue_id, last_error=str(exc))
-            self._ledger.update_step(
-                queue_item.step_id,
-                state="failed",
-                error_json={"reason": "execution_failed", "detail": str(exc)},
-                attempt_count=queue_item.attempt_count,
-            )
-            self._ledger.set_session_status(queue_item.session_id, "failed")
-            self._ledger.append_event(
-                queue_item.session_id,
-                "session_failed",
-                {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id, "reason": "execution_failed"},
-            )
-            raise
-        refreshed_step = self._ledger.get_step(queue_item.step_id)
-        self._ledger.complete_queue_item(queue_item.queue_id, state="done")
-        self._ledger.append_event(
-            queue_item.session_id,
-            "queue_item_completed",
-            {"queue_id": queue_item.queue_id, "step_id": queue_item.step_id},
-        )
-        if refreshed_step is not None and refreshed_step.state == "waiting_human":
-            return None
-        next_artifact = self._queue_next_step_after(
-            queue_item.session_id,
-            running_step.step_id,
-            lease_owner=queue_item.lease_owner,
+        return self._queue_service._execute_leased_queue_item(
+            queue_item,
             stop_before_step_id=stop_before_step_id,
         )
-        if next_artifact is not None:
-            return next_artifact
-        return artifact
 
     def run_queue_item(
         self,
@@ -1546,16 +1488,14 @@ class RewriteOrchestrator:
         lease_owner: str = "inline",
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
-        queue_item = self._ledger.lease_queue_item(queue_id, lease_owner=lease_owner)
-        if queue_item is None:
-            return None
-        return self._execute_leased_queue_item(queue_item, stop_before_step_id=stop_before_step_id)
+        return self._queue_service.run_queue_item(
+            queue_id,
+            lease_owner=lease_owner,
+            stop_before_step_id=stop_before_step_id,
+        )
 
     def run_next_queue_item(self, *, lease_owner: str = "worker") -> Artifact | None:
-        queue_item = self._ledger.lease_next_queue_item(lease_owner=lease_owner)
-        if queue_item is None:
-            return None
-        return self._execute_leased_queue_item(queue_item)
+        return self._queue_service.run_next_queue_item(lease_owner=lease_owner)
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
@@ -2182,27 +2122,14 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._human_tasks.claim(
+        updated = self._operator_task_routing_service.claim_human_task(
             human_task_id,
+            principal_id=principal_id,
             operator_id=operator_id,
             assigned_by_actor_id=assigned_by_actor_id,
         )
         if updated is None:
             return None
-        self._ledger.append_event(
-            updated.session_id,
-            "human_task_claimed",
-            {
-                "human_task_id": updated.human_task_id,
-                "operator_id": updated.assigned_operator_id,
-                "assigned_operator_id": updated.assigned_operator_id,
-                "assignment_state": updated.assignment_state,
-                "assignment_source": "manual",
-                "assigned_at": updated.assigned_at or "",
-                "assigned_by_actor_id": str(assigned_by_actor_id or operator_id or ""),
-                "step_id": updated.step_id or "",
-            },
-        )
         return self._decorate_human_task(updated)
 
     def assign_human_task(
@@ -2217,28 +2144,15 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._human_tasks.assign(
+        updated = self._operator_task_routing_service.assign_human_task(
             human_task_id,
+            principal_id=principal_id,
             operator_id=operator_id,
             assignment_source=assignment_source,
             assigned_by_actor_id=assigned_by_actor_id,
         )
         if updated is None:
             return None
-        self._ledger.append_event(
-            updated.session_id,
-            "human_task_assigned",
-            {
-                "human_task_id": updated.human_task_id,
-                "operator_id": updated.assigned_operator_id,
-                "assigned_operator_id": updated.assigned_operator_id,
-                "assignment_state": updated.assignment_state,
-                "assignment_source": updated.assignment_source,
-                "assigned_at": updated.assigned_at or "",
-                "assigned_by_actor_id": updated.assigned_by_actor_id,
-                "step_id": updated.step_id or "",
-            },
-        )
         return self._decorate_human_task(updated)
 
     def return_human_task(
