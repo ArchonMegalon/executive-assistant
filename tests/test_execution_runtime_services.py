@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from app.domain.models import ExecutionStep, HumanTask
+from app.domain.models import Artifact, ExecutionStep, HumanTask, IntentSpecV3, PolicyDecision, ToolInvocationResult
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
+from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 
 
 def _step(
@@ -172,3 +173,268 @@ def test_execution_human_task_step_service_starts_and_auto_assigns_human_task() 
     assert row.assignment_state == "assigned"
     assert row.assigned_operator_id == "operator-1"
     assert events[-1][1] == "human_task_step_started"
+
+
+def test_execution_step_runtime_service_completes_input_prepare_with_evidence_pack_projection() -> None:
+    calls: list[tuple[str, object]] = []
+    step_dependency_service = ExecutionStepDependencyService(
+        get_step=lambda step_id: None,
+        steps_for_session=lambda session_id: [],
+    )
+    service = ExecutionStepRuntimeService(
+        get_session=lambda session_id: None,
+        get_artifact=lambda artifact_id: None,
+        update_step=lambda step_id, **kwargs: calls.append(("update_step", (step_id, kwargs))) or None,
+        append_event=lambda session_id, name, payload: calls.append(("append_event", (session_id, name, payload))),
+        append_policy_decision=lambda session_id, decision: None,
+        append_tool_receipt=lambda *args, **kwargs: None,
+        append_run_cost=lambda *args, **kwargs: None,
+        set_session_status=lambda session_id, status: None,
+        approval_target_step_for_session=lambda session_id: None,
+        step_dependency_service=step_dependency_service,
+        approval_pause_service=ExecutionApprovalPauseService(
+            create_request=lambda session_id, step_id, **kwargs: None,
+            update_step=lambda step_id, **kwargs: None,
+            set_session_status=lambda session_id, status: None,
+            append_event=lambda session_id, name, payload: None,
+        ),
+        human_task_step_service=ExecutionHumanTaskStepService(
+            get_session=lambda session_id: None,
+            merged_step_input_json=lambda session_id, step: {},
+            create_human_task=lambda **kwargs: _human_task(),
+            assign_human_task=lambda human_task_id, **kwargs: None,
+            append_event=lambda session_id, name, payload: None,
+            decorate_human_task=lambda row: row,
+        ),
+        policy=type("PolicyStub", (), {"evaluate_step": lambda *args, **kwargs: None})(),
+        tool_execution=type("ToolStub", (), {"execute_invocation": lambda *args, **kwargs: None})(),
+        memory_runtime=None,
+    )
+    step = _step(
+        step_id="step-prepare",
+        step_kind="system_task",
+        state="running",
+        input_json={
+            "plan_step_key": "step_input_prepare",
+            "source_text": "Prepared text",
+            "desired_output_json": {"artifact_output_template": "evidence_pack", "default_confidence": 0.7},
+            "claims": ["claim-1"],
+            "context_refs": ["evidence-1"],
+            "open_questions": ["question-1"],
+            "output_keys": ["normalized_text", "text_length", "structured_output_json", "preview_text", "mime_type"],
+        },
+    )
+
+    service.complete_input_prepare_step("session-1", step)
+
+    update_call = calls[0]
+    output_json = update_call[1][1]["output_json"]
+    assert output_json["structured_output_json"]["format"] == "evidence_pack"
+    assert output_json["structured_output_json"]["confidence"] == 0.7
+    assert output_json["preview_text"] == "Prepared text"
+    assert calls[1][0] == "append_event"
+
+
+def test_execution_step_runtime_service_pauses_policy_target_when_approval_required() -> None:
+    paused: list[tuple[str, str, dict[str, object]]] = []
+    target_step = _step(
+        step_id="step-tool",
+        step_kind="tool_call",
+        state="queued",
+        input_json={
+            "plan_step_key": "step_artifact_save",
+            "tool_name": "artifact_repository",
+            "action_kind": "artifact.save",
+            "expected_artifact": "rewrite_note",
+        },
+    )
+    policy_step = _step(
+        step_id="step-policy",
+        step_kind="policy_check",
+        state="running",
+        input_json={
+            "plan_step_key": "step_policy_evaluate",
+            "plan_id": "plan-1",
+            "output_keys": ["allow", "requires_approval", "reason", "retention_policy", "memory_write_allowed"],
+        },
+    )
+    step_dependency_service = ExecutionStepDependencyService(
+        get_step=lambda step_id: target_step if step_id == target_step.step_id else None,
+        steps_for_session=lambda session_id: [policy_step, target_step],
+    )
+    service = ExecutionStepRuntimeService(
+        get_session=lambda session_id: type(
+            "SessionStub",
+            (),
+            {
+                "intent": IntentSpecV3(
+                    principal_id="exec-1",
+                    goal="goal",
+                    task_type="rewrite_text",
+                    deliverable_type="rewrite_note",
+                    risk_class="low",
+                    approval_class="manager",
+                    budget_class="low",
+                )
+            },
+        )(),
+        get_artifact=lambda artifact_id: None,
+        update_step=lambda step_id, **kwargs: target_step if step_id == target_step.step_id else policy_step,
+        append_event=lambda session_id, name, payload: None,
+        append_policy_decision=lambda session_id, decision: None,
+        append_tool_receipt=lambda *args, **kwargs: None,
+        append_run_cost=lambda *args, **kwargs: None,
+        set_session_status=lambda session_id, status: None,
+        approval_target_step_for_session=lambda session_id: target_step,
+        step_dependency_service=step_dependency_service,
+        approval_pause_service=type(
+            "PauseStub",
+            (),
+            {
+                "pause_for_approval": lambda self, *, session_id, target_step, reason, requested_action_json: paused.append(
+                    (session_id, reason, requested_action_json)
+                )
+            },
+        )(),
+        human_task_step_service=ExecutionHumanTaskStepService(
+            get_session=lambda session_id: None,
+            merged_step_input_json=lambda session_id, step: {},
+            create_human_task=lambda **kwargs: _human_task(),
+            assign_human_task=lambda human_task_id, **kwargs: None,
+            append_event=lambda session_id, name, payload: None,
+            decorate_human_task=lambda row: row,
+        ),
+        policy=type(
+            "PolicyStub",
+            (),
+            {
+                "evaluate_step": lambda self, intent, normalized_text, **kwargs: PolicyDecision(
+                    allow=True,
+                    requires_approval=True,
+                    reason="approval_required",
+                    retention_policy="keep",
+                    memory_write_allowed=True,
+                )
+            },
+        )(),
+        tool_execution=type("ToolStub", (), {"execute_invocation": lambda *args, **kwargs: None})(),
+        memory_runtime=None,
+    )
+
+    service.complete_policy_evaluate_step("session-1", policy_step)
+
+    assert paused == [
+        (
+            "session-1",
+            "approval_required",
+            {
+                "action": "artifact.save",
+                "artifact_kind": "rewrite_note",
+                "text_length": 0,
+                "plan_id": "plan-1",
+                "plan_step_key": "step_artifact_save",
+                "tool_name": "artifact_repository",
+                "channel": "",
+                "step_kind": "tool_call",
+                "authority_class": "observe",
+                "review_class": "none",
+            },
+        )
+    ]
+
+
+def test_execution_step_runtime_service_completes_tool_step_and_persists_receipt_cost_and_artifact_event() -> None:
+    calls: list[tuple[str, object]] = []
+    artifact = Artifact(
+        artifact_id="artifact-1",
+        kind="rewrite_note",
+        content="Done",
+        execution_session_id="session-1",
+        principal_id="exec-1",
+    )
+    step_dependency_service = ExecutionStepDependencyService(
+        get_step=lambda step_id: None,
+        steps_for_session=lambda session_id: [],
+    )
+    service = ExecutionStepRuntimeService(
+        get_session=lambda session_id: type(
+            "SessionStub",
+            (),
+            {
+                "intent": IntentSpecV3(
+                    principal_id="exec-1",
+                    goal="goal",
+                    task_type="rewrite_text",
+                    deliverable_type="rewrite_note",
+                    risk_class="low",
+                    approval_class="none",
+                    budget_class="low",
+                )
+            },
+        )(),
+        get_artifact=lambda artifact_id: artifact if artifact_id == "artifact-1" else None,
+        update_step=lambda step_id, **kwargs: calls.append(("update_step", (step_id, kwargs))) or None,
+        append_event=lambda session_id, name, payload: calls.append(("append_event", (session_id, name, payload))),
+        append_policy_decision=lambda session_id, decision: None,
+        append_tool_receipt=lambda session_id, step_id, **kwargs: type("ReceiptStub", (), {"receipt_id": "receipt-1"})(),
+        append_run_cost=lambda session_id, **kwargs: type("CostStub", (), {"cost_id": "cost-1"})(),
+        set_session_status=lambda session_id, status: None,
+        approval_target_step_for_session=lambda session_id: None,
+        step_dependency_service=step_dependency_service,
+        approval_pause_service=ExecutionApprovalPauseService(
+            create_request=lambda session_id, step_id, **kwargs: None,
+            update_step=lambda step_id, **kwargs: None,
+            set_session_status=lambda session_id, status: None,
+            append_event=lambda session_id, name, payload: None,
+        ),
+        human_task_step_service=ExecutionHumanTaskStepService(
+            get_session=lambda session_id: None,
+            merged_step_input_json=lambda session_id, step: {},
+            create_human_task=lambda **kwargs: _human_task(),
+            assign_human_task=lambda human_task_id, **kwargs: None,
+            append_event=lambda session_id, name, payload: None,
+            decorate_human_task=lambda row: row,
+        ),
+        policy=type("PolicyStub", (), {"evaluate_step": lambda *args, **kwargs: None})(),
+        tool_execution=type(
+            "ToolStub",
+            (),
+            {
+                "execute_invocation": lambda self, request: ToolInvocationResult(
+                    tool_name=request.tool_name,
+                    action_kind=request.action_kind,
+                    target_ref="artifact://artifact-1",
+                    output_json={"artifact_id": "artifact-1"},
+                    receipt_json={"ok": True},
+                    artifacts=(artifact,),
+                    model_name="none",
+                    tokens_in=0,
+                    tokens_out=0,
+                    cost_usd=0.0,
+                )
+            },
+        )(),
+        memory_runtime=None,
+    )
+    step = _step(
+        step_id="step-tool",
+        step_kind="tool_call",
+        state="running",
+        input_json={
+            "plan_step_key": "step_artifact_save",
+            "tool_name": "artifact_repository",
+            "action_kind": "artifact.save",
+            "output_keys": ["artifact_id", "receipt_id", "cost_id"],
+        },
+    )
+
+    result = service.complete_tool_step("session-1", step)
+
+    assert result == artifact
+    output_json = calls[1][1][1]["output_json"]
+    assert output_json["receipt_id"] == "receipt-1"
+    assert output_json["cost_id"] == "cost-1"
+    assert calls[-1] == (
+        "append_event",
+        ("session-1", "artifact_persisted", {"artifact_id": "artifact-1", "artifact_kind": "rewrite_note", "plan_id": "", "plan_step_key": ""}),
+    )
