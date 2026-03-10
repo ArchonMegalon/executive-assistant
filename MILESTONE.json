@@ -549,14 +549,14 @@
     },
     {
       "name": "browseract_account_inventory_tool_execution_slice",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "browseract_inventory_builtin_registration",
         "browseract_inventory_structured_output_projection",
         "browseract_inventory_tool_then_artifact_runtime",
         "browseract_inventory_ltd_tracking_docs"
       ],
-      "notes": "The built-in `browseract.extract_account_inventory` handler now summarizes multiple BrowserAct-backed service accounts from one scoped binding, returns structured inventory rows plus missing-service markers, and can persist that output through the generic `tool_then_artifact` macro as an `ltd_inventory_profile` artifact."
+      "notes": "The built-in `browseract.extract_account_inventory` handler now summarizes multiple BrowserAct-backed service accounts from one scoped binding, returns structured inventory rows plus missing-service markers, can persist that output through the generic `tool_then_artifact` macro as an `ltd_inventory_profile` artifact, and is pinned by release/operator guards across the existing README/RUNBOOK/examples plus approved smoke/runtime and LTD-tracking coverage as current branch baseline behavior."
     },
     {
       "name": "browseract_live_discovery_input_projection",

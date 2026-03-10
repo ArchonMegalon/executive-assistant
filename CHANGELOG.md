@@ -2,6 +2,11 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-10
+
+### Changed
+- Promoted milestone capability `browseract_account_inventory_tool_execution_slice` to released, so release/operator guards now pin the BrowserAct-backed `/v1/tools/execute` `browseract.extract_account_inventory` summary flow, the generic `tool_then_artifact` runtime path, and the linked README/RUNBOOK/LTD tracking docs as current branch baseline behavior.
+
 ## 2026-03-06
 
 ### Changed

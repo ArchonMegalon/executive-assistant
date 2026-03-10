@@ -3674,7 +3674,8 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "browseract_account_inventory_tool_execution_slice")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
+assert "release/operator guards" in capability["notes"]
 PY
 then
   if grep -Fq "browseract.extract_account_inventory" "tests/test_tool_execution.py" && \
