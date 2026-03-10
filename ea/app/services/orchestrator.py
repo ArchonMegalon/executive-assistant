@@ -30,6 +30,7 @@ from app.domain.models import (
 from app.repositories.approvals import ApprovalRepository, InMemoryApprovalRepository
 from app.repositories.approvals_postgres import PostgresApprovalRepository
 from app.repositories.artifacts import ArtifactRepository, InMemoryArtifactRepository
+from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.artifacts_postgres import PostgresArtifactRepository
 from app.repositories.human_tasks import (
     HumanTaskRepository,
@@ -40,6 +41,7 @@ from app.repositories.human_tasks_postgres import PostgresHumanTaskRepository
 from app.repositories.ledger import ExecutionLedgerRepository, InMemoryExecutionLedgerRepository
 from app.repositories.ledger_postgres import PostgresExecutionLedgerRepository
 from app.repositories.operator_profiles import InMemoryOperatorProfileRepository, OperatorProfileRepository
+from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.repositories.operator_profiles_postgres import PostgresOperatorProfileRepository
 from app.repositories.policy_decisions import InMemoryPolicyDecisionRepository, PolicyDecisionRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
@@ -65,6 +67,7 @@ from app.services.operator_task_routing_service import OperatorTaskRoutingServic
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
+from app.services.tool_runtime import ToolRuntimeService
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,13 @@ class RewriteOrchestrator:
         self._task_contracts = task_contracts
         self._planner = planner
         self._memory_runtime = memory_runtime
-        self._tool_execution = tool_execution or ToolExecutionService(artifacts=self._artifacts)
+        self._tool_execution = tool_execution or ToolExecutionService(
+            tool_runtime=ToolRuntimeService(
+                tool_registry=InMemoryToolRegistryRepository(),
+                connector_bindings=InMemoryConnectorBindingRepository(),
+            ),
+            artifacts=self._artifacts,
+        )
         self._queue_runtime = ExecutionQueueRuntimeService(
             enqueue_step=self._ledger.enqueue_step,
             retry_queue_item=self._ledger.retry_queue_item,
@@ -1047,5 +1056,12 @@ def build_default_orchestrator(
         task_contracts=task_contract_service,
         planner=planner_service,
         memory_runtime=memory_service,
-        tool_execution=tool_execution or ToolExecutionService(artifacts=artifact_repo, evidence_runtime=evidence_service),
+        tool_execution=tool_execution or ToolExecutionService(
+            tool_runtime=ToolRuntimeService(
+                tool_registry=InMemoryToolRegistryRepository(),
+                connector_bindings=InMemoryConnectorBindingRepository(),
+            ),
+            artifacts=artifact_repo,
+            evidence_runtime=evidence_service,
+        ),
     )

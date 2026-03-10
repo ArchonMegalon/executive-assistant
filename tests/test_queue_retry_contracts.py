@@ -59,7 +59,7 @@ def _build_retry_orchestrator(handler):
         approval_default="none",
         enabled=True,
     )
-    tool_execution = ToolExecutionService(tool_runtime=tool_runtime)
+    tool_execution = ToolExecutionService(tool_runtime=tool_runtime, artifacts=InMemoryArtifactRepository())
     tool_execution.register_handler("flaky_tool", handler)
     orchestrator = RewriteOrchestrator(
         ledger=ledger,
@@ -82,7 +82,7 @@ def _build_retry_orchestrator_with_ledger(handler, ledger):
         approval_default="none",
         enabled=True,
     )
-    tool_execution = ToolExecutionService(tool_runtime=tool_runtime)
+    tool_execution = ToolExecutionService(tool_runtime=tool_runtime, artifacts=InMemoryArtifactRepository())
     tool_execution.register_handler("flaky_tool", handler)
     orchestrator = RewriteOrchestrator(
         ledger=ledger,
