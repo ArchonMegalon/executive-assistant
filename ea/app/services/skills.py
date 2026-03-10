@@ -235,7 +235,7 @@ class SkillCatalogService:
                 return self.contract_to_skill(contract)
         return None
 
-    def list_skills(self, limit: 100, provider_hint: str = ""):
+    def list_skills(self, limit: int = 100, provider_hint: str = ""):
         normalized_provider_hint = str(provider_hint or "").strip().lower()
         fetch_limit = 500 if normalized_provider_hint else limit
         rows = [self.contract_to_skill(contract) for contract in self._task_contracts.list_contracts(limit=fetch_limit)]

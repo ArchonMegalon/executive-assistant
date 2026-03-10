@@ -3,7 +3,7 @@
 PR: https://github.com/ArchonMegalon/executive-assistant/pull/1
 
 Failing checks:
-- smoke-runtime-api (failure) - https://github.com/ArchonMegalon/executive-assistant/actions/runs/22888931950/job/66407778564
-- smoke-runtime-postgres-legacy (failure) - https://github.com/ArchonMegalon/executive-assistant/actions/runs/22888931950/job/66407778545
+- smoke-runtime-postgres (failure) - https://github.com/ArchonMegalon/executive-assistant/actions/runs/22888961426/job/66407864756
+- smoke-runtime-postgres-legacy (failure) - https://github.com/ArchonMegalon/executive-assistant/actions/runs/22888961426/job/66407864752
 
 Repair the failing checks before advancing the queue.
