@@ -52,10 +52,13 @@ from app.services.memory_runtime import MemoryRuntimeService, build_memory_runti
 from app.services.execution_queue_service import ExecutionQueueService
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFacade
+from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_approval_resume_service import ExecutionApprovalResumeService
+from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
 from app.services.execution_operator_profile_service import ExecutionOperatorProfileService
 from app.services.execution_operator_routing_service import ExecutionOperatorRoutingService
 from app.services.execution_queue_claim_lease_service import ExecutionQueueClaimLeaseService
+from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.human_task_routing_runtime_service import HumanTaskRoutingService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
@@ -159,6 +162,10 @@ class RewriteOrchestrator:
         self._queue_runtime_facade = ExecutionQueueRuntimeFacade(
             queue_service=self._queue_service,
         )
+        self._step_dependency_service = ExecutionStepDependencyService(
+            get_step=self._ledger.get_step,
+            steps_for_session=self._ledger.steps_for,
+        )
         human_task_routing_service = HumanTaskRoutingService(
             list_profiles_for_principal=lambda principal_id: self._operator_profiles.list_for_principal(
                 principal_id=principal_id,
@@ -204,6 +211,12 @@ class RewriteOrchestrator:
             self._queue_runtime_facade,
             self._queue_runtime,
         )
+        self._approval_pause_service = ExecutionApprovalPauseService(
+            create_request=self._approvals.create_request,
+            update_step=self._ledger.update_step,
+            set_session_status=self._ledger.set_session_status,
+            append_event=self._ledger.append_event,
+        )
         self._approval_resume_service = ExecutionApprovalResumeService(
             decide_approval=self._approvals.decide,
             append_event=self._ledger.append_event,
@@ -216,6 +229,14 @@ class RewriteOrchestrator:
             ),
             fetch_session=self.fetch_session,
             delayed_retry_queue_item=self._queue_claim_lease_service.delayed_retry_queue_item,
+        )
+        self._human_task_step_service = ExecutionHumanTaskStepService(
+            get_session=self._ledger.get_session,
+            merged_step_input_json=self._step_dependency_service.merged_step_input_json,
+            create_human_task=self.create_human_task,
+            assign_human_task=self.assign_human_task,
+            append_event=self._ledger.append_event,
+            decorate_human_task=self._operator_routing_service.decorate_human_task,
         )
         self._operator_profile_service = ExecutionOperatorProfileService(
             upsert_profile=self._operator_profiles.upsert_profile,
@@ -428,7 +449,7 @@ class RewriteOrchestrator:
             )
 
     def _complete_input_prepare_step(self, session_id: str, rewrite_step: ExecutionStep) -> None:
-        input_json = self._merged_step_input_json(session_id, rewrite_step)
+        input_json = self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
         source_text = str(input_json.get("source_text") or "").strip()
         plan_id = str(input_json.get("plan_id") or "")
         plan_step_key = str(input_json.get("plan_step_key") or "")
@@ -477,7 +498,7 @@ class RewriteOrchestrator:
                     "mime_type": str(input_json.get("mime_type") or "text/plain") or "text/plain",
                 }
             )
-        output_json = self._validate_step_output_contract(
+        output_json = self._step_dependency_service.validate_step_output_contract(
             rewrite_step,
             output_json,
         )
@@ -499,96 +520,24 @@ class RewriteOrchestrator:
         )
 
     def _dependency_steps_for_step(self, session_id: str, rewrite_step: ExecutionStep) -> list[ExecutionStep]:
-        steps = self._ledger.steps_for(session_id)
-        lookup = self._dependency_lookup(steps)
-        resolved: list[ExecutionStep] = []
-        seen: set[str] = set()
-        for key in self._step_dependency_keys(rewrite_step):
-            row = lookup.get(key)
-            if row is None or row.step_id in seen:
-                continue
-            resolved.append(row)
-            seen.add(row.step_id)
-        if not resolved and rewrite_step.parent_step_id:
-            parent_step = self._ledger.get_step(rewrite_step.parent_step_id)
-            if parent_step is not None:
-                resolved.append(parent_step)
-        return resolved
+        return self._step_dependency_service.dependency_steps_for_step(session_id, rewrite_step)
 
     def _declared_step_input_keys(self, rewrite_step: ExecutionStep) -> tuple[str, ...]:
-        raw = (rewrite_step.input_json or {}).get("input_keys") or ()
-        if isinstance(raw, (list, tuple)):
-            values = tuple(str(value or "").strip() for value in raw if str(value or "").strip())
-            if values:
-                return values
-        return ()
+        return self._step_dependency_service.declared_step_input_keys(rewrite_step)
 
     def _declared_step_output_keys(self, rewrite_step: ExecutionStep) -> tuple[str, ...]:
-        raw = (rewrite_step.input_json or {}).get("output_keys") or ()
-        if isinstance(raw, (list, tuple)):
-            values = tuple(str(value or "").strip() for value in raw if str(value or "").strip())
-            if values:
-                return values
-        return ()
+        return self._step_dependency_service.declared_step_output_keys(rewrite_step)
 
     def _validate_step_input_contract(self, rewrite_step: ExecutionStep, input_json: dict[str, object]) -> dict[str, object]:
-        plan_step_key = str((rewrite_step.input_json or {}).get("plan_step_key") or rewrite_step.step_kind or "")
-        for key in self._declared_step_input_keys(rewrite_step):
-            if key not in input_json:
-                raise RuntimeError(f"missing_step_input:{plan_step_key}:{key}")
-        return input_json
+        return self._step_dependency_service.validate_step_input_contract(rewrite_step, input_json)
 
     def _validate_step_output_contract(
         self, rewrite_step: ExecutionStep, output_json: dict[str, object]
     ) -> dict[str, object]:
-        plan_step_key = str((rewrite_step.input_json or {}).get("plan_step_key") or rewrite_step.step_kind or "")
-        for key in self._declared_step_output_keys(rewrite_step):
-            if key not in output_json:
-                raise RuntimeError(f"missing_step_output:{plan_step_key}:{key}")
-        return output_json
+        return self._step_dependency_service.validate_step_output_contract(rewrite_step, output_json)
 
     def _merged_step_input_json(self, session_id: str, rewrite_step: ExecutionStep) -> dict[str, object]:
-        input_json = dict(rewrite_step.input_json or {})
-        declared_input_keys = set(self._declared_step_input_keys(rewrite_step))
-        for dependency in self._dependency_steps_for_step(session_id, rewrite_step):
-            for key, value in dict(dependency.output_json or {}).items():
-                if key not in input_json and (not declared_input_keys or key in declared_input_keys):
-                    input_json[key] = value
-            human_payload = (dependency.output_json or {}).get("human_returned_payload_json")
-            if isinstance(human_payload, dict):
-                final_text = str(human_payload.get("final_text") or human_payload.get("content") or "").strip()
-                if final_text:
-                    if not declared_input_keys or "source_text" in declared_input_keys:
-                        input_json["source_text"] = final_text
-                    if not declared_input_keys or "normalized_text" in declared_input_keys:
-                        input_json["normalized_text"] = final_text
-                    input_json["human_task_id"] = str((dependency.output_json or {}).get("human_task_id") or "")
-        normalized_text = str(input_json.get("normalized_text") or "").strip()
-        if normalized_text and not str(input_json.get("source_text") or "").strip():
-            input_json["source_text"] = normalized_text
-        source_text = str(input_json.get("source_text") or "").strip()
-        if source_text and not str(input_json.get("normalized_text") or "").strip():
-            input_json["normalized_text"] = source_text
-        if "text_length" not in input_json and source_text:
-            input_json["text_length"] = len(source_text)
-        # BrowserAct pre-artifact flows project optional live-discovery hint fields in
-        # `input_keys`; populate empty defaults so the typed contract stays explicit
-        # without forcing callers to send every optional hint on every request.
-        optional_defaults: dict[str, object] = {
-            "requested_fields": [],
-            "service_names": [],
-            "instructions": "",
-            "account_hints_json": {},
-            "run_url": "",
-        }
-        for key, default in optional_defaults.items():
-            if key in declared_input_keys and key not in input_json:
-                input_json[key] = list(default) if isinstance(default, list) else dict(default) if isinstance(default, dict) else default
-        if not str(input_json.get("content") or "").strip():
-            content = str(input_json.get("normalized_text") or input_json.get("source_text") or "").strip()
-            if content:
-                input_json["content"] = content
-        return self._validate_step_input_contract(rewrite_step, input_json)
+        return self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
 
     def _approval_target_step_for_session(self, session_id: str) -> ExecutionStep | None:
         steps = self._ledger.steps_for(session_id)
@@ -605,7 +554,7 @@ class RewriteOrchestrator:
         session = self._ledger.get_session(session_id)
         if session is None:
             raise RuntimeError(f"session missing for policy step: {session_id}")
-        input_json = self._merged_step_input_json(session_id, rewrite_step)
+        input_json = self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
         target_step = self._approval_target_step_for_session(session_id)
         target_tool_name = (
             str(((target_step.input_json if target_step is not None else {}) or {}).get("tool_name") or "").strip()
@@ -672,7 +621,7 @@ class RewriteOrchestrator:
         for key in ("structured_output_json", "preview_text", "mime_type"):
             if key in input_json:
                 output_json[key] = input_json[key]
-        output_json = self._validate_step_output_contract(rewrite_step, output_json)
+        output_json = self._step_dependency_service.validate_step_output_contract(rewrite_step, output_json)
         self._ledger.update_step(
             rewrite_step.step_id,
             state="completed",
@@ -712,9 +661,9 @@ class RewriteOrchestrator:
             )
             return
         if decision.requires_approval and target_step is not None and target_step.step_id != rewrite_step.step_id:
-            approval_request = self._approvals.create_request(
-                session_id,
-                target_step.step_id,
+            self._approval_pause_service.pause_for_approval(
+                session_id=session_id,
+                target_step=target_step,
                 reason="approval_required",
                 requested_action_json={
                     "action": target_action_kind,
@@ -729,92 +678,12 @@ class RewriteOrchestrator:
                     "review_class": target_review_class,
                 },
             )
-            self._ledger.update_step(
-                target_step.step_id,
-                state="waiting_approval",
-                output_json=target_step.output_json,
-                error_json={"reason": "approval_required", "approval_id": approval_request.approval_id},
-            )
-            self._ledger.set_session_status(session_id, "awaiting_approval")
-            self._ledger.append_event(
-                session_id,
-                "session_paused_for_approval",
-                {"reason": "approval_required", "approval_id": approval_request.approval_id},
-            )
 
     def _start_human_task_step(self, session_id: str, rewrite_step: ExecutionStep) -> HumanTask:
-        session = self._ledger.get_session(session_id)
-        if session is None:
-            raise RuntimeError(f"session missing for human-task step: {session_id}")
-        input_json = self._merged_step_input_json(session_id, rewrite_step)
-        desired_output_json = dict(input_json.get("desired_output_json") or {})
-        if not str(desired_output_json.get("format") or "").strip():
-            desired_output_json["format"] = str(input_json.get("expected_artifact") or "review_packet")
-        priority = str(input_json.get("priority") or "normal").strip() or "normal"
-        sla_due_at = str(input_json.get("sla_due_at") or "").strip()
-        if not sla_due_at:
-            try:
-                sla_minutes = int(input_json.get("sla_minutes") or 0)
-            except (TypeError, ValueError):
-                sla_minutes = 0
-            if sla_minutes > 0:
-                sla_due_at = (datetime.now(timezone.utc) + timedelta(minutes=sla_minutes)).isoformat()
-        row = self.create_human_task(
-            session_id=session_id,
-            step_id=rewrite_step.step_id,
-            principal_id=session.intent.principal_id,
-            task_type=str(input_json.get("task_type") or "communications_review"),
-            role_required=str(input_json.get("role_required") or "communications_reviewer"),
-            brief=str(input_json.get("brief") or "Review the prepared rewrite before finalizing the artifact."),
-            authority_required=str(input_json.get("authority_required") or ""),
-            why_human=str(input_json.get("why_human") or ""),
-            quality_rubric_json=dict(input_json.get("quality_rubric_json") or {}),
-            input_json={
-                "source_text": str(input_json.get("source_text") or ""),
-                "normalized_text": str(input_json.get("normalized_text") or input_json.get("source_text") or ""),
-                "text_length": int(input_json.get("text_length") or 0),
-                "plan_id": str(input_json.get("plan_id") or ""),
-                "plan_step_key": str(input_json.get("plan_step_key") or ""),
-            },
-            desired_output_json=desired_output_json,
-            priority=priority,
-            sla_due_at=sla_due_at or None,
-            resume_session_on_return=True,
-        )
-        if bool(input_json.get("auto_assign_if_unique")):
-            auto_assign_operator_id = str((row.routing_hints_json or {}).get("auto_assign_operator_id") or "").strip()
-            if auto_assign_operator_id:
-                updated = self.assign_human_task(
-                    row.human_task_id,
-                    principal_id=session.intent.principal_id,
-                    operator_id=auto_assign_operator_id,
-                    assignment_source="auto_preselected",
-                    assigned_by_actor_id="orchestrator:auto_preselected",
-                )
-                if updated is not None:
-                    row = updated
-        self._ledger.append_event(
-            session_id,
-            "human_task_step_started",
-            {
-                "step_id": rewrite_step.step_id,
-                "human_task_id": row.human_task_id,
-                "task_type": row.task_type,
-                "role_required": row.role_required,
-                "authority_required": row.authority_required,
-                "priority": row.priority,
-                "sla_due_at": row.sla_due_at or "",
-                "assignment_state": row.assignment_state,
-                "assigned_operator_id": row.assigned_operator_id,
-                "assignment_source": row.assignment_source,
-                "assigned_at": row.assigned_at or "",
-                "assigned_by_actor_id": row.assigned_by_actor_id,
-            },
-        )
-        return self._operator_routing_service.decorate_human_task(row)
+        return self._human_task_step_service.start_human_task_step(session_id, rewrite_step)
 
     def _complete_tool_step(self, session_id: str, rewrite_step: ExecutionStep) -> Artifact | None:
-        input_json = self._merged_step_input_json(session_id, rewrite_step)
+        input_json = self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
         session = self._ledger.get_session(session_id)
         tool_name = str(input_json.get("tool_name") or "artifact_repository") or "artifact_repository"
         action_kind = str(input_json.get("action_kind") or "artifact.save") or "artifact.save"
@@ -859,7 +728,7 @@ class RewriteOrchestrator:
         output_json = dict(result.output_json or {})
         output_json.setdefault("receipt_id", receipt.receipt_id)
         output_json.setdefault("cost_id", cost.cost_id)
-        output_json = self._validate_step_output_contract(rewrite_step, output_json)
+        output_json = self._step_dependency_service.validate_step_output_contract(rewrite_step, output_json)
         self._ledger.update_step(
             rewrite_step.step_id,
             state="completed",
@@ -914,7 +783,7 @@ class RewriteOrchestrator:
             raise RuntimeError(f"session missing for memory step: {session_id}")
         if self._memory_runtime is None:
             raise RuntimeError("memory_runtime_unavailable")
-        input_json = self._merged_step_input_json(session_id, rewrite_step)
+        input_json = self._step_dependency_service.merged_step_input_json(session_id, rewrite_step)
         desired_output_json = dict((rewrite_step.input_json or {}).get("desired_output_json") or {})
         category = str(desired_output_json.get("category") or session.intent.deliverable_type or "artifact_fact").strip()
         sensitivity = str(desired_output_json.get("sensitivity") or "internal").strip() or "internal"
@@ -942,7 +811,7 @@ class RewriteOrchestrator:
         channel = str(input_json.get("channel") or "").strip()
         recipient = str(input_json.get("recipient") or "").strip()
         if not memory_write_allowed or session.intent.memory_write_policy == "none":
-            output_json = self._validate_step_output_contract(
+            output_json = self._step_dependency_service.validate_step_output_contract(
                 rewrite_step,
                 {
                     "candidate_id": "",
@@ -999,7 +868,7 @@ class RewriteOrchestrator:
             confidence=confidence,
             sensitivity=sensitivity,
         )
-        output_json = self._validate_step_output_contract(
+        output_json = self._step_dependency_service.validate_step_output_contract(
             rewrite_step,
             {
                 "candidate_id": candidate.candidate_id,
@@ -1024,23 +893,10 @@ class RewriteOrchestrator:
         )
 
     def _step_dependency_keys(self, row: ExecutionStep) -> tuple[str, ...]:
-        raw = (row.input_json or {}).get("depends_on") or ()
-        if isinstance(raw, (list, tuple)):
-            values = tuple(str(value or "").strip() for value in raw if str(value or "").strip())
-            if values:
-                return values
-        if row.parent_step_id:
-            return (f"step-id:{row.parent_step_id}",)
-        return ()
+        return self._step_dependency_service.step_dependency_keys(row)
 
     def _dependency_lookup(self, steps: list[ExecutionStep]) -> dict[str, ExecutionStep]:
-        lookup: dict[str, ExecutionStep] = {}
-        for row in steps:
-            step_key = str((row.input_json or {}).get("plan_step_key") or "").strip()
-            if step_key:
-                lookup[step_key] = row
-            lookup[f"step-id:{row.step_id}"] = row
-        return lookup
+        return self._step_dependency_service.dependency_lookup(steps)
 
     def run_queue_item(
         self,
