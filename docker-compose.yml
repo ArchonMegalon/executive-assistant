@@ -20,6 +20,42 @@ services:
       ea-db:
         condition: service_healthy
 
+  ea-worker:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-rewrite:latest
+    container_name: ea-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=worker
+      - TZ=Europe/Vienna
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      ea-db:
+        condition: service_healthy
+
+  ea-scheduler:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-rewrite:latest
+    container_name: ea-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=scheduler
+      - TZ=Europe/Vienna
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      ea-db:
+        condition: service_healthy
+
   ea-db:
     image: postgres:16-alpine
     container_name: ea-db

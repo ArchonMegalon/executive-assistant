@@ -1,35 +1,42 @@
 # EA Hybrid Assistant Runtime
 
-This repository is a durable executive-assistant runtime kernel with principal-scoped API surfaces, queued execution, policy/approval gates, human-task routing, tools/connectors, observations/delivery, and executive memory domains.
+This repository is the EA runtime: a principal-scoped FastAPI control plane, a queue-backed execution plane, and a Postgres-backed context plane for approvals, human tasks, tools/connectors, observations, delivery, and memory.
 
-## LTD Inventory
+## Runtime First
 
-Lifetime services with API keys or account-backed access that are concretely discoverable from this workspace are tracked in [LTDs.md](/docker/EA/LTDs.md).
-The first-class executive skill catalog that sits on top of task contracts is tracked in [SKILLS.md](/docker/EA/SKILLS.md).
-When a BrowserAct-backed inventory artifact exists, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can refresh the `## Discovery Tracking` table in [LTDs.md](/docker/EA/LTDs.md) without hand-editing each service row.
-When the local EA API is running, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the `ltd_inventory_refresh` skill through `/v1/plans/execute` and rewrite [LTDs.md](/docker/EA/LTDs.md) in one step.
+- Control plane: API/auth/config, operator scripts, health/version endpoints, and runtime docs
+- Execution plane: sessions, steps, queue leasing, approvals, human routing, and worker roles
+- Context plane: memory, stakeholders, commitments, follow-ups, evidence, skills, and task contracts
+- Runtime source of truth: Postgres is the durable ledger for sessions, steps, queue rows, approvals, outbox, and memory
 
-### Workspace Integration Tier Guide
+## Run It
 
-- `Tier 1`: actively wired into the local workspace/runtime and ready for operational use
-- `Tier 2`: account or key exists, but local runtime wiring is partial or parked
-- `Tier 3`: known service/account placeholder with no active local integration yet
+```bash
+cp .env.example .env
+# edit .env values
+bash scripts/deploy.sh
+bash scripts/db_bootstrap.sh
+```
 
-### Current List
+Worker topology is explicit in [docker-compose.yml](/docker/EA/docker-compose.yml):
 
-- Non-AppSumo / other LTDs:
-  `1min.AI` (`Advanced Business Plan`, `2 licenses / 2 accounts`, workspace `Tier 1`), `Prompting Systems` (`Gold Plan`), `ChatPlayground AI` (`Unlimited Plan`), `AI Magicx` (`Rune Plan`), `FastestVPN PRO` (`15 Devices`), `OneAir` (`Elite`), `Headway` (`Premium`), `Internxt Cloud Storage` (`100TB`)
-- AppSumo LTDs:
-  `ApiX-Drive` (`Plus exclusive / License Tier 3`), `ApproveThis` (`License Tier 3`), `AvoMap` (`10x code-based`, `9 redeemed / 1 pending`, redeem by `2026-05-02`), `BrowserAct` (`tier unspecified`, workspace `Tier 1` via `browseract.extract_account_facts`), `Documentation.AI` (`License Tier 3`), `Invoiless` (`1x code-based`, redeem by `2026-04-29`), `MarkupGo` (`7x code-based`, redeem by `2026-04-28`), `MetaSurvey` (`Plus exclusive / 3x code-based`, redeem by `2026-04-29`), `Mootion` (`License Tier 3`, `Activated`), `Paperguide` (`License Tier 4`), `PeekShot` (`3x code-based`, redeem by `2026-04-30`), `Teable` (`License Tier 4`, workspace `Tier 2`), `Vizologi` (`Plus exclusive / 4x code-based`, redeem by `2026-04-30`)
+- `ea-api`: HTTP API and inline queue drain for request-scoped work
+- `ea-worker`: background queue drainer for general execution leases
+- `ea-scheduler`: background queue drainer reserved for scheduled or dedicated lease ownership
+- `ea-db`: Postgres runtime state
 
-### Summary
+Then open `http://localhost:8090/health`.
 
-- `21` LTD products tracked
-- Immediate attention items:
-  `MarkupGo` (`2026-04-28`), `Invoiless` (`2026-04-29`), `MetaSurvey` (`2026-04-29`), `PeekShot` (`2026-04-30`), `Vizologi` (`2026-04-30`), `AvoMap` (`2026-05-02`), plus unresolved live `BrowserAct` tier/email verification details that can now be pulled through the BrowserAct workflow
-- Full status, holdings, and local integration notes live in [LTDs.md](/docker/EA/LTDs.md)
+## Runtime Docs
 
-The Codex session skill list is separate from this LTD inventory: skills are local agent capabilities, while LTDs are your external services/accounts.
+- Operator runbook: [RUNBOOK.md](/docker/EA/RUNBOOK.md)
+- Architecture map: [ARCHITECTURE_MAP.md](/docker/EA/ARCHITECTURE_MAP.md)
+- HTTP examples: [HTTP_EXAMPLES.http](/docker/EA/HTTP_EXAMPLES.http)
+- Environment/profile guidance: [ENVIRONMENT_MATRIX.md](/docker/EA/ENVIRONMENT_MATRIX.md)
+- Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)
+- Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json)
+- Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
+- Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
 
 ## Runtime Spine
 
@@ -226,38 +233,13 @@ The Codex session skill list is separate from this LTD inventory: skills are loc
 - `POST /v1/policy/evaluate` can dry-run external-send approval checks over HTTP without going through rewrite artifact creation, and now echoes the evaluated `step_kind`, `authority_class`, and `review_class` contract.
 - `POST /v1/human/tasks` accepts `resume_session_on_return=true` to pause a linked step for human review and resume it when `/v1/human/tasks/{human_task_id}/return` is called.
 
-## Quick Start
+## Operator Shortcuts
 
-```bash
-cp .env.example .env
-# edit .env values
-bash scripts/deploy.sh
-bash scripts/db_bootstrap.sh
-
-# or do both in one step
-EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
-
-# quick local memory profile
-cp .env.local.example .env
-EA_MEMORY_ONLY=1 bash scripts/deploy.sh
-# or
-make deploy-memory
-```
-
-Then open `http://localhost:8090/health`.
-
-Operator commands are documented in `RUNBOOK.md`.
-Shortcut targets are available in `Makefile` (`make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`).
-A compact runtime surface map is documented in `ARCHITECTURE_MAP.md`.
-Runnable endpoint samples are in `HTTP_EXAMPLES.http`.
-Release notes are tracked in `CHANGELOG.md`.
-Environment/profile recommendations are in `ENVIRONMENT_MATRIX.md`.
-Current machine-readable milestone checkpoint is `MILESTONE.json`, which tracks capabilities by `planned|coded|wired|tested|released` plus separate release tags.
-Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags (`ci_gate_bundle`, `release_preflight_bundle`, `docs_verify_alias`).
-Release preflight checklist includes milestone release-tag parity verification in `RELEASE_CHECKLIST.md`.
-Release operations checklist is `RELEASE_CHECKLIST.md`.
-OpenAPI snapshot export is available via `scripts/export_openapi.sh` or `make openapi-export`.
-Snapshot diff is available via `scripts/diff_openapi.sh` or `make openapi-diff`.
+- Bootstrap during deploy: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
+- Memory-only local profile: `cp .env.local.example .env && EA_MEMORY_ONLY=1 bash scripts/deploy.sh`
+- Common targets: `make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
+- OpenAPI export/diff: `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, `make openapi-export`, `make openapi-diff`
+- Release checklist: `RELEASE_CHECKLIST.md`
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
