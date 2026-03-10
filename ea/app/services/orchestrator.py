@@ -55,6 +55,7 @@ from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFac
 from app.services.execution_runtime_services import (
     ExecutionApprovalResumeService,
     ExecutionOperatorRoutingService,
+    ExecutionOperatorProfileService,
     ExecutionQueueClaimLeaseService,
 )
 from app.services.human_task_routing_runtime_service import HumanTaskRoutingService
@@ -217,6 +218,11 @@ class RewriteOrchestrator:
             ),
             fetch_session=self.fetch_session,
             delayed_retry_queue_item=self._queue_claim_lease_service.delayed_retry_queue_item,
+        )
+        self._operator_profile_service = ExecutionOperatorProfileService(
+            upsert_profile=self._operator_profiles.upsert_profile,
+            get_profile=self._operator_profiles.get,
+            list_profiles_for_principal=self._operator_profiles.list_for_principal,
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
@@ -1470,7 +1476,7 @@ class RewriteOrchestrator:
         status: str = "active",
         notes: str = "",
     ) -> OperatorProfile:
-        row = self._operator_profiles.upsert_profile(
+        return self._operator_profile_service.upsert_operator_profile(
             principal_id=principal_id,
             operator_id=operator_id,
             display_name=display_name,
@@ -1480,13 +1486,12 @@ class RewriteOrchestrator:
             status=status,
             notes=notes,
         )
-        return row
 
     def fetch_operator_profile(self, operator_id: str, *, principal_id: str) -> OperatorProfile | None:
-        row = self._operator_profiles.get(operator_id)
-        if row is None or row.principal_id != str(principal_id or ""):
-            return None
-        return row
+        return self._operator_profile_service.fetch_operator_profile(
+            operator_id,
+            principal_id=principal_id,
+        )
 
     def list_operator_profiles(
         self,
@@ -1495,7 +1500,7 @@ class RewriteOrchestrator:
         status: str | None = None,
         limit: int = 100,
     ) -> list[OperatorProfile]:
-        return self._operator_profiles.list_for_principal(
+        return self._operator_profile_service.list_operator_profiles(
             principal_id=principal_id,
             status=status,
             limit=limit,

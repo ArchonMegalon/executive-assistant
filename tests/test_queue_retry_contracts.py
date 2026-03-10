@@ -585,6 +585,47 @@ def test_approval_resume_snapshot_is_stable_for_retry_session_replay() -> None:
     assert calls["count"] == 2
 
 
+def test_approval_resume_service_snapshot_is_stable_for_retry_session_replay() -> None:
+    orchestrator, approvals, calls = _build_inline_retry_orchestrator(
+        approval_class="manager",
+        retry_backoff_seconds=0,
+    )
+
+    with pytest.raises(ApprovalRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="retry_approval_service_snapshot",
+                principal_id="exec-1",
+                goal="snapshot service approval replay",
+                input_json={"source_text": "snapshot retry"},
+            )
+        )
+
+    pending = approvals.list_pending(limit=10)
+    request = next(row for row in pending if row.approval_id == exc.value.approval_id)
+    pre_approve = _snapshot_queue_state(orchestrator.fetch_session(request.session_id))
+    assert pre_approve["session_status"] == "awaiting_approval"
+    assert pre_approve["steps"][-1]["state"] == "waiting_approval"
+    assert pre_approve["queue_items"][-1]["state"] == "queued"
+
+    decided = orchestrator._approval_resume_service.decide_approval(
+        request.approval_id,
+        decision="approved",
+        decided_by="operator",
+        reason="replay approval via service",
+    )
+    assert decided is not None
+
+    post_approve = _snapshot_queue_state(orchestrator.fetch_session(request.session_id))
+    assert post_approve["session_status"] == "completed"
+    assert post_approve["steps"][-1]["state"] == "completed"
+    assert post_approve["steps"][-1]["attempt_count"] == 2
+    assert post_approve["queue_items"][-1]["state"] == "done"
+    assert "session_resumed_from_approval" in post_approve["session_events"]
+    assert "queue_item_completed" in post_approve["session_events"]
+    assert calls["count"] == 2
+
+
 def test_approval_resume_delayed_retry_snapshot_is_stable_for_async_replay() -> None:
     orchestrator, approvals, calls = _build_inline_retry_orchestrator(
         approval_class="manager",
@@ -982,3 +1023,110 @@ def test_operator_routing_snapshot_is_stable_for_claim_and_return() -> None:
     assert after_return["human_tasks"][0]["status"] == "returned"
     assert after_return["human_tasks"][0]["assignment_source"] == "manual"
     assert "human_task_returned" in after_return["session_events"]
+
+
+def test_operator_routing_service_snapshot_is_stable_for_claim_and_return() -> None:
+    orchestrator, ledger = _build_operator_route_snapshot_orchestrator()
+    session = ledger.start_session(
+        IntentSpecV3(
+            principal_id="exec-1",
+            goal="operator service routing snapshot lock",
+            task_type="human_review",
+            deliverable_type="review_packet",
+            risk_class="low",
+            approval_class="none",
+            budget_class="low",
+            allowed_tools=("artifact_repository",),
+        )
+    )
+    task = orchestrator._operator_routing_service.create_human_task(
+        session_id=session.session_id,
+        principal_id="exec-1",
+        task_type="human_review",
+        role_required="reviewer",
+        brief="snapshot route review",
+        authority_required="observe",
+        quality_rubric_json={"checks": ["evidence", "privacy"]},
+        input_json={"source_text": "snapshot operator payload"},
+        desired_output_json={"format": "review_packet"},
+    )
+
+    baseline = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert baseline["session_status"] == "running"
+    assert baseline["human_tasks"][0]["status"] == "pending"
+    assert baseline["human_tasks"][0]["assignment_state"] == "unassigned"
+    assert baseline["human_tasks"][0]["assignment_source"] == ""
+
+    claimed = orchestrator._operator_routing_service.claim_human_task(
+        task.human_task_id,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        assigned_by_actor_id="op-webhook",
+    )
+    assert claimed is not None
+    after_claim = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_claim["human_tasks"][0]["status"] == "claimed"
+    assert after_claim["human_tasks"][0]["assignment_state"] == "claimed"
+    assert after_claim["human_tasks"][0]["assigned_operator_id"] == "operator-1"
+    assert "human_task_claimed" in after_claim["session_events"]
+
+    assigned = orchestrator._operator_routing_service.assign_human_task(
+        task.human_task_id,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        assignment_source="manual",
+        assigned_by_actor_id="op-assign",
+    )
+    assert assigned is not None
+    after_assign = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_assign["human_tasks"][0]["assignment_source"] == "manual"
+    assert "human_task_assigned" in after_assign["session_events"]
+
+    found = orchestrator._operator_routing_service.fetch_human_task(task.human_task_id, principal_id="exec-1")
+    assert found is not None
+    returned = orchestrator._operator_routing_service.return_human_task(
+        found,
+        principal_id="exec-1",
+        operator_id="operator-1",
+        resolution="needs_rework",
+        returned_payload_json={"notes": "needs context"},
+        provenance_json={"reviewer": "operator-1"},
+    )
+    assert returned is not None
+    after_return = _snapshot_human_routing_state(orchestrator.fetch_session(session.session_id))
+    assert after_return["human_tasks"][0]["status"] == "returned"
+    assert after_return["human_tasks"][0]["assignment_source"] == "manual"
+    assert "human_task_returned" in after_return["session_events"]
+
+
+def test_operator_profile_service_preserves_principal_scoped_snapshot_contract() -> None:
+    orchestrator, _ledger = _build_operator_route_snapshot_orchestrator()
+
+    created = orchestrator._operator_profile_service.upsert_operator_profile(
+        principal_id="exec-1",
+        operator_id="operator-2",
+        display_name="Operator Two",
+        roles=("reviewer", "approver"),
+        skill_tags=("policy", "privacy"),
+        trust_tier="elevated",
+        notes="snapshot contract",
+    )
+
+    assert created.operator_id == "operator-2"
+    fetched = orchestrator._operator_profile_service.fetch_operator_profile(
+        "operator-2",
+        principal_id="exec-1",
+    )
+    assert fetched is not None
+    assert fetched.display_name == "Operator Two"
+    assert orchestrator._operator_profile_service.fetch_operator_profile(
+        "operator-2",
+        principal_id="other-principal",
+    ) is None
+
+    listed = orchestrator._operator_profile_service.list_operator_profiles(
+        principal_id="exec-1",
+        status="active",
+        limit=10,
+    )
+    assert [row.operator_id for row in listed] == ["operator-1", "operator-2"]

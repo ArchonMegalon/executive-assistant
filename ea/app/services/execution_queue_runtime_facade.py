@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Any, Callable
 
-from app.domain.models import ExecutionQueueItem, ExecutionSessionSnapshot
+from app.domain.models import ExecutionQueueItem
 
 RunQueueItemFn = Callable[[str, str | None], None]
 
@@ -102,7 +102,7 @@ class ExecutionQueueRuntimeFacade:
 
     def delayed_retry_queue_item(
         self,
-        snapshot: ExecutionSessionSnapshot,
+        snapshot: Any,
     ) -> ExecutionQueueItem | None:
         if str(snapshot.session.status or "") != "queued":
             return None
