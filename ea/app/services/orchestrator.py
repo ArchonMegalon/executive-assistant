@@ -53,6 +53,7 @@ from app.services.execution_queue_service import ExecutionQueueService
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFacade
 from app.services.execution_runtime_services import (
+    ExecutionApprovalResumeService,
     ExecutionOperatorRoutingService,
     ExecutionQueueClaimLeaseService,
 )
@@ -203,6 +204,19 @@ class RewriteOrchestrator:
         self._queue_claim_lease_service = ExecutionQueueClaimLeaseService(
             self._queue_runtime_facade,
             self._queue_runtime,
+        )
+        self._approval_resume_service = ExecutionApprovalResumeService(
+            decide_approval=self._approvals.decide,
+            append_event=self._ledger.append_event,
+            update_step=self._ledger.update_step,
+            set_session_status=self._ledger.set_session_status,
+            execute_next_ready_step=lambda session_id: self._queue_claim_lease_service.execute_next_ready_step(
+                session_id,
+                lease_owner="inline",
+                missing_step_error=f"approved queue item did not resolve a ready step: {session_id}",
+            ),
+            fetch_session=self.fetch_session,
+            delayed_retry_queue_item=self._queue_claim_lease_service.delayed_retry_queue_item,
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
@@ -1642,66 +1656,12 @@ class RewriteOrchestrator:
         decided_by: str,
         reason: str,
     ) -> tuple[ApprovalRequest, ApprovalDecision] | None:
-        found = self._approvals.decide(
+        return self._approval_resume_service.decide_approval(
             approval_id,
             decision=decision,
             decided_by=decided_by,
             reason=reason,
         )
-        if not found:
-            return None
-        request, decision_row = found
-        self._ledger.append_event(
-            request.session_id,
-            "approval_decided",
-            {
-                "approval_id": request.approval_id,
-                "step_id": request.step_id,
-                "decision": decision_row.decision,
-                "decided_by": decision_row.decided_by,
-                "reason": decision_row.reason,
-            },
-        )
-        if decision_row.decision == "approved":
-            updated_step = self._ledger.update_step(
-                request.step_id,
-                state="queued",
-                output_json={"approval_id": request.approval_id, "decision": "approved"},
-                error_json={},
-            )
-            self._ledger.set_session_status(request.session_id, "running")
-            self._ledger.append_event(
-                request.session_id,
-                "session_resumed_from_approval",
-                {"approval_id": request.approval_id, "step_id": request.step_id},
-            )
-            if updated_step is not None:
-                self._queue_claim_lease_service.execute_next_ready_step(
-                    request.session_id,
-                    lease_owner="inline",
-                    missing_step_error=f"approved queue item did not resolve a ready step: {request.session_id}",
-                )
-                snapshot = self.fetch_session(request.session_id)
-                if snapshot is None:
-                    return request, decision_row
-                if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
-                    return request, decision_row
-                if self._delayed_retry_queue_item(snapshot) is not None:
-                    return request, decision_row
-                raise RuntimeError(f"approved queue item did not execute: {request.session_id}")
-        else:
-            self._ledger.update_step(
-                request.step_id,
-                state="blocked",
-                error_json={"approval_id": request.approval_id, "decision": decision_row.decision},
-            )
-            self._ledger.set_session_status(request.session_id, "blocked")
-            self._ledger.append_event(
-                request.session_id,
-                "session_blocked",
-                {"reason": f"approval_{decision_row.decision}", "approval_id": request.approval_id},
-            )
-        return request, decision_row
 
     def expire_approval(
         self,
