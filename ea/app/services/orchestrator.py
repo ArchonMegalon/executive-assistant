@@ -186,6 +186,13 @@ class RewriteOrchestrator:
         self._operator_routing_service = ExecutionOperatorRoutingService(
             human_task_routing=human_task_routing_service,
             operator_task_routing=operator_task_routing_service,
+            get_session=self._ledger.get_session,
+            get_step=self._ledger.get_step,
+            update_step=self._ledger.update_step,
+            append_event=self._ledger.append_event,
+            set_session_status=self._ledger.set_session_status,
+            create_human_task=self._human_tasks.create,
+            require_session_principal_alignment=self._require_session_principal_alignment,
             fetch_human_task=self._human_tasks.get,
             list_human_tasks_for_session=self._human_tasks.list_for_session,
             list_human_tasks_for_principal=self._human_tasks.list_for_principal,
@@ -1342,20 +1349,8 @@ class RewriteOrchestrator:
         step_id: str | None = None,
         resume_session_on_return: bool = False,
     ) -> HumanTask:
-        session = self._ledger.get_session(session_id)
-        if session is None:
-            raise KeyError("session_not_found")
-        self._require_session_principal_alignment(session, principal_id=principal_id)
-        step: ExecutionStep | None = None
-        if resume_session_on_return and not step_id:
-            raise KeyError("step_id_required")
-        if step_id:
-            step = self._ledger.get_step(step_id)
-            if step is None or step.session_id != session.session_id:
-                raise KeyError("step_not_found")
-        row = self._human_tasks.create(
-            session_id=session.session_id,
-            step_id=step_id,
+        return self._operator_routing_service.create_human_task(
+            session_id=session_id,
             principal_id=principal_id,
             task_type=task_type,
             role_required=role_required,
@@ -1367,49 +1362,9 @@ class RewriteOrchestrator:
             desired_output_json=desired_output_json,
             priority=priority,
             sla_due_at=sla_due_at,
+            step_id=step_id,
             resume_session_on_return=resume_session_on_return,
         )
-        if row.resume_session_on_return and step is not None:
-            self._ledger.update_step(
-                step.step_id,
-                state="waiting_human",
-                output_json=step.output_json,
-                error_json={"reason": "human_task_required", "human_task_id": row.human_task_id},
-                attempt_count=step.attempt_count,
-            )
-            self._ledger.set_session_status(session.session_id, "awaiting_human")
-            self._ledger.append_event(
-                session.session_id,
-                "session_paused_for_human_task",
-                {
-                    "human_task_id": row.human_task_id,
-                    "step_id": step.step_id,
-                    "role_required": row.role_required,
-                },
-            )
-        self._ledger.append_event(
-            session.session_id,
-            "human_task_created",
-            {
-                "human_task_id": row.human_task_id,
-                "step_id": row.step_id or "",
-                "task_type": row.task_type,
-                "role_required": row.role_required,
-                "authority_required": row.authority_required,
-                "why_human": row.why_human,
-                "quality_rubric_json": row.quality_rubric_json,
-                "priority": row.priority,
-                "sla_due_at": row.sla_due_at or "",
-                "desired_output_json": row.desired_output_json,
-                "assignment_state": row.assignment_state,
-                "assigned_operator_id": row.assigned_operator_id,
-                "assignment_source": row.assignment_source,
-                "assigned_at": row.assigned_at or "",
-                "assigned_by_actor_id": row.assigned_by_actor_id,
-                "resume_session_on_return": row.resume_session_on_return,
-            },
-        )
-        return self._operator_routing_service.decorate_human_task(row)
 
     def fetch_human_task(self, human_task_id: str, *, principal_id: str) -> HumanTask | None:
         return self._operator_routing_service.fetch_human_task(

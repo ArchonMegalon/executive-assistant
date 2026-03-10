@@ -511,6 +511,48 @@ def test_approval_resume_keeps_delayed_retry_sessions_async_instead_of_erroring(
     assert calls["count"] == 1
 
 
+def test_approval_resume_snapshot_is_stable_for_retry_session_replay() -> None:
+    orchestrator, approvals, calls = _build_inline_retry_orchestrator(
+        approval_class="manager",
+        retry_backoff_seconds=0,
+    )
+
+    with pytest.raises(ApprovalRequiredError) as exc:
+        orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key="retry_approval_snapshot",
+                principal_id="exec-1",
+                goal="snapshot approval-driven retry replay",
+                input_json={"source_text": "snapshot retry"},
+            )
+        )
+
+    pending = approvals.list_pending(limit=10)
+    request = next(row for row in pending if row.approval_id == exc.value.approval_id)
+    pre_approve = _snapshot_queue_state(orchestrator.fetch_session(request.session_id))
+    assert pre_approve["session_status"] == "awaiting_approval"
+    assert pre_approve["steps"][-1]["state"] == "waiting_approval"
+    assert pre_approve["steps"][-1]["attempt_count"] == 1
+    assert pre_approve["queue_items"][-1]["state"] == "queued"
+
+    decided = orchestrator.decide_approval(
+        request.approval_id,
+        decision="approved",
+        decided_by="operator",
+        reason="replay approval",
+    )
+    assert decided is not None
+
+    post_approve = _snapshot_queue_state(orchestrator.fetch_session(request.session_id))
+    assert post_approve["session_status"] == "completed"
+    assert post_approve["steps"][-1]["state"] == "completed"
+    assert post_approve["steps"][-1]["attempt_count"] == 2
+    assert post_approve["queue_items"][-1]["state"] == "done"
+    assert "session_resumed_from_approval" in post_approve["session_events"]
+    assert "queue_item_completed" in post_approve["session_events"]
+    assert calls["count"] == 2
+
+
 def test_execute_task_artifact_uses_compiled_artifact_retry_policy_from_contract_metadata() -> None:
     artifacts = InMemoryArtifactRepository()
     contracts = TaskContractService(InMemoryTaskContractRepository())

@@ -5,6 +5,7 @@ from app.domain.models import (
     ExecutionQueueItem,
     ExecutionSession,
     ExecutionSessionSnapshot,
+    ExecutionStep,
     HumanTask,
     OperatorProfile,
 )
@@ -145,6 +146,13 @@ class ExecutionOperatorRoutingService:
         *,
         human_task_routing: HumanTaskRoutingService,
         operator_task_routing: OperatorTaskRoutingService,
+        get_session: Callable[[str], ExecutionSession | None],
+        get_step: Callable[[str], ExecutionStep | None],
+        update_step: Callable[[str, ...], object],
+        append_event: Callable[[str, str, dict[str, object]], object],
+        set_session_status: Callable[[str, str], object],
+        create_human_task: Callable[..., HumanTask],
+        require_session_principal_alignment: Callable[[ExecutionSession, str], object],
         fetch_human_task: Callable[[str], HumanTask | None],
         list_human_tasks_for_session: Callable[[str, int], list[HumanTask]],
         list_human_tasks_for_principal: Callable[..., list[HumanTask]],
@@ -154,6 +162,13 @@ class ExecutionOperatorRoutingService:
     ) -> None:
         self._human_task_routing = human_task_routing
         self._operator_task_routing = operator_task_routing
+        self._get_session = get_session
+        self._get_step = get_step
+        self._update_step = update_step
+        self._append_event = append_event
+        self._set_session_status = set_session_status
+        self._create_human_task = create_human_task
+        self._require_session_principal_alignment = require_session_principal_alignment
         self._fetch_human_task = fetch_human_task
         self._list_human_tasks_for_session = list_human_tasks_for_session
         self._list_human_tasks_for_principal = list_human_tasks_for_principal
@@ -271,6 +286,93 @@ class ExecutionOperatorRoutingService:
             returned_payload_json=returned_payload_json,
             provenance_json=provenance_json,
         )
+
+    def create_human_task(
+        self,
+        *,
+        session_id: str,
+        principal_id: str,
+        task_type: str,
+        role_required: str,
+        brief: str,
+        authority_required: str = "",
+        why_human: str = "",
+        quality_rubric_json: dict[str, object] | None = None,
+        input_json: dict[str, object] | None = None,
+        desired_output_json: dict[str, object] | None = None,
+        priority: str = "normal",
+        sla_due_at: str | None = None,
+        step_id: str | None = None,
+        resume_session_on_return: bool = False,
+    ) -> HumanTask:
+        session = self._get_session(session_id)
+        if session is None:
+            raise KeyError("session_not_found")
+        self._require_session_principal_alignment(session, principal_id=principal_id)
+        step: ExecutionStep | None = None
+        if resume_session_on_return and not step_id:
+            raise KeyError("step_id_required")
+        if step_id:
+            step = self._get_step(step_id)
+            if step is None or step.session_id != session.session_id:
+                raise KeyError("step_not_found")
+        row = self._create_human_task(
+            session_id=session.session_id,
+            step_id=step_id,
+            principal_id=principal_id,
+            task_type=task_type,
+            role_required=role_required,
+            brief=brief,
+            authority_required=authority_required,
+            why_human=why_human,
+            quality_rubric_json=quality_rubric_json,
+            input_json=input_json,
+            desired_output_json=desired_output_json,
+            priority=priority,
+            sla_due_at=sla_due_at,
+            resume_session_on_return=resume_session_on_return,
+        )
+        if row.resume_session_on_return and step is not None:
+            self._update_step(
+                step.step_id,
+                state="waiting_human",
+                output_json=step.output_json,
+                error_json={"reason": "human_task_required", "human_task_id": row.human_task_id},
+                attempt_count=step.attempt_count,
+            )
+            self._set_session_status(session.session_id, "awaiting_human")
+            self._append_event(
+                session.session_id,
+                "session_paused_for_human_task",
+                {
+                    "human_task_id": row.human_task_id,
+                    "step_id": step.step_id,
+                    "role_required": row.role_required,
+                },
+            )
+        self._append_event(
+            session.session_id,
+            "human_task_created",
+            {
+                "human_task_id": row.human_task_id,
+                "step_id": row.step_id or "",
+                "task_type": row.task_type,
+                "role_required": row.role_required,
+                "authority_required": row.authority_required,
+                "why_human": row.why_human,
+                "quality_rubric_json": row.quality_rubric_json,
+                "priority": row.priority,
+                "sla_due_at": row.sla_due_at or "",
+                "desired_output_json": row.desired_output_json,
+                "assignment_state": row.assignment_state,
+                "assigned_operator_id": row.assigned_operator_id,
+                "assignment_source": row.assignment_source,
+                "assigned_at": row.assigned_at or "",
+                "assigned_by_actor_id": row.assigned_by_actor_id,
+                "resume_session_on_return": row.resume_session_on_return,
+            },
+        )
+        return self.decorate_human_task(row)
 
     def fetch_human_task(self, human_task_id: str, principal_id: str) -> HumanTask | None:
         found = self._fetch_human_task(human_task_id)
