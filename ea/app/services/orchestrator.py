@@ -1060,6 +1060,21 @@ class RewriteOrchestrator:
     def run_next_queue_item(self, *, lease_owner: str = "worker") -> Artifact | None:
         return self._queue_claim_lease_service.run_next_queue_item(lease_owner=lease_owner)
 
+    def _queue_next_step_after(
+        self,
+        session_id: str,
+        step_id: str,
+        *,
+        lease_owner: str,
+        stop_before_step_id: str | None = None,
+    ) -> Artifact | None:
+        return self._queue_claim_lease_service.queue_next_step_after(
+            session_id,
+            step_id,
+            lease_owner=lease_owner,
+            stop_before_step_id=stop_before_step_id,
+        )
+
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key = str(req.task_key or "").strip() or "rewrite_text"
         principal_id = self._require_effective_principal(req.principal_id)
