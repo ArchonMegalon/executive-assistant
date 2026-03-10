@@ -683,3 +683,47 @@ def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> 
     assert snapshot_after_completion["queue_items"][-1]["lease_owner"] == ""
     assert snapshot_after_completion["steps"][-1]["state"] == "completed"
     assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
+
+
+def test_run_next_queue_item_leased_retry_flow_preserves_queue_snapshot() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_failure")
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, _ledger = _build_retry_orchestrator(handler)
+    session, _, _ = _start_retry_step(
+        orchestrator,
+        _ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    assert orchestrator.run_next_queue_item(lease_owner="worker") is None
+
+    snapshot_after_retry = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_retry["session_status"] == "queued"
+    assert snapshot_after_retry["queue_items"][-1]["state"] == "queued"
+    assert snapshot_after_retry["queue_items"][-1]["lease_owner"] == "worker"
+    assert snapshot_after_retry["queue_items"][-1]["attempt_count"] == 1
+    assert snapshot_after_retry["steps"][-1]["state"] == "queued"
+    assert snapshot_after_retry["steps"][-1]["attempt_count"] == 1
+
+    assert orchestrator.run_next_queue_item(lease_owner="worker") is None
+
+    snapshot_after_completion = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_completion["session_status"] == "completed"
+    assert snapshot_after_completion["queue_items"][-1]["state"] == "done"
+    assert snapshot_after_completion["queue_items"][-1]["attempt_count"] == 2
+    assert snapshot_after_completion["queue_items"][-1]["lease_owner"] == ""
+    assert snapshot_after_completion["steps"][-1]["state"] == "completed"
+    assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
