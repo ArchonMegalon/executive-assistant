@@ -2053,7 +2053,7 @@ def test_human_task_priority_filters_are_documented_and_smoked() -> None:
     assert "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20" in http_examples
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "human_task_priority_filters")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "human_task_operator_priority_band_views" in capability["scope"]
 
 

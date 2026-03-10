@@ -718,13 +718,13 @@
     },
     {
       "name": "human_task_priority_filters",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_task_list_priority_filter",
         "human_task_backlog_priority_filter",
         "human_task_operator_priority_band_views"
       ],
-      "notes": "Human task list/backlog/unassigned/mine endpoints now accept exact `priority` filters so operators can isolate one priority band before applying backlog sort order."
+      "notes": "Human task list/backlog/unassigned/mine endpoints now accept exact `priority` filters as current branch baseline behavior, and release/operator guards pin the README/RUNBOOK/examples plus approved smoke coverage for isolating one priority band before applying backlog sort order."
     },
     {
       "name": "human_task_multi_priority_filters",
