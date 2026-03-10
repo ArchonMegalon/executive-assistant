@@ -3242,7 +3242,7 @@ def test_plan_step_operational_semantics_are_documented_and_smoked() -> None:
     assert 'plan.steps[2].timeout_budget_seconds == 3600' in planner_test
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_step_operational_semantics_projection")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None:

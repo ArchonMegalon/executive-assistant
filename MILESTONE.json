@@ -1113,7 +1113,7 @@
     },
     {
       "name": "plan_step_operational_semantics_projection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "plan_step_owner_projection",
         "plan_step_authority_class_projection",
