@@ -29,7 +29,6 @@ items:
 - Promote milestone capability:browseract_account_inventory_tool_execution_slice
 - Promote milestone capability:human_task_assignment_state_visibility
 - Promote milestone capability:human_task_priority_filters
-- Promote milestone capability:human_task_ownerless_backlog_alias
 - Promote milestone capability:session_ownerless_projection_created_order
 - Promote milestone capability:session_scoped_human_task_assignment_source_filters
 - Promote milestone capability:async_queue_projection_task_identity
