@@ -50,6 +50,7 @@ from app.services.planner import PlannerService
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.execution_queue_service import ExecutionQueueService
+from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.task_contracts import TaskContractService, build_task_contract_service
@@ -153,6 +154,14 @@ class RewriteOrchestrator:
         self._planner = planner
         self._memory_runtime = memory_runtime
         self._tool_execution = tool_execution or ToolExecutionService(artifacts=self._artifacts)
+        self._queue_runtime = ExecutionQueueRuntimeService(
+            enqueue_step=self._ledger.enqueue_step,
+            retry_queue_item=self._ledger.retry_queue_item,
+            update_step=self._ledger.update_step,
+            set_session_status=self._ledger.set_session_status,
+            append_event=self._ledger.append_event,
+            step_id_to_retry_key=self._queue_idempotency_key,
+        )
         self._queue_service = queue_service or ExecutionQueueService(
             lease_queue_item=self._ledger.lease_queue_item,
             lease_next_queue_item=self._ledger.lease_next_queue_item,
@@ -166,16 +175,24 @@ class RewriteOrchestrator:
             fail_queue_item=self._ledger.fail_queue_item,
             complete_session=self._ledger.complete_session,
             set_session_status=self._ledger.set_session_status,
-            enqueue_step=self._enqueue_rewrite_step,
+            enqueue_step=self._queue_runtime.enqueue_rewrite_step,
             execute_step=self._execute_step_handler,
             continue_session_queue=self._queue_next_step_after,
-            schedule_retry=self._schedule_step_retry,
+            schedule_retry=self._queue_runtime.schedule_step_retry,
         )
         self._operator_task_routing_service = operator_task_routing or OperatorTaskRoutingService(
             fetch_human_task=self.fetch_human_task,
             claim_human_task=self._human_tasks.claim,
             assign_human_task=self._human_tasks.assign,
+            return_human_task=self._human_tasks.return_task,
+            get_step=self._ledger.get_step,
+            update_step=self._ledger.update_step,
+            validate_step_output_contract=self._validate_step_output_contract,
+            set_session_status=self._ledger.set_session_status,
             append_event=self._ledger.append_event,
+            queue_next_step_after=self._queue_next_step_after,
+            drain_session_inline=self._drain_session_inline,
+            decorate_human_task=self._decorate_human_task,
         )
 
     def _required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
@@ -666,86 +683,6 @@ class RewriteOrchestrator:
                 status="queued",
                 next_attempt_at=delayed_retry.next_attempt_at,
             )
-
-    def _step_failure_strategy(self, rewrite_step: ExecutionStep) -> str:
-        return str((rewrite_step.input_json or {}).get("failure_strategy") or "fail").strip().lower() or "fail"
-
-    def _step_max_attempts(self, rewrite_step: ExecutionStep) -> int:
-        try:
-            value = int((rewrite_step.input_json or {}).get("max_attempts") or 1)
-        except (TypeError, ValueError):
-            return 1
-        return max(1, value)
-
-    def _step_retry_backoff_seconds(self, rewrite_step: ExecutionStep) -> int:
-        try:
-            value = int((rewrite_step.input_json or {}).get("retry_backoff_seconds") or 0)
-        except (TypeError, ValueError):
-            return 0
-        return max(0, value)
-
-    def _schedule_step_retry(
-        self,
-        queue_item: ExecutionQueueItem,
-        rewrite_step: ExecutionStep,
-        exc: Exception,
-    ) -> bool:
-        if self._step_failure_strategy(rewrite_step) != "retry":
-            return False
-        max_attempts = self._step_max_attempts(rewrite_step)
-        if queue_item.attempt_count >= max_attempts:
-            return False
-        next_attempt_at = (
-            datetime.now(timezone.utc) + timedelta(seconds=self._step_retry_backoff_seconds(rewrite_step))
-        ).isoformat()
-        self._ledger.retry_queue_item(
-            queue_item.queue_id,
-            last_error=str(exc),
-            next_attempt_at=next_attempt_at,
-        )
-        self._ledger.update_step(
-            rewrite_step.step_id,
-            state="queued",
-            error_json={
-                "reason": "retry_scheduled",
-                "detail": str(exc),
-                "next_attempt_at": next_attempt_at,
-                "attempt_count": queue_item.attempt_count,
-                "max_attempts": max_attempts,
-            },
-            attempt_count=queue_item.attempt_count,
-        )
-        self._ledger.set_session_status(queue_item.session_id, "queued")
-        self._ledger.append_event(
-            queue_item.session_id,
-            "step_retry_scheduled",
-            {
-                "queue_id": queue_item.queue_id,
-                "step_id": queue_item.step_id,
-                "attempt_count": queue_item.attempt_count,
-                "max_attempts": max_attempts,
-                "next_attempt_at": next_attempt_at,
-                "reason": str(exc),
-            },
-        )
-        return True
-
-    def _enqueue_rewrite_step(self, session_id: str, step_id: str) -> ExecutionQueueItem:
-        queue_item = self._ledger.enqueue_step(
-            session_id,
-            step_id,
-            idempotency_key=self._queue_idempotency_key(session_id, step_id),
-        )
-        self._ledger.append_event(
-            session_id,
-            "step_enqueued",
-            {
-                "queue_id": queue_item.queue_id,
-                "step_id": step_id,
-                "state": queue_item.state,
-            },
-        )
-        return queue_item
 
     def _complete_input_prepare_step(self, session_id: str, rewrite_step: ExecutionStep) -> None:
         input_json = self._merged_step_input_json(session_id, rewrite_step)
@@ -1612,7 +1549,7 @@ class RewriteOrchestrator:
         next_step = self._next_ready_step(session.session_id)
         if next_step is None:
             raise RuntimeError(f"task queue did not resolve a ready step: {session.session_id}")
-        queue_item = self._enqueue_rewrite_step(session.session_id, next_step.step_id)
+        queue_item = self._queue_runtime.enqueue_rewrite_step(session.session_id, next_step.step_id)
         artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
         drained_artifact = self._drain_session_inline(session.session_id)
         if drained_artifact is not None:
@@ -2117,63 +2054,14 @@ class RewriteOrchestrator:
         found = self.fetch_human_task(human_task_id, principal_id=principal_id)
         if found is None:
             return None
-        updated = self._human_tasks.return_task(
-            human_task_id,
+        return self._operator_task_routing_service.return_human_task(
+            found,
+            principal_id=principal_id,
             operator_id=operator_id,
             resolution=resolution,
             returned_payload_json=returned_payload_json,
             provenance_json=provenance_json,
         )
-        if updated is None:
-            return None
-        self._ledger.append_event(
-            updated.session_id,
-            "human_task_returned",
-            {
-                "human_task_id": updated.human_task_id,
-                "operator_id": updated.assigned_operator_id,
-                "assigned_operator_id": updated.assigned_operator_id,
-                "resolution": updated.resolution,
-                "assignment_state": updated.assignment_state,
-                "assignment_source": "manual",
-                "assigned_at": updated.assigned_at or "",
-                "assigned_by_actor_id": operator_id,
-                "step_id": updated.step_id or "",
-            },
-        )
-        if updated.resume_session_on_return and updated.step_id:
-            step = self._ledger.get_step(updated.step_id)
-            if step is not None:
-                output_json = dict(step.output_json or {})
-                output_json.update(
-                    {
-                        "human_task_id": updated.human_task_id,
-                        "human_resolution": updated.resolution,
-                        "human_returned_payload_json": updated.returned_payload_json,
-                        "human_provenance_json": updated.provenance_json,
-                    }
-                )
-                output_json = self._validate_step_output_contract(step, output_json)
-                self._ledger.update_step(
-                    updated.step_id,
-                    state="completed",
-                    output_json=output_json,
-                    error_json={},
-                    attempt_count=step.attempt_count,
-                )
-                self._ledger.set_session_status(updated.session_id, "running")
-                self._ledger.append_event(
-                    updated.session_id,
-                    "session_resumed_from_human_task",
-                    {
-                        "human_task_id": updated.human_task_id,
-                        "step_id": updated.step_id,
-                        "resolution": updated.resolution,
-                    },
-                )
-                _ = self._queue_next_step_after(updated.session_id, updated.step_id, lease_owner="inline")
-                _ = self._drain_session_inline(updated.session_id)
-        return self._decorate_human_task(updated)
 
     def fetch_session(self, session_id: str) -> ExecutionSessionSnapshot | None:
         session = self._ledger.get_session(session_id)
@@ -2310,7 +2198,7 @@ class RewriteOrchestrator:
                 next_step = self._next_ready_step(request.session_id)
                 if next_step is None:
                     raise RuntimeError(f"approved queue item did not resolve a ready step: {request.session_id}")
-                queue_item = self._enqueue_rewrite_step(request.session_id, next_step.step_id)
+                queue_item = self._queue_runtime.enqueue_rewrite_step(request.session_id, next_step.step_id)
                 artifact = self.run_queue_item(queue_item.queue_id, lease_owner="inline")
                 drained_artifact = self._drain_session_inline(request.session_id)
                 if drained_artifact is not None:

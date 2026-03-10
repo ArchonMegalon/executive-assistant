@@ -126,7 +126,7 @@ def _start_retry_step(
             "output_keys": ["status"],
         },
     )
-    queue_item = orchestrator._enqueue_rewrite_step(session.session_id, step.step_id)
+    queue_item = orchestrator._queue_runtime.enqueue_rewrite_step(session.session_id, step.step_id)
     return session, step, queue_item
 
 
@@ -555,3 +555,48 @@ def test_execute_task_artifact_uses_compiled_artifact_retry_policy_from_contract
     assert snapshot.steps[-1].input_json["retry_backoff_seconds"] == 0
     assert snapshot.steps[-1].attempt_count == 2
     assert calls["count"] == 2
+
+
+def test_retry_runtime_snapshot_contract_is_stable_for_queued_retry_flow() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_failure")
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    assert orchestrator.run_queue_item(queue_item.queue_id, lease_owner="worker") is None
+    queued_item = ledger.queue_for_session(session.session_id)[-1]
+    assert queued_item.state == "queued"
+    assert queued_item.attempt_count == 1
+
+    assert orchestrator.run_queue_item(queue_item.queue_id, lease_owner="worker") is None
+
+    snapshot = orchestrator.fetch_session(session.session_id)
+    assert snapshot is not None
+    assert snapshot.session.session_id == session.session_id
+    assert snapshot.session.status == "completed"
+    assert snapshot.steps[-1].attempt_count == 2
+    assert snapshot.steps[-1].state == "completed"
+    assert snapshot.queue_items[-1].state == "done"
+    assert snapshot.receipts and snapshot.receipts[0].tool_name == "flaky_tool"
+    event_names = [row.name for row in snapshot.events]
+    assert "step_execution_started" in event_names
+    assert "step_retry_scheduled" in event_names
+    assert "queue_item_completed" in event_names
+    assert "session_completed" in event_names
