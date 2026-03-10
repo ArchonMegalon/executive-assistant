@@ -1469,7 +1469,8 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "async_queue_projection_task_identity")
-assert capability["status"] == "tested"
+assert "release/operator guards now pin that self-describing async queue identity contract" in capability["notes"]
+assert capability["status"] == "released"
 PY
 then
   if grep -Fq 'approval projections now carry the originating task identity' "README.md" && \
@@ -1480,7 +1481,9 @@ then
      grep -Fq 'GENERIC_APPROVAL_PENDING_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_APPROVAL_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_HUMAN_LIST_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'pending_row["task_key"] == "decision_brief_approval"' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'pending_row["task_key"] == "decision_brief_approval"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_detail.json()["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "release/operator guards now pin that self-describing async queue identity contract" "CHANGELOG.md"; then
     echo "ok: async queue projection task identity docs"
   else
     echo "missing: async queue projection task identity docs" >&2

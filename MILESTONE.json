@@ -1073,13 +1073,13 @@
     },
     {
       "name": "async_queue_projection_task_identity",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "approval_projection_task_key",
         "human_task_projection_task_key",
         "generic_async_queue_identity_before_completion"
       ],
-      "notes": "Pending/history approval rows, approval decision responses, and human-task queue/detail payloads now return the originating task key and deliverable type for generic async task runs before completion."
+      "notes": "Pending/history approval rows, approval decision responses, and human-task queue/detail payloads now return the originating task key and deliverable type for generic async task runs before completion, and release/operator guards now pin that self-describing async queue identity contract as current branch baseline behavior."
     },
     {
       "name": "human_task_assignment_history_task_identity_projection",

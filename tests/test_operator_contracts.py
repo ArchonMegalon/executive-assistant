@@ -3101,7 +3101,8 @@ def test_async_queue_projection_task_identity_is_documented_and_smoked() -> None
     assert 'review_detail.json()["task_key"] == "stakeholder_briefing_review"' in smoke_runtime
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "async_queue_projection_task_identity")
-    assert capability["status"] == "tested"
+    assert "release/operator guards now pin that self-describing async queue identity contract" in capability["notes"]
+    assert capability["status"] == "released"
 
 
 def test_dependency_aware_execution_scheduler_release_baseline_is_documented_and_guarded() -> None:
