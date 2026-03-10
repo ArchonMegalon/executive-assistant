@@ -179,13 +179,13 @@ class RewriteOrchestrator:
         )
 
     def _required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
-        return self._human_task_routing_service._required_skill_tags(row)
+        return self._human_task_routing_service.required_skill_tags(row)
 
     def _required_trust_rank(self, authority_required: str) -> int:
-        return self._human_task_routing_service._required_trust_rank(authority_required)
+        return self._human_task_routing_service.required_trust_rank(authority_required)
 
     def _required_trust_tier(self, authority_required: str) -> str:
-        return self._human_task_routing_service._required_trust_tier(authority_required)
+        return self._human_task_routing_service.required_trust_tier(authority_required)
 
     def _operator_match_details(self, profile: OperatorProfile, row: HumanTask) -> dict[str, object]:
         return self._human_task_routing_service.operator_match_details(profile, row)

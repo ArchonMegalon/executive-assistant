@@ -66,11 +66,20 @@ class HumanTaskRoutingService:
             )
         )
 
+    def required_skill_tags(self, row: HumanTask) -> tuple[str, ...]:
+        return self._required_skill_tags(row)
+
     def _required_trust_rank(self, authority_required: str) -> int:
         return self._AUTHORITY_RANK.get(str(authority_required or "").strip().lower(), 0)
 
+    def required_trust_rank(self, authority_required: str) -> int:
+        return self._required_trust_rank(authority_required)
+
     def _required_trust_tier(self, authority_required: str) -> str:
         return self._RANK_TO_TIER.get(self._required_trust_rank(authority_required), "standard")
+
+    def required_trust_tier(self, authority_required: str) -> str:
+        return self._required_trust_tier(authority_required)
 
     def build_human_task_routing_hints(self, row: HumanTask) -> dict[str, object]:
         profiles = self._list_profiles_for_principal(

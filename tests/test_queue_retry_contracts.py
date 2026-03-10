@@ -130,6 +130,34 @@ def _start_retry_step(
     return session, step, queue_item
 
 
+def _snapshot_queue_state(snapshot):
+    return {
+        "session_status": snapshot.session.status,
+        "session_events": [row.name for row in snapshot.events],
+        "steps": [
+            {
+                "step_id": row.step_id,
+                "state": row.state,
+                "attempt_count": row.attempt_count,
+                "error_json": row.error_json,
+                "output_json": row.output_json,
+            }
+            for row in snapshot.steps
+        ],
+        "queue_items": [
+            {
+                "queue_id": row.queue_id,
+                "state": row.state,
+                "attempt_count": row.attempt_count,
+                "last_error": row.last_error,
+                "next_attempt_at": row.next_attempt_at,
+                "lease_owner": row.lease_owner,
+            }
+            for row in snapshot.queue_items
+        ],
+    }
+
+
 def test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds() -> None:
     calls = {"count": 0}
 
@@ -600,3 +628,56 @@ def test_retry_runtime_snapshot_contract_is_stable_for_queued_retry_flow() -> No
     assert "step_retry_scheduled" in event_names
     assert "queue_item_completed" in event_names
     assert "session_completed" in event_names
+
+
+def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary_failure")
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    assert orchestrator.run_queue_item(queue_item.queue_id, lease_owner="worker") is None
+
+    snapshot_after_retry = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_retry["session_status"] == "queued"
+    assert snapshot_after_retry["queue_items"][0]["state"] == "queued"
+    assert snapshot_after_retry["queue_items"][0]["attempt_count"] == 1
+    assert snapshot_after_retry["queue_items"][0]["last_error"] == "temporary_failure"
+    assert snapshot_after_retry["steps"][-1]["step_id"] == step.step_id
+    assert snapshot_after_retry["steps"][-1]["state"] == "queued"
+    assert snapshot_after_retry["steps"][-1]["attempt_count"] == 1
+    assert snapshot_after_retry["steps"][-1]["error_json"]["reason"] == "retry_scheduled"
+    assert snapshot_after_retry["session_events"][-2:] == [
+        "step_execution_started",
+        "step_retry_scheduled",
+    ]
+
+    assert orchestrator.run_queue_item(queue_item.queue_id, lease_owner="worker") is None
+
+    snapshot_after_completion = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot_after_completion["session_status"] == "completed"
+    assert snapshot_after_completion["session_events"][-2:] == [
+        "queue_item_completed",
+        "session_completed",
+    ]
+    assert snapshot_after_completion["queue_items"][-1]["state"] == "done"
+    assert snapshot_after_completion["queue_items"][-1]["attempt_count"] == 2
+    assert snapshot_after_completion["steps"][-1]["state"] == "completed"
+    assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
