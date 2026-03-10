@@ -2243,7 +2243,7 @@ from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_auto_preselection")
-assert capability["status"] == "tested"
+assert capability["status"] == "released"
 assert "plan_step_auto_assign_projection" in capability["scope"]
 assert "runtime_human_task_auto_assignment" in capability["scope"]
 PY

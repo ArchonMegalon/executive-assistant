@@ -443,13 +443,13 @@
     },
     {
       "name": "planner_human_task_auto_preselection",
-      "status": "tested",
+      "status": "released",
       "scope": [
         "human_review_auto_assign_if_unique_contract_flag",
         "plan_step_auto_assign_projection",
         "runtime_human_task_auto_assignment"
       ],
-      "notes": "Task contracts can now enable `human_review_auto_assign_if_unique`, which projects onto compiled `step_human_review` nodes and lets the queue runtime pre-assign a single exact reviewer match before the packet lands in the backlog."
+      "notes": "Task contracts can now enable `human_review_auto_assign_if_unique`, which projects onto compiled `step_human_review` nodes and lets the queue runtime pre-assign a single exact reviewer match before the packet lands in the backlog, and release/operator guards now pin the linked README/RUNBOOK guidance plus approved smoke and planner coverage as current branch baseline behavior."
     },
     {
       "name": "human_task_assignment_source_visibility",

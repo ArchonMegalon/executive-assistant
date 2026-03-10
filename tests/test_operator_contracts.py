@@ -1625,7 +1625,7 @@ def test_planner_human_task_auto_preselection_is_documented_and_smoked() -> None
     assert "auto_assign_if_unique is True" in planner_test
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "planner_human_task_auto_preselection")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
     assert "plan_step_auto_assign_projection" in capability["scope"]
     assert "runtime_human_task_auto_assignment" in capability["scope"]
 
