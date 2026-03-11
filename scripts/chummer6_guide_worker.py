@@ -5,6 +5,7 @@ import argparse
 import ast
 import json
 import subprocess
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -13,6 +14,12 @@ EA_ROOT = Path(__file__).resolve().parents[1]
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
 DEFAULT_MODEL = "gpt-4o-mini"
+FALLBACK_MODELS = (
+    "gpt-4o-mini",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+)
+WORKING_VARIANT: dict[str, object] | None = None
 
 
 def extract_json(text: str) -> dict[str, object]:
@@ -35,14 +42,21 @@ def extract_json(text: str) -> dict[str, object]:
     raise ValueError("response did not contain a JSON object")
 
 
-def resolve_onemin_key() -> str:
+def resolve_onemin_keys() -> list[str]:
     output = subprocess.check_output(
-        ["bash", str(EA_ROOT / "scripts" / "resolve_onemin_ai_key.sh")],
+        ["bash", str(EA_ROOT / "scripts" / "resolve_onemin_ai_key.sh"), "--all"],
         text=True,
-    ).strip()
-    if not output:
+    )
+    keys: list[str] = []
+    seen: set[str] = set()
+    for raw in output.splitlines():
+        key = raw.strip()
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    if not keys:
         raise RuntimeError("no 1min.AI key configured")
-    return output
+    return keys
 
 
 def load_literal(name: str) -> dict[str, object]:
@@ -62,29 +76,130 @@ PARTS = load_literal("PARTS")
 HORIZONS = load_literal("HORIZONS")
 
 
-def chat_json(api_key: str, prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
-    payload = {
-        "type": "UNIFY_CHAT_WITH_AI",
-        "model": model,
-        "promptObject": {
-            "prompt": prompt,
-        },
-    }
-    request = urllib.request.Request(
-        "https://api.1min.ai/api/chat-with-ai",
-        headers={
-            "Content-Type": "application/json",
-            "API-KEY": api_key,
-        },
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
+def model_candidates(requested: str) -> list[str]:
+    preferred = str(requested or "").strip() or DEFAULT_MODEL
+    ordered = [preferred, *FALLBACK_MODELS]
+    seen: set[str] = set()
+    models: list[str] = []
+    for model in ordered:
+        candidate = str(model or "").strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            models.append(candidate)
+    return models
+
+
+def request_variants(prompt: str, *, model: str, api_key: str) -> list[tuple[str, dict[str, str], dict[str, object]]]:
+    prompt_object_variants = [
+        {"prompt": prompt},
+        {"messages": [{"role": "user", "content": prompt}]},
+        {"prompt": prompt, "messages": [{"role": "user", "content": prompt}]},
+    ]
+    type_variants = [
+        ("https://api.1min.ai/api/chat-with-ai", "UNIFY_CHAT_WITH_AI"),
+        ("https://api.1min.ai/api/features", "UNIFY_CHAT_WITH_AI"),
+        ("https://api.1min.ai/api/chat-with-ai", "CHAT_WITH_AI"),
+        ("https://api.1min.ai/api/features", "CHAT_WITH_AI"),
+    ]
+    header_variants = [
+        {"Content-Type": "application/json", "API-KEY": api_key},
+        {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        {"Content-Type": "application/json", "X-API-KEY": api_key},
+    ]
+    variants: list[tuple[str, dict[str, str], dict[str, object]]] = []
+    for url, request_type in type_variants:
+        for prompt_object in prompt_object_variants:
+            payload = {
+                "type": request_type,
+                "model": model,
+                "promptObject": prompt_object,
+            }
+            for headers in header_variants:
+                variants.append((url, headers, payload))
+    return variants
+
+
+def extract_response_json(body: dict[str, object]) -> dict[str, object]:
+    candidates: list[object] = []
+    ai_record = body.get("aiRecord") if isinstance(body, dict) else None
+    if isinstance(ai_record, dict):
+        details = ai_record.get("aiRecordDetail")
+        if isinstance(details, dict):
+            candidates.extend((details.get("resultObject") or []))
+        candidates.append(ai_record.get("result"))
+    candidates.extend(
+        [
+            body.get("resultObject") if isinstance(body, dict) else None,
+            body.get("result") if isinstance(body, dict) else None,
+            body.get("message") if isinstance(body, dict) else None,
+            ((body.get("choices") or [{}])[0] if isinstance(body, dict) else {}).get("message", {}).get("content"),
+            ((body.get("data") or [{}])[0] if isinstance(body, dict) else {}).get("content"),
+        ]
     )
-    with urllib.request.urlopen(request, timeout=180) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    result_rows = (((body.get("aiRecord") or {}).get("aiRecordDetail") or {}).get("resultObject") or [])
-    if not result_rows:
-        raise RuntimeError("1min.AI returned no resultObject rows")
-    return extract_json(str(result_rows[0]))
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if isinstance(candidate, list):
+            for row in candidate:
+                if row is None:
+                    continue
+                try:
+                    return extract_json(str(row))
+                except Exception:
+                    continue
+            continue
+        try:
+            return extract_json(str(candidate))
+        except Exception:
+            continue
+    raise RuntimeError("1min.AI returned no parseable JSON payload")
+
+
+def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+    global WORKING_VARIANT
+    errors: list[str] = []
+    keys = resolve_onemin_keys()
+    models = model_candidates(model)
+    for api_key in keys:
+        key_mask = f"{api_key[:6]}…{api_key[-4:]}" if len(api_key) > 10 else "***"
+        for candidate_model in models:
+            variants = request_variants(prompt, model=candidate_model, api_key=api_key)
+            if WORKING_VARIANT:
+                variants = [tuple(WORKING_VARIANT.values())] + variants
+            seen: set[str] = set()
+            deduped: list[tuple[str, dict[str, str], dict[str, object]]] = []
+            for url, headers, payload in variants:
+                identity = json.dumps([url, headers, payload], sort_keys=True)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                deduped.append((url, headers, payload))
+            for url, headers, payload in deduped:
+                request = urllib.request.Request(
+                    url,
+                    headers=headers,
+                    data=json.dumps(payload).encode("utf-8"),
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=180) as response:
+                        body = json.loads(response.read().decode("utf-8"))
+                except urllib.error.HTTPError as exc:
+                    body = exc.read().decode("utf-8", errors="replace").strip()
+                    errors.append(
+                        f"{exc.code} model={candidate_model} key={key_mask} url={url} auth={','.join(headers.keys())} body={body[:240]}"
+                    )
+                    continue
+                except urllib.error.URLError as exc:
+                    errors.append(f"urlerror model={candidate_model} key={key_mask} url={url} reason={exc.reason}")
+                    continue
+                WORKING_VARIANT = {
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                }
+                return extract_response_json(body)
+    raise RuntimeError("1min.AI request failed; " + " || ".join(errors[:8]))
 
 
 def build_part_prompt(name: str, item: dict[str, object]) -> str:
@@ -167,21 +282,64 @@ Return valid JSON only.
 """
 
 
+def fallback_part_override(name: str, item: dict[str, object]) -> dict[str, str]:
+    title = str(item.get("title", name.replace("-", " ").title())).strip()
+    intro = str(item.get("intro", "")).strip()
+    why = str(item.get("why", "")).strip()
+    now = str(item.get("now", "")).strip()
+    return {
+        "intro": intro or f"{title} is one of the parts that makes Chummer feel like a real rig instead of a pile of loose parts.",
+        "why": why or f"If {title} goes sideways, the whole run gets weird fast.",
+        "now": now or f"Right now the job is to make {title} real, sharp, and easy to explain to a new chummer.",
+    }
+
+
+def fallback_horizon_override(name: str, item: dict[str, object]) -> dict[str, str]:
+    title = str(item.get("title", name.replace("-", " ").title())).strip()
+    hook = str(item.get("hook", "")).strip()
+    brutal_truth = str(item.get("brutal_truth", "")).strip()
+    use_case = str(item.get("use_case", "")).strip()
+    return {
+        "hook": hook or f"{title} is the kind of idea that makes runners grin before the trouble starts.",
+        "brutal_truth": brutal_truth or f"The brutal truth: if {title} ever lands, it should make Chummer feel smarter, meaner, and much harder to bullshit.",
+        "use_case": use_case or f"The use case: you hit the button, the chrome lights up, and suddenly the future version of Chummer feels very, very real.",
+    }
+
+
 def generate_overrides(*, include_parts: bool, include_horizons: bool, model: str) -> dict[str, object]:
-    api_key = resolve_onemin_key()
-    overrides: dict[str, object] = {"parts": {}, "horizons": {}}
+    overrides: dict[str, object] = {"parts": {}, "horizons": {}, "meta": {"generator": "ea", "provider": "1min.AI", "provider_status": "unknown", "provider_error": ""}}
+    provider_available = True
+    provider_error = ""
     if include_parts:
         for name, item in PARTS.items():
-            result = chat_json(api_key, build_part_prompt(name, item), model=model)
-            cleaned = {key: str(result.get(key, "")).strip() for key in ("intro", "why", "now") if str(result.get(key, "")).strip()}
+            if provider_available:
+                try:
+                    result = chat_json(build_part_prompt(name, item), model=model)
+                    cleaned = {key: str(result.get(key, "")).strip() for key in ("intro", "why", "now") if str(result.get(key, "")).strip()}
+                except Exception as exc:
+                    provider_available = False
+                    provider_error = str(exc)
+                    cleaned = fallback_part_override(name, item)
+            else:
+                cleaned = fallback_part_override(name, item)
             if cleaned:
                 overrides["parts"][name] = cleaned
     if include_horizons:
         for name, item in HORIZONS.items():
-            result = chat_json(api_key, build_horizon_prompt(name, item), model=model)
-            cleaned = {key: str(result.get(key, "")).strip() for key in ("hook", "brutal_truth", "use_case") if str(result.get(key, "")).strip()}
+            if provider_available:
+                try:
+                    result = chat_json(build_horizon_prompt(name, item), model=model)
+                    cleaned = {key: str(result.get(key, "")).strip() for key in ("hook", "brutal_truth", "use_case") if str(result.get(key, "")).strip()}
+                except Exception as exc:
+                    provider_available = False
+                    provider_error = str(exc)
+                    cleaned = fallback_horizon_override(name, item)
+            else:
+                cleaned = fallback_horizon_override(name, item)
             if cleaned:
                 overrides["horizons"][name] = cleaned
+    overrides["meta"]["provider_status"] = "ok" if provider_available else "fallback_local_templates"
+    overrides["meta"]["provider_error"] = provider_error
     return overrides
 
 
@@ -203,7 +361,16 @@ def main() -> int:
     output_path = Path(args.output).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(overrides, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(output_path), "parts": len(overrides.get("parts", {})), "horizons": len(overrides.get("horizons", {}))}))
+    print(
+        json.dumps(
+            {
+                "output": str(output_path),
+                "parts": len(overrides.get("parts", {})),
+                "horizons": len(overrides.get("horizons", {})),
+                "provider_status": ((overrides.get("meta") or {}).get("provider_status", "")),
+            }
+        )
+    )
     return 0
 
 
