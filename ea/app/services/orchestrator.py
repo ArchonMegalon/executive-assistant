@@ -764,11 +764,8 @@ class RewriteOrchestrator:
         returned_payload_json: dict[str, object] | None = None,
         provenance_json: dict[str, object] | None = None,
     ) -> HumanTask | None:
-        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
-        if found is None:
-            return None
-        return self._operator_routing_service.return_human_task(
-            found,
+        return self._operator_routing_service.return_human_task_by_id(
+            human_task_id,
             principal_id=principal_id,
             operator_id=operator_id,
             resolution=resolution,

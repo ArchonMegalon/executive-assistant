@@ -155,6 +155,28 @@ class ExecutionOperatorRoutingService:
             provenance_json=provenance_json,
         )
 
+    def return_human_task_by_id(
+        self,
+        human_task_id: str,
+        *,
+        principal_id: str,
+        operator_id: str,
+        resolution: str,
+        returned_payload_json: dict[str, object] | None = None,
+        provenance_json: dict[str, object] | None = None,
+    ) -> HumanTask | None:
+        found = self.fetch_human_task(human_task_id, principal_id=principal_id)
+        if found is None:
+            return None
+        return self.return_human_task(
+            found,
+            principal_id=principal_id,
+            operator_id=operator_id,
+            resolution=resolution,
+            returned_payload_json=returned_payload_json,
+            provenance_json=provenance_json,
+        )
+
     def create_human_task(
         self,
         *,

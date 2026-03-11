@@ -8,6 +8,7 @@ from app.services.execution_approval_pause_service import ExecutionApprovalPause
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
 from app.services.execution_queue_claim_lease_service import MissingReadyStepError
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
+from app.services.execution_operator_routing_service import ExecutionOperatorRoutingService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
@@ -229,6 +230,71 @@ def test_execution_human_task_step_service_starts_and_auto_assigns_human_task() 
     assert row.assignment_state == "assigned"
     assert row.assigned_operator_id == "operator-1"
     assert events[-1][1] == "human_task_step_started"
+
+
+def test_execution_operator_routing_service_return_human_task_by_id_returns_none_when_missing() -> None:
+    service = ExecutionOperatorRoutingService(
+        human_task_routing=type("RoutingStub", (), {})(),
+        operator_task_routing=type("OperatorRoutingStub", (), {})(),
+        get_session=lambda session_id: None,
+        get_step=lambda step_id: None,
+        update_step=lambda step_id, **kwargs: None,
+        append_event=lambda session_id, name, payload: None,
+        set_session_status=lambda session_id, status: None,
+        create_human_task=lambda **kwargs: _human_task(),
+        require_session_principal_alignment=lambda session, principal_id: None,
+        fetch_human_task=lambda human_task_id: None,
+        list_human_tasks_for_session=lambda session_id, limit: [],
+        list_human_tasks_for_principal=lambda principal_id, **kwargs: [],
+        count_human_tasks_by_priority=lambda principal_id, **kwargs: {},
+        fetch_session_for_principal=lambda session_id, principal_id: None,
+        fetch_operator_profile=lambda operator_id, principal_id: None,
+    )
+
+    returned = service.return_human_task_by_id(
+        "human-1",
+        principal_id="exec-1",
+        operator_id="operator-1",
+        resolution="completed",
+    )
+
+    assert returned is None
+
+
+def test_execution_operator_routing_service_return_human_task_by_id_delegates_to_operator_routing() -> None:
+    returned = _human_task(status="completed", resolution="approved")
+    service = ExecutionOperatorRoutingService(
+        human_task_routing=type("RoutingStub", (), {"decorate_human_task": lambda self, row: row})(),
+        operator_task_routing=type(
+            "OperatorRoutingStub",
+            (),
+            {
+                "return_human_task": lambda self, found, **kwargs: returned,
+            },
+        )(),
+        get_session=lambda session_id: None,
+        get_step=lambda step_id: None,
+        update_step=lambda step_id, **kwargs: None,
+        append_event=lambda session_id, name, payload: None,
+        set_session_status=lambda session_id, status: None,
+        create_human_task=lambda **kwargs: _human_task(),
+        require_session_principal_alignment=lambda session, principal_id: None,
+        fetch_human_task=lambda human_task_id: _human_task(human_task_id=human_task_id, principal_id="exec-1"),
+        list_human_tasks_for_session=lambda session_id, limit: [],
+        list_human_tasks_for_principal=lambda principal_id, **kwargs: [],
+        count_human_tasks_by_priority=lambda principal_id, **kwargs: {},
+        fetch_session_for_principal=lambda session_id, principal_id: None,
+        fetch_operator_profile=lambda operator_id, principal_id: None,
+    )
+
+    found = service.return_human_task_by_id(
+        "human-1",
+        principal_id="exec-1",
+        operator_id="operator-1",
+        resolution="completed",
+    )
+
+    assert found is returned
 
 
 def test_execution_approval_resume_service_keeps_queued_follow_on_work() -> None:
