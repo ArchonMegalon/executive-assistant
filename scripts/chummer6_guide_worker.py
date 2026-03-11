@@ -284,13 +284,25 @@ Return valid JSON only.
 
 def fallback_part_override(name: str, item: dict[str, object]) -> dict[str, str]:
     title = str(item.get("title", name.replace("-", " ").title())).strip()
+    tagline = str(item.get("tagline", "")).strip().rstrip(".")
     intro = str(item.get("intro", "")).strip()
     why = str(item.get("why", "")).strip()
     now = str(item.get("now", "")).strip()
     return {
-        "intro": intro or f"{title} is one of the parts that makes Chummer feel like a real rig instead of a pile of loose parts.",
-        "why": why or f"If {title} goes sideways, the whole run gets weird fast.",
-        "now": now or f"Right now the job is to make {title} real, sharp, and easy to explain to a new chummer.",
+        "intro": (
+            f"{title} is {tagline.lower()} when the chrome is working and the excuses are not. "
+            f"{intro}"
+        ).strip(),
+        "why": (
+            f"{why} If this part goes sideways, the whole run gets janky fast and somebody starts blaming the dev."
+            if why
+            else f"If {title} goes sideways, the whole run gets janky fast and somebody starts blaming the dev."
+        ),
+        "now": (
+            f"{now} The short version: make it real, keep it sharp, and stop letting legacy duct tape cosplay as architecture."
+            if now
+            else f"Right now the job is to make {title} real, sharp, and impossible to mistake for another half-finished split."
+        ),
     }
 
 
@@ -300,9 +312,21 @@ def fallback_horizon_override(name: str, item: dict[str, object]) -> dict[str, s
     brutal_truth = str(item.get("brutal_truth", "")).strip()
     use_case = str(item.get("use_case", "")).strip()
     return {
-        "hook": hook or f"{title} is the kind of idea that makes runners grin before the trouble starts.",
-        "brutal_truth": brutal_truth or f"The brutal truth: if {title} ever lands, it should make Chummer feel smarter, meaner, and much harder to bullshit.",
-        "use_case": use_case or f"The use case: you hit the button, the chrome lights up, and suddenly the future version of Chummer feels very, very real.",
+        "hook": (
+            f"{hook} This is the kind of horizon that makes a runner grin, a GM squint, and the dev pretend this was definitely the plan all along."
+            if hook
+            else f"{title} is the kind of horizon that makes a runner grin, a GM squint, and the dev pretend this was definitely the plan all along."
+        ),
+        "brutal_truth": (
+            f"{brutal_truth} If this ever lands cleanly, Chummer gets smarter, meaner, and much harder to bullshit."
+            if brutal_truth
+            else f"The brutal truth: if {title} ever lands cleanly, Chummer gets smarter, meaner, and much harder to bullshit."
+        ),
+        "use_case": (
+            f"{use_case} That is the moment where the future version of Chummer stops sounding like chrome daydreams and starts feeling dangerously real."
+            if use_case
+            else f"The use case: you hit the button, the chrome lights up, and the future version of Chummer suddenly feels dangerously real."
+        ),
     }
 
 
