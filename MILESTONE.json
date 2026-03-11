@@ -107,6 +107,9 @@
     {
       "name": "memory_reasoning_context_packs",
       "status": "wired",
+      "task_refs": [
+        "Q-448"
+      ],
       "scope": [
         "context_pack_reasoning",
         "memory_candidate_promotion_signals",
