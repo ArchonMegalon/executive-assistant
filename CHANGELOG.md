@@ -2,6 +2,11 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-11
+
+### Changed
+- Hardened production auth/startup guardrails are now pinned as branch-baseline behavior: prod startup rejects blank `EA_API_TOKEN`, request-context default-principal fallback remains non-prod-only, and readiness/dependency coverage keeps deterministic `prod_api_token_missing` plus prod backend dependency failure reasons visible.
+
 ## 2026-03-10
 
 ### Changed
