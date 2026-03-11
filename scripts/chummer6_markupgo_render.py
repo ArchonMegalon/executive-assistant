@@ -59,10 +59,99 @@ def teaser(prompt: str) -> str:
     return cleaned[:137].rstrip() + "..."
 
 
-def build_html(prompt: str, *, width: int, height: int) -> str:
+def scene_for(output_name: str, prompt: str) -> dict[str, str]:
+    name = output_name.lower()
+    scenes = {
+        "chummer6-hero.png": {
+            "badge": "Visitor Center",
+            "title": "Same shadows. Bigger future.",
+            "subtitle": "A readable front door for the next Chummer, with less corp-speak and more chrome.",
+            "kicker": "Guide repo",
+        },
+        "karma-forge.png": {
+            "badge": "Horizon",
+            "title": "Karma Forge",
+            "subtitle": "Personalized rules without forked-code chaos.",
+            "kicker": "Overlay future",
+        },
+        "nexus-pan.png": {
+            "badge": "Horizon",
+            "title": "NEXUS-PAN",
+            "subtitle": "A live table, not just isolated character files.",
+            "kicker": "Session mesh",
+        },
+        "alice.png": {
+            "badge": "Horizon",
+            "title": "ALICE",
+            "subtitle": "Stress-test the build before the run stress-tests you.",
+            "kicker": "Simulation lab",
+        },
+        "jackpoint.png": {
+            "badge": "Horizon",
+            "title": "JACKPOINT",
+            "subtitle": "Turn raw data into dossiers without pretending vibes are evidence.",
+            "kicker": "Dossier forge",
+        },
+        "ghostwire.png": {
+            "badge": "Horizon",
+            "title": "GHOSTWIRE",
+            "subtitle": "Replay a run like a forensic sim and find the moment the drek hit the fan.",
+            "kicker": "Forensic replay",
+        },
+        "rule-x-ray.png": {
+            "badge": "Horizon",
+            "title": "RULE X-RAY",
+            "subtitle": "Every number explains itself, down to the last miserable modifier.",
+            "kicker": "Math autopsy",
+        },
+        "heat-web.png": {
+            "badge": "Horizon",
+            "title": "HEAT WEB",
+            "subtitle": "Consequences, grudges, and faction heat woven into one ugly city map.",
+            "kicker": "Consequence graph",
+        },
+        "mirrorshard.png": {
+            "badge": "Horizon",
+            "title": "MIRRORSHARD",
+            "subtitle": "Compare alternate futures of the same runner without losing the plot.",
+            "kicker": "Variant compare",
+        },
+        "run-passport.png": {
+            "badge": "Horizon",
+            "title": "RUN PASSPORT",
+            "subtitle": "Move a character across rule environments with their scars intact.",
+            "kicker": "Portability lane",
+        },
+        "threadcutter.png": {
+            "badge": "Horizon",
+            "title": "THREADCUTTER",
+            "subtitle": "Conflict analysis for overlays before they turn your table into a knife fight.",
+            "kicker": "Conflict audit",
+        },
+        "blackbox-loadout.png": {
+            "badge": "Horizon",
+            "title": "BLACKBOX LOADOUT",
+            "subtitle": "A merciless prep check for runners who think vibes count as equipment.",
+            "kicker": "Prep scanner",
+        },
+    }
+    if name in scenes:
+        return scenes[name]
+    return {
+        "badge": "Chummer6",
+        "title": slug_title(prompt),
+        "subtitle": teaser(prompt),
+        "kicker": "Guide art",
+    }
+
+
+def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str:
     bg, accent_a, accent_b = theme_for(prompt)
-    title = html.escape(slug_title(prompt))
-    subtitle = html.escape(teaser(prompt))
+    scene = scene_for(output_name, prompt)
+    title = html.escape(scene["title"])
+    subtitle = html.escape(scene["subtitle"])
+    badge = html.escape(scene["badge"])
+    kicker = html.escape(scene["kicker"])
     ratio = f"{width}x{height}"
     return f"""<!doctype html>
 <html>
@@ -91,6 +180,17 @@ def build_html(prompt: str, *, width: int, height: int) -> str:
       flex-direction: column;
       justify-content: space-between;
     }}
+    .noise {{
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 14% 70%, {accent_a}22 0, transparent 22%),
+        radial-gradient(circle at 76% 18%, {accent_b}22 0, transparent 18%),
+        radial-gradient(circle at 84% 82%, #ffffff10 0, transparent 12%);
+      mix-blend-mode: screen;
+      opacity: 0.9;
+      pointer-events: none;
+    }}
     .grid {{
       position: absolute;
       inset: 0;
@@ -116,6 +216,12 @@ def build_html(prompt: str, *, width: int, height: int) -> str:
       width: fit-content;
       backdrop-filter: blur(4px);
     }}
+    .headline {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 24px;
+      align-items: start;
+    }}
     .title {{
       font-size: {max(52, min(86, width // 13))}px;
       line-height: 0.94;
@@ -136,6 +242,47 @@ def build_html(prompt: str, *, width: int, height: int) -> str:
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
+    }}
+    .sidecard {{
+      justify-self: end;
+      width: 280px;
+      min-height: 240px;
+      padding: 22px 24px;
+      border-radius: 30px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+        rgba(7, 10, 18, 0.52);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 50px rgba(0,0,0,0.28);
+      backdrop-filter: blur(8px);
+    }}
+    .sidecard .small {{
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(244,247,251,0.58);
+      margin-bottom: 18px;
+    }}
+    .sidecard .big {{
+      font-size: 30px;
+      line-height: 1.05;
+      font-weight: 900;
+      color: {accent_b};
+      margin-bottom: 14px;
+      text-shadow: 0 0 18px {accent_b}33;
+    }}
+    .sidecard .line {{
+      height: 4px;
+      width: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, {accent_a}, {accent_b});
+      margin: 18px 0 12px;
+      opacity: 0.9;
+    }}
+    .sidecard .note {{
+      font-size: 16px;
+      line-height: 1.4;
+      color: rgba(244,247,251,0.82);
     }}
     .brand {{
       font-size: 34px;
@@ -164,20 +311,57 @@ def build_html(prompt: str, *, width: int, height: int) -> str:
       opacity: 0.52;
       transform: rotate(-10deg);
     }}
+    .beacon {{
+      position: absolute;
+      left: 54px;
+      bottom: 84px;
+      width: 180px;
+      height: 180px;
+      border-radius: 34px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.01)),
+        rgba(2,6,14,0.52);
+      box-shadow: inset 0 0 18px rgba(255,255,255,0.05), 0 14px 40px rgba(0,0,0,0.35);
+      overflow: hidden;
+      transform: rotate(-6deg);
+    }}
+    .beacon::before,
+    .beacon::after {{
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border-radius: 24px;
+      border: 1px solid {accent_a}55;
+    }}
+    .beacon::after {{
+      inset: 42px;
+      border-color: {accent_b}55;
+    }}
   </style>
 </head>
 <body>
   <div class="frame">
+    <div class="noise"></div>
     <div class="grid"></div>
     <div class="beam"></div>
-    <div class="chip">Chummer6 generated art</div>
-    <div>
-      <div class="title">{title}</div>
-      <div class="subtitle">{subtitle}</div>
+    <div class="beacon"></div>
+    <div class="chip">{badge}</div>
+    <div class="headline">
+      <div>
+        <div class="title">{title}</div>
+        <div class="subtitle">{subtitle}</div>
+      </div>
+      <div class="sidecard">
+        <div class="small">Current vibe</div>
+        <div class="big">{kicker}</div>
+        <div class="line"></div>
+        <div class="note">Chrome, caution, and just enough bad decisions to feel like home.</div>
+      </div>
     </div>
     <div class="footer">
       <div class="brand">Chummer6</div>
-      <div class="meta">{ratio} • MarkupGo render</div>
+      <div class="meta">{ratio} • generated locally via EA</div>
     </div>
   </div>
 </body>
@@ -192,7 +376,7 @@ def render(prompt: str, output: Path, *, width: int, height: int) -> None:
     body = {
         "source": {
             "type": "html",
-            "data": build_html(prompt, width=width, height=height),
+            "data": build_html(prompt, output.name, width=width, height=height),
         },
         "options": {
             "properties": {
