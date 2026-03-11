@@ -6,6 +6,7 @@ from app.services.execution_approval_resume_service import ExecutionApprovalResu
 from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
+from app.services.execution_queue_claim_lease_service import MissingReadyStepError
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
@@ -279,7 +280,10 @@ def test_execution_approval_resume_service_keeps_queued_work_when_ready_step_alr
         update_step=lambda step_id, **kwargs: type("ExecutionStepStub", (), {"step_id": step_id})(),
         set_session_status=lambda session_id, status: None,
         execute_next_ready_step=lambda session_id: (_ for _ in ()).throw(
-            RuntimeError(f"approved queue item did not resolve a ready step: {session_id}")
+            MissingReadyStepError(
+                f"approved queue item did not resolve a ready step: {session_id}",
+                session_id=session_id,
+            )
         ),
         fetch_session=lambda session_id: type(
             "SnapshotStub",

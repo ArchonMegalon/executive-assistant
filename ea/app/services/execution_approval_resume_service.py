@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app.domain.models import ApprovalDecision, ApprovalRequest, ExecutionQueueItem
+from app.services.execution_queue_claim_lease_service import MissingReadyStepError
 
 
 class ExecutionApprovalResumeService:
@@ -87,7 +88,7 @@ class ExecutionApprovalResumeService:
                 try:
                     self._execute_next_ready_step(request.session_id)
                 except RuntimeError as exc:
-                    if not self._is_missing_ready_step_error(exc):
+                    if not isinstance(exc, MissingReadyStepError) and not self._is_missing_ready_step_error(exc):
                         raise
                     snapshot = self._fetch_session(request.session_id)
                     if snapshot is None:

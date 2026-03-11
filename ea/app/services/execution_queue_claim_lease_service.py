@@ -7,6 +7,12 @@ from app.services.execution_queue_runtime_facade import ExecutionQueueRuntimeFac
 from app.services.execution_queue_runtime_service import ExecutionQueueRuntimeService
 
 
+class MissingReadyStepError(RuntimeError):
+    def __init__(self, message: str, *, session_id: str) -> None:
+        super().__init__(message)
+        self.session_id = session_id
+
+
 class ExecutionQueueClaimLeaseService:
     def __init__(
         self,
@@ -117,7 +123,7 @@ class ExecutionQueueClaimLeaseService:
     ):
         next_step = self.next_ready_step(session_id, stop_before_step_id=stop_before_step_id)
         if next_step is None:
-            raise RuntimeError(missing_step_error)
+            raise MissingReadyStepError(missing_step_error, session_id=session_id)
         queue_item = self._queue_runtime.enqueue_rewrite_step(session_id, next_step.step_id)
         artifact = self.run_queue_item(
             queue_item.queue_id,
