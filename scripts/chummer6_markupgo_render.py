@@ -15,6 +15,7 @@ from pathlib import Path
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 BASE_URL = "https://api.markupgo.com/api/v1/image/buffer"
+OVERRIDE_PATH = Path("/docker/fleet/state/chummer6/ea_overrides.json")
 
 
 def env_value(name: str) -> str:
@@ -59,90 +60,50 @@ def teaser(prompt: str) -> str:
     return cleaned[:137].rstrip() + "..."
 
 
+def load_media_overrides() -> dict[str, object]:
+    if not OVERRIDE_PATH.exists():
+        return {}
+    try:
+        loaded = json.loads(OVERRIDE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def scene_for(output_name: str, prompt: str) -> dict[str, str]:
     name = output_name.lower()
-    scenes = {
-        "chummer6-hero.png": {
-            "badge": "Visitor Center",
-            "title": "Same shadows. Bigger future.",
-            "subtitle": "A readable front door for the next Chummer, with less corp-speak and more chrome.",
-            "kicker": "Guide repo",
-        },
-        "karma-forge.png": {
-            "badge": "Horizon",
-            "title": "Karma Forge",
-            "subtitle": "Personalized rules without forked-code chaos.",
-            "kicker": "Overlay future",
-        },
-        "nexus-pan.png": {
-            "badge": "Horizon",
-            "title": "NEXUS-PAN",
-            "subtitle": "A live table, not just isolated character files.",
-            "kicker": "Session mesh",
-        },
-        "alice.png": {
-            "badge": "Horizon",
-            "title": "ALICE",
-            "subtitle": "Stress-test the build before the run stress-tests you.",
-            "kicker": "Simulation lab",
-        },
-        "jackpoint.png": {
-            "badge": "Horizon",
-            "title": "JACKPOINT",
-            "subtitle": "Turn raw data into dossiers without pretending vibes are evidence.",
-            "kicker": "Dossier forge",
-        },
-        "ghostwire.png": {
-            "badge": "Horizon",
-            "title": "GHOSTWIRE",
-            "subtitle": "Replay a run like a forensic sim and find the moment the drek hit the fan.",
-            "kicker": "Forensic replay",
-        },
-        "rule-x-ray.png": {
-            "badge": "Horizon",
-            "title": "RULE X-RAY",
-            "subtitle": "Every number explains itself, down to the last miserable modifier.",
-            "kicker": "Math autopsy",
-        },
-        "heat-web.png": {
-            "badge": "Horizon",
-            "title": "HEAT WEB",
-            "subtitle": "Consequences, grudges, and faction heat woven into one ugly city map.",
-            "kicker": "Consequence graph",
-        },
-        "mirrorshard.png": {
-            "badge": "Horizon",
-            "title": "MIRRORSHARD",
-            "subtitle": "Compare alternate futures of the same runner without losing the plot.",
-            "kicker": "Variant compare",
-        },
-        "run-passport.png": {
-            "badge": "Horizon",
-            "title": "RUN PASSPORT",
-            "subtitle": "Move a character across rule environments with their scars intact.",
-            "kicker": "Portability lane",
-        },
-        "threadcutter.png": {
-            "badge": "Horizon",
-            "title": "THREADCUTTER",
-            "subtitle": "Conflict analysis for overlays before they turn your table into a knife fight.",
-            "kicker": "Conflict audit",
-        },
-        "blackbox-loadout.png": {
-            "badge": "Horizon",
-            "title": "BLACKBOX LOADOUT",
-            "subtitle": "A merciless prep check for runners who think vibes count as equipment.",
-            "kicker": "Prep scanner",
-        },
-    }
-    if name in scenes:
-        return scenes[name]
-    return {
+    default = {
         "badge": "Chummer6",
         "title": slug_title(prompt),
         "subtitle": teaser(prompt),
         "kicker": "Guide art",
+        "note": "Fresh chrome for the guide wall.",
+        "meta": "Chummer6 guide art",
     }
+    loaded = load_media_overrides()
+    media = loaded.get("media") if isinstance(loaded, dict) else None
+    if isinstance(media, dict):
+        if name == "chummer6-hero.png":
+            hero = media.get("hero")
+            if isinstance(hero, dict):
+                merged = dict(default)
+                for key in ("badge", "title", "subtitle", "kicker", "note", "meta"):
+                    value = str(hero.get(key, "")).strip()
+                    if value:
+                        merged[key] = value
+                return merged
+        horizons = media.get("horizons")
+        if isinstance(horizons, dict):
+            slug = name.removesuffix(".png")
+            row = horizons.get(slug)
+            if isinstance(row, dict):
+                merged = dict(default)
+                for key in ("badge", "title", "subtitle", "kicker", "note", "meta"):
+                    value = str(row.get(key, "")).strip()
+                    if value:
+                        merged[key] = value
+                return merged
+    return default
 
 
 def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str:
@@ -152,6 +113,8 @@ def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str
     subtitle = html.escape(scene["subtitle"])
     badge = html.escape(scene["badge"])
     kicker = html.escape(scene["kicker"])
+    note = html.escape(scene.get("note", "Chrome, caution, and just enough bad decisions to feel like home."))
+    meta = html.escape(scene.get("meta", "Chummer6 guide art"))
     ratio = f"{width}x{height}"
     return f"""<!doctype html>
 <html>
@@ -356,12 +319,12 @@ def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str
         <div class="small">Current vibe</div>
         <div class="big">{kicker}</div>
         <div class="line"></div>
-        <div class="note">Chrome, caution, and just enough bad decisions to feel like home.</div>
+        <div class="note">{note}</div>
       </div>
     </div>
     <div class="footer">
       <div class="brand">Chummer6</div>
-      <div class="meta">{ratio} • generated locally via EA</div>
+      <div class="meta">{ratio} • {meta}</div>
     </div>
   </div>
 </body>

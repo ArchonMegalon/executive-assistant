@@ -282,6 +282,67 @@ Return valid JSON only.
 """
 
 
+def build_media_prompt(kind: str, name: str, item: dict[str, object]) -> str:
+    title = str(item.get("title", name.replace("-", " ").title())).strip()
+    foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
+    repos = ", ".join(str(repo) for repo in item.get("repos", []))
+    if kind == "hero":
+        return f"""You are writing image-card copy for the human-facing Chummer6 guide landing hero.
+
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta.
+
+Voice rules:
+- clear, inviting, slightly playful, Shadowrun-flavored
+- this is the visitor-center front door, not a spec
+- SR jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+
+The image is for the Chummer6 landing page.
+It should feel like a cyberpunk visitor center / field guide / map-on-the-wall.
+
+Return valid JSON only.
+"""
+    return f"""You are writing image-card copy for a human-facing Chummer6 horizon banner.
+
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta.
+
+Voice rules:
+- clear, punchy, slightly funny, Shadowrun-flavored
+- sell the horizon harder
+- the image should feel cool, dangerous, and specific
+- SR jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+
+Horizon id: {name}
+Title: {title}
+Current hook:
+{item.get("hook", "")}
+
+Current brutal truth:
+{item.get("brutal_truth", "")}
+
+Current use case:
+{item.get("use_case", "")}
+
+Problem:
+{item.get("problem", "")}
+
+Foundations:
+{foundations}
+
+Touched repos later:
+{repos}
+
+Return valid JSON only.
+"""
+
+
 def fallback_part_override(name: str, item: dict[str, object]) -> dict[str, str]:
     title = str(item.get("title", name.replace("-", " ").title())).strip()
     tagline = str(item.get("tagline", "")).strip().rstrip(".")
@@ -330,10 +391,74 @@ def fallback_horizon_override(name: str, item: dict[str, object]) -> dict[str, s
     }
 
 
+def fallback_media_override(kind: str, name: str, item: dict[str, object]) -> dict[str, str]:
+    title = str(item.get("title", name.replace("-", " ").title())).strip()
+    hook = " ".join(str(item.get("hook", "")).split()).strip()
+    brutal_truth = " ".join(str(item.get("brutal_truth", "")).split()).strip()
+    use_case = " ".join(str(item.get("use_case", "")).split()).strip()
+    foundations = [str(line).strip() for line in item.get("foundations", []) if str(line).strip()]
+    repos = [str(repo).replace("chummer6-", "") for repo in item.get("repos", []) if str(repo).strip()]
+    if kind == "hero":
+        return {
+            "badge": "Chummer6",
+            "title": "Chummer6",
+            "subtitle": hook or "The human guide to the next Chummer.",
+            "kicker": foundations[0] if foundations else "Visitor center",
+            "note": brutal_truth or "A readable guide wall for curious chummers, nervous test dummies, and the occasional roasted dev.",
+            "meta": "Guide art generated from source",
+        }
+    return {
+        "badge": "Horizon",
+        "title": title,
+        "subtitle": hook or use_case or brutal_truth or f"{title} is a horizon lane with too much chrome to ignore and too much blast radius to rush.",
+        "kicker": repos[0] if repos else (foundations[0] if foundations else "Horizon lane"),
+        "note": brutal_truth or use_case or "Horizon only. Slick enough to sell, dangerous enough to keep parked for now.",
+        "meta": "Horizon art generated from source",
+    }
+
+
+def normalize_media_override(kind: str, cleaned: dict[str, str], item: dict[str, object]) -> dict[str, str]:
+    normalized = dict(cleaned)
+    if kind == "hero":
+        title = str(normalized.get("title", "")).strip().lower()
+        if title in {"", "hero", "guide", "guide hero", "landing hero"}:
+            normalized["title"] = "Chummer6"
+        badge = str(normalized.get("badge", "")).strip()
+        if not badge:
+            normalized["badge"] = "Chummer6"
+        kicker = str(normalized.get("kicker", "")).strip()
+        if not kicker:
+            normalized["kicker"] = "Visitor center"
+        return normalized
+    if not str(normalized.get("title", "")).strip():
+        normalized["title"] = str(item.get("title", "")).strip()
+    if not str(normalized.get("badge", "")).strip():
+        normalized["badge"] = "Horizon"
+    return normalized
+
+
 def generate_overrides(*, include_parts: bool, include_horizons: bool, model: str) -> dict[str, object]:
-    overrides: dict[str, object] = {"parts": {}, "horizons": {}, "meta": {"generator": "ea", "provider": "1min.AI", "provider_status": "unknown", "provider_error": ""}}
+    overrides: dict[str, object] = {
+        "parts": {},
+        "horizons": {},
+        "media": {"hero": {}, "horizons": {}},
+        "meta": {"generator": "ea", "provider": "1min.AI", "provider_status": "unknown", "provider_error": ""},
+    }
     provider_available = True
     provider_error = ""
+    if provider_available:
+        try:
+            result = chat_json(build_media_prompt("hero", "hero", {}), model=model)
+            cleaned = {key: str(result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta") if str(result.get(key, "")).strip()}
+            cleaned = normalize_media_override("hero", cleaned, {})
+        except Exception as exc:
+            provider_available = False
+            provider_error = str(exc)
+            cleaned = fallback_media_override("hero", "hero", {})
+    else:
+        cleaned = fallback_media_override("hero", "hero", {})
+    cleaned = normalize_media_override("hero", cleaned, {})
+    overrides["media"]["hero"] = cleaned
     if include_parts:
         for name, item in PARTS.items():
             if provider_available:
@@ -362,6 +487,19 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 cleaned = fallback_horizon_override(name, item)
             if cleaned:
                 overrides["horizons"][name] = cleaned
+            if provider_available:
+                try:
+                    media_result = chat_json(build_media_prompt("horizon", name, item), model=model)
+                    media_cleaned = {key: str(media_result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta") if str(media_result.get(key, "")).strip()}
+                    media_cleaned = normalize_media_override("horizon", media_cleaned, item)
+                except Exception as exc:
+                    provider_available = False
+                    provider_error = str(exc)
+                    media_cleaned = fallback_media_override("horizon", name, item)
+            else:
+                media_cleaned = fallback_media_override("horizon", name, item)
+            media_cleaned = normalize_media_override("horizon", media_cleaned, item)
+            overrides["media"]["horizons"][name] = media_cleaned
     overrides["meta"]["provider_status"] = "ok" if provider_available else "fallback_local_templates"
     overrides["meta"]["provider_error"] = provider_error
     return overrides
