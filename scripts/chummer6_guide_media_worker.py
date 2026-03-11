@@ -78,6 +78,9 @@ def provider_order() -> list[str]:
     return values or list(DEFAULT_PROVIDER_ORDER)
 
 
+OVERRIDE_PATH = Path("/docker/fleet/state/chummer6/ea_overrides.json")
+
+
 def shlex_command(env_name: str) -> list[str]:
     raw = env_value(env_name)
     return shlex.split(raw) if raw else []
@@ -85,6 +88,16 @@ def shlex_command(env_name: str) -> list[str]:
 
 def url_template(env_name: str) -> str:
     return env_value(env_name)
+
+
+def load_media_overrides() -> dict[str, object]:
+    if not OVERRIDE_PATH.exists():
+        return {}
+    try:
+        loaded = json.loads(OVERRIDE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def format_command(parts: list[str], *, prompt: str, output: str, width: int, height: int) -> list[str]:
@@ -208,6 +221,61 @@ def render_local_raster(*, prompt: str, output_path: Path, width: int, height: i
     return True, "local_raster:rendered"
 
 
+def refine_prompt_local(prompt: str, *, target: str) -> str:
+    cleaned = " ".join(prompt.split()).strip()
+    suffix = " cinematic cyberpunk concept art, scene-first, no text, no logo, no watermark, 16:9"
+    if target.endswith("chummer6-hero.png"):
+        return f"{cleaned} Focus on a dangerous-but-inviting cyberpunk guide scene, not a literal building or signage shot.{suffix}"
+    return f"{cleaned} Push the horizon fantasy harder and make the scene feel specific, dangerous, and a little funny.{suffix}"
+
+
+def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
+    # Best-effort Prompting Systems / BrowserAct refinement before rendering.
+    command_names = [
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
+        "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
+        "CHUMMER6_PROMPT_REFINER_COMMAND",
+    ]
+    template_names = [
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_URL_TEMPLATE",
+        "CHUMMER6_PROMPTING_SYSTEMS_REFINE_URL_TEMPLATE",
+        "CHUMMER6_PROMPT_REFINER_URL_TEMPLATE",
+    ]
+    for env_name in command_names:
+        command = shlex_command(env_name)
+        if not command:
+            continue
+        try:
+            completed = subprocess.run(
+                [part.format(prompt=prompt, target=target) for part in command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            refined = (completed.stdout or "").strip()
+            if refined:
+                return refined
+        except Exception:
+            continue
+    for env_name in template_names:
+        template = url_template(env_name)
+        if not template:
+            continue
+        url = template.format(
+            prompt=urllib.parse.quote(prompt, safe=""),
+            target=urllib.parse.quote(target, safe=""),
+        )
+        request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-PromptRefiner/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                refined = response.read().decode("utf-8", errors="replace").strip()
+            if refined:
+                return refined
+        except Exception:
+            continue
+    return refine_prompt_local(prompt, target=target)
+
+
 def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int) -> dict[str, object]:
     attempts: list[str] = []
     for provider in provider_order():
@@ -250,16 +318,29 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int)
 
 
 def asset_specs() -> list[dict[str, object]]:
+    loaded = load_media_overrides()
+    media = loaded.get("media") if isinstance(loaded, dict) else {}
+    hero_override = media.get("hero") if isinstance(media, dict) else {}
     specs: list[dict[str, object]] = [
         {
             "target": "assets/hero/chummer6-hero.png",
-            "prompt": "Wide cinematic cyberpunk concept-art banner for a software guide repo called Chummer6, shadowrun-inspired but original, a battered commlink and cyberdeck on a rainy alley crate, holographic character sheets and repo cards floating above it, gritty neon cyan and magenta lighting, dark humor, dangerous but inviting, strong center composition, no text, no logo, no watermark, 16:9",
+            "prompt": (
+                str(hero_override.get("visual_prompt", "")).strip()
+                if isinstance(hero_override, dict) and str(hero_override.get("visual_prompt", "")).strip()
+                else "Wide cinematic cyberpunk concept-art banner for Chummer6, battered commlink and cyberdeck on a rainy alley crate, holographic repo cards floating above it, gritty neon cyan and magenta lighting, dark humor, dangerous but inviting, strong center composition, no text, no logo, no watermark, 16:9"
+            ),
             "width": 1280,
             "height": 720,
         }
     ]
+    horizon_overrides = media.get("horizons") if isinstance(media, dict) else {}
     for slug, item in GUIDE.HORIZONS.items():
-        prompt = str(item.get("prompt", "")).strip()
+        override = horizon_overrides.get(slug) if isinstance(horizon_overrides, dict) else None
+        prompt = (
+            str(override.get("visual_prompt", "")).strip()
+            if isinstance(override, dict) and str(override.get("visual_prompt", "")).strip()
+            else str(item.get("prompt", "")).strip()
+        )
         if not prompt:
             continue
         specs.append(
@@ -278,7 +359,7 @@ def render_pack(*, output_dir: Path) -> dict[str, object]:
     assets: list[dict[str, object]] = []
     for spec in asset_specs():
         target = str(spec["target"])
-        prompt = str(spec["prompt"])
+        prompt = refine_prompt_with_ooda(prompt=str(spec["prompt"]), target=target)
         width = int(spec.get("width", 1280))
         height = int(spec.get("height", 720))
         out_path = output_dir / target

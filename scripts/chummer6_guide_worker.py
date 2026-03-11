@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -74,6 +75,51 @@ def load_literal(name: str) -> dict[str, object]:
 
 PARTS = load_literal("PARTS")
 HORIZONS = load_literal("HORIZONS")
+GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
+
+
+def read_markdown_excerpt(relative_path: str, *, limit: int = 900) -> str:
+    path = GUIDE_ROOT / relative_path
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    def scrub(line: str) -> str:
+        cleaned = line.strip()
+        cleaned = re.sub(r"^#+\s*", "", cleaned)
+        cleaned = re.sub(r"^>\s*", "", cleaned)
+        cleaned = re.sub(r"^[-*]\s+", "", cleaned)
+        cleaned = re.sub(r"`([^`]+)`", lambda m: m.group(1), cleaned)
+        cleaned = re.sub(r"\*\*([^*]+)\*\*", lambda m: m.group(1), cleaned)
+        cleaned = re.sub(r"\*([^*]+)\*", lambda m: m.group(1), cleaned)
+        cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", cleaned)
+        cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", lambda m: m.group(1), cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip(" -")
+    lines: list[str] = []
+    for raw in text.splitlines():
+        line = scrub(raw)
+        if not line:
+            continue
+        if line.startswith("_Last synced:") or line.startswith("_Derived from:"):
+            continue
+        lines.append(line)
+        if sum(len(row) for row in lines) >= limit:
+            break
+    return " ".join(lines)[:limit].strip()
+
+
+def short_sentence(text: str, *, limit: int = 160) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    for splitter in (". ", "! ", "? ", ": "):
+        head, sep, _tail = cleaned.partition(splitter)
+        if sep and head.strip():
+            cleaned = head.strip()
+            break
+    if cleaned.lower().startswith("chummer6 "):
+        cleaned = cleaned[len("chummer6 ") :].strip()
+    return cleaned[:limit].rstrip(" ,;:-")
 
 
 def model_candidates(requested: str) -> list[str]:
@@ -287,37 +333,54 @@ def build_media_prompt(kind: str, name: str, item: dict[str, object]) -> str:
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
     repos = ", ".join(str(repo) for repo in item.get("repos", []))
     if kind == "hero":
+        readme_excerpt = read_markdown_excerpt("README.md", limit=900)
+        current_excerpt = read_markdown_excerpt("NOW/current-phase.md", limit=700)
         return f"""You are writing image-card copy for the human-facing Chummer6 guide landing hero.
 
-Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta.
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt.
 
 Voice rules:
 - clear, inviting, slightly playful, Shadowrun-flavored
-- this is the visitor-center front door, not a spec
+- this is a human-facing guide, not a spec
 - SR jargon is welcome
 - mild dev roasting is allowed
 - no mention of Fleet
 - no mention of chummer5a
 - no markdown fences
 
-The image is for the Chummer6 landing page.
-It should feel like a cyberpunk visitor center / field guide / map-on-the-wall.
+Source excerpts:
+README:
+{readme_excerpt}
+
+Current phase:
+{current_excerpt}
+
+Requirements:
+- infer the scene from the source, do not literalize repo-role labels
+- do not say or imply "visitor center"
+- visual_prompt must describe an actual cyberpunk scene, not a brochure cover
+- visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- the visible badge/title/subtitle/kicker/note should feel like guide copy, not compliance language
 
 Return valid JSON only.
 """
+    horizon_excerpt = read_markdown_excerpt(f"HORIZONS/{name}.md", limit=900)
     return f"""You are writing image-card copy for a human-facing Chummer6 horizon banner.
 
-Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta.
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt.
 
 Voice rules:
 - clear, punchy, slightly funny, Shadowrun-flavored
 - sell the horizon harder
-- the image should feel cool, dangerous, and specific
+- the image should feel cool, dangerous, specific, and scene-first
 - SR jargon is welcome
 - mild dev roasting is allowed
 - no mention of Fleet
 - no mention of chummer5a
 - no markdown fences
+
+Source page excerpt:
+{horizon_excerpt}
 
 Horizon id: {name}
 Title: {title}
@@ -338,6 +401,12 @@ Foundations:
 
 Touched repos later:
 {repos}
+
+Requirements:
+- infer the scene from the source, do not just repeat headings back
+- visual_prompt must describe an actual cyberpunk scene tied to this horizon
+- visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- the visible copy should sell the horizon without pretending it is active build work
 
 Return valid JSON only.
 """
@@ -399,13 +468,23 @@ def fallback_media_override(kind: str, name: str, item: dict[str, object]) -> di
     foundations = [str(line).strip() for line in item.get("foundations", []) if str(line).strip()]
     repos = [str(repo).replace("chummer6-", "") for repo in item.get("repos", []) if str(repo).strip()]
     if kind == "hero":
+        guide_summary = read_markdown_excerpt("README.md", limit=320) or "The human guide to the next Chummer."
+        phase_summary = read_markdown_excerpt("NOW/current-phase.md", limit=220)
+        short_guide = short_sentence(guide_summary) or "The human guide to the next Chummer"
+        short_phase = short_sentence(phase_summary) or "Foundation work first, fireworks later"
         return {
             "badge": "Chummer6",
             "title": "Chummer6",
-            "subtitle": hook or "The human guide to the next Chummer.",
-            "kicker": foundations[0] if foundations else "Visitor center",
-            "note": brutal_truth or "A readable guide wall for curious chummers, nervous test dummies, and the occasional roasted dev.",
-            "meta": "Guide art generated from source",
+            "subtitle": hook or short_guide,
+            "kicker": foundations[0] if foundations else "Guide",
+            "note": brutal_truth or short_phase or "A readable guide wall for curious chummers, nervous test dummies, and the occasional roasted dev.",
+            "meta": "",
+            "visual_prompt": (
+                f"Wide cinematic cyberpunk concept art for Chummer6, inspired by this guide summary: {guide_summary}. "
+                f"Current phase mood: {phase_summary or 'foundations first, chrome later'}. "
+                "Use a dangerous but inviting street-level scene with commlink, cyberdeck, holographic artifacts, rain, neon, and map-on-the-wall energy. "
+                "No text, no logo, no watermark, 16:9."
+            ),
         }
     return {
         "badge": "Horizon",
@@ -413,7 +492,8 @@ def fallback_media_override(kind: str, name: str, item: dict[str, object]) -> di
         "subtitle": hook or use_case or brutal_truth or f"{title} is a horizon lane with too much chrome to ignore and too much blast radius to rush.",
         "kicker": repos[0] if repos else (foundations[0] if foundations else "Horizon lane"),
         "note": brutal_truth or use_case or "Horizon only. Slick enough to sell, dangerous enough to keep parked for now.",
-        "meta": "Horizon art generated from source",
+        "meta": "",
+        "visual_prompt": f"Wide cinematic cyberpunk concept art for {title}, {hook or use_case or brutal_truth or 'future-shadowrun capability'}, scene-first composition, dark humor, no text, no logo, no watermark, 16:9",
     }
 
 
@@ -427,13 +507,30 @@ def normalize_media_override(kind: str, cleaned: dict[str, str], item: dict[str,
         if not badge:
             normalized["badge"] = "Chummer6"
         kicker = str(normalized.get("kicker", "")).strip()
-        if not kicker:
-            normalized["kicker"] = "Visitor center"
+        if not kicker or kicker.lower() in {"visitor center", "front door"}:
+            normalized["kicker"] = "Guide"
+        subtitle = str(normalized.get("subtitle", "")).strip()
+        if subtitle:
+            normalized["subtitle"] = subtitle.replace("visitor center", "guide").replace("Visitor Center", "Guide")
+            if normalized["subtitle"].lower().startswith("chummer6 "):
+                normalized["subtitle"] = normalized["subtitle"][len("Chummer6 ") :].strip()
+        note = str(normalized.get("note", "")).strip()
+        if note:
+            normalized["note"] = note.replace("visitor center", "guide").replace("Visitor center", "Guide")
+            if normalized["note"].lower().startswith("current phase "):
+                normalized["note"] = normalized["note"][len("Current Phase ") :].strip()
+            normalized["note"] = short_sentence(normalized["note"], limit=180) or normalized["note"]
+        normalized["meta"] = ""
+        if not str(normalized.get("visual_prompt", "")).strip():
+            normalized["visual_prompt"] = fallback_media_override("hero", "hero", {})["visual_prompt"]
         return normalized
     if not str(normalized.get("title", "")).strip():
         normalized["title"] = str(item.get("title", "")).strip()
     if not str(normalized.get("badge", "")).strip():
         normalized["badge"] = "Horizon"
+    normalized["meta"] = ""
+    if not str(normalized.get("visual_prompt", "")).strip():
+        normalized["visual_prompt"] = fallback_media_override("horizon", str(item.get("slug", "") or item.get("title", "horizon")), item)["visual_prompt"]
     return normalized
 
 
@@ -449,7 +546,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     if provider_available:
         try:
             result = chat_json(build_media_prompt("hero", "hero", {}), model=model)
-            cleaned = {key: str(result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta") if str(result.get(key, "")).strip()}
+            cleaned = {key: str(result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt") if str(result.get(key, "")).strip()}
             cleaned = normalize_media_override("hero", cleaned, {})
         except Exception as exc:
             provider_available = False
@@ -490,7 +587,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             if provider_available:
                 try:
                     media_result = chat_json(build_media_prompt("horizon", name, item), model=model)
-                    media_cleaned = {key: str(media_result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta") if str(media_result.get(key, "")).strip()}
+                    media_cleaned = {key: str(media_result.get(key, "")).strip() for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt") if str(media_result.get(key, "")).strip()}
                     media_cleaned = normalize_media_override("horizon", media_cleaned, item)
                 except Exception as exc:
                     provider_available = False

@@ -114,7 +114,6 @@ def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str
     badge = html.escape(scene["badge"])
     kicker = html.escape(scene["kicker"])
     note = html.escape(scene.get("note", "Chrome, caution, and just enough bad decisions to feel like home."))
-    meta = html.escape(scene.get("meta", "Chummer6 guide art"))
     ratio = f"{width}x{height}"
     return f"""<!doctype html>
 <html>
@@ -316,7 +315,7 @@ def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str
         <div class="subtitle">{subtitle}</div>
       </div>
       <div class="sidecard">
-        <div class="small">Current vibe</div>
+        <div class="small">Street note</div>
         <div class="big">{kicker}</div>
         <div class="line"></div>
         <div class="note">{note}</div>
@@ -324,7 +323,7 @@ def build_html(prompt: str, output_name: str, *, width: int, height: int) -> str
     </div>
     <div class="footer">
       <div class="brand">Chummer6</div>
-      <div class="meta">{ratio} • {meta}</div>
+      <div class="meta">{ratio}</div>
     </div>
   </div>
 </body>
