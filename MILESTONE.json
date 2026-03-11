@@ -262,6 +262,51 @@
       "notes": "Startup still resolves storage durability and auth dependency posture through multiple fallback paths, so the runtime can surface mixed profiles; planned work is to resolve one authoritative runtime profile at bootstrap and have service startup/readiness consume that exact profile contract."
     },
     {
+      "name": "typed_task_and_skill_policy_models",
+      "status": "planned",
+      "task_refs": [
+        "Q-450"
+      ],
+      "scope": [
+        "workflow_policy_model",
+        "retry_policy_model",
+        "human_review_policy_model",
+        "memory_candidate_policy_model",
+        "artifact_output_policy_model",
+        "skill_catalog_meta_model"
+      ],
+      "notes": "Task contracts and skill catalog projection still read policy semantics from untyped `budget_policy_json`; planned work is to parse those fields into typed runtime models so compile/execute behavior and metadata validation stop depending on ad-hoc JSON shape checks."
+    },
+    {
+      "name": "provider_registry_capability_routing",
+      "status": "planned",
+      "task_refs": [
+        "Q-451"
+      ],
+      "scope": [
+        "provider_profile_model",
+        "provider_binding_model",
+        "provider_capability_probe_model",
+        "skill_provider_binding_projection",
+        "capability_addressable_execution_routing"
+      ],
+      "notes": "Provider hints are currently broader than executable runtime bindings; planned work is to add a typed provider registry and route tools/workflows through capability-addressable provider contracts instead of vendor-specific hardcoded paths."
+    },
+    {
+      "name": "runtime_surface_docs_env_deploy_parity",
+      "status": "planned",
+      "task_refs": [
+        "Q-452"
+      ],
+      "scope": [
+        "architecture_map_runtime_surface_parity",
+        "env_template_provider_router_parity",
+        "compose_profile_provider_topology_parity",
+        "deploy_docs_runtime_profile_parity"
+      ],
+      "notes": "Architecture, env scaffolding, and deployment docs still lag parts of the live router/provider surface; planned work is to re-baseline those assets so operator/developer guidance matches the actual executable runtime topology."
+    },
+    {
       "name": "principal_request_context_guardrails",
       "status": "released",
       "scope": [
