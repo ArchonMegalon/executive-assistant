@@ -5150,7 +5150,7 @@ def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
 
         from app.api.app import create_app
 
-        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod forbids memory fallback\(artifacts configured for memory\)"):
+        with pytest.raises(RuntimeError, match=r"EA_RUNTIME_MODE=prod forbids memory fallback\(artifacts configured for memory\)"):
             TestClient(create_app())
     finally:
         for key, value in saved_env.items():
