@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-07
+Updated: 2026-03-11
 
 ## Workspace Integration Tier Guide
 
@@ -29,21 +29,22 @@ Updated: 2026-03-07
 |---|---|---|---|---|---|---|---|
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `AvoMap` | `10x code-based` | `10 codes` | `9 redeemed / 1 pending` | `2026-05-02` | `Tier 3` | None | One remaining code must be redeemed by May 2, 2026. |
+| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 3` | None | All codes redeemed and activated; local runtime integration is still optional. |
 | `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `Invoiless` | `1x code-based` | `1 code` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
-| `MarkupGo` | `7x code-based` | `7 codes` | `Pending redemption` | `2026-04-28` | `Tier 3` | None | Redeem by April 28, 2026. |
-| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Pending redemption` | `2026-04-29` | `Tier 3` | None | Redeem by April 29, 2026. |
+| `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
+| `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
+| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; reserved for structured feedback collection. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD with activation confirmed; email/account details pending. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `PeekShot` | `3x code-based` | `3 codes` | `Pending redemption` | `2026-04-30` | `Tier 3` | None | Redeem by April 30, 2026. |
+| `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
-| `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Pending redemption` | `2026-04-30` | `Tier 3` | None | Redeem by April 30, 2026. |
+| `Unmixr AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
 
-- `21` total LTD products tracked
+- `22` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`2 licenses / 2 accounts`)
 
@@ -63,28 +64,21 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
-| `AvoMap` |  | `missing` | `manual_inventory` |  | Remaining redemption work still blocks final account verification. |
+| `AvoMap` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | Plan/Tier: Tier 3; Status: activated |
 | `Documentation.AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
-| `Invoiless` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
-| `MarkupGo` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
-| `MetaSurvey` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `Invoiless` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
+| `MarkupGo` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
+| `MetaSurvey` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
-| `PeekShot` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
-| `Vizologi` |  | `missing` | `manual_inventory` |  | Pending redemption before account verification. |
+| `Vizologi` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 
 ## Attention Items
 
-| Service | Action Needed | Deadline |
-|---|---|---|
-| `MarkupGo` | Redeem pending codes | `2026-04-28` |
-| `Invoiless` | Redeem pending code | `2026-04-29` |
-| `MetaSurvey` | Redeem pending codes | `2026-04-29` |
-| `PeekShot` | Redeem pending codes | `2026-04-30` |
-| `Vizologi` | Redeem pending codes | `2026-04-30` |
-| `AvoMap` | Redeem 1 remaining code | `2026-05-02` |
+None right now. All tracked LTDs are redeemed and activated; remaining follow-up is only account-detail verification and any later runtime wiring.
 
 ## Notes
 
