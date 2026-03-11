@@ -1422,16 +1422,21 @@ def test_rewrite_orchestrator_without_explicit_tool_runtime_does_not_hide_in_mem
         )
 
 
-def test_build_default_orchestrator_uses_explicit_tool_runtime_for_tool_execution() -> None:
+def test_build_default_orchestrator_uses_explicit_tool_execution_for_tool_execution() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-
-    orchestrator = build_default_orchestrator(
+    tool_execution = ToolExecutionService(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         evidence_runtime=EvidenceRuntimeService(InMemoryEvidenceObjectRepository()),
+    )
+
+    orchestrator = build_default_orchestrator(
+        artifacts=InMemoryArtifactRepository(),
+        evidence_runtime=EvidenceRuntimeService(InMemoryEvidenceObjectRepository()),
+        tool_execution=tool_execution,
     )
 
     result = orchestrator._tool_execution.execute_invocation(  # type: ignore[attr-defined]

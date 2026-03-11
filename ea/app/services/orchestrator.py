@@ -139,14 +139,7 @@ class RewriteOrchestrator:
         self._memory_reasoning_service = (
             MemoryReasoningService(self._memory_runtime) if self._memory_runtime is not None else None
         )
-        self._tool_execution = tool_execution or (
-            ToolExecutionService(
-                tool_runtime=tool_runtime,
-                artifacts=self._artifacts,
-            )
-            if tool_runtime is not None
-            else _UnconfiguredToolExecutionService()
-        )
+        self._tool_execution = tool_execution or _UnconfiguredToolExecutionService()
         self._queue_runtime = ExecutionQueueRuntimeService(
             enqueue_step=self._ledger.enqueue_step,
             retry_queue_item=self._ledger.retry_queue_item,
@@ -1041,7 +1034,6 @@ def build_default_orchestrator(
     evidence_runtime: EvidenceRuntimeService | None = None,
     memory_runtime: MemoryRuntimeService | None = None,
     tool_execution: ToolExecutionService | None = None,
-    tool_runtime: ToolRuntimeService | None = None,
 ) -> RewriteOrchestrator:
     resolved = settings or get_settings()
     ledger = build_execution_ledger(resolved)
@@ -1058,13 +1050,6 @@ def build_default_orchestrator(
         max_rewrite_chars=resolved.policy.max_rewrite_chars,
         approval_required_chars=resolved.policy.approval_required_chars,
     )
-    resolved_tool_execution = tool_execution
-    if resolved_tool_execution is None and tool_runtime is not None:
-        resolved_tool_execution = ToolExecutionService(
-            tool_runtime=tool_runtime,
-            artifacts=artifact_repo,
-            evidence_runtime=evidence_service,
-        )
     return RewriteOrchestrator(
         artifacts=artifact_repo,
         ledger=ledger,
@@ -1076,5 +1061,5 @@ def build_default_orchestrator(
         task_contracts=task_contract_service,
         planner=planner_service,
         memory_runtime=memory_service,
-        tool_execution=resolved_tool_execution,
+        tool_execution=tool_execution,
     )
