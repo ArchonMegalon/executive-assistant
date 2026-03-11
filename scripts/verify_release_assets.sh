@@ -17,6 +17,17 @@ fi
 
 missing=0
 
+SMOKE_RUNTIME_GUARD_FILES=(
+  "tests/smoke_runtime_api.py"
+  "tests/smoke_runtime_api_suite_1.py"
+  "tests/smoke_runtime_api_suite_2.py"
+  "tests/smoke_runtime_api_suite_3.py"
+  "tests/smoke_runtime_api_suite_4.py"
+)
+SMOKE_RUNTIME_GUARD_TARGET="$(mktemp)"
+trap 'rm -f "${SMOKE_RUNTIME_GUARD_TARGET}"' EXIT
+cat "${SMOKE_RUNTIME_GUARD_FILES[@]}" > "${SMOKE_RUNTIME_GUARD_TARGET}"
+
 required_files=(
   "README.md"
   "RUNBOOK.md"
@@ -299,8 +310,8 @@ then
      grep -Fq '/v1/rewrite/run-costs/${COST_ID}' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_RECEIPT_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_COST_JSON' "scripts/smoke_api.sh" && \
-     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "receipt_and_run_cost_lookup_api_exposure" "CHANGELOG.md"; then
     echo "ok: receipt and run-cost lookup release baseline"
   else
@@ -998,12 +1009,12 @@ if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
    grep -Fq '"dependency_states"] == {"step_policy_evaluate": "completed"}' "tests/test_rewrite_dependency_projection_contracts.py" && \
    grep -Fq 'steps["step_artifact_save"]["state"] == "waiting_approval"' "tests/test_rewrite_dependency_projection_contracts.py" && \
    grep -Fq 'steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' "tests/test_rewrite_dependency_projection_contracts.py" && \
-   grep -Fq 'steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'steps_by_key["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'approval_steps["step_artifact_save"]["state"] == "waiting_approval"' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'generic_approval_steps["step_artifact_save"]["state"] == "waiting_approval"' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'generic_review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' "tests/smoke_runtime_api.py" && \
+   grep -Fq 'steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'steps_by_key["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'approval_steps["step_artifact_save"]["state"] == "waiting_approval"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'generic_approval_steps["step_artifact_save"]["state"] == "waiting_approval"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'generic_review_steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
    grep -Fq 'step-artifact-save-waiting-approval' "tests/test_openapi_dependency_examples_contracts.py" && \
    grep -Fq 'step-artifact-save-blocked-human' "tests/test_openapi_dependency_examples_contracts.py" && \
    grep -Fq 'schemas["RewriteAcceptedOut"]["examples"]' "tests/test_openapi_async_acceptance_examples_contracts.py" && \
@@ -1026,7 +1037,7 @@ if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
    grep -Fq 'principal_id' "tests/test_artifacts_postgres_integration.py" && \
    grep -Fq 'principal_id' "tests/test_rewrite_scope_contracts.py" && \
    grep -Fq 'principal_id' "tests/test_rewrite_api_scope_contracts.py" && \
-   grep -Fq 'principal_id' "tests/smoke_runtime_api.py" && \
+   grep -Fq 'principal_id' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
    grep -Fq "projection_ok=(" "scripts/smoke_api.sh" && \
    grep -Fq 'curl -fsS "${BASE}/openapi.json"' "scripts/smoke_api.sh" && \
    grep -Fq "rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []" "scripts/smoke_api.sh" && \
@@ -1035,8 +1046,8 @@ if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
    grep -Fq "save_step.get('blocked_dependency_keys') == ['step_human_review']" "scripts/smoke_api.sh" && \
    grep -Fq "policy_step.get('parent_step_id') == input_id" "scripts/smoke_api.sh" && \
    grep -Fq "save_step.get('parent_step_id') == policy_id" "scripts/smoke_api.sh" && \
-   grep -Fq 'steps_by_key["step_policy_evaluate"]["parent_step_id"] == steps_by_key["step_input_prepare"]["step_id"]' "tests/smoke_runtime_api.py" && \
-   grep -Fq 'steps_by_key["step_artifact_save"]["parent_step_id"] == steps_by_key["step_policy_evaluate"]["step_id"]' "tests/smoke_runtime_api.py" && \
+   grep -Fq 'steps_by_key["step_policy_evaluate"]["parent_step_id"] == steps_by_key["step_input_prepare"]["step_id"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+   grep -Fq 'steps_by_key["step_artifact_save"]["parent_step_id"] == steps_by_key["step_policy_evaluate"]["step_id"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
    grep -Fq 'save_step.parent_step_id is None' "tests/test_step_parent_projection_contracts.py" && \
    grep -Fq 'sidecar_step.parent_step_id == input_step.step_id' "tests/test_step_parent_projection_contracts.py" && \
    grep -Fq "first.get('principal_id','')" "scripts/smoke_api.sh" && \
@@ -1194,8 +1205,8 @@ then
      grep -Fq '"principal_id": "exec-2"' "HTTP_EXAMPLES.http" && \
      grep -Fq "REWRITE_SESSION_MISMATCH_CODE" "scripts/smoke_api.sh" && \
      grep -Fq "PLAN_MISMATCH_CODE" "scripts/smoke_api.sh" && \
-     grep -Fq "test_rewrite_routes_enforce_principal_scope" "tests/smoke_runtime_api.py" && \
-     grep -Fq "test_plan_compile_derives_request_principal_and_rejects_mismatch" "tests/smoke_runtime_api.py"; then
+     grep -Fq "test_rewrite_routes_enforce_principal_scope" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "test_plan_compile_derives_request_principal_and_rejects_mismatch" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: principal-scoped rewrite and plan routes docs"
   else
     echo "missing: principal-scoped rewrite and plan routes docs" >&2
@@ -1219,7 +1230,7 @@ then
      grep -Fq "GET /v1/human/tasks?session_id=..." "RUNBOOK.md" && \
      grep -Fq "HUMAN_CREATE_MISMATCH_CODE" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_SESSION_LIST_MISMATCH_CODE" "scripts/smoke_api.sh" && \
-     grep -Fq "test_human_task_session_routes_enforce_session_principal_scope" "tests/smoke_runtime_api.py"; then
+     grep -Fq "test_human_task_session_routes_enforce_session_principal_scope" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: session principal-scoped human task routes docs"
   else
     echo "missing: session principal-scoped human task routes docs" >&2
@@ -1252,7 +1263,7 @@ then
      grep -Fq 'TASK_EXECUTE_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'context_refs' "scripts/smoke_api.sh" && \
      grep -Fq 'test_plan_execute_input_contracts.py' "scripts/test_postgres_contracts.sh" && \
-     grep -Fq 'test_generic_task_execution_uses_compiled_contract_runtime' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'test_generic_task_execution_uses_compiled_contract_runtime' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'test_plan_execute_accepts_structured_input_json_and_context_refs' "tests/test_plan_execute_input_contracts.py" && \
      grep -Fq 'test_postgres_orchestrator_executes_non_rewrite_task_contract' "tests/test_postgres_contract_matrix_integration.py"; then
     echo "ok: generic task execution runtime docs"
@@ -1341,7 +1352,7 @@ then
      grep -Fq 'inspect paused human-review-backed session dependency projection' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_APPROVAL_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_HUMAN_JSON' "scripts/smoke_api.sh" && \
-     grep -Fq 'test_generic_task_execution_supports_async_approval_and_human_contracts' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'test_generic_task_execution_supports_async_approval_and_human_contracts' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `generic_task_execution_async_contracts` to released' "CHANGELOG.md" && \
      grep -Fq 'shared async workflow contract' "CHANGELOG.md" && \
      grep -Fq 'release/operator guards now pin' "CHANGELOG.md"; then
@@ -1369,7 +1380,7 @@ then
      grep -Fq 'includes originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
      grep -Fq 'TASK_EXECUTE_ARTIFACT_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_ARTIFACT_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'fetched_artifact.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'fetched_artifact.json()["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: artifact lookup task identity projection docs"
   else
     echo "missing: artifact lookup task identity projection docs" >&2
@@ -1397,7 +1408,7 @@ then
      grep -Fq 'Promoted milestone capability `artifact_preview_handle_projection` to released' "CHANGELOG.md" && \
      grep -Fq 'REWRITE_ARTIFACT_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_ARTIFACT_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: artifact preview/handle projection docs"
   else
     echo "missing: artifact preview/handle projection docs" >&2
@@ -1423,8 +1434,8 @@ then
      grep -Fq 'fetch run cost (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
      grep -Fq 'TASK_EXECUTE_RECEIPT_JSON' "scripts/smoke_api.sh" && \
      grep -Fq 'TASK_EXECUTE_COST_JSON' "scripts/smoke_api.sh" && \
-     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'fetched_receipt.json()["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'fetched_cost.json()["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `proof_lookup_task_identity_projection` to released' "CHANGELOG.md" && \
      grep -Fq 'release/operator guards now pin' "CHANGELOG.md" && \
      grep -Fq 'direct receipt and run-cost `task_key` plus `deliverable_type` lookup projection' "CHANGELOG.md"; then
@@ -1451,7 +1462,7 @@ then
      grep -Fq 'self-describing artifact/proof task identity' "RUNBOOK.md" && \
      grep -Fq 'TASK_EXECUTE_SESSION_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'stakeholder_briefing|stakeholder_briefing|stakeholder_briefing' "scripts/smoke_api.sh" && \
-     grep -Fq 'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `session_artifact_task_identity_projection` to released' "CHANGELOG.md"; then
     echo "ok: session artifact task identity projection docs"
   else
@@ -1481,8 +1492,8 @@ then
      grep -Fq 'GENERIC_APPROVAL_PENDING_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_APPROVAL_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
      grep -Fq 'GENERIC_HUMAN_LIST_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'pending_row["task_key"] == "decision_brief_approval"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_detail.json()["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'pending_row["task_key"] == "decision_brief_approval"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_detail.json()["task_key"] == "stakeholder_briefing_review"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "release/operator guards now pin that self-describing async queue identity contract" "CHANGELOG.md"; then
     echo "ok: async queue projection task identity docs"
   else
@@ -1507,7 +1518,7 @@ then
      grep -Fq 'those direct history rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
      grep -Fq 'assignment history (includes originating task_key and deliverable_type)' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_HUMAN_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'review_history.json()[0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'review_history.json()[0]["task_key"] == "stakeholder_briefing_review"' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: human task assignment-history task identity docs"
   else
     echo "missing: human task assignment-history task identity docs" >&2
@@ -1531,7 +1542,7 @@ then
      grep -Fq 'assignment-history rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
      grep -Fq 'human-task assignment-history rows include originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_HUMAN_SESSION_HISTORY_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_session_body["human_task_assignment_history"][0]["task_key"] == "stakeholder_briefing_review"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `session_human_task_assignment_history_task_identity_projection` to released' "CHANGELOG.md" && \
      grep -Fq 'release/operator guards now pin' "CHANGELOG.md" && \
      grep -Fq 'inline session `human_task_assignment_history[]` `task_key` and `deliverable_type` projection' "CHANGELOG.md"; then
@@ -1558,7 +1569,7 @@ then
      grep -Fq 'inline `human_tasks` rows now also carry originating `task_key`/`deliverable_type`' "RUNBOOK.md" && \
      grep -Fq 'human-task packet, and human-task assignment-history rows include originating task_key and deliverable_type' "HTTP_EXAMPLES.http" && \
      grep -Fq 'GENERIC_HUMAN_SESSION_TASK_FIELDS' "scripts/smoke_api.sh" && \
-     grep -Fq 'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_session_body["human_tasks"][0]["task_key"] == "stakeholder_briefing_review"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `session_human_task_packet_task_identity_projection` to released' "CHANGELOG.md"; then
     echo "ok: session human task packet task identity docs"
   else
@@ -1583,7 +1594,7 @@ then
      grep -Fq 'GET /v1/human/tasks?session_id=...' "RUNBOOK.md" && \
      grep -Fq "HUMAN_CREATE_MISMATCH_CODE" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_SESSION_LIST_MISMATCH_CODE" "scripts/smoke_api.sh" && \
-     grep -Fq "test_human_task_session_routes_enforce_session_principal_scope" "tests/smoke_runtime_api.py"; then
+     grep -Fq "test_human_task_session_routes_enforce_session_principal_scope" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: session-principal-scoped human task routes docs"
   else
     echo "missing: session-principal-scoped human task routes docs" >&2
@@ -1635,7 +1646,7 @@ then
      grep -Fq "release/operator guards" "CHANGELOG.md" && \
      grep -Fq "order_ok" "scripts/smoke_api.sh" && \
      grep -Fq 'policy_decision' "scripts/smoke_api.sh" && \
-     grep -Fq 'event_names.index("input_prepared") < event_names.index("policy_decision")' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'event_names.index("input_prepared") < event_names.index("policy_decision")' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: queued policy-step audit truthfulness release baseline"
   else
     echo "missing: queued policy-step audit truthfulness release baseline" >&2
@@ -1690,10 +1701,10 @@ then
      grep -Fq "step_policy_evaluate" "scripts/smoke_api.sh" && \
      grep -Fq "input_prepared" "scripts/smoke_api.sh" && \
      grep -Fq "policy_step_completed" "scripts/smoke_api.sh" && \
-     grep -Fq "step_input_prepare" "tests/smoke_runtime_api.py" && \
-     grep -Fq "step_policy_evaluate" "tests/smoke_runtime_api.py" && \
-     grep -Fq "input_prepared" "tests/smoke_runtime_api.py" && \
-     grep -Fq "policy_step_completed" "tests/smoke_runtime_api.py" && \
+     grep -Fq "step_input_prepare" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "step_policy_evaluate" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "input_prepared" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "policy_step_completed" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "step_input_prepare" "tests/test_planner.py" && \
      grep -Fq "step_policy_evaluate" "tests/test_planner.py" && \
      grep -Fq "typed_step_handler_gateway" "CHANGELOG.md" && \
@@ -1721,7 +1732,7 @@ then
   if grep -Fq '`POST /v1/plans/compile` now exposes explicit plan-step dependencies plus declared input/output keys' "README.md" && \
      grep -Fq '`POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`' "RUNBOOK.md" && \
      grep -Fq "Promoted the dependency-aware planner graph projection into a released milestone capability" "CHANGELOG.md" && \
-     grep -Fq 'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'plan.steps[1].depends_on == ("step_input_prepare",)' "tests/test_planner.py"; then
     echo "ok: planner dependency graph projection docs"
   else
@@ -1746,10 +1757,10 @@ then
      grep -Fq '`owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`' "RUNBOOK.md" && \
      grep -Fq 'Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics' "CHANGELOG.md" && \
      grep -Fq 'expected three-step plan compile response with explicit step semantics' "scripts/smoke_api.sh" && \
-     grep -Fq 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'compiled_review.json()["plan"]["steps"][2]["timeout_budget_seconds"] == 3600' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'plan.steps[2].authority_class == "draft"' "tests/test_planner.py" && \
      grep -Fq 'plan.steps[2].owner == "human"' "tests/test_planner.py" && \
      grep -Fq 'plan.steps[2].timeout_budget_seconds == 3600' "tests/test_planner.py"; then
@@ -1778,8 +1789,8 @@ then
      grep -Fq "step_human_review" "RUNBOOK.md" && \
      grep -Fq "rewrite_review" "scripts/smoke_api.sh" && \
      grep -Fq "communications_reviewer" "scripts/smoke_api.sh" && \
-     grep -Fq "step_human_review" "tests/smoke_runtime_api.py" && \
-     grep -Fq "communications_review" "tests/smoke_runtime_api.py" && \
+     grep -Fq "step_human_review" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "communications_review" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_review_role" "tests/test_planner.py" && \
      grep -Fq "step_human_review" "tests/test_planner.py"; then
     echo "ok: planner human-task branch docs"
@@ -1806,8 +1817,8 @@ then
      grep -Fq "Promoted the compiled human-review runtime execution slice into a released milestone capability" "CHANGELOG.md" && \
      grep -Fq "compiled human review runtime ok" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_human|poll_or_subscribe|True|" "scripts/smoke_api.sh" && \
-     grep -Fq "test_rewrite_compiled_human_review_branch_pauses_and_resumes" "tests/smoke_runtime_api.py" && \
-     grep -Fq "human_task_step_started" "tests/smoke_runtime_api.py"; then
+     grep -Fq "test_rewrite_compiled_human_review_branch_pauses_and_resumes" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "human_task_step_started" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: runtime human-task step execution docs"
   else
     echo "missing: runtime human-task step execution docs" >&2
@@ -1830,8 +1841,8 @@ then
   if grep -Fq "returned_payload_json.final_text" "README.md" && \
      grep -Fq "final_text" "RUNBOOK.md" && \
      grep -Fq "edited by reviewer" "scripts/smoke_api.sh" && \
-     grep -Fq 'body_after["artifacts"][0]["content"]' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'returned_payload_json": {"final_text": reviewed_text}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'body_after["artifacts"][0]["content"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'returned_payload_json": {"final_text": reviewed_text}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_review_payload_artifact_override" "CHANGELOG.md" && \
      grep -Fq "reviewer-edited content" "CHANGELOG.md"; then
     echo "ok: human-review payload artifact override release baseline"
@@ -1862,8 +1873,8 @@ then
      grep -Fq "Promoted the planner human-review operational metadata slice into a released milestone capability" "CHANGELOG.md" && \
      grep -Fq "manager_review" "scripts/smoke_api.sh" && \
      grep -Fq "high|45|3600|1|0|True|manager_review" "scripts/smoke_api.sh" && \
-     grep -Fq 'review_task["priority"] == "high"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_task["priority"] == "high"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["desired_output_json"]["escalation_policy"] == "manager_review"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_review_sla_minutes" "tests/test_planner.py" && \
      grep -Fq 'timeout_budget_seconds == 3600' "tests/test_planner.py" && \
      grep -Fq 'desired_output_json["escalation_policy"] == "manager_review"' "tests/test_planner.py"; then
@@ -1895,8 +1906,8 @@ then
      grep -Fq "Promoted the registry-backed tool execution service slice into a released milestone capability" "CHANGELOG.md" && \
      grep -Fq "artifact_repository|tool.v1" "scripts/smoke_api.sh" && \
      grep -Fq "tool_execution_completed" "scripts/smoke_api.sh" && \
-     grep -Fq "tool_execution_completed" "tests/smoke_runtime_api.py" && \
-     grep -Fq "invocation_contract" "tests/smoke_runtime_api.py" && \
+     grep -Fq "tool_execution_completed" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "invocation_contract" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_tool_execution_service_self_heals_missing_builtin_artifact_definition" "tests/test_tool_execution.py" && \
      grep -Fq "test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_definition" "tests/test_tool_execution.py" && \
      test -f "tests/test_tool_execution.py"; then
@@ -1927,8 +1938,8 @@ then
      grep -Fq "connector.dispatch" "HTTP_EXAMPLES.http" && \
      grep -Fq "connector.dispatch|queued|" "scripts/smoke_api.sh" && \
      grep -Fq "connector.dispatch|tool.v1" "scripts/smoke_api.sh" && \
-     grep -Fq "/v1/tools/execute" "tests/smoke_runtime_api.py" && \
-     grep -Fq "connector.dispatch" "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/tools/execute" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "connector.dispatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_tool_execution_service_executes_builtin_connector_dispatch_handler" "tests/test_tool_execution.py" && \
      grep -Fq "Promoted the connector dispatch tool execution slice into a released milestone capability" "CHANGELOG.md"; then
     echo "ok: connector dispatch tool execution slice release docs"
@@ -1957,8 +1968,8 @@ then
      grep -Fq "/v1/tools/execute" "HTTP_EXAMPLES.http" && \
      grep -Fq "browseract.extract_account_facts" "HTTP_EXAMPLES.http" && \
      grep -Fq "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com" "scripts/smoke_api.sh" && \
-     grep -Fq "browseract.extract_account_facts" "tests/smoke_runtime_api.py" && \
-     grep -Fq "browseract_ltd_discovery" "tests/smoke_runtime_api.py" && \
+     grep -Fq "browseract.extract_account_facts" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "browseract_ltd_discovery" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_tool_execution_service_executes_builtin_browseract_extract_handler" "tests/test_tool_execution.py" && \
      grep -Fq "test_tool_execution_service_self_heals_missing_builtin_browseract_definition" "tests/test_tool_execution.py" && \
      grep -Fq "Promoted the BrowserAct account-facts tool execution slice into a released milestone capability" "CHANGELOG.md"; then
@@ -1986,8 +1997,8 @@ then
      grep -Fq '"binding_id"' "HTTP_EXAMPLES.http" && \
      grep -Fq "principal_scope_mismatch" "scripts/smoke_api.sh" && \
      grep -Fq "binding_id" "scripts/smoke_api.sh" && \
-     grep -Fq "execute_mismatch" "tests/smoke_runtime_api.py" && \
-     grep -Fq 'execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "execute_mismatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_tool_execution_service_rejects_foreign_connector_binding_scope" "tests/test_tool_execution.py" && \
      grep -Fq "connector_dispatch_binding_scope_guardrails" "CHANGELOG.md" && \
      grep -Fq "release/operator guards" "CHANGELOG.md" && \
@@ -2021,8 +2032,8 @@ then
      grep -Fq "approval-required acceptance contract" "HTTP_EXAMPLES.http" && \
      grep -Fq "expected 202 for approval-required path" "scripts/smoke_api.sh" && \
      grep -Fq "awaiting_approval|poll_or_subscribe" "scripts/smoke_api.sh" && \
-     grep -Fq "assert create.status_code == 202" "tests/smoke_runtime_api.py" && \
-     grep -Fq "next_action" "tests/smoke_runtime_api.py"; then
+     grep -Fq "assert create.status_code == 202" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "next_action" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: approval async acceptance contract docs"
   else
     echo "missing: approval async acceptance contract docs" >&2
@@ -2104,7 +2115,7 @@ then
      grep -Fq "pre-assigned task" "scripts/smoke_api.sh" && \
      grep -Fq "human task unassigned endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "assigned-only backlog endpoint" "scripts/smoke_api.sh" && \
-     grep -Fq "/v1/human/tasks" "tests/smoke_runtime_api.py" && \
+     grep -Fq "/v1/human/tasks" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'assignment_state="unassigned"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "test_postgres_human_tasks_create_claim_return_and_list" "tests/test_postgres_contract_matrix_integration.py"; then
     echo "ok: human task packet kernel docs"
@@ -2135,8 +2146,8 @@ then
      grep -Fq "human_review_quality_rubric_json" "RUNBOOK.md" && \
      grep -Fq "send_on_behalf_review" "scripts/smoke_api.sh" && \
      grep -Fq "External executive communication needs human tone review." "scripts/smoke_api.sh" && \
-     grep -Fq 'review_task["authority_required"] == "send_on_behalf_review"' "tests/smoke_runtime_api.py" && \
-     grep -Fq "quality_rubric_json" "tests/smoke_runtime_api.py" && \
+     grep -Fq 'review_task["authority_required"] == "send_on_behalf_review"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "quality_rubric_json" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_review_authority_required" "tests/test_planner.py" && \
      grep -Fq "human_review_quality_rubric_json" "tests/test_planner.py" && \
      grep -Fq 'authority_required="send_on_behalf_review"' "tests/test_postgres_contract_matrix_integration.py" && \
@@ -2170,8 +2181,8 @@ then
      grep -Fq "operator-specialist" "scripts/smoke_api.sh" && \
      grep -Fq "operator-specialized backlog endpoint" "scripts/smoke_api.sh" && \
      grep -Fq "operator-specialized backlog endpoint to exclude" "scripts/smoke_api.sh" && \
-     grep -Fq '"/v1/human/tasks/operators"' "tests/smoke_runtime_api.py" && \
-     grep -Fq "operator-specialist" "tests/smoke_runtime_api.py" && \
+     grep -Fq '"/v1/human/tasks/operators"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "operator-specialist" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_postgres_operator_profiles_upsert_get_and_list" "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "v0_28 operator profiles kernel" "scripts/db_bootstrap.sh"; then
     echo "ok: operator-profile specialized backlog routing docs"
@@ -2200,8 +2211,8 @@ then
      grep -Fq "routing_hints_json" "RUNBOOK.md" && \
      grep -Fq "auto_assign_operator_id" "RUNBOOK.md" && \
      grep -Fq "operator auto-assignment hint" "scripts/smoke_api.sh" && \
-     grep -Fq "routing_hints_json" "tests/smoke_runtime_api.py" && \
-     grep -Fq "auto_assign_operator_id" "tests/smoke_runtime_api.py" && \
+     grep -Fq "routing_hints_json" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "auto_assign_operator_id" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "test_postgres_human_task_operator_assignment_hints" "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "routing_hints_json: dict[str, object]" "ea/app/api/routes/rewrite.py" && \
      grep -Fq "routing_hints_json: dict[str, object]" "ea/app/api/routes/human.py" && \
@@ -2234,8 +2245,8 @@ then
      grep -Fq 'omits `operator_id`' "RUNBOOK.md" && \
      grep -Fq -- "-d '{}'" "scripts/smoke_api.sh" && \
      grep -Fq "pending|assigned|operator-specialist" "scripts/smoke_api.sh" && \
-     grep -Fq 'json={}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'assigned.json()["assigned_operator_id"] == "operator-specialist"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'json={}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'assigned.json()["assigned_operator_id"] == "operator-specialist"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_task_no_auto_assign_candidate" "ea/app/api/routes/human.py"; then
     echo "ok: human task recommended assignment action docs"
   else
@@ -2262,9 +2273,9 @@ then
      grep -Fq "human_review_auto_assign_if_unique" "RUNBOOK.md" && \
      grep -Fq "human_review_auto_assign_if_unique" "scripts/smoke_api.sh" && \
      grep -Fq "assigned|operator-specialist" "scripts/smoke_api.sh" && \
-     grep -Fq "human_review_auto_assign_if_unique" "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["assignment_state"] == "assigned"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["assigned_operator_id"] == "operator-specialist"' "tests/smoke_runtime_api.py" && \
+     grep -Fq "human_review_auto_assign_if_unique" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["assignment_state"] == "assigned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["assigned_operator_id"] == "operator-specialist"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "human_review_auto_assign_if_unique" "tests/test_planner.py" && \
      grep -Fq "auto_assign_if_unique is True" "tests/test_planner.py"; then
     echo "ok: planner human task auto-preselection docs"
@@ -2293,9 +2304,9 @@ then
      grep -Fq "operator-specialist|recommended" "scripts/smoke_api.sh" && \
      grep -Fq "operator-junior|manual" "scripts/smoke_api.sh" && \
      grep -Fq "auto_preselected" "scripts/smoke_api.sh" && \
-     grep -Fq 'task["assignment_source"] == ""' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'assigned.json()["assignment_source"] == "recommended"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["assignment_source"] == "auto_preselected"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'task["assignment_source"] == ""' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'assigned.json()["assignment_source"] == "recommended"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["assignment_source"] == "auto_preselected"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'assignment_source="manual"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "v0_29 human task assignment-source kernel" "scripts/db_bootstrap.sh" && \
      grep -Fq "Promoted the human-task assignment-source visibility slice into a released milestone capability" "CHANGELOG.md"; then
@@ -2325,9 +2336,9 @@ then
      grep -Fq "assigned_by_actor_id" "RUNBOOK.md" && \
      grep -Fq "assigned_by_actor_id" "scripts/smoke_api.sh" && \
      grep -Fq "orchestrator:auto_preselected" "scripts/smoke_api.sh" && \
-     grep -Fq 'task["assigned_by_actor_id"] == ""' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'assigned.json()["assigned_by_actor_id"] == "exec-1"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'task["assigned_by_actor_id"] == ""' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'assigned.json()["assigned_by_actor_id"] == "exec-1"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'assigned_by_actor_id="principal-1"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq 'assigned_by_actor_id == "operator-1"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "v0_30 human task assignment provenance kernel" "scripts/db_bootstrap.sh" && \
@@ -2359,7 +2370,7 @@ then
      grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history" "HTTP_EXAMPLES.http" && \
      grep -Fq "/v1/human/tasks/\${HUMAN_TASK_ID}/assignment-history" "scripts/smoke_api.sh" && \
      grep -Fq "human_task_created,human_task_assigned,human_task_assigned,human_task_claimed,human_task_returned" "scripts/smoke_api.sh" && \
-     grep -Fq '/assignment-history", params={"limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq '/assignment-history", params={"limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "Promoted the human-task assignment-history API slice into a released milestone capability" "CHANGELOG.md"; then
     echo "ok: human task assignment history docs"
   else
@@ -2384,9 +2395,9 @@ then
      grep -Fq "human_task_assignment_history" "README.md" && \
      grep -Fq "human_task_assignment_history" "RUNBOOK.md" && \
      grep -Fq "human_task_assignment_history" "scripts/smoke_api.sh" && \
-     grep -Fq 'body["human_task_assignment_history"] == []' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'session_body["human_task_assignment_history"]' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'body["human_task_assignment_history"][1]["assignment_source"] == "auto_preselected"' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'body["human_task_assignment_history"] == []' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'session_body["human_task_assignment_history"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'body["human_task_assignment_history"][1]["assignment_source"] == "auto_preselected"' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: session human task assignment history projection docs"
   else
     echo "missing: session human task assignment history projection docs" >&2
@@ -2412,8 +2423,8 @@ then
      grep -Fq "assigned_by_actor_id" "RUNBOOK.md" && \
      grep -Fq "event_name=human_task_assigned&assigned_by_actor_id=exec-1" "scripts/smoke_api.sh" && \
      grep -Fq "event_name=human_task_returned&assigned_operator_id=operator-junior" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}" "HTTP_EXAMPLES.http" && \
      grep -Fq "Promoted the human-task assignment-history filters slice into a released milestone capability" "CHANGELOG.md"; then
     echo "ok: human task assignment history filters docs"
@@ -2444,10 +2455,10 @@ then
      grep -Fq "HUMAN_CREATE_SUMMARY_FIELDS" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_REWRITE_SUMMARY_FIELDS" "scripts/smoke_api.sh" && \
      grep -Fq "human_task_returned|True|returned|operator-junior|manual|operator-junior" "scripts/smoke_api.sh" && \
-     grep -Fq 'task["last_transition_event_name"] == "human_task_created"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'assigned.json()["last_transition_event_name"] == "human_task_assigned"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'returned.json()["last_transition_event_name"] == "human_task_returned"' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'review_task["last_transition_event_name"] == "human_task_assigned"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'task["last_transition_event_name"] == "human_task_created"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'assigned.json()["last_transition_event_name"] == "human_task_assigned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'returned.json()["last_transition_event_name"] == "human_task_returned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'review_task["last_transition_event_name"] == "human_task_assigned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'last_transition_event_name: str' "ea/app/api/routes/human.py" && \
      grep -Fq 'last_transition_event_name: str' "ea/app/api/routes/rewrite.py" && \
      grep -Fq "Promoted the human-task last-transition summary projection slice into a released milestone capability" "CHANGELOG.md"; then
@@ -2475,8 +2486,8 @@ then
      grep -Fq "human task last-transition sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SORT_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"sort": "last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "last_transition_desc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"sort": "last_transition_desc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "sla_due_at_asc_last_transition_desc" "ea/app/api/routes/human.py" && \
      grep -Fq 'Promoted milestone capability `human_task_last_transition_sorting` to released' "CHANGELOG.md" && \
@@ -2506,8 +2517,8 @@ then
      grep -Fq "human task SLA sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "SLA_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SLA_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"sort": "sla_due_at_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?sort=sla_due_at_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "sla_due_at_asc_last_transition_desc" "ea/app/api/routes/human.py"; then
     echo "ok: human task SLA sorting release docs"
@@ -2534,8 +2545,8 @@ then
      grep -Fq "human task combined sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "COMBINED_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "COMBINED_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?sort=sla_due_at_asc_last_transition_desc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "sla_due_at_asc_last_transition_desc" "ea/app/api/routes/human.py" && \
      grep -Fq 'Promoted milestone capability `human_task_sla_transition_combined_sorting` to released' "CHANGELOG.md"; then
@@ -2563,8 +2574,8 @@ then
      grep -Fq "human task unscheduled fallback sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "UNSCHED_SLA_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "UNSCHED_COMBINED_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"status": "pending", "sort": "sla_due_at_asc_last_transition_desc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?principal_id={{principal_id}}&status=pending&sort=sla_due_at_asc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task unscheduled fallback sorting docs"
   else
@@ -2591,9 +2602,9 @@ then
      grep -Fq "human task created-asc sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "CREATED_ASC_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "CREATED_ASC_MINE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?sort=created_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "created_asc" "ea/app/api/routes/human.py"; then
     echo "ok: human task created asc sorting docs"
@@ -2620,9 +2631,9 @@ then
      grep -Fq "human task priority-desc-created-asc sort ok" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SORT_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SORT_MINE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?sort=priority_desc_created_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "priority_desc_created_asc" "ea/app/api/routes/human.py"; then
     echo "ok: human task priority created sorting docs"
@@ -2650,9 +2661,9 @@ then
      grep -Fq "human task priority filter ok" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_FILTER_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_FILTER_MINE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"priority": "high", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "priority": "high", "sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"priority": "high", "sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent", "sort": "created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?priority=high&sort=created_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "priority: str | None = None" "ea/app/api/routes/human.py"; then
     echo "ok: human task priority filters docs"
@@ -2679,9 +2690,9 @@ then
      grep -Fq "human task multi-priority filter ok" "scripts/smoke_api.sh" && \
      grep -Fq "MULTI_PRIORITY_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "MULTI_PRIORITY_MINE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"operator_id": "operator-sorter", "status": "pending", "priority": "urgent,high", "sort": "priority_desc_created_asc", "limit": 10}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?priority=urgent,high&sort=priority_desc_created_asc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task multi priority filters docs"
   else
@@ -2707,8 +2718,8 @@ then
      grep -Fq "human task priority summary ok" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SUMMARY_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SUMMARY_UNASSIGNED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "role_required": role_required}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"status": "pending", "role_required": role_required, "assignment_state": "unassigned"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "role_required": role_required}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"status": "pending", "role_required": role_required, "assignment_state": "unassigned"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer" "HTTP_EXAMPLES.http" && \
      grep -Fq '@router.get("/priority-summary")' "ea/app/api/routes/human.py" && \
      grep -Fq 'human_task_priority_summary' "CHANGELOG.md" && \
@@ -2737,7 +2748,7 @@ then
      grep -Fq "assigned_operator_id" "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_ASSIGNED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SUMMARY_ASSIGNED_FIELDS" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "role_required": role_required, "assigned_operator_id": operator_id}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "role_required": role_required, "assigned_operator_id": operator_id}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/priority-summary?status=pending&role_required=communications_reviewer&assigned_operator_id=operator" "HTTP_EXAMPLES.http"; then
     echo "ok: human task assigned priority summary docs"
   else
@@ -2762,7 +2773,7 @@ then
      grep -Fq "operator_id" "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_MATCHED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SUMMARY_MATCHED_FIELDS" "scripts/smoke_api.sh" && \
-     grep -Fq '"operator_id": "operator-specialist-summary"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"operator_id": "operator-specialist-summary"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist" "HTTP_EXAMPLES.http" && \
      grep -Fq "operator_id: str" "ea/app/api/routes/human.py"; then
     echo "ok: human task operator-matched priority summary docs"
@@ -2790,7 +2801,7 @@ then
      grep -Fq "assignment_source" "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_MANUAL_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_REWRITE_AUTO_SUMMARY_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq '"assignment_source": "auto_preselected"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"assignment_source": "auto_preselected"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/priority-summary?status=pending&assignment_source=manual" "HTTP_EXAMPLES.http" && \
      grep -Fq "assignment_source: str" "ea/app/api/routes/human.py"; then
     echo "ok: human task assignment-source priority summary docs"
@@ -2846,7 +2857,7 @@ then
      grep -Fq "assignment_source=manual|recommended|auto_preselected" "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_MANUAL_LIST_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_REWRITE_AUTO_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq '"assignment_source": "manual"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"assignment_source": "manual"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?assignment_source=auto_preselected&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task assignment-source queue filters docs"
   else
@@ -2873,8 +2884,8 @@ then
      grep -Fq "assignment_source=none" "RUNBOOK.md" && \
      grep -Fq "HUMAN_UNASSIGNED_NONE_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "PRIORITY_SUMMARY_NONE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"status": "pending", "assignment_state": "unassigned", "assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"status": "pending", "assignment_state": "unassigned", "assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'assignment_source="none"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "/v1/human/tasks/unassigned?assignment_source=none&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "human_task_ownerless_assignment_source_alias" "CHANGELOG.md" && \
@@ -2905,8 +2916,8 @@ then
      grep -Fq "human_task_assignment_source=none" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_HISTORY_NONE_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"limit": 10, "assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'params={"human_task_assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"limit": 10, "assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"human_task_assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" "HTTP_EXAMPLES.http" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=none" "HTTP_EXAMPLES.http"; then
     echo "ok: human task ownerless session/history alias docs"
@@ -2933,7 +2944,7 @@ then
   if grep -Fq "assignment_state=unassigned&assignment_source=none" "README.md" && \
      grep -Fq "assignment_state=unassigned&assignment_source=none" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_BACKLOG_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"assignment_state": "unassigned", "assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"assignment_state": "unassigned", "assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq 'Promoted milestone capability `human_task_ownerless_backlog_alias` to released' "CHANGELOG.md"; then
     echo "ok: human task ownerless backlog alias docs"
@@ -2960,8 +2971,8 @@ then
   if grep -Fq "assignment_state=unassigned&assignment_source=none&sort=created_asc" "README.md" && \
      grep -Fq "assignment_state=unassigned&assignment_source=none&sort=created_asc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_BACKLOG_CREATED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"sort": "created_asc"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"sort": "created_asc"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task ownerless backlog created sort docs"
   else
@@ -2987,7 +2998,7 @@ then
   if grep -Fq "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" "README.md" && \
      grep -Fq "assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_BACKLOG_TRANSITION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq '"sort": "last_transition_desc"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"sort": "last_transition_desc"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq 'Promoted milestone capability `human_task_ownerless_backlog_last_transition_sort` to released' "CHANGELOG.md"; then
     echo "ok: human task ownerless backlog last-transition sort docs"
@@ -3016,7 +3027,7 @@ then
   if grep -Fq "assignment_source=none&sort=last_transition_desc" "README.md" && \
      grep -Fq "assignment_source=none&sort=last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_UNASSIGNED_TRANSITION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"assignment_source": "none", "sort": "last_transition_desc"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"assignment_source": "none", "sort": "last_transition_desc"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/unassigned?assignment_source=none&sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task ownerless unassigned last-transition sort docs"
   else
@@ -3044,7 +3055,7 @@ then
   if grep -Fq "assignment_source=none&sort=created_asc" "README.md" && \
      grep -Fq "assignment_source=none&sort=created_asc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_UNASSIGNED_CREATED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"assignment_source": "none", "sort": "created_asc"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"assignment_source": "none", "sort": "created_asc"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/unassigned?assignment_source=none&sort=created_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq 'Promoted milestone capability `human_task_ownerless_unassigned_created_sort` to released' "CHANGELOG.md"; then
     echo "ok: human task ownerless unassigned created sort docs"
@@ -3073,10 +3084,10 @@ then
   if grep -Fq "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc" "README.md" && \
      grep -Fq "status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_LIST_CREATED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq '"status": "pending"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"assignment_state": "unassigned"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"assignment_source": "none"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"/v1/human/tasks"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"status": "pending"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"assignment_state": "unassigned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"assignment_source": "none"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"/v1/human/tasks"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=created_asc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq "Promoted milestone capability \`human_task_ownerless_list_created_sort\` to released" "CHANGELOG.md"; then
   echo "ok: human task ownerless list created sort docs"
@@ -3105,10 +3116,10 @@ then
   if grep -Fq "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" "README.md" && \
      grep -Fq "status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "HUMAN_OWNERLESS_LIST_TRANSITION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq '"status": "pending"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"assignment_state": "unassigned"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"assignment_source": "none"' "tests/smoke_runtime_api.py" && \
-     grep -Fq '"sort": "last_transition_desc"' "tests/smoke_runtime_api.py" && \
+     grep -Fq '"status": "pending"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"assignment_state": "unassigned"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"assignment_source": "none"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"sort": "last_transition_desc"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?status=pending&assignment_state=unassigned&assignment_source=none&sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http" && \
      grep -Fq 'Promoted milestone capability `human_task_ownerless_list_last_transition_sort` to released' "CHANGELOG.md"; then
     echo "ok: human task ownerless list last-transition sort docs"
@@ -3138,7 +3149,7 @@ then
      grep -Fq "session_id=<id>&assignment_source=none&sort=created_asc" "RUNBOOK.md" && \
      grep -Fq 'Promoted milestone capability `human_task_session_ownerless_created_sort` to released' "CHANGELOG.md" && \
      grep -Fq "SESSION_HUMAN_NONE_CREATED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"session_id": session_id, "assignment_source": "none", "sort": "created_asc"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"session_id": session_id, "assignment_source": "none", "sort": "created_asc"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=created_asc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task session ownerless created sort docs"
   else
@@ -3166,7 +3177,7 @@ then
   if grep -Fq "session_id=<id>&assignment_source=none&sort=last_transition_desc" "README.md" && \
      grep -Fq "session_id=<id>&assignment_source=none&sort=last_transition_desc" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_TRANSITION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"session_id": session_id, "assignment_source": "none", "sort": "last_transition_desc"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"session_id": session_id, "assignment_source": "none", "sort": "last_transition_desc"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?session_id={{session_id}}&assignment_source=none&sort=last_transition_desc&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: human task session ownerless last-transition sort docs"
   else
@@ -3196,8 +3207,8 @@ then
      grep -Fq "SESSION_HUMAN_NONE_CREATED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "SESSION_HUMAN_NONE_TRANSITION_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "keeping mixed-source neighbors out" "scripts/smoke_api.sh" && \
-     grep -Fq "ownerless_session_created_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_session_transition_all_ids ==" "tests/smoke_runtime_api.py" && \
+     grep -Fq "ownerless_session_created_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_session_transition_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'Promoted milestone capability `human_task_session_ownerless_mixed_source_isolation` to released' "CHANGELOG.md" && \
      grep -Fq "release/operator guards" "CHANGELOG.md" && \
      grep -Fq "session-list mixed-source isolation contract" "CHANGELOG.md"; then
@@ -3230,12 +3241,12 @@ then
      grep -Fq "HUMAN_OWNERLESS_UNASSIGNED_CREATED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_OWNERLESS_LIST_CREATED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "keeping mixed-source neighbors out" "scripts/smoke_api.sh" && \
-     grep -Fq "ownerless_backlog_created_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_unassigned_created_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_list_created_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_backlog_transition_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_unassigned_transition_all_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_list_transition_all_ids ==" "tests/smoke_runtime_api.py"; then
+     grep -Fq "ownerless_backlog_created_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_unassigned_created_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_list_created_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_backlog_transition_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_unassigned_transition_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_list_transition_all_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: human task ownerless sorted queue mixed-source isolation docs"
   else
     echo "missing: human task ownerless sorted queue mixed-source isolation docs" >&2
@@ -3263,9 +3274,9 @@ then
      grep -Fq "ownerless \`priority-summary?status=pending&assignment_state=unassigned&assignment_source=none\` slice is now also covered after mixed-source churn" "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_NONE_MIXED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "stay ownerless-only after mixed-source churn" "scripts/smoke_api.sh" && \
-     grep -Fq "ownerless_summary_after_churn" "tests/smoke_runtime_api.py" && \
-     grep -Fq 'ownerless_summary_after_churn_body["total"] == 2' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'ownerless_summary_after_churn_body["counts_json"]["low"] == 2' "tests/smoke_runtime_api.py"; then
+     grep -Fq "ownerless_summary_after_churn" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'ownerless_summary_after_churn_body["total"] == 2' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'ownerless_summary_after_churn_body["counts_json"]["low"] == 2' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: human task ownerless priority summary mixed-source counts docs"
   else
     echo "missing: human task ownerless priority summary mixed-source counts docs" >&2
@@ -3296,9 +3307,9 @@ then
      grep -Fq "HUMAN_UNASSIGNED_NONE_MIXED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_OWNERLESS_BACKLOG_MIXED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "stay ownerless-only after mixed-source churn" "scripts/smoke_api.sh" && \
-     grep -Fq "ownerless_list_after_churn_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_unassigned_after_churn_ids ==" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_backlog_after_churn_ids ==" "tests/smoke_runtime_api.py"; then
+     grep -Fq "ownerless_list_after_churn_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_unassigned_after_churn_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_backlog_after_churn_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: human task ownerless unsorted queue mixed-source isolation docs"
   else
     echo "missing: human task ownerless unsorted queue mixed-source isolation docs" >&2
@@ -3326,7 +3337,7 @@ then
      grep -Fq "unsorted session-scoped \`session_id=<id>&assignment_source=none\` slice is now also covered after mixed-source churn" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_MIXED_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "stay ownerless-only after mixed-source churn" "scripts/smoke_api.sh" && \
-     grep -Fq "ownerless_session_list_after_churn_ids ==" "tests/smoke_runtime_api.py"; then
+     grep -Fq "ownerless_session_list_after_churn_ids ==" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: human task session ownerless unsorted mixed-source isolation docs"
   else
     echo "missing: human task session ownerless unsorted mixed-source isolation docs" >&2
@@ -3354,8 +3365,8 @@ then
      grep -Fq "mixed-source session-detail ownerless projection is now also count-checked" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_PROJECTION_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "longer empty-source history trail" "scripts/smoke_api.sh" && \
-     grep -Fq 'len(ownerless_session_projection_body["human_tasks"]) == 2' "tests/smoke_runtime_api.py" && \
-     grep -Fq 'len(ownerless_session_projection_body["human_task_assignment_history"]) > len(' "tests/smoke_runtime_api.py"; then
+     grep -Fq 'len(ownerless_session_projection_body["human_tasks"]) == 2' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'len(ownerless_session_projection_body["human_task_assignment_history"]) > len(' "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: session ownerless projection mixed-source counts docs"
   else
     echo "missing: session ownerless projection mixed-source counts docs" >&2
@@ -3380,9 +3391,9 @@ then
   if grep -Fq "human_task_assignment_source=none" "README.md" && \
      grep -Fq "human_task_assignment_source=none" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_PROJECTION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"human_task_assignment_source": "none"}' "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]" "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]" "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"human_task_assignment_source": "none"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_session_projection_ids == [ownerless_task_id, ownerless_newer_task_id]" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_session_history_ids == [ownerless_task_id, ownerless_newer_task_id]" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=none" "HTTP_EXAMPLES.http" && \
      grep -Fq 'Promoted milestone capability `session_ownerless_projection_created_order` to released' "CHANGELOG.md"; then
     echo "ok: session ownerless projection created order docs"
@@ -3412,8 +3423,8 @@ then
      grep -Fq "manual and auto-preselected neighbors" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_NONE_PROJECTION_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "two-row current ownerless slice" "scripts/smoke_api.sh" && \
-     grep -Fq 'row["human_task_id"] not in {manual_task_id, auto_task_id}' "tests/smoke_runtime_api.py" && \
-     grep -Fq "ownerless_session_projection_history_all_ids[:4]" "tests/smoke_runtime_api.py"; then
+     grep -Fq 'row["human_task_id"] not in {manual_task_id, auto_task_id}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "ownerless_session_projection_history_all_ids[:4]" "${SMOKE_RUNTIME_GUARD_TARGET}"; then
     echo "ok: session ownerless projection mixed-source isolation docs"
   else
     echo "missing: session ownerless projection mixed-source isolation docs" >&2
@@ -3436,7 +3447,7 @@ then
   if grep -Fq 'assignment-history` also accepts `event_name`, `assigned_operator_id`, `assigned_by_actor_id`, and `assignment_source`' "README.md" && \
      grep -Fq "assignment_source" "RUNBOOK.md" && \
      grep -Fq "HUMAN_HISTORY_RECOMMENDED_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"limit": 10, "assignment_source": "recommended"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"limit": 10, "assignment_source": "recommended"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&assignment_source=recommended" "HTTP_EXAMPLES.http" && \
      grep -Fq "Promoted the human-task assignment-history source-filter slice into a released milestone capability" "CHANGELOG.md"; then
     echo "ok: human task assignment-history source filter docs"
@@ -3462,7 +3473,7 @@ then
      grep -Fq "human_task_assignment_source" "RUNBOOK.md" && \
      grep -Fq "SESSION_HUMAN_MANUAL_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_REWRITE_AUTO_SESSION_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"human_task_assignment_source": "manual"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"human_task_assignment_source": "manual"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/rewrite/sessions/{{session_id}}?human_task_assignment_source=manual" "HTTP_EXAMPLES.http"; then
     echo "ok: session human-task assignment-source filter docs"
   else
@@ -3489,7 +3500,7 @@ then
      grep -Fq 'session_id=<id>&assignment_source=<source>' "RUNBOOK.md" && \
      grep -Fq "PRIORITY_SUMMARY_MANUAL_SESSION_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "HUMAN_REWRITE_AUTO_LIST_JSON" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"session_id": session_id, "assignment_source": "manual"}' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'params={"session_id": session_id, "assignment_source": "manual"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks?principal_id={{principal_id}}&session_id={{session_id}}&assignment_source=manual&limit=20" "HTTP_EXAMPLES.http"; then
     echo "ok: session-scoped human task assignment-source queue docs"
   else
@@ -3518,8 +3529,8 @@ then
      grep -Fq "artifact_then_dispatch" "HTTP_EXAMPLES.http" && \
      grep -Fq "stakeholder_dispatch" "scripts/smoke_api.sh" && \
      grep -Fq "step_connector_dispatch" "scripts/smoke_api.sh" && \
-     grep -Fq "stakeholder_dispatch" "tests/smoke_runtime_api.py" && \
-     grep -Fq "step_connector_dispatch" "tests/smoke_runtime_api.py" && \
+     grep -Fq "stakeholder_dispatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "step_connector_dispatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "tests/test_task_contract_step_templates.py" "scripts/test_postgres_contracts.sh" && \
      grep -Fq 'Promoted milestone capability `task_contract_workflow_templates` to released' "CHANGELOG.md" && \
      grep -Fq "baseline dispatch-template contract" "CHANGELOG.md" && \
@@ -3630,8 +3641,8 @@ assert capability["status"] == "released"
 PY
 then
   if grep -Fq "stakeholder_review_dispatch" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "stakeholder_review_dispatch" "tests/smoke_runtime_api.py" && \
-     grep -Fq "hybrid@example.com" "tests/smoke_runtime_api.py" && \
+     grep -Fq "stakeholder_review_dispatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "hybrid@example.com" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "step_human_review" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "review and send a stakeholder briefing" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "stakeholder_review_dispatch" "scripts/smoke_api.sh" && \
@@ -3664,7 +3675,7 @@ then
   if grep -Fq 'workflow_template": "tool_then_artifact"' "tests/test_task_contract_step_templates.py" && \
      grep -Fq "browseract_ltd_discovery_generic" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "unsupported_tool_then_artifact" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "browseract_ltd_discovery_generic" "tests/smoke_runtime_api.py" && \
+     grep -Fq "browseract_ltd_discovery_generic" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "browseract_ltd_discovery_generic" "scripts/smoke_api.sh" && \
      grep -Fq "workflow_template=tool_then_artifact" "README.md" && \
      grep -Fq "workflow_template=tool_then_artifact" "RUNBOOK.md" && \
@@ -3692,7 +3703,7 @@ PY
 then
   if grep -Fq "browseract.extract_account_inventory" "tests/test_tool_execution.py" && \
      grep -Fq "step_browseract_inventory_extract" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "browseract_ltd_inventory_refresh" "tests/smoke_runtime_api.py" && \
+     grep -Fq "browseract_ltd_inventory_refresh" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "browseract.extract_account_inventory" "scripts/smoke_api.sh" && \
      grep -Fq "browseract.extract_account_inventory" "README.md" && \
      grep -Fq "browseract.extract_account_inventory" "RUNBOOK.md" && \
@@ -3722,7 +3733,7 @@ then
      grep -Fq '"run_url"' "ea/app/services/skills.py" && \
      grep -Fq "requested_run_url" "tests/test_tool_execution.py" && \
      grep -Fq "account_hints_json" "tests/test_skills.py" && \
-     grep -Fq "requested_run_url" "tests/smoke_runtime_api.py" && \
+     grep -Fq "requested_run_url" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "account_hints_json" "scripts/smoke_api.sh" && \
      grep -Fq "account_hints_json" "README.md" && \
      grep -Fq "account_hints_json" "RUNBOOK.md" && \
@@ -3749,9 +3760,9 @@ PY
 then
   if grep -Fq "artifact_then_memory_candidate" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "step_memory_candidate_stage" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "stakeholder_memory_candidate" "tests/smoke_runtime_api.py" && \
-     grep -Fq "step_memory_candidate_stage" "tests/smoke_runtime_api.py" && \
-     grep -Fq '"memory_write_allowed",' "tests/smoke_runtime_api.py" && \
+     grep -Fq "stakeholder_memory_candidate" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "step_memory_candidate_stage" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq '"memory_write_allowed",' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "stakeholder_memory_candidate" "scripts/smoke_api.sh" && \
      grep -Fq "step_memory_candidate_stage" "scripts/smoke_api.sh" && \
      grep -Fq "artifact_then_memory_candidate" "README.md" && \
@@ -3783,8 +3794,8 @@ then
   if grep -Fq "artifact_then_dispatch_then_memory_candidate" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "stakeholder_dispatch_memory_candidate" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "dispatch-memory@example.com" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "stakeholder_dispatch_memory_candidate" "tests/smoke_runtime_api.py" && \
-     grep -Fq "dispatch-memory@example.com" "tests/smoke_runtime_api.py" && \
+     grep -Fq "stakeholder_dispatch_memory_candidate" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "dispatch-memory@example.com" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "stakeholder_dispatch_memory_candidate" "scripts/smoke_api.sh" && \
      grep -Fq "dispatch-memory@example.com" "scripts/smoke_api.sh" && \
      grep -Fq "artifact_then_dispatch_then_memory_candidate" "README.md" && \
@@ -3815,8 +3826,8 @@ PY
 then
   if grep -Fq "stakeholder_review_dispatch_memory_candidate" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "reviewed-memory@example.com" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "stakeholder_review_dispatch_memory_candidate" "tests/smoke_runtime_api.py" && \
-     grep -Fq "reviewed-memory@example.com" "tests/smoke_runtime_api.py" && \
+     grep -Fq "stakeholder_review_dispatch_memory_candidate" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "reviewed-memory@example.com" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "stakeholder_review_dispatch_memory_candidate" "scripts/smoke_api.sh" && \
      grep -Fq "reviewed-memory@example.com" "scripts/smoke_api.sh" && \
      grep -Fq "step_input_prepare -> step_human_review -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch -> step_memory_candidate_stage" "README.md" && \
@@ -3956,7 +3967,7 @@ PY
 then
   if grep -Fq "test_planner_can_compile_review_then_dispatch_retry_policy_from_task_contract_metadata" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "test_review_then_dispatch_workflow_template_keeps_delayed_dispatch_retry_async_after_approval" "tests/test_task_contract_step_templates.py" && \
-     grep -Fq "test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "stakeholder_review_dispatch_retry" "scripts/smoke_api.sh" && \
      grep -Fq "hybrid-retry@example.com" "scripts/smoke_api.sh" && \
      grep -Fq "expected delayed review-then-dispatch approval flow to leave dispatch queued behind next_attempt_at" "scripts/smoke_api.sh" && \
@@ -3983,7 +3994,7 @@ assert capability["status"] == "released"
 PY
 then
   if grep -Fq "tests/test_skills.py" "scripts/test_postgres_contracts.sh" && \
-     grep -Fq "test_skill_catalog_flow_and_meeting_prep_compilation" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_skill_catalog_flow_and_meeting_prep_compilation" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "meeting_prep" "tests/test_skills.py" && \
      grep -Fq 'POST /v1/skills' "SKILLS.md" && \
      grep -Fq '`meeting_prep`' "SKILLS.md" && \
@@ -4015,7 +4026,7 @@ assert capability["status"] == "released"
 PY
 then
   if grep -Fq "test_skill_catalog_can_execute_ltd_inventory_refresh_skill" "tests/test_skills.py" && \
-     grep -Fq "test_skill_catalog_can_project_ltd_inventory_refresh_runtime" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_skill_catalog_can_project_ltd_inventory_refresh_runtime" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "ltd_inventory_refresh" "scripts/smoke_api.sh" && \
      grep -Fq "ltd_inventory_refresh" "README.md" && \
      grep -Fq "ltd_inventory_refresh" "RUNBOOK.md" && \
@@ -4077,7 +4088,7 @@ then
      grep -Fq "provider_hints_json" "ea/app/services/skills.py" && \
      grep -Fq "provider_hints_json" "ea/app/api/routes/skills.py" && \
      grep -Fq 'body["provider_hints_json"]["primary"] == ["1min.AI"]' "tests/test_skills.py" && \
-     grep -Fq 'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'created.json()["provider_hints_json"]["primary"] == ["1min.AI"]' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "provider_hints_json" "scripts/smoke_api.sh" && \
      grep -Fq "provider-hint" "README.md" && \
      grep -Fq "provider policy" "RUNBOOK.md" && \
@@ -4108,7 +4119,7 @@ then
      grep -Fq "def list_skills(self, limit: int = 100, provider_hint: str = \"\")" "ea/app/services/skills.py" && \
      grep -Fq "_collect_string_values" "ea/app/services/skills.py" && \
      grep -Fq 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' "tests/test_skills.py" && \
-     grep -Fq 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'client.get("/v1/skills", params={"limit": 10, "provider_hint": "browseract"})' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "provider_hint=browseract" "scripts/smoke_api.sh" && \
      grep -Fq "provider_hint=BrowserAct" "README.md" && \
      grep -Fq "provider_hint=<value>" "RUNBOOK.md" && \
@@ -4171,7 +4182,7 @@ then
      grep -Fq "compiled_via_skill = client.post(" "tests/test_skills.py" && \
      grep -Fq "executed_via_skill = client.post(" "tests/test_skills.py" && \
      grep -Fq "task_or_skill_key_required" "tests/test_plan_execute_input_contracts.py" && \
-     grep -Fq "compiled_via_skill = client.post(" "tests/smoke_runtime_api.py" && \
+     grep -Fq "compiled_via_skill = client.post(" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "LTD_SKILL_PLAN_BY_SKILL_JSON" "scripts/smoke_api.sh" && \
      grep -Fq "accepts either \`task_key\` or \`skill_key\`" "README.md" && \
      grep -Fq "accepts either \`task_key\` or \`skill_key\`" "RUNBOOK.md" && \
@@ -4318,7 +4329,7 @@ then
      grep -Fq '"evidence_object_id"' "ea/app/services/tool_execution_artifact_adapter.py" && \
      grep -Fq "test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts" "tests/test_tool_execution.py" && \
      grep -Fq "test_postgres_evidence_object_repo_materializes_queries_and_merges_evidence_pack_rows" "tests/test_postgres_contract_matrix_integration.py" && \
-     grep -Fq "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" "tests/smoke_runtime_api.py" && \
+     grep -Fq "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "EVIDENCE_OBJECT_FIELDS" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/evidence/objects" "README.md" && \
      grep -Fq "/v1/evidence/objects" "RUNBOOK.md" && \
@@ -4348,7 +4359,7 @@ then
      grep -Fq "_resolve_skill_key(" "ea/app/api/routes/rewrite.py" && \
      grep -Fq 'session_body["intent_skill_key"] == "meeting_prep"' "tests/test_skills.py" && \
      grep -Fq 'fetched_artifact.json()["skill_key"] == "meeting_prep"' "tests/test_skills.py" && \
-     grep -Fq 'session_body["intent_skill_key"] == "stakeholder_briefing"' "tests/smoke_runtime_api.py" && \
+     grep -Fq 'session_body["intent_skill_key"] == "stakeholder_briefing"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "body.get('intent_skill_key','')" "scripts/smoke_api.sh" && \
      grep -Fq "body.get('skill_key','')" "scripts/smoke_api.sh" && \
      grep -Fq "intent_skill_key" "README.md" && \

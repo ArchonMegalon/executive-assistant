@@ -7,6 +7,15 @@ from app.services.execution_queue_claim_lease_service import MissingReadyStepErr
 
 
 class ExecutionApprovalResumeService:
+    _ACCEPTED_POST_RESUME_SESSION_STATUSES = {
+        "awaiting_human",
+        "awaiting_approval",
+        "queued",
+        "blocked",
+        "failed",
+        "completed",
+    }
+
     def __init__(
         self,
         *,
@@ -100,7 +109,8 @@ class ExecutionApprovalResumeService:
                 snapshot = self._fetch_session(request.session_id)
                 if snapshot is None:
                     return request, decision_row
-                if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
+                status = str(getattr(snapshot.session, "status", "") or "").strip().lower()
+                if status in self._ACCEPTED_POST_RESUME_SESSION_STATUSES:
                     return request, decision_row
                 if self._delayed_retry_queue_item(snapshot) is not None:
                     return request, decision_row
