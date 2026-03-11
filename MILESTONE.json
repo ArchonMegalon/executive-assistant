@@ -263,10 +263,7 @@
     },
     {
       "name": "typed_task_and_skill_policy_models",
-      "status": "planned",
-      "task_refs": [
-        "Q-450"
-      ],
+      "status": "coded",
       "scope": [
         "workflow_policy_model",
         "retry_policy_model",
@@ -275,7 +272,7 @@
         "artifact_output_policy_model",
         "skill_catalog_meta_model"
       ],
-      "notes": "Task contracts and skill catalog projection still read policy semantics from untyped `budget_policy_json`; planned work is to parse those fields into typed runtime models so compile/execute behavior and metadata validation stop depending on ad-hoc JSON shape checks."
+      "notes": "Task contracts now expose typed runtime policy parsing (`workflow/retry/human-review/memory-candidate/artifact-output/skill-catalog`) and planner/skill/task-intent surfaces consume those typed models instead of repeatedly unpacking ad-hoc `budget_policy_json` keys; focused typed-policy tests were added, with broader pytest/smoke verification pending in an environment that has pytest available."
     },
     {
       "name": "provider_registry_capability_routing",

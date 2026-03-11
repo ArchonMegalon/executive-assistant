@@ -84,7 +84,7 @@ class TaskContractService:
         goal: str = "rewrite supplied text into an artifact",
     ) -> IntentSpecV3:
         contract = self.contract_or_default("rewrite_text")
-        budget_class = str(contract.budget_policy_json.get("class") or "low")
+        budget_class = str(contract.runtime_policy().budget_class or "low")
         return IntentSpecV3(
             principal_id=self._require_principal_id(principal_id),
             goal=str(goal or "rewrite supplied text into an artifact"),

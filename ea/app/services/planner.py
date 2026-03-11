@@ -9,41 +9,12 @@ from app.domain.models import (
     PlanStepSpec,
     PlanValidationError,
     TaskContract,
+    TaskContractHumanReviewPolicy,
+    TaskContractRetryPolicy,
     now_utc_iso,
     validate_plan_spec,
 )
 from app.services.task_contracts import TaskContractService
-
-
-def _policy_int(value: object, default: int = 0) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed >= 0 else default
-
-
-def _policy_bool(value: object, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    raw = str(value or "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _policy_float(value: object, default: float = 0.0) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return default
-    if parsed < 0:
-        return default
-    if parsed > 1:
-        return 1.0
-    return parsed
 
 
 def _tool_authority_class(tool_name: str) -> str:
@@ -107,13 +78,17 @@ class PlannerService:
         )
 
     def _step_retry_policy(self, contract: TaskContract, *, prefix: str) -> tuple[str, int, int]:
-        metadata = dict(contract.budget_policy_json or {})
-        failure_strategy = str(metadata.get(f"{prefix}_failure_strategy") or "fail").strip().lower() or "fail"
-        if failure_strategy not in {"fail", "retry", "fallback_human", "skip"}:
-            failure_strategy = "fail"
-        max_attempts = max(1, _policy_int(metadata.get(f"{prefix}_max_attempts"), default=1))
-        retry_backoff_seconds = _policy_int(metadata.get(f"{prefix}_retry_backoff_seconds"), default=0)
-        return failure_strategy, max_attempts, retry_backoff_seconds
+        policy = contract.runtime_policy()
+        retry: TaskContractRetryPolicy
+        if prefix == "artifact":
+            retry = policy.artifact_retry
+        elif prefix == "dispatch":
+            retry = policy.dispatch_retry
+        elif prefix == "browseract":
+            retry = policy.browseract_retry
+        else:
+            retry = TaskContractRetryPolicy()
+        return retry.failure_strategy, retry.max_attempts, retry.retry_backoff_seconds
 
     def _build_policy_step(
         self,
@@ -200,10 +175,7 @@ class PlannerService:
             contract,
             prefix="browseract",
         )
-        timeout_budget_seconds = max(
-            1,
-            _policy_int(contract.budget_policy_json.get("browseract_timeout_budget_seconds"), default=120),
-        )
+        timeout_budget_seconds = contract.runtime_policy().browseract_timeout_budget_seconds
         return PlanStepSpec(
             step_key="step_browseract_extract",
             step_kind="tool_call",
@@ -248,10 +220,7 @@ class PlannerService:
             contract,
             prefix="browseract",
         )
-        timeout_budget_seconds = max(
-            1,
-            _policy_int(contract.budget_policy_json.get("browseract_timeout_budget_seconds"), default=120),
-        )
+        timeout_budget_seconds = contract.runtime_policy().browseract_timeout_budget_seconds
         return PlanStepSpec(
             step_key="step_browseract_inventory_extract",
             step_kind="tool_call",
@@ -282,8 +251,7 @@ class PlannerService:
         )
 
     def _resolve_pre_artifact_tool_name(self, contract: TaskContract, *, default: str = "") -> str:
-        metadata = dict(contract.budget_policy_json or {})
-        tool_name = str(metadata.get("pre_artifact_tool_name") or default).strip()
+        tool_name = str(contract.runtime_policy().pre_artifact_tool_name or default).strip()
         if not tool_name:
             raise PlanValidationError("pre_artifact_tool_name_required")
         allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
@@ -312,23 +280,18 @@ class PlannerService:
         return ()
 
     def _artifact_output_template_key(self, contract: TaskContract) -> str:
-        metadata = dict(contract.budget_policy_json or {})
-        return str(
-            metadata.get("artifact_output_template")
-            or metadata.get("structured_output_template")
-            or ""
-        ).strip().lower()
+        return contract.runtime_policy().artifact_output.template
 
     def _prepare_step_artifact_envelope(self, contract: TaskContract) -> tuple[tuple[str, ...], dict[str, object]]:
         template = self._artifact_output_template_key(contract)
         if template != "evidence_pack":
             return ("normalized_text", "text_length"), {}
-        metadata = dict(contract.budget_policy_json or {})
+        artifact_policy = contract.runtime_policy().artifact_output
         return (
             ("normalized_text", "text_length", "structured_output_json", "preview_text", "mime_type"),
             {
                 "artifact_output_template": "evidence_pack",
-                "default_confidence": _policy_float(metadata.get("evidence_pack_confidence"), default=0.5),
+                "default_confidence": artifact_policy.default_confidence,
             },
         )
 
@@ -413,10 +376,10 @@ class PlannerService:
         depends_on: tuple[str, ...],
         additional_input_keys: tuple[str, ...] = (),
     ) -> PlanStepSpec:
-        metadata = dict(contract.budget_policy_json or {})
-        category = str(metadata.get("memory_candidate_category") or intent.deliverable_type or "artifact_fact").strip()
-        sensitivity = str(metadata.get("memory_candidate_sensitivity") or "internal").strip() or "internal"
-        confidence = _policy_float(metadata.get("memory_candidate_confidence"), default=0.5)
+        memory_policy = contract.runtime_policy().memory_candidate
+        category = str(memory_policy.category or intent.deliverable_type or "artifact_fact").strip()
+        sensitivity = str(memory_policy.sensitivity or "internal").strip() or "internal"
+        confidence = memory_policy.confidence
         input_keys = ("artifact_id", "normalized_text", "memory_write_allowed", *additional_input_keys)
         return PlanStepSpec(
             step_key="step_memory_candidate_stage",
@@ -444,66 +407,20 @@ class PlannerService:
             },
         )
 
-    def _human_review_metadata(self, contract: TaskContract) -> dict[str, object]:
-        human_review_role = str(contract.budget_policy_json.get("human_review_role") or "").strip()
-        human_review_task_type = str(
-            contract.budget_policy_json.get("human_review_task_type") or "communications_review"
-        ).strip()
-        human_review_brief = str(
-            contract.budget_policy_json.get("human_review_brief")
-            or "Review the prepared rewrite before finalizing the artifact."
-        ).strip()
-        human_review_priority = str(contract.budget_policy_json.get("human_review_priority") or "normal").strip() or "normal"
-        human_review_sla_minutes = _policy_int(contract.budget_policy_json.get("human_review_sla_minutes"), default=0)
-        human_review_auto_assign_if_unique = _policy_bool(
-            contract.budget_policy_json.get("human_review_auto_assign_if_unique"),
-            default=False,
-        )
-        human_review_authority_required = str(
-            contract.budget_policy_json.get("human_review_authority_required") or ""
-        ).strip()
-        human_review_why_human = str(
-            contract.budget_policy_json.get("human_review_why_human")
-            or "Human judgment is required before finalizing this review-sensitive rewrite."
-        ).strip()
-        raw_human_review_output = contract.budget_policy_json.get("human_review_desired_output_json")
-        human_review_desired_output_json = (
-            {str(key): value for key, value in raw_human_review_output.items()}
-            if isinstance(raw_human_review_output, dict)
-            else {}
-        )
-        if not str(human_review_desired_output_json.get("format") or "").strip():
-            human_review_desired_output_json["format"] = "review_packet"
-        raw_human_review_rubric = contract.budget_policy_json.get("human_review_quality_rubric_json")
-        human_review_quality_rubric_json = (
-            {str(key): value for key, value in raw_human_review_rubric.items()}
-            if isinstance(raw_human_review_rubric, dict)
-            else {}
-        )
-        return {
-            "role": human_review_role,
-            "task_type": human_review_task_type,
-            "brief": human_review_brief,
-            "priority": human_review_priority,
-            "sla_minutes": human_review_sla_minutes,
-            "auto_assign_if_unique": human_review_auto_assign_if_unique,
-            "desired_output_json": human_review_desired_output_json,
-            "authority_required": human_review_authority_required,
-            "why_human": human_review_why_human,
-            "quality_rubric_json": human_review_quality_rubric_json,
-        }
+    def _human_review_metadata(self, contract: TaskContract) -> TaskContractHumanReviewPolicy:
+        return contract.runtime_policy().human_review
 
     def _build_human_review_step(
         self,
         intent: IntentSpecV3,
         *,
         depends_on: tuple[str, ...],
-        metadata: dict[str, object],
+        metadata: TaskContractHumanReviewPolicy,
     ) -> PlanStepSpec | None:
-        human_review_role = str(metadata.get("role") or "").strip()
+        human_review_role = str(metadata.role or "").strip()
         if not human_review_role:
             return None
-        human_review_sla_minutes = _policy_int(metadata.get("sla_minutes"), default=0)
+        human_review_sla_minutes = int(metadata.sla_minutes)
         return PlanStepSpec(
             step_key="step_human_review",
             step_kind="human_task",
@@ -523,16 +440,16 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=("normalized_text",),
             output_keys=("human_resolution", "human_returned_payload_json"),
-            task_type=str(metadata.get("task_type") or "communications_review"),
+            task_type=str(metadata.task_type or "communications_review"),
             role_required=human_review_role,
-            brief=str(metadata.get("brief") or "Review the prepared rewrite before finalizing the artifact."),
-            priority=str(metadata.get("priority") or "normal"),
+            brief=str(metadata.brief or "Review the prepared rewrite before finalizing the artifact."),
+            priority=str(metadata.priority or "normal"),
             sla_minutes=human_review_sla_minutes,
-            auto_assign_if_unique=_policy_bool(metadata.get("auto_assign_if_unique"), default=False),
-            desired_output_json=dict(metadata.get("desired_output_json") or {}),
-            authority_required=str(metadata.get("authority_required") or ""),
-            why_human=str(metadata.get("why_human") or ""),
-            quality_rubric_json=dict(metadata.get("quality_rubric_json") or {}),
+            auto_assign_if_unique=bool(metadata.auto_assign_if_unique),
+            desired_output_json=dict(metadata.desired_output_json or {}),
+            authority_required=str(metadata.authority_required or ""),
+            why_human=str(metadata.why_human or ""),
+            quality_rubric_json=dict(metadata.quality_rubric_json or {}),
         )
 
     def _resolve_post_artifact_packs(
@@ -541,12 +458,11 @@ class PlannerService:
         *,
         fallback: tuple[str, ...] = (),
     ) -> tuple[str, ...]:
-        raw_packs = contract.budget_policy_json.get("post_artifact_packs")
-        values: list[str] = []
-        if isinstance(raw_packs, (list, tuple)):
-            values = [str(value or "").strip().lower() for value in raw_packs if str(value or "").strip()]
-        elif isinstance(raw_packs, str) and raw_packs.strip():
-            values = [raw_packs.strip().lower()]
+        values = [
+            str(value or "").strip().lower()
+            for value in contract.runtime_policy().post_artifact_packs
+            if str(value or "").strip()
+        ]
         if not values:
             values = [str(value or "").strip().lower() for value in fallback if str(value or "").strip()]
         resolved: list[str] = []
@@ -738,7 +654,7 @@ class PlannerService:
         )
 
     def _workflow_template_key(self, contract: TaskContract) -> str:
-        return str(contract.budget_policy_json.get("workflow_template") or "rewrite").strip().lower() or "rewrite"
+        return contract.runtime_policy().workflow_template_key
 
     def _steps_for_contract(self, intent: IntentSpecV3, contract: TaskContract) -> tuple[PlanStepSpec, ...]:
         workflow_template = self._workflow_template_key(contract)
@@ -755,7 +671,7 @@ class PlannerService:
         goal: str,
     ) -> IntentSpecV3:
         contract = self._task_contracts.contract_or_default(task_key)
-        budget_class = str(contract.budget_policy_json.get("class") or "low")
+        budget_class = str(contract.runtime_policy().budget_class or "low")
         return IntentSpecV3(
             principal_id=self._require_principal_id(principal_id),
             goal=str(goal or ""),

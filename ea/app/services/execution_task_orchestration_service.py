@@ -164,7 +164,7 @@ class ExecutionTaskOrchestrationService:
         deliverable_type = str(contract.deliverable_type if contract is not None else "generic_artifact") or "generic_artifact"
         default_risk_class = str(contract.default_risk_class if contract is not None else "low") or "low"
         default_approval_class = str(contract.default_approval_class if contract is not None else "none") or "none"
-        budget_class = str((contract.budget_policy_json if contract is not None else {}).get("class") or "low")
+        budget_class = str((contract.runtime_policy().budget_class if contract is not None else "low") or "low")
         allowed_tools = (
             tuple(str(value) for value in contract.allowed_tools) if contract is not None else ("artifact_repository",)
         )

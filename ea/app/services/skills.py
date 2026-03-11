@@ -2,26 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.models import SkillContract, TaskContract
+from app.domain.models import SkillContract, TaskContract, TaskContractSkillCatalogPolicy
 from app.services.task_contracts import TaskContractService
-
-
-def _as_string_tuple(values: object) -> tuple[str, ...]:
-    if not isinstance(values, (list, tuple)):
-        return ()
-    return tuple(str(value or "").strip() for value in values if str(value or "").strip())
-
-
-def _as_dict(value: object) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return dict(value)
-    return {}
-
-
-def _as_json_object_tuple(values: object) -> tuple[dict[str, Any], ...]:
-    if not isinstance(values, (list, tuple)):
-        return ()
-    return tuple(_as_dict(value) for value in values)
 
 
 def _collect_string_values(value: object) -> tuple[str, ...]:
@@ -52,20 +34,16 @@ class SkillCatalogService:
     def __init__(self, task_contracts: TaskContractService) -> None:
         self._task_contracts = task_contracts
 
-    def _skill_meta(self, contract: TaskContract) -> dict[str, Any]:
-        raw = dict(contract.budget_policy_json or {}).get("skill_catalog_json")
-        if isinstance(raw, dict):
-            return dict(raw)
-        return {}
+    def _skill_meta(self, contract: TaskContract) -> TaskContractSkillCatalogPolicy:
+        return contract.runtime_policy().skill_catalog
 
     def _workflow_template(self, contract: TaskContract) -> str:
-        return str(dict(contract.budget_policy_json or {}).get("workflow_template") or "rewrite").strip() or "rewrite"
+        return str(contract.runtime_policy().workflow_template or "rewrite").strip() or "rewrite"
 
     def _derive_input_schema(self, contract: TaskContract) -> dict[str, Any]:
+        policy = contract.runtime_policy()
         workflow_template = self._workflow_template(contract)
-        pre_artifact_tool_name = str(
-            dict(contract.budget_policy_json or {}).get("pre_artifact_tool_name") or ""
-        ).strip()
+        pre_artifact_tool_name = str(policy.pre_artifact_tool_name or "").strip()
         if workflow_template == "browseract_extract_then_artifact" or (
             workflow_template == "tool_then_artifact"
             and pre_artifact_tool_name in {"browseract.extract_account_facts", "browseract.extract_account_inventory"}
@@ -107,43 +85,43 @@ class SkillCatalogService:
     def _derive_memory_writes(self, contract: TaskContract) -> tuple[str, ...]:
         if str(contract.memory_write_policy or "none").strip() == "none":
             return ()
-        category = str(dict(contract.budget_policy_json or {}).get("memory_candidate_category") or "").strip()
+        category = str(contract.runtime_policy().memory_candidate.category or "").strip()
         if category:
             return (category,)
         return (contract.memory_write_policy,)
 
     def _derive_human_policy(self, contract: TaskContract) -> dict[str, Any]:
-        budget = dict(contract.budget_policy_json or {})
-        if not str(budget.get("human_review_role") or "").strip():
+        human_review = contract.runtime_policy().human_review
+        if not str(human_review.role or "").strip():
             return {}
         return {
-            "role_required": str(budget.get("human_review_role") or "").strip(),
-            "task_type": str(budget.get("human_review_task_type") or "").strip(),
-            "priority": str(budget.get("human_review_priority") or "").strip(),
-            "sla_minutes": int(budget.get("human_review_sla_minutes") or 0),
-            "authority_required": str(budget.get("human_review_authority_required") or "").strip(),
+            "role_required": str(human_review.role or "").strip(),
+            "task_type": str(human_review.task_type or "").strip(),
+            "priority": str(human_review.priority or "").strip(),
+            "sla_minutes": int(human_review.sla_minutes),
+            "authority_required": str(human_review.authority_required or "").strip(),
         }
 
     def contract_to_skill(self, contract: TaskContract) -> SkillContract:
         meta = self._skill_meta(contract)
         workflow_template = self._workflow_template(contract)
-        skill_key = str(meta.get("skill_key") or contract.task_key).strip() or contract.task_key
-        input_schema_json = _as_dict(meta.get("input_schema_json")) or self._derive_input_schema(contract)
-        output_schema_json = _as_dict(meta.get("output_schema_json")) or self._derive_output_schema(contract)
-        authority_profile_json = _as_dict(meta.get("authority_profile_json")) or {
+        skill_key = str(meta.skill_key or contract.task_key).strip() or contract.task_key
+        input_schema_json = dict(meta.input_schema_json or {}) or self._derive_input_schema(contract)
+        output_schema_json = dict(meta.output_schema_json or {}) or self._derive_output_schema(contract)
+        authority_profile_json = dict(meta.authority_profile_json or {}) or {
             "default_approval_class": contract.default_approval_class,
             "workflow_template": workflow_template,
         }
-        provider_hints_json = _as_dict(meta.get("provider_hints_json"))
-        tool_policy_json = _as_dict(meta.get("tool_policy_json")) or {
+        provider_hints_json = dict(meta.provider_hints_json or {})
+        tool_policy_json = dict(meta.tool_policy_json or {}) or {
             "allowed_tools": list(contract.allowed_tools),
         }
-        human_policy_json = _as_dict(meta.get("human_policy_json")) or self._derive_human_policy(contract)
+        human_policy_json = dict(meta.human_policy_json or {}) or self._derive_human_policy(contract)
         return SkillContract(
             skill_key=skill_key,
             task_key=contract.task_key,
-            name=str(meta.get("name") or _title_from_key(skill_key)).strip() or _title_from_key(skill_key),
-            description=str(meta.get("description") or f"Skill wrapper for task contract `{contract.task_key}`.").strip(),
+            name=str(meta.name or _title_from_key(skill_key)).strip() or _title_from_key(skill_key),
+            description=str(meta.description or f"Skill wrapper for task contract `{contract.task_key}`.").strip(),
             deliverable_type=contract.deliverable_type,
             default_risk_class=contract.default_risk_class,
             default_approval_class=contract.default_approval_class,
@@ -151,17 +129,17 @@ class SkillCatalogService:
             allowed_tools=tuple(contract.allowed_tools or ()),
             evidence_requirements=tuple(contract.evidence_requirements or ()),
             memory_write_policy=contract.memory_write_policy,
-            memory_reads=_as_string_tuple(meta.get("memory_reads")) or tuple(contract.evidence_requirements or ()),
-            memory_writes=_as_string_tuple(meta.get("memory_writes")) or self._derive_memory_writes(contract),
-            tags=_as_string_tuple(meta.get("tags")) or (workflow_template, contract.deliverable_type),
+            memory_reads=tuple(meta.memory_reads or ()) or tuple(contract.evidence_requirements or ()),
+            memory_writes=tuple(meta.memory_writes or ()) or self._derive_memory_writes(contract),
+            tags=tuple(meta.tags or ()) or (workflow_template, contract.deliverable_type),
             input_schema_json=input_schema_json,
             output_schema_json=output_schema_json,
             authority_profile_json=authority_profile_json,
-            model_policy_json=_as_dict(meta.get("model_policy_json")),
+            model_policy_json=dict(meta.model_policy_json or {}),
             provider_hints_json=provider_hints_json,
             tool_policy_json=tool_policy_json,
             human_policy_json=human_policy_json,
-            evaluation_cases_json=_as_json_object_tuple(meta.get("evaluation_cases_json")),
+            evaluation_cases_json=tuple(dict(value) for value in meta.evaluation_cases_json),
             updated_at=contract.updated_at,
         )
 

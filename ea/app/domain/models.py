@@ -475,6 +475,223 @@ class ConnectorBinding:
     updated_at: str
 
 
+def _policy_int(value: object, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
+
+
+def _policy_float(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed < 0:
+        return default
+    if parsed > 1:
+        return 1.0
+    return parsed
+
+
+def _policy_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _policy_dict(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {str(key): nested for key, nested in value.items()}
+    return {}
+
+
+def _policy_string_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple, set)):
+        return ()
+    return tuple(str(candidate or "").strip() for candidate in value if str(candidate or "").strip())
+
+
+def _policy_json_object_tuple(value: object) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(_policy_dict(candidate) for candidate in value if isinstance(candidate, dict))
+
+
+@dataclass(frozen=True)
+class TaskContractRetryPolicy:
+    failure_strategy: str = "fail"
+    max_attempts: int = 1
+    retry_backoff_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class TaskContractHumanReviewPolicy:
+    role: str = ""
+    task_type: str = "communications_review"
+    brief: str = "Review the prepared rewrite before finalizing the artifact."
+    priority: str = "normal"
+    sla_minutes: int = 0
+    auto_assign_if_unique: bool = False
+    desired_output_json: dict[str, Any] = field(default_factory=dict)
+    authority_required: str = ""
+    why_human: str = "Human judgment is required before finalizing this review-sensitive rewrite."
+    quality_rubric_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TaskContractMemoryCandidatePolicy:
+    category: str = ""
+    sensitivity: str = "internal"
+    confidence: float = 0.5
+
+
+@dataclass(frozen=True)
+class TaskContractArtifactOutputPolicy:
+    template: str = ""
+    default_confidence: float = 0.5
+
+
+@dataclass(frozen=True)
+class TaskContractSkillCatalogPolicy:
+    skill_key: str = ""
+    name: str = ""
+    description: str = ""
+    memory_reads: tuple[str, ...] = ()
+    memory_writes: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+    input_schema_json: dict[str, Any] = field(default_factory=dict)
+    output_schema_json: dict[str, Any] = field(default_factory=dict)
+    authority_profile_json: dict[str, Any] = field(default_factory=dict)
+    model_policy_json: dict[str, Any] = field(default_factory=dict)
+    provider_hints_json: dict[str, Any] = field(default_factory=dict)
+    tool_policy_json: dict[str, Any] = field(default_factory=dict)
+    human_policy_json: dict[str, Any] = field(default_factory=dict)
+    evaluation_cases_json: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class TaskContractRuntimePolicy:
+    budget_class: str = "low"
+    workflow_template: str = "rewrite"
+    pre_artifact_tool_name: str = ""
+    browseract_timeout_budget_seconds: int = 120
+    post_artifact_packs: tuple[str, ...] = ()
+    artifact_retry: TaskContractRetryPolicy = field(default_factory=TaskContractRetryPolicy)
+    dispatch_retry: TaskContractRetryPolicy = field(default_factory=TaskContractRetryPolicy)
+    browseract_retry: TaskContractRetryPolicy = field(default_factory=TaskContractRetryPolicy)
+    human_review: TaskContractHumanReviewPolicy = field(default_factory=TaskContractHumanReviewPolicy)
+    memory_candidate: TaskContractMemoryCandidatePolicy = field(default_factory=TaskContractMemoryCandidatePolicy)
+    artifact_output: TaskContractArtifactOutputPolicy = field(default_factory=TaskContractArtifactOutputPolicy)
+    skill_catalog: TaskContractSkillCatalogPolicy = field(default_factory=TaskContractSkillCatalogPolicy)
+
+    @property
+    def workflow_template_key(self) -> str:
+        return str(self.workflow_template or "rewrite").strip().lower() or "rewrite"
+
+
+def parse_task_contract_runtime_policy(
+    budget_policy_json: dict[str, Any] | None,
+) -> TaskContractRuntimePolicy:
+    metadata = dict(budget_policy_json or {})
+
+    def _retry(prefix: str) -> TaskContractRetryPolicy:
+        failure_strategy = str(metadata.get(f"{prefix}_failure_strategy") or "fail").strip().lower() or "fail"
+        if failure_strategy not in {"fail", "retry", "fallback_human", "skip"}:
+            failure_strategy = "fail"
+        return TaskContractRetryPolicy(
+            failure_strategy=failure_strategy,
+            max_attempts=max(1, _policy_int(metadata.get(f"{prefix}_max_attempts"), default=1)),
+            retry_backoff_seconds=_policy_int(metadata.get(f"{prefix}_retry_backoff_seconds"), default=0),
+        )
+
+    raw_human_output = _policy_dict(metadata.get("human_review_desired_output_json"))
+    if not str(raw_human_output.get("format") or "").strip():
+        raw_human_output["format"] = "review_packet"
+
+    raw_skill_catalog = _policy_dict(metadata.get("skill_catalog_json"))
+
+    memory_reads = _policy_string_tuple(raw_skill_catalog.get("memory_reads"))
+    memory_writes = _policy_string_tuple(raw_skill_catalog.get("memory_writes"))
+    tags = _policy_string_tuple(raw_skill_catalog.get("tags"))
+    evaluation_cases_json = _policy_json_object_tuple(raw_skill_catalog.get("evaluation_cases_json"))
+
+    raw_packs = metadata.get("post_artifact_packs")
+    if isinstance(raw_packs, (list, tuple)):
+        post_artifact_packs = tuple(str(value or "").strip().lower() for value in raw_packs if str(value or "").strip())
+    elif isinstance(raw_packs, str) and raw_packs.strip():
+        post_artifact_packs = (raw_packs.strip().lower(),)
+    else:
+        post_artifact_packs = ()
+
+    return TaskContractRuntimePolicy(
+        budget_class=str(metadata.get("class") or "low"),
+        workflow_template=str(metadata.get("workflow_template") or "rewrite").strip() or "rewrite",
+        pre_artifact_tool_name=str(metadata.get("pre_artifact_tool_name") or "").strip(),
+        browseract_timeout_budget_seconds=max(
+            1,
+            _policy_int(metadata.get("browseract_timeout_budget_seconds"), default=120),
+        ),
+        post_artifact_packs=post_artifact_packs,
+        artifact_retry=_retry("artifact"),
+        dispatch_retry=_retry("dispatch"),
+        browseract_retry=_retry("browseract"),
+        human_review=TaskContractHumanReviewPolicy(
+            role=str(metadata.get("human_review_role") or "").strip(),
+            task_type=str(metadata.get("human_review_task_type") or "communications_review").strip(),
+            brief=str(
+                metadata.get("human_review_brief")
+                or "Review the prepared rewrite before finalizing the artifact."
+            ).strip(),
+            priority=str(metadata.get("human_review_priority") or "normal").strip() or "normal",
+            sla_minutes=_policy_int(metadata.get("human_review_sla_minutes"), default=0),
+            auto_assign_if_unique=_policy_bool(metadata.get("human_review_auto_assign_if_unique"), default=False),
+            desired_output_json=raw_human_output,
+            authority_required=str(metadata.get("human_review_authority_required") or "").strip(),
+            why_human=str(
+                metadata.get("human_review_why_human")
+                or "Human judgment is required before finalizing this review-sensitive rewrite."
+            ).strip(),
+            quality_rubric_json=_policy_dict(metadata.get("human_review_quality_rubric_json")),
+        ),
+        memory_candidate=TaskContractMemoryCandidatePolicy(
+            category=str(metadata.get("memory_candidate_category") or "").strip(),
+            sensitivity=str(metadata.get("memory_candidate_sensitivity") or "internal").strip() or "internal",
+            confidence=_policy_float(metadata.get("memory_candidate_confidence"), default=0.5),
+        ),
+        artifact_output=TaskContractArtifactOutputPolicy(
+            template=str(
+                metadata.get("artifact_output_template")
+                or metadata.get("structured_output_template")
+                or ""
+            ).strip().lower(),
+            default_confidence=_policy_float(metadata.get("evidence_pack_confidence"), default=0.5),
+        ),
+        skill_catalog=TaskContractSkillCatalogPolicy(
+            skill_key=str(raw_skill_catalog.get("skill_key") or "").strip(),
+            name=str(raw_skill_catalog.get("name") or "").strip(),
+            description=str(raw_skill_catalog.get("description") or "").strip(),
+            memory_reads=memory_reads,
+            memory_writes=memory_writes,
+            tags=tags,
+            input_schema_json=_policy_dict(raw_skill_catalog.get("input_schema_json")),
+            output_schema_json=_policy_dict(raw_skill_catalog.get("output_schema_json")),
+            authority_profile_json=_policy_dict(raw_skill_catalog.get("authority_profile_json")),
+            model_policy_json=_policy_dict(raw_skill_catalog.get("model_policy_json")),
+            provider_hints_json=_policy_dict(raw_skill_catalog.get("provider_hints_json")),
+            tool_policy_json=_policy_dict(raw_skill_catalog.get("tool_policy_json")),
+            human_policy_json=_policy_dict(raw_skill_catalog.get("human_policy_json")),
+            evaluation_cases_json=evaluation_cases_json,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class TaskContract:
     task_key: str
@@ -486,6 +703,9 @@ class TaskContract:
     memory_write_policy: str
     budget_policy_json: dict[str, Any]
     updated_at: str
+
+    def runtime_policy(self) -> TaskContractRuntimePolicy:
+        return parse_task_contract_runtime_policy(self.budget_policy_json)
 
 
 @dataclass(frozen=True)
