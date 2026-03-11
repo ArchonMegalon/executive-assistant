@@ -37,6 +37,11 @@ class ExecutionApprovalResumeService:
                 return True
         return False
 
+    @staticmethod
+    def _is_missing_ready_step_error(exc: RuntimeError) -> bool:
+        message = str(exc or "").strip().lower()
+        return "did not resolve a ready step" in message
+
     def decide_approval(
         self,
         approval_id: str,
@@ -79,7 +84,17 @@ class ExecutionApprovalResumeService:
                 {"approval_id": request.approval_id, "step_id": request.step_id},
             )
             if updated_step is not None:
-                self._execute_next_ready_step(request.session_id)
+                try:
+                    self._execute_next_ready_step(request.session_id)
+                except RuntimeError as exc:
+                    if not self._is_missing_ready_step_error(exc):
+                        raise
+                    snapshot = self._fetch_session(request.session_id)
+                    if snapshot is None:
+                        raise
+                    if self._delayed_retry_queue_item(snapshot) is not None or self._has_pending_queue_work(snapshot):
+                        return request, decision_row
+                    raise
                 snapshot = self._fetch_session(request.session_id)
                 if snapshot is None:
                     return request, decision_row
