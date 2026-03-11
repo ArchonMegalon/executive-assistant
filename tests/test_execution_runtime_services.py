@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.domain.models import Artifact, ExecutionStep, HumanTask, IntentSpecV3, PolicyDecision, ToolInvocationResult
 from app.services.execution_async_state_service import ExecutionAsyncStateService
+from app.services.execution_approval_resume_service import ExecutionApprovalResumeService
 from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
 from app.services.execution_approval_pause_service import ExecutionApprovalPauseService
 from app.services.execution_human_task_step_service import ExecutionHumanTaskStepService
@@ -227,6 +228,78 @@ def test_execution_human_task_step_service_starts_and_auto_assigns_human_task() 
     assert row.assignment_state == "assigned"
     assert row.assigned_operator_id == "operator-1"
     assert events[-1][1] == "human_task_step_started"
+
+
+def test_execution_approval_resume_service_keeps_queued_follow_on_work() -> None:
+    service = ExecutionApprovalResumeService(
+        decide_approval=lambda approval_id, decision, decided_by, reason: (
+            type("ApprovalRequestStub", (), {"approval_id": approval_id, "session_id": "session-1", "step_id": "step-1"})(),
+            type(
+                "ApprovalDecisionStub",
+                (),
+                {"decision_id": "decision-1", "approval_id": approval_id, "decision": "approved", "decided_by": decided_by, "reason": reason},
+            )(),
+        ),
+        append_event=lambda session_id, name, payload: None,
+        update_step=lambda step_id, **kwargs: type("ExecutionStepStub", (), {"step_id": step_id})(),
+        set_session_status=lambda session_id, status: None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {
+                "session": type("SessionStub", (), {"session_id": session_id, "status": "running"})(),
+                "queue_items": [type("QueueItemStub", (), {"queue_id": "queue-1", "state": "queued"})()],
+            },
+        )(),
+        delayed_retry_queue_item=lambda snapshot: None,
+    )
+
+    found = service.decide_approval(
+        "approval-1",
+        decision="approved",
+        decided_by="operator-1",
+        reason="looks good",
+    )
+
+    assert found is not None
+
+
+def test_execution_approval_resume_service_raises_without_async_or_queued_continuation() -> None:
+    service = ExecutionApprovalResumeService(
+        decide_approval=lambda approval_id, decision, decided_by, reason: (
+            type("ApprovalRequestStub", (), {"approval_id": approval_id, "session_id": "session-1", "step_id": "step-1"})(),
+            type(
+                "ApprovalDecisionStub",
+                (),
+                {"decision_id": "decision-1", "approval_id": approval_id, "decision": "approved", "decided_by": decided_by, "reason": reason},
+            )(),
+        ),
+        append_event=lambda session_id, name, payload: None,
+        update_step=lambda step_id, **kwargs: type("ExecutionStepStub", (), {"step_id": step_id})(),
+        set_session_status=lambda session_id, status: None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {
+                "session": type("SessionStub", (), {"session_id": session_id, "status": "running"})(),
+                "queue_items": [type("QueueItemStub", (), {"queue_id": "queue-1", "state": "done"})()],
+            },
+        )(),
+        delayed_retry_queue_item=lambda snapshot: None,
+    )
+
+    try:
+        service.decide_approval(
+            "approval-1",
+            decision="approved",
+            decided_by="operator-1",
+            reason="looks good",
+        )
+        assert False, "expected approved queue item guard to raise"
+    except RuntimeError as exc:
+        assert "approved queue item did not execute: session-1" in str(exc)
 
 
 def test_execution_step_runtime_service_completes_input_prepare_with_evidence_pack_projection() -> None:

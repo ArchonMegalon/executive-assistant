@@ -28,6 +28,15 @@ class ExecutionApprovalResumeService:
         self._fetch_session = fetch_session
         self._delayed_retry_queue_item = delayed_retry_queue_item
 
+    @staticmethod
+    def _has_pending_queue_work(snapshot: Any) -> bool:
+        queue_items = list(getattr(snapshot, "queue_items", []) or [])
+        for row in queue_items:
+            state = str(getattr(row, "state", "") or "").strip().lower()
+            if state in {"queued", "leased", "running", "retry_scheduled"}:
+                return True
+        return False
+
     def decide_approval(
         self,
         approval_id: str,
@@ -77,6 +86,8 @@ class ExecutionApprovalResumeService:
                 if snapshot.session.status in {"awaiting_human", "awaiting_approval", "completed"}:
                     return request, decision_row
                 if self._delayed_retry_queue_item(snapshot) is not None:
+                    return request, decision_row
+                if self._has_pending_queue_work(snapshot):
                     return request, decision_row
                 raise RuntimeError(f"approved queue item did not execute: {request.session_id}")
         else:
