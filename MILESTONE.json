@@ -248,6 +248,9 @@
     {
       "name": "startup_authoritative_runtime_profile",
       "status": "planned",
+      "task_refs": [
+        "Q-446"
+      ],
       "scope": [
         "single_runtime_profile_resolution",
         "durability_and_auth_coherence_contract",
