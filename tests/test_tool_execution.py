@@ -651,7 +651,7 @@ def test_connector_dispatch_executor_prefers_scope_validation_before_channel_val
 
     with pytest.raises(
         ToolExecutionError,
-        match="principal_scope_mismatch",
+        match=f"connector_binding_scope_mismatch:{binding.binding_id}:push,push.send",
     ):
         service.execute_invocation(
             ToolInvocationRequest(
@@ -1003,6 +1003,7 @@ def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
                 action_kind="account.extract",
                 payload_json={
                     "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
                     "service_name": "Teable",
                 },
                 context_json={"principal_id": "exec-1"},
