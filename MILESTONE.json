@@ -246,6 +246,16 @@
       "notes": "Setting `EA_RUNTIME_MODE=prod` now forces durable Postgres boot, rejects memory/auto fallback degradation, and is pinned by the approved Postgres smoke path plus release/operator guards as current branch baseline behavior."
     },
     {
+      "name": "startup_authoritative_runtime_profile",
+      "status": "planned",
+      "scope": [
+        "single_runtime_profile_resolution",
+        "durability_and_auth_coherence_contract",
+        "startup_profile_readiness_projection"
+      ],
+      "notes": "Startup still resolves storage durability and auth dependency posture through multiple fallback paths, so the runtime can surface mixed profiles; planned work is to resolve one authoritative runtime profile at bootstrap and have service startup/readiness consume that exact profile contract."
+    },
+    {
       "name": "principal_request_context_guardrails",
       "status": "released",
       "scope": [
