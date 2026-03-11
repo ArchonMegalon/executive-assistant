@@ -31,10 +31,11 @@ class ExecutionApprovalResumeService:
 
     @staticmethod
     def _has_pending_queue_work(snapshot: Any) -> bool:
+        terminal_states = {"done", "failed", "cancelled"}
         queue_items = list(getattr(snapshot, "queue_items", []) or [])
         for row in queue_items:
             state = str(getattr(row, "state", "") or "").strip().lower()
-            if state in {"queued", "leased", "running", "retry_scheduled"}:
+            if state and state not in terminal_states:
                 return True
         return False
 

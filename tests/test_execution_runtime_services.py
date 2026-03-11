@@ -372,6 +372,41 @@ def test_execution_approval_resume_service_keeps_queued_work_when_ready_step_alr
     assert found is not None
 
 
+def test_execution_approval_resume_service_keeps_unknown_nonterminal_queue_state() -> None:
+    service = ExecutionApprovalResumeService(
+        decide_approval=lambda approval_id, decision, decided_by, reason: (
+            type("ApprovalRequestStub", (), {"approval_id": approval_id, "session_id": "session-1", "step_id": "step-1"})(),
+            type(
+                "ApprovalDecisionStub",
+                (),
+                {"decision_id": "decision-1", "approval_id": approval_id, "decision": "approved", "decided_by": decided_by, "reason": reason},
+            )(),
+        ),
+        append_event=lambda session_id, name, payload: None,
+        update_step=lambda step_id, **kwargs: type("ExecutionStepStub", (), {"step_id": step_id})(),
+        set_session_status=lambda session_id, status: None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {
+                "session": type("SessionStub", (), {"session_id": session_id, "status": "running"})(),
+                "queue_items": [type("QueueItemStub", (), {"queue_id": "queue-1", "state": "waiting_retry"})()],
+            },
+        )(),
+        delayed_retry_queue_item=lambda snapshot: None,
+    )
+
+    found = service.decide_approval(
+        "approval-1",
+        decision="approved",
+        decided_by="operator-1",
+        reason="looks good",
+    )
+
+    assert found is not None
+
+
 def test_execution_approval_resume_service_raises_without_async_or_queued_continuation() -> None:
     service = ExecutionApprovalResumeService(
         decide_approval=lambda approval_id, decision, decided_by, reason: (
