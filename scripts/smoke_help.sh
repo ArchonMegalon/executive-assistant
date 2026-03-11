@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Usage:
@@ -34,7 +36,7 @@ SCRIPTS=(
 
 for s in "${SCRIPTS[@]}"; do
   echo "== help smoke: ${s} =="
-  out="$(bash "${s}" --help)"
+  out="$(bash "${EA_ROOT}/${s}" --help)"
   if [[ "${out}" != *"Usage:"* ]]; then
     echo "missing Usage header in ${s} --help output" >&2
     exit 21
