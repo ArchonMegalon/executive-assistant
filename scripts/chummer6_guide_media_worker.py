@@ -18,6 +18,7 @@ from pathlib import Path
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
+MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 DEFAULT_PROVIDER_ORDER = [
     "magixai",
@@ -248,6 +249,73 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int)
     raise RuntimeError("no image provider succeeded: " + " || ".join(attempts))
 
 
+def asset_specs() -> list[dict[str, object]]:
+    specs: list[dict[str, object]] = [
+        {
+            "target": "assets/hero/chummer6-hero.png",
+            "prompt": "Wide cinematic cyberpunk concept-art banner for a software guide repo called Chummer6, shadowrun-inspired but original, a battered commlink and cyberdeck on a rainy alley crate, holographic character sheets and repo cards floating above it, gritty neon cyan and magenta lighting, dark humor, dangerous but inviting, strong center composition, no text, no logo, no watermark, 16:9",
+            "width": 1280,
+            "height": 720,
+        }
+    ]
+    for slug, item in GUIDE.HORIZONS.items():
+        prompt = str(item.get("prompt", "")).strip()
+        if not prompt:
+            continue
+        specs.append(
+            {
+                "target": f"assets/horizons/{slug}.png",
+                "prompt": prompt,
+                "width": 1280,
+                "height": 720,
+            }
+        )
+    return specs
+
+
+def render_pack(*, output_dir: Path) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    assets: list[dict[str, object]] = []
+    for spec in asset_specs():
+        target = str(spec["target"])
+        prompt = str(spec["prompt"])
+        width = int(spec.get("width", 1280))
+        height = int(spec.get("height", 720))
+        out_path = output_dir / target
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        result = render_with_ooda(prompt=prompt, output_path=out_path, width=width, height=height)
+        assets.append(
+            {
+                "target": target,
+                "output": str(out_path),
+                "provider": result["provider"],
+                "status": result["status"],
+                "attempts": result["attempts"],
+            }
+        )
+    manifest = {
+        "output_dir": str(output_dir),
+        "assets": assets,
+    }
+    MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_OUT.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    STATE_OUT.write_text(
+        json.dumps(
+            {
+                "output": str(output_dir),
+                "provider": assets[0]["provider"] if assets else "none",
+                "status": f"pack:rendered:{len(assets)}",
+                "attempts": [asset["status"] for asset in assets],
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render a Chummer6 guide asset through EA provider selection.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -256,7 +324,14 @@ def main() -> int:
     render.add_argument("--output", required=True)
     render.add_argument("--width", type=int, default=1280)
     render.add_argument("--height", type=int, default=720)
+    render_pack_parser = sub.add_parser("render-pack")
+    render_pack_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
     args = parser.parse_args()
+
+    if args.command == "render-pack":
+        manifest = render_pack(output_dir=Path(args.output_dir).expanduser())
+        print(json.dumps({"output_dir": manifest["output_dir"], "assets": len(manifest["assets"]), "status": "rendered"}))
+        return 0
 
     output_path = Path(args.output).expanduser()
     result = render_with_ooda(prompt=str(args.prompt), output_path=output_path, width=int(args.width), height=int(args.height))
