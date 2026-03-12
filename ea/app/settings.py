@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 def _to_int(raw: str, default: int) -> int:
@@ -58,6 +58,22 @@ class ChannelSettings:
 
 
 @dataclass(frozen=True)
+class RuntimeProfile:
+    mode: str
+    storage_backend: str
+    durability: str
+    auth_mode: str
+    principal_source: str
+    database_required: bool
+    database_configured: bool
+    source_backend: str
+
+    @property
+    def caller_principal_header_allowed(self) -> bool:
+        return self.auth_mode == "token"
+
+
+@dataclass(frozen=True)
 class Settings:
     core: CoreSettings
     runtime: RuntimeSettings
@@ -66,7 +82,6 @@ class Settings:
     policy: PolicySettings
     channels: ChannelSettings
 
-    # Compatibility helpers for existing call sites.
     @property
     def app_name(self) -> str:
         return self.core.app_name
@@ -107,7 +122,6 @@ class Settings:
     def database_url(self) -> str:
         return self.storage.database_url
 
-    # Backward compatibility for prior naming.
     @property
     def ledger_backend(self) -> str:
         return self.storage.backend
@@ -126,6 +140,43 @@ def _runtime_mode(raw: str) -> str:
 
 def is_prod_mode(raw: str | None) -> bool:
     return str(raw or "").strip().lower() == "prod"
+
+
+def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
+    source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
+    if is_prod_mode(settings.runtime.mode):
+        return RuntimeProfile(
+            mode="prod",
+            storage_backend="postgres",
+            durability="durable",
+            auth_mode="token",
+            principal_source="authenticated_header",
+            database_required=True,
+            database_configured=bool(settings.database_url),
+            source_backend=source_backend,
+        )
+    storage_backend = "postgres" if source_backend in {"postgres"} else "memory"
+    durability = "durable" if storage_backend == "postgres" else "ephemeral"
+    if source_backend == "auto" and settings.database_url:
+        storage_backend = "postgres"
+        durability = "durable"
+    auth_mode = "token" if settings.auth.enabled else "anonymous_dev"
+    principal_source = "authenticated_header" if settings.auth.enabled else "default_principal"
+    return RuntimeProfile(
+        mode=settings.runtime.mode,
+        storage_backend=storage_backend,
+        durability=durability,
+        auth_mode=auth_mode,
+        principal_source=principal_source,
+        database_required=storage_backend == "postgres",
+        database_configured=bool(settings.database_url),
+        source_backend=source_backend,
+    )
+
+
+def settings_with_storage_backend(settings: Settings, backend: str) -> Settings:
+    normalized = str(backend or "").strip().lower() or "memory"
+    return replace(settings, storage=replace(settings.storage, backend=normalized))
 
 
 def ensure_storage_fallback_allowed(
@@ -151,6 +202,17 @@ def ensure_prod_api_token_configured(settings: Settings) -> None:
     if str(settings.auth.api_token or "").strip():
         return
     raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set")
+
+
+def validate_startup_settings(settings: Settings) -> RuntimeProfile:
+    profile = resolve_runtime_profile(settings)
+    ensure_prod_api_token_configured(settings)
+    if is_prod_mode(settings.runtime.mode):
+        if profile.storage_backend != "postgres":
+            raise RuntimeError("EA_RUNTIME_MODE=prod requires a durable postgres runtime profile")
+        if not settings.database_url:
+            raise RuntimeError("EA_RUNTIME_MODE=prod requires DATABASE_URL")
+    return profile
 
 
 def get_settings() -> Settings:
@@ -212,5 +274,5 @@ def get_settings() -> Settings:
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
     )
-    ensure_prod_api_token_configured(settings)
+    validate_startup_settings(settings)
     return settings

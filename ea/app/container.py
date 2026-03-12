@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+
 from app.repositories.artifacts import InMemoryArtifactRepository
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.commitments import InMemoryCommitmentRepository
@@ -28,11 +29,19 @@ from app.services.memory_runtime import MemoryRuntimeService, build_memory_runti
 from app.services.orchestrator import RewriteOrchestrator, build_artifact_repo, build_default_orchestrator
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService
+from app.services.provider_registry import ProviderRegistryService
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
-from app.settings import Settings, ensure_prod_api_token_configured, ensure_storage_fallback_allowed, get_settings, is_prod_mode
+from app.settings import (
+    RuntimeProfile,
+    Settings,
+    ensure_prod_api_token_configured,
+    get_settings,
+    settings_with_storage_backend,
+    validate_startup_settings,
+)
 
 
 class ReadinessService:
@@ -40,24 +49,21 @@ class ReadinessService:
         self._settings = settings
 
     def check(self) -> tuple[bool, str]:
-        backend = str(self._settings.storage.backend or "auto").strip().lower()
-        if is_prod_mode(self._settings.runtime.mode) and not str(self._settings.auth.api_token or "").strip():
-            return False, "prod_api_token_missing"
-        if is_prod_mode(self._settings.runtime.mode):
-            if backend != "postgres":
-                return False, "prod_requires_postgres_backend"
-            if not self._settings.database_url:
+        try:
+            profile = validate_startup_settings(self._settings)
+        except RuntimeError as exc:
+            message = str(exc)
+            if "EA_API_TOKEN" in message:
+                return False, "prod_api_token_missing"
+            if "DATABASE_URL" in message:
                 return False, "database_url_missing"
-            return self._probe_database()
-        if backend == "memory":
-            return True, "memory_ready"
-        if backend == "postgres":
-            if not self._settings.database_url:
-                return False, "database_url_missing"
-            return self._probe_database()
-        # auto mode: ready without DB URL (memory fallback), otherwise require DB probe.
-        if not self._settings.database_url:
+            return False, "startup_validation_failed"
+        if profile.storage_backend == "memory":
+            if str(self._settings.storage.backend or "").strip().lower() == "memory":
+                return True, "memory_ready"
             return True, "auto_memory_ready"
+        if not self._settings.database_url:
+            return False, "database_url_missing"
         return self._probe_database()
 
     def _probe_database(self) -> tuple[bool, str]:
@@ -78,6 +84,7 @@ class ReadinessService:
 @dataclass(frozen=True)
 class AppContainer:
     settings: Settings
+    runtime_profile: RuntimeProfile
     orchestrator: RewriteOrchestrator
     channel_runtime: ChannelRuntimeService
     tool_runtime: ToolRuntimeService
@@ -87,107 +94,37 @@ class AppContainer:
     task_contracts: TaskContractService
     skills: SkillCatalogService
     planner: PlannerService
+    provider_registry: ProviderRegistryService
     readiness: ReadinessService
 
 
-def build_container(settings: Settings | None = None) -> AppContainer:
-    resolved = settings or get_settings()
-    if is_prod_mode(resolved.runtime.mode):
-        ensure_prod_api_token_configured(resolved)
-    log = logging.getLogger("ea.container")
-    try:
-        artifacts = build_artifact_repo(resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "artifact repo bootstrap", exc)
-        log.warning("artifact repo bootstrap failed, using in-memory fallback: %s", exc)
-        artifacts = InMemoryArtifactRepository()
-    try:
-        task_contracts = build_task_contract_service(settings=resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "task-contract bootstrap", exc)
-        log.warning("task-contract bootstrap failed, using in-memory fallback: %s", exc)
-        from app.repositories.task_contracts import InMemoryTaskContractRepository
-
-        task_contracts = TaskContractService(InMemoryTaskContractRepository())
+def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
+    artifacts = build_artifact_repo(settings)
+    task_contracts = build_task_contract_service(settings=settings)
     planner = PlannerService(task_contracts)
     skills = SkillCatalogService(task_contracts)
-    try:
-        channel_runtime = build_channel_runtime(settings=resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "channel runtime bootstrap", exc)
-        log.warning("channel runtime bootstrap failed, using in-memory fallback: %s", exc)
-        channel_runtime = ChannelRuntimeService(
-            observations=InMemoryObservationEventRepository(),
-            outbox=InMemoryDeliveryOutboxRepository(),
-        )
-    try:
-        memory_runtime = build_memory_runtime(settings=resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "memory runtime bootstrap", exc)
-        log.warning("memory runtime bootstrap failed, using in-memory fallback: %s", exc)
-        memory_runtime = MemoryRuntimeService(
-            candidates=InMemoryMemoryCandidateRepository(),
-            items=InMemoryMemoryItemRepository(),
-            entities=InMemoryEntityRepository(),
-            relationships=InMemoryRelationshipRepository(),
-            commitments=InMemoryCommitmentRepository(),
-            communication_policies=InMemoryCommunicationPolicyRepository(),
-            decision_windows=InMemoryDecisionWindowRepository(),
-            deadline_windows=InMemoryDeadlineWindowRepository(),
-            stakeholders=InMemoryStakeholderRepository(),
-            authority_bindings=InMemoryAuthorityBindingRepository(),
-            delivery_preferences=InMemoryDeliveryPreferenceRepository(),
-            follow_ups=InMemoryFollowUpRepository(),
-            follow_up_rules=InMemoryFollowUpRuleRepository(),
-            interruption_budgets=InMemoryInterruptionBudgetRepository(),
-        )
-    try:
-        evidence_runtime = build_evidence_runtime(settings=resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "evidence runtime bootstrap", exc)
-        log.warning("evidence runtime bootstrap failed, using in-memory fallback: %s", exc)
-        evidence_runtime = EvidenceRuntimeService(InMemoryEvidenceObjectRepository())
-    try:
-        tool_runtime = build_tool_runtime(settings=resolved)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "tool runtime bootstrap", exc)
-        log.warning("tool runtime bootstrap failed, using in-memory fallback: %s", exc)
-        tool_runtime = ToolRuntimeService(
-            tool_registry=InMemoryToolRegistryRepository(),
-            connector_bindings=InMemoryConnectorBindingRepository(),
-        )
+    channel_runtime = build_channel_runtime(settings=settings)
+    memory_runtime = build_memory_runtime(settings=settings)
+    evidence_runtime = build_evidence_runtime(settings=settings)
+    tool_runtime = build_tool_runtime(settings=settings)
     tool_execution = ToolExecutionService(
         tool_runtime=tool_runtime,
         artifacts=artifacts,
         channel_runtime=channel_runtime,
         evidence_runtime=evidence_runtime,
     )
-    try:
-        orchestrator = build_default_orchestrator(
-            settings=resolved,
-            artifacts=artifacts,
-            task_contracts=task_contracts,
-            planner=planner,
-            evidence_runtime=evidence_runtime,
-            memory_runtime=memory_runtime,
-            tool_execution=tool_execution,
-        )
-    except Exception as exc:
-        ensure_storage_fallback_allowed(resolved, "orchestrator bootstrap", exc)
-        log.warning("orchestrator bootstrap failed, using in-memory fallback: %s", exc)
-        orchestrator = RewriteOrchestrator(
-            artifacts=artifacts,
-            policy=PolicyDecisionService(
-                max_rewrite_chars=resolved.policy.max_rewrite_chars,
-                approval_required_chars=resolved.policy.approval_required_chars,
-            ),
-            task_contracts=task_contracts,
-            planner=planner,
-            memory_runtime=memory_runtime,
-            tool_execution=tool_execution,
-        )
+    orchestrator = build_default_orchestrator(
+        settings=settings,
+        artifacts=artifacts,
+        task_contracts=task_contracts,
+        planner=planner,
+        evidence_runtime=evidence_runtime,
+        memory_runtime=memory_runtime,
+        tool_execution=tool_execution,
+    )
     return AppContainer(
-        settings=resolved,
+        settings=settings,
+        runtime_profile=profile,
         orchestrator=orchestrator,
         channel_runtime=channel_runtime,
         tool_runtime=tool_runtime,
@@ -197,5 +134,29 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         task_contracts=task_contracts,
         skills=skills,
         planner=planner,
-        readiness=ReadinessService(resolved),
+        provider_registry=ProviderRegistryService(),
+        readiness=ReadinessService(settings),
     )
+
+
+def build_container(settings: Settings | None = None) -> AppContainer:
+    configured = settings or get_settings()
+    profile = validate_startup_settings(configured)
+    ensure_prod_api_token_configured(configured)
+    log = logging.getLogger("ea.container")
+    if profile.storage_backend == "memory":
+        effective_settings = settings_with_storage_backend(configured, "memory")
+        memory_profile = validate_startup_settings(effective_settings)
+        return _build_container_for_settings(effective_settings, memory_profile)
+
+    effective_settings = settings_with_storage_backend(configured, "postgres")
+    postgres_profile = validate_startup_settings(effective_settings)
+    try:
+        return _build_container_for_settings(effective_settings, postgres_profile)
+    except Exception as exc:
+        if str(configured.storage.backend or "").strip().lower() == "auto" and configured.storage_fallback_allowed:
+            log.warning("postgres runtime profile unavailable, switching whole container to memory: %s", exc)
+            memory_settings = settings_with_storage_backend(configured, "memory")
+            memory_profile = validate_startup_settings(memory_settings)
+            return _build_container_for_settings(memory_settings, memory_profile)
+        raise

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.models import SkillContract, TaskContract, TaskContractSkillCatalogPolicy
+from app.domain.models import (
+    SkillContract,
+    TaskContract,
+    TaskContractRuntimePolicy,
+    TaskContractSkillCatalogPolicy,
+    parse_task_contract_runtime_policy,
+)
 from app.services.task_contracts import TaskContractService
 
 
@@ -171,24 +177,36 @@ class SkillCatalogService:
         budget_policy_json: dict[str, Any] | None = None,
     ) -> SkillContract:
         resolved_task_key = str(task_key or skill_key).strip() or str(skill_key or "").strip()
-        budget = dict(budget_policy_json or {})
-        budget["workflow_template"] = str(workflow_template or "rewrite").strip() or "rewrite"
-        budget["skill_catalog_json"] = {
-            "skill_key": str(skill_key or resolved_task_key).strip() or resolved_task_key,
-            "name": str(name or "").strip(),
-            "description": str(description or "").strip(),
-            "memory_reads": list(memory_reads),
-            "memory_writes": list(memory_writes),
-            "tags": list(tags),
-            "input_schema_json": dict(input_schema_json or {}),
-            "output_schema_json": dict(output_schema_json or {}),
-            "authority_profile_json": dict(authority_profile_json or {}),
-            "model_policy_json": dict(model_policy_json or {}),
-            "provider_hints_json": dict(provider_hints_json or {}),
-            "tool_policy_json": dict(tool_policy_json or {}),
-            "human_policy_json": dict(human_policy_json or {}),
-            "evaluation_cases_json": [dict(value) for value in evaluation_cases_json],
-        }
+        base_policy = parse_task_contract_runtime_policy(dict(budget_policy_json or {}))
+        runtime_policy = TaskContractRuntimePolicy(
+            budget_class=base_policy.budget_class,
+            workflow_template=str(workflow_template or "rewrite").strip() or "rewrite",
+            pre_artifact_tool_name=base_policy.pre_artifact_tool_name,
+            browseract_timeout_budget_seconds=base_policy.browseract_timeout_budget_seconds,
+            post_artifact_packs=base_policy.post_artifact_packs,
+            artifact_retry=base_policy.artifact_retry,
+            dispatch_retry=base_policy.dispatch_retry,
+            browseract_retry=base_policy.browseract_retry,
+            human_review=base_policy.human_review,
+            memory_candidate=base_policy.memory_candidate,
+            artifact_output=base_policy.artifact_output,
+            skill_catalog=TaskContractSkillCatalogPolicy(
+                skill_key=str(skill_key or resolved_task_key).strip() or resolved_task_key,
+                name=str(name or "").strip(),
+                description=str(description or "").strip(),
+                memory_reads=tuple(memory_reads),
+                memory_writes=tuple(memory_writes),
+                tags=tuple(tags),
+                input_schema_json=dict(input_schema_json or {}),
+                output_schema_json=dict(output_schema_json or {}),
+                authority_profile_json=dict(authority_profile_json or {}),
+                model_policy_json=dict(model_policy_json or {}),
+                provider_hints_json=dict(provider_hints_json or {}),
+                tool_policy_json=dict(tool_policy_json or {}),
+                human_policy_json=dict(human_policy_json or {}),
+                evaluation_cases_json=tuple(dict(value) for value in evaluation_cases_json),
+            ),
+        )
         contract = self._task_contracts.upsert_contract(
             task_key=resolved_task_key,
             deliverable_type=deliverable_type,
@@ -197,7 +215,8 @@ class SkillCatalogService:
             allowed_tools=allowed_tools,
             evidence_requirements=evidence_requirements,
             memory_write_policy=memory_write_policy,
-            budget_policy_json=budget,
+            budget_policy_json=budget_policy_json,
+            runtime_policy=runtime_policy,
         )
         return self.contract_to_skill(contract)
 

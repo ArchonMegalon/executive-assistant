@@ -629,17 +629,30 @@ class PlannerService:
             approval_required=False,
             additional_input_keys=self._artifact_envelope_input_keys(contract),
         )
-        memory_step = self._build_memory_candidate_step(
-            intent,
-            contract=contract,
-            depends_on=("step_artifact_save", "step_policy_evaluate"),
-            additional_input_keys=self._artifact_evidence_output_keys(contract),
-        )
-        steps: list[PlanStepSpec] = [prepare_step, policy_step, artifact_step, memory_step]
         packs = pack_keys or self._resolve_post_artifact_packs(contract, fallback=("memory_candidate",))
+        steps: list[PlanStepSpec] = [prepare_step, policy_step, artifact_step]
+        memory_depends_on = ["step_artifact_save", "step_policy_evaluate"]
+        additional_input_keys: tuple[str, ...] = self._artifact_evidence_output_keys(contract)
         if "dispatch" in packs:
             steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
-        return tuple(steps[:4])
+            memory_depends_on.append("step_connector_dispatch")
+            additional_input_keys = (
+                "delivery_id",
+                "status",
+                "binding_id",
+                "channel",
+                "recipient",
+                *self._artifact_evidence_output_keys(contract),
+            )
+        steps.append(
+            self._build_memory_candidate_step(
+                intent,
+                contract=contract,
+                depends_on=tuple(memory_depends_on),
+                additional_input_keys=additional_input_keys,
+            )
+        )
+        return tuple(steps)
 
     def _build_artifact_then_dispatch_then_memory_candidate_steps(
         self,

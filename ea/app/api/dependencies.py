@@ -31,9 +31,11 @@ def _is_prod_mode(container: AppContainer) -> bool:
 
 
 def _resolved_principal_id(request: Request, *, container: AppContainer) -> str:
-    principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
-    if principal_id:
-        return principal_id
+    expected = _configured_api_token(container)
+    if expected:
+        principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
+        if principal_id:
+            return principal_id
     if _is_prod_mode(container):
         return ""
     return str(container.settings.auth.default_principal_id or "").strip() or "local-user"

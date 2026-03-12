@@ -6,14 +6,13 @@ from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
-from app.settings import get_settings
+from app.settings import get_settings, validate_startup_settings
 
 
 def create_app() -> FastAPI:
     s = get_settings()
+    validate_startup_settings(s)
     if inline_sync_handlers_enabled():
-        # Local/test compatibility: some environments cannot wake the event loop
-        # from AnyIO worker threads, so sync handlers must execute inline.
         install_inline_threadpool_compat()
     from app.api.routes.channels import router as channels_router
     from app.api.routes.connectors import router as connectors_router
@@ -29,6 +28,7 @@ def create_app() -> FastAPI:
     from app.api.routes.skills import router as skills_router
     from app.api.routes.task_contracts import router as task_contracts_router
     from app.api.routes.tools import router as tools_router
+
     app = FastAPI(title=s.app_name, version=s.app_version)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)

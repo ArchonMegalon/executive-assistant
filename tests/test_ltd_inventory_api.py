@@ -192,3 +192,22 @@ def test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown(tmp_pat
     assert request_log[0]["body"]["skill_key"] == "ltd_inventory_refresh"
     assert request_log[0]["body"]["input_json"]["binding_id"] == "binding-1"
     assert request_log[0]["body"]["input_json"]["requested_fields"] == ["tier", "account_email", "status"]
+
+
+def test_extract_inventory_output_json_accepts_nested_output_json() -> None:
+    payload = extract_inventory_output_json(
+        {
+            "status": "completed",
+            "next_action": "download_artifact",
+            "output_json": {
+                "services_json": [
+                    {
+                        "service_name": "MarkupGo",
+                        "account_email": "ops@example.com",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert payload["services_json"][0]["service_name"] == "MarkupGo"

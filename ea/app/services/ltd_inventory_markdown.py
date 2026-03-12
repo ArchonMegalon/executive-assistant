@@ -73,6 +73,10 @@ def _parse_table_row(line: str) -> list[str] | None:
     return parts[:6]
 
 
+def _format_row(parts: list[str]) -> str:
+    return "| " + " | ".join(parts[:6]) + " |"
+
+
 def update_discovery_tracking_table(markdown_text: str, inventory_output_json: dict[str, Any]) -> str:
     lines = markdown_text.splitlines()
     try:
@@ -103,6 +107,7 @@ def update_discovery_tracking_table(markdown_text: str, inventory_output_json: d
     header_line = lines[table_start]
     separator_line = lines[table_start + 1]
     updates = build_discovery_updates(inventory_output_json)
+    existing_service_keys: set[str] = set()
     rebuilt_rows: list[str] = []
     for line in lines[table_start + 2 : table_end]:
         parts = _parse_table_row(line)
@@ -110,11 +115,21 @@ def update_discovery_tracking_table(markdown_text: str, inventory_output_json: d
             rebuilt_rows.append(line)
             continue
         service_name = _normalize_service_name(parts[0])
+        if service_name:
+            existing_service_keys.add(service_name.lower())
         update = updates.get(service_name.lower())
         if update is None:
             rebuilt_rows.append(line)
             continue
-        rebuilt_rows.append("| " + " | ".join(update) + " |")
+        rebuilt_rows.append(_format_row(update))
+
+    for row in _inventory_services_json(inventory_output_json):
+        service_name = _normalize_service_name(row.get("service_name"))
+        if not service_name or service_name.lower() in existing_service_keys:
+            continue
+        update = updates.get(service_name.lower())
+        if update is not None:
+            rebuilt_rows.append(_format_row(update))
 
     updated_lines = (
         lines[:table_start]

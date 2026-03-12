@@ -6,72 +6,29 @@
 - ASGI app export: `ea/app/main.py`
 - Process runner / role switch: `ea/app/runner.py`
 
+## Runtime Profile
+
+- Settings shape: `ea/app/settings.py`
+- Startup validation + runtime profile resolution: `ea/app/settings.py`
+- Container composition + single-profile bootstrap: `ea/app/container.py`
+
 ## API Surface
 
-- Health: `GET /health` (`ea/app/api/routes/health.py`)
-- Rewrite kernel:
-  - `POST /v1/rewrite/artifact`
-  - `GET /v1/rewrite/sessions/{session_id}`
-  - (`ea/app/api/routes/rewrite.py`)
-- Policy audit:
-  - `GET /v1/policy/decisions/recent`
-  - (`ea/app/api/routes/policy.py`)
-- Memory kernel:
-  - `POST /v1/memory/candidates`
-  - `GET /v1/memory/candidates`
-  - `POST /v1/memory/candidates/{candidate_id}/promote`
-  - `POST /v1/memory/candidates/{candidate_id}/reject`
-  - `GET /v1/memory/items`
-  - `GET /v1/memory/items/{item_id}`
-  - `POST /v1/memory/entities`
-  - `GET /v1/memory/entities`
-  - `GET /v1/memory/entities/{entity_id}`
-  - `POST /v1/memory/relationships`
-  - `GET /v1/memory/relationships`
-  - `GET /v1/memory/relationships/{relationship_id}`
-  - `POST /v1/memory/commitments`
-  - `GET /v1/memory/commitments`
-  - `GET /v1/memory/commitments/{commitment_id}`
-  - `POST /v1/memory/authority-bindings`
-  - `GET /v1/memory/authority-bindings`
-  - `GET /v1/memory/authority-bindings/{binding_id}`
-  - `POST /v1/memory/delivery-preferences`
-  - `GET /v1/memory/delivery-preferences`
-  - `GET /v1/memory/delivery-preferences/{preference_id}`
-  - `POST /v1/memory/follow-ups`
-  - `GET /v1/memory/follow-ups`
-  - `GET /v1/memory/follow-ups/{follow_up_id}`
-  - `POST /v1/memory/deadline-windows`
-  - `GET /v1/memory/deadline-windows`
-  - `GET /v1/memory/deadline-windows/{window_id}`
-  - `POST /v1/memory/stakeholders`
-  - `GET /v1/memory/stakeholders`
-  - `GET /v1/memory/stakeholders/{stakeholder_id}`
-  - `POST /v1/memory/decision-windows`
-  - `GET /v1/memory/decision-windows`
-  - `GET /v1/memory/decision-windows/{decision_window_id}`
-  - `POST /v1/memory/communication-policies`
-  - `GET /v1/memory/communication-policies`
-  - `GET /v1/memory/communication-policies/{policy_id}`
-  - `POST /v1/memory/follow-up-rules`
-  - `GET /v1/memory/follow-up-rules`
-  - `GET /v1/memory/follow-up-rules/{rule_id}`
-  - `POST /v1/memory/interruption-budgets`
-  - `GET /v1/memory/interruption-budgets`
-  - `GET /v1/memory/interruption-budgets/{budget_id}`
-  - (`ea/app/api/routes/memory.py`)
-- Observation runtime:
-  - `POST /v1/observations/ingest`
-  - `GET /v1/observations/recent`
-  - (`ea/app/api/routes/observations.py`)
-- Delivery runtime:
-  - `POST /v1/delivery/outbox`
-  - `POST /v1/delivery/outbox/{delivery_id}/sent`
-  - `GET /v1/delivery/outbox/pending`
-  - (`ea/app/api/routes/delivery.py`)
-- Telegram adapter:
-  - `POST /v1/channels/telegram/ingest`
-  - (`ea/app/api/routes/channels.py`)
+- Health: `GET /health`
+- Channels: `/v1/channels/*`
+- Connectors: `/v1/connectors/*`
+- Delivery: `/v1/delivery/*`
+- Evidence: `/v1/evidence/*`
+- Human tasks: `/v1/human/*`
+- Memory: `/v1/memory/*`
+- Observations: `/v1/observations/*`
+- Plans: `/v1/plans/*`
+- Policy: `/v1/policy/*`
+- Rewrite: `/v1/rewrite/*`
+- Skills: `/v1/skills/*`
+- Task contracts: `/v1/task-contracts/*`
+- Tools: `/v1/tools/*`
+- Route roots: `ea/app/api/routes/`
 
 ## Core Domain Models
 
@@ -94,104 +51,39 @@
 
 ## Services
 
-- Orchestration + policy gating + ledger/policy backend selection:
-  - `ea/app/services/orchestrator.py`
-- Policy decision logic:
-  - `ea/app/services/policy.py`
-- Channel runtime (observations + outbox) + backend selection:
-  - `ea/app/services/channel_runtime.py`
-- Memory runtime (candidate staging + reviewed promotion) + backend selection:
-  - `ea/app/services/memory_runtime.py`
+- Orchestration kernel: `ea/app/services/orchestrator.py`
+- Planner: `ea/app/services/planner.py`
+- Policy engine: `ea/app/services/policy.py`
+- Task contract storage + serialization: `ea/app/services/task_contracts.py`
+- Skill catalog: `ea/app/services/skills.py`
+- Provider registry: `ea/app/services/provider_registry.py`
+- Tool execution: `ea/app/services/tool_execution.py`
+- Channel runtime: `ea/app/services/channel_runtime.py`
+- Evidence runtime: `ea/app/services/evidence_runtime.py`
+- Memory runtime: `ea/app/services/memory_runtime.py`
+- LTD inventory helpers: `ea/app/services/ltd_inventory_api.py`, `ea/app/services/ltd_inventory_markdown.py`
 
 ## Repositories
 
-- Execution ledger:
-  - in-memory: `ea/app/repositories/ledger.py`
-  - postgres: `ea/app/repositories/ledger_postgres.py`
-- Policy decisions:
-  - in-memory: `ea/app/repositories/policy_decisions.py`
-  - postgres: `ea/app/repositories/policy_decisions_postgres.py`
-- Observation events:
-  - in-memory: `ea/app/repositories/observation.py`
-  - postgres: `ea/app/repositories/observation_postgres.py`
-- Memory candidates:
-  - in-memory: `ea/app/repositories/memory_candidates.py`
-  - postgres: `ea/app/repositories/memory_candidates_postgres.py`
-- Memory items:
-  - in-memory: `ea/app/repositories/memory_items.py`
-  - postgres: `ea/app/repositories/memory_items_postgres.py`
-- Entities:
-  - in-memory: `ea/app/repositories/entities.py`
-  - postgres: `ea/app/repositories/entities_postgres.py`
-- Relationships:
-  - in-memory: `ea/app/repositories/relationships.py`
-  - postgres: `ea/app/repositories/relationships_postgres.py`
-- Commitments:
-  - in-memory: `ea/app/repositories/commitments.py`
-  - postgres: `ea/app/repositories/commitments_postgres.py`
-- Authority bindings:
-  - in-memory: `ea/app/repositories/authority_bindings.py`
-  - postgres: `ea/app/repositories/authority_bindings_postgres.py`
-- Delivery preferences:
-  - in-memory: `ea/app/repositories/delivery_preferences.py`
-  - postgres: `ea/app/repositories/delivery_preferences_postgres.py`
-- Follow-ups:
-  - in-memory: `ea/app/repositories/follow_ups.py`
-  - postgres: `ea/app/repositories/follow_ups_postgres.py`
-- Deadline windows:
-  - in-memory: `ea/app/repositories/deadline_windows.py`
-  - postgres: `ea/app/repositories/deadline_windows_postgres.py`
-- Stakeholders:
-  - in-memory: `ea/app/repositories/stakeholders.py`
-  - postgres: `ea/app/repositories/stakeholders_postgres.py`
-- Decision windows:
-  - in-memory: `ea/app/repositories/decision_windows.py`
-  - postgres: `ea/app/repositories/decision_windows_postgres.py`
-- Communication policies:
-  - in-memory: `ea/app/repositories/communication_policies.py`
-  - postgres: `ea/app/repositories/communication_policies_postgres.py`
-- Follow-up rules:
-  - in-memory: `ea/app/repositories/follow_up_rules.py`
-  - postgres: `ea/app/repositories/follow_up_rules_postgres.py`
-- Interruption budgets:
-  - in-memory: `ea/app/repositories/interruption_budgets.py`
-  - postgres: `ea/app/repositories/interruption_budgets_postgres.py`
-- Delivery outbox:
-  - in-memory: `ea/app/repositories/delivery_outbox.py`
-  - postgres: `ea/app/repositories/delivery_outbox_postgres.py`
-
-## Migrations (Kernel Baseline)
-
-- `ea/schema/20260305_v0_2_execution_ledger_kernel.sql`
-- `ea/schema/20260305_v0_3_channel_runtime_kernel.sql`
-- `ea/schema/20260305_v0_4_policy_decisions_kernel.sql`
-- `ea/schema/20260305_v0_5_artifacts_kernel.sql`
-- `ea/schema/20260305_v0_6_execution_ledger_v2.sql`
-- `ea/schema/20260305_v0_7_approvals_kernel.sql`
-- `ea/schema/20260305_v0_8_channel_runtime_reliability.sql`
-- `ea/schema/20260305_v0_9_tool_connector_kernel.sql`
-- `ea/schema/20260305_v0_10_task_contracts_kernel.sql`
-- `ea/schema/20260305_v0_11_memory_kernel.sql`
-- `ea/schema/20260305_v0_12_entities_relationships_kernel.sql`
-- `ea/schema/20260305_v0_13_commitments_kernel.sql`
-- `ea/schema/20260305_v0_14_authority_bindings_kernel.sql`
-- `ea/schema/20260305_v0_15_delivery_preferences_kernel.sql`
-- `ea/schema/20260305_v0_16_follow_ups_kernel.sql`
-- `ea/schema/20260305_v0_17_deadline_windows_kernel.sql`
-- `ea/schema/20260305_v0_18_stakeholders_kernel.sql`
-- `ea/schema/20260305_v0_19_decision_windows_kernel.sql`
-- `ea/schema/20260305_v0_20_communication_policies_kernel.sql`
-- `ea/schema/20260305_v0_21_follow_up_rules_kernel.sql`
-- `ea/schema/20260305_v0_22_interruption_budgets_kernel.sql`
+- Artifacts: in-memory + postgres
+- Task contracts: in-memory + postgres
+- Observation events: in-memory + postgres
+- Delivery outbox: in-memory + postgres
+- Memory candidates/items: in-memory + postgres
+- Entities/relationships/commitments: in-memory + postgres
+- Governance/delivery/follow-up windows: in-memory + postgres
+- Tool registry + connector bindings: in-memory + postgres
+- Repository roots: `ea/app/repositories/`
 
 ## Operator Tooling
 
-- Deploy: `scripts/deploy.sh` (`EA_BOOTSTRAP_DB=1` optionally chains bootstrap)
-- Bootstrap migrations: `scripts/db_bootstrap.sh`
+- Deploy: `scripts/deploy.sh`
+- DB bootstrap: `scripts/db_bootstrap.sh`
 - DB status: `scripts/db_status.sh`
-- DB size: `scripts/db_size.sh`
 - DB retention: `scripts/db_retention.sh`
-- Full API smoke: `scripts/smoke_api.sh`
+- DB size: `scripts/db_size.sh`
+- API smoke: `scripts/smoke_api.sh`
 - Postgres smoke: `scripts/smoke_postgres.sh`
-- CI smoke workflow: `.github/workflows/smoke-runtime.yml`
-- Shortcut targets: `Makefile`
+- LTD refresh: `scripts/refresh_ltds_via_api.py`, `scripts/refresh_ltds_from_inventory.py`
+- Support bundle: `scripts/support_bundle.sh`
+- CI workflow: `.github/workflows/smoke-runtime.yml`

@@ -1,11 +1,71 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from app.domain.models import IntentSpecV3, TaskContract, now_utc_iso
+from app.domain.models import (
+    IntentSpecV3,
+    TaskContract,
+    TaskContractRuntimePolicy,
+    TaskContractSkillCatalogPolicy,
+    now_utc_iso,
+    parse_task_contract_runtime_policy,
+)
 from app.repositories.task_contracts import InMemoryTaskContractRepository, TaskContractRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
+
+
+def serialize_task_contract_runtime_policy(policy: TaskContractRuntimePolicy) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "class": str(policy.budget_class or "low"),
+        "workflow_template": str(policy.workflow_template or "rewrite"),
+        "browseract_timeout_budget_seconds": int(policy.browseract_timeout_budget_seconds),
+        "post_artifact_packs": list(policy.post_artifact_packs or ()),
+        "artifact_failure_strategy": policy.artifact_retry.failure_strategy,
+        "artifact_max_attempts": int(policy.artifact_retry.max_attempts),
+        "artifact_retry_backoff_seconds": int(policy.artifact_retry.retry_backoff_seconds),
+        "dispatch_failure_strategy": policy.dispatch_retry.failure_strategy,
+        "dispatch_max_attempts": int(policy.dispatch_retry.max_attempts),
+        "dispatch_retry_backoff_seconds": int(policy.dispatch_retry.retry_backoff_seconds),
+        "browseract_failure_strategy": policy.browseract_retry.failure_strategy,
+        "browseract_max_attempts": int(policy.browseract_retry.max_attempts),
+        "browseract_retry_backoff_seconds": int(policy.browseract_retry.retry_backoff_seconds),
+        "human_review_role": str(policy.human_review.role or ""),
+        "human_review_task_type": str(policy.human_review.task_type or ""),
+        "human_review_brief": str(policy.human_review.brief or ""),
+        "human_review_priority": str(policy.human_review.priority or ""),
+        "human_review_sla_minutes": int(policy.human_review.sla_minutes),
+        "human_review_auto_assign_if_unique": bool(policy.human_review.auto_assign_if_unique),
+        "human_review_desired_output_json": dict(policy.human_review.desired_output_json or {}),
+        "human_review_authority_required": str(policy.human_review.authority_required or ""),
+        "human_review_why_human": str(policy.human_review.why_human or ""),
+        "human_review_quality_rubric_json": dict(policy.human_review.quality_rubric_json or {}),
+        "memory_candidate_category": str(policy.memory_candidate.category or ""),
+        "memory_candidate_sensitivity": str(policy.memory_candidate.sensitivity or ""),
+        "memory_candidate_confidence": float(policy.memory_candidate.confidence),
+        "artifact_output_template": str(policy.artifact_output.template or ""),
+        "evidence_pack_confidence": float(policy.artifact_output.default_confidence),
+        "skill_catalog_json": {
+            "skill_key": str(policy.skill_catalog.skill_key or ""),
+            "name": str(policy.skill_catalog.name or ""),
+            "description": str(policy.skill_catalog.description or ""),
+            "memory_reads": list(policy.skill_catalog.memory_reads or ()),
+            "memory_writes": list(policy.skill_catalog.memory_writes or ()),
+            "tags": list(policy.skill_catalog.tags or ()),
+            "input_schema_json": dict(policy.skill_catalog.input_schema_json or {}),
+            "output_schema_json": dict(policy.skill_catalog.output_schema_json or {}),
+            "authority_profile_json": dict(policy.skill_catalog.authority_profile_json or {}),
+            "model_policy_json": dict(policy.skill_catalog.model_policy_json or {}),
+            "provider_hints_json": dict(policy.skill_catalog.provider_hints_json or {}),
+            "tool_policy_json": dict(policy.skill_catalog.tool_policy_json or {}),
+            "human_policy_json": dict(policy.skill_catalog.human_policy_json or {}),
+            "evaluation_cases_json": [dict(value) for value in policy.skill_catalog.evaluation_cases_json],
+        },
+    }
+    if str(policy.pre_artifact_tool_name or "").strip():
+        metadata["pre_artifact_tool_name"] = str(policy.pre_artifact_tool_name).strip()
+    return metadata
 
 
 class TaskContractService:
@@ -29,7 +89,11 @@ class TaskContractService:
         evidence_requirements: tuple[str, ...] = (),
         memory_write_policy: str = "reviewed_only",
         budget_policy_json: dict[str, object] | None = None,
+        runtime_policy: TaskContractRuntimePolicy | None = None,
     ) -> TaskContract:
+        policy_payload = dict(budget_policy_json or {})
+        if runtime_policy is not None:
+            policy_payload.update(serialize_task_contract_runtime_policy(runtime_policy))
         row = TaskContract(
             task_key=str(task_key or "").strip(),
             deliverable_type=str(deliverable_type or ""),
@@ -38,7 +102,7 @@ class TaskContractService:
             allowed_tools=tuple(str(v) for v in allowed_tools),
             evidence_requirements=tuple(str(v) for v in evidence_requirements),
             memory_write_policy=str(memory_write_policy or "reviewed_only"),
-            budget_policy_json=dict(budget_policy_json or {}),
+            budget_policy_json=policy_payload,
             updated_at=now_utc_iso(),
         )
         return self._repo.upsert(row)

@@ -14,7 +14,7 @@ from app.services.ltd_inventory_markdown import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_update_discovery_tracking_table_rewrites_matching_services_only() -> None:
+def test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services() -> None:
     markdown = """# LTDs
 
 ## Discovery Tracking
@@ -65,7 +65,7 @@ def test_update_discovery_tracking_table_rewrites_matching_services_only() -> No
     assert "| `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T12:00:00Z | Plan/Tier: Tier 3; Status: activated |" in updated
     assert "| `Teable` | ops@teable.example | `complete` | `connector_metadata` | 2026-03-07T12:01:00Z | Plan/Tier: License Tier 4; Status: activated |" in updated
     assert "| `Vizologi` |  | `missing` | `manual_inventory` |  | keep me |" in updated
-    assert "UnknownService" not in updated
+    assert "| `UnknownService` |  | `missing` | `missing` | 2026-03-07T12:02:00Z | Missing fields: tier, account_email |" in updated
 
 
 def test_build_discovery_updates_accepts_artifact_envelope_shape() -> None:

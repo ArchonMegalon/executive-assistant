@@ -39,17 +39,30 @@ def build_inventory_execute_payload(
     return payload
 
 
-def extract_inventory_output_json(execute_response_json: dict[str, Any]) -> dict[str, Any]:
-    status = str(execute_response_json.get("status") or "").strip()
-    next_action = str(execute_response_json.get("next_action") or "").strip()
-    if status and next_action:
-        raise ValueError(f"inventory_refresh_not_immediate:{status}")
-    direct = execute_response_json.get("services_json")
+def _extract_inventory_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    direct = value.get("services_json")
     if isinstance(direct, list):
-        return dict(execute_response_json)
-    structured = execute_response_json.get("structured_output_json")
+        return dict(value)
+    structured = value.get("structured_output_json")
     if isinstance(structured, dict):
         nested = structured.get("services_json")
         if isinstance(nested, list):
             return dict(structured)
+    for key in ("output_json", "result_json", "result", "payload_json", "artifact_json"):
+        nested = _extract_inventory_payload(value.get(key))
+        if nested is not None:
+            return nested
+    return None
+
+
+def extract_inventory_output_json(execute_response_json: dict[str, Any]) -> dict[str, Any]:
+    extracted = _extract_inventory_payload(execute_response_json)
+    if extracted is not None:
+        return extracted
+    status = str(execute_response_json.get("status") or "").strip()
+    next_action = str(execute_response_json.get("next_action") or "").strip()
+    if status and next_action:
+        raise ValueError(f"inventory_refresh_not_immediate:{status}")
     raise ValueError("inventory_payload_not_found")
