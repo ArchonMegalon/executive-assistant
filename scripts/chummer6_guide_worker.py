@@ -48,6 +48,23 @@ def extract_json(text: str) -> dict[str, object]:
     raise ValueError("response did not contain a JSON object")
 
 
+def load_local_env() -> dict[str, str]:
+    values: dict[str, str] = {}
+    env_file = EA_ROOT / ".env"
+    if not env_file.exists():
+        return values
+    for raw in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+LOCAL_ENV = load_local_env()
+
+
 def resolve_onemin_keys() -> list[str]:
     output = subprocess.check_output(
         ["bash", str(EA_ROOT / "scripts" / "resolve_onemin_ai_key.sh"), "--all"],
@@ -148,7 +165,7 @@ def codex_model_candidate(requested: str) -> str:
     explicit = str(requested or "").strip()
     if explicit and "codex" in explicit.lower():
         return explicit
-    env_override = str(os.environ.get("CHUMMER6_CODEX_TEXT_MODEL") or "").strip()
+    env_override = str(os.environ.get("CHUMMER6_CODEX_TEXT_MODEL") or LOCAL_ENV.get("CHUMMER6_CODEX_TEXT_MODEL") or "").strip()
     if env_override:
         return env_override
     return DEFAULT_CODEX_MODEL
@@ -268,7 +285,7 @@ def codex_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
     if not codex:
         raise RuntimeError("codex_cli_unavailable")
     codex_model = codex_model_candidate(model)
-    codex_sandbox = str(os.environ.get("CHUMMER6_CODEX_SANDBOX") or "danger-full-access").strip()
+    codex_sandbox = str(os.environ.get("CHUMMER6_CODEX_SANDBOX") or LOCAL_ENV.get("CHUMMER6_CODEX_SANDBOX") or "danger-full-access").strip()
     with tempfile.NamedTemporaryFile(prefix="chummer6_codex_", suffix=".txt", delete=False) as handle:
         output_path = Path(handle.name)
     try:
@@ -320,7 +337,7 @@ def codex_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
 
 def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
     global TEXT_PROVIDER_USED
-    order_raw = str(os.environ.get("CHUMMER6_TEXT_PROVIDER_ORDER") or "onemin,codex").strip()
+    order_raw = str(os.environ.get("CHUMMER6_TEXT_PROVIDER_ORDER") or LOCAL_ENV.get("CHUMMER6_TEXT_PROVIDER_ORDER") or "codex,onemin").strip()
     order = [entry.strip().lower() for entry in order_raw.split(",") if entry.strip()]
     attempted: list[str] = []
     for provider in order:
@@ -511,7 +528,9 @@ Rules:
 - for image thinking, prefer one memorable focal subject or action over abstract icon soup
 - if the section naturally implies a person, choose a believable cyberpunk protagonist instead of a faceless symbol
 - if the concept itself implies a visual metaphor like x-ray, ghost, mirror, passport, web, blackbox, dossier, or crash-test simulation, make that metaphor visually legible in-scene
-- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline
+- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline or dashboard
+- if the title reads like a personal codename, make the character feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
+- if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print UI labels or prompt text on the image
 - Shadowrun jargon is welcome
 - mild dev roasting is allowed
@@ -590,7 +609,9 @@ Rules:
 - prefer one memorable focal subject or action over abstract icon soup
 - if the section naturally implies a person, choose a believable cyberpunk protagonist instead of a faceless symbol
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, blackbox, forge, or crash-test simulation, make that metaphor visibly legible in-scene
-- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline
+- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline or dashboard
+- if the title reads like a personal codename, make the character feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
+- if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print labels, prompts, OODA, or resolution junk on the image
 - Shadowrun jargon is welcome
 - mild dev roasting is allowed
@@ -695,9 +716,9 @@ Return valid JSON only.
 """
 
 
-def build_pages_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+def build_pages_bundle_prompt(*, items: dict[str, dict[str, object]], global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
     pages_payload: dict[str, object] = {}
-    for page_id, item in PAGE_PROMPTS.items():
+    for page_id, item in items.items():
         pages_payload[page_id] = {
             "source": str(item.get("source", "")).strip(),
             "section_ooda": section_oodas.get(page_id, {}),
@@ -727,9 +748,9 @@ Return valid JSON only.
 """
 
 
-def build_parts_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+def build_parts_bundle_prompt(*, items: dict[str, dict[str, object]], global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
     parts_payload: dict[str, object] = {}
-    for name, item in PARTS.items():
+    for name, item in items.items():
         parts_payload[name] = {
             "title": item.get("title", ""),
             "tagline": item.get("tagline", ""),
@@ -770,9 +791,9 @@ Return valid JSON only.
 """
 
 
-def build_horizons_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+def build_horizons_bundle_prompt(*, items: dict[str, dict[str, object]], global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
     horizons_payload: dict[str, object] = {}
-    for name, item in HORIZONS.items():
+    for name, item in items.items():
         horizons_payload[name] = {
             "title": item.get("title", ""),
             "hook": item.get("hook", ""),
@@ -813,9 +834,9 @@ Return valid JSON only.
 """
 
 
-def normalize_pages_bundle(result: dict[str, object]) -> dict[str, dict[str, str]]:
+def normalize_pages_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> dict[str, dict[str, str]]:
     normalized: dict[str, dict[str, str]] = {}
-    for page_id in PAGE_PROMPTS:
+    for page_id in items:
         row = result.get(page_id)
         if not isinstance(row, dict):
             raise ValueError(f"missing page bundle row: {page_id}")
@@ -826,10 +847,10 @@ def normalize_pages_bundle(result: dict[str, object]) -> dict[str, dict[str, str
     return normalized
 
 
-def normalize_parts_bundle(result: dict[str, object]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
+def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
     copy_rows: dict[str, dict[str, str]] = {}
     media_rows: dict[str, dict[str, object]] = {}
-    for name, item in PARTS.items():
+    for name, item in items.items():
         row = result.get(name)
         if not isinstance(row, dict):
             raise ValueError(f"missing part bundle row: {name}")
@@ -846,10 +867,10 @@ def normalize_parts_bundle(result: dict[str, object]) -> tuple[dict[str, dict[st
     return copy_rows, media_rows
 
 
-def normalize_horizons_bundle(result: dict[str, object]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
+def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
     copy_rows: dict[str, dict[str, str]] = {}
     media_rows: dict[str, dict[str, object]] = {}
-    for name, item in HORIZONS.items():
+    for name, item in items.items():
         row = result.get(name)
         if not isinstance(row, dict):
             raise ValueError(f"missing horizon bundle row: {name}")
@@ -1205,6 +1226,8 @@ Requirements:
 - visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
 - if the section naturally implies a person, make that person specific and believable
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, or blackbox, make that metaphor visibly legible in-scene
+- if the title reads like a personal codename, make the focal subject feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
+- if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
@@ -1221,7 +1244,7 @@ Requirements:
   - palette
   - mood
   - humor
-- if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline
+- if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline or dashboard
 - if the metaphor is x-ray / dossier / forge / ghost / heat web / mirror / passport / blackbox / simulation, make scene_contract.metaphor explicit
 
 Return valid JSON only.
@@ -1415,6 +1438,21 @@ def chunk_mapping(mapping: dict[str, object], *, size: int) -> list[dict[str, ob
     return [dict(items[index : index + size]) for index in range(0, len(items), size)]
 
 
+def section_batch_size(section_type: str, total: int) -> int:
+    defaults = {
+        "page": 2,
+        "part": 2,
+        "horizon": 2,
+    }
+    env_key = f"CHUMMER6_{section_type.upper()}_BATCH_SIZE"
+    raw = str(os.environ.get(env_key) or LOCAL_ENV.get(env_key) or "").strip()
+    try:
+        value = int(raw or defaults.get(section_type, 1))
+    except Exception:
+        value = defaults.get(section_type, 1)
+    return max(1, min(total, value))
+
+
 def generate_overrides(*, include_parts: bool, include_horizons: bool, model: str) -> dict[str, object]:
     global TEXT_PROVIDER_USED
     TEXT_PROVIDER_USED = ""
@@ -1464,7 +1502,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     cleaned = normalize_media_override("hero", cleaned, {})
     overrides["media"]["hero"] = cleaned
     page_oodas: dict[str, object] = {}
-    for batch in chunk_mapping(PAGE_PROMPTS, size=max(len(PAGE_PROMPTS), 1)):
+    for batch in chunk_mapping(PAGE_PROMPTS, size=section_batch_size("page", len(PAGE_PROMPTS))):
         try:
             page_ooda_result = chat_json(
                 build_section_oodas_bundle_prompt("page", batch, global_ooda=ooda),
@@ -1482,22 +1520,23 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             raise RuntimeError(f"page section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
     overrides["section_ooda"]["pages"] = page_oodas
     page_rows: dict[str, object] = {}
-    for batch in chunk_mapping(PAGE_PROMPTS, size=max(len(PAGE_PROMPTS), 1)):
+    for batch in chunk_mapping(PAGE_PROMPTS, size=section_batch_size("page", len(PAGE_PROMPTS))):
         try:
             page_bundle = chat_json(
                 build_pages_bundle_prompt(
+                    items=batch,
                     global_ooda=ooda,
                     section_oodas={name: page_oodas[name] for name in batch.keys()},
                 ),
                 model=model,
             )
-            page_rows.update(normalize_pages_bundle(page_bundle))
+            page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
         except Exception as exc:
             raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
     overrides["pages"] = page_rows
     if include_parts:
         part_oodas: dict[str, object] = {}
-        for batch in chunk_mapping(PARTS, size=max(len(PARTS), 1)):
+        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
             try:
                 part_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda),
@@ -1516,16 +1555,17 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["parts"] = part_oodas
         part_copy_rows: dict[str, object] = {}
         part_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(PARTS, size=max(len(PARTS), 1)):
+        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
             try:
                 part_bundle = chat_json(
                     build_parts_bundle_prompt(
+                        items=batch,
                         global_ooda=ooda,
                         section_oodas={name: part_oodas[name] for name in batch.keys()},
                     ),
                     model=model,
                 )
-                copy_rows, media_rows = normalize_parts_bundle(part_bundle)
+                copy_rows, media_rows = normalize_parts_bundle(part_bundle, items=batch)
                 part_copy_rows.update(copy_rows)
                 part_media_rows.update(media_rows)
             except Exception as exc:
@@ -1534,7 +1574,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["media"]["parts"] = part_media_rows
     if include_horizons:
         horizon_oodas: dict[str, object] = {}
-        for batch in chunk_mapping(HORIZONS, size=max(len(HORIZONS), 1)):
+        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
             try:
                 horizon_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda),
@@ -1553,16 +1593,17 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["horizons"] = horizon_oodas
         horizon_copy_rows: dict[str, object] = {}
         horizon_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(HORIZONS, size=max(len(HORIZONS), 1)):
+        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
             try:
                 horizon_bundle = chat_json(
                     build_horizons_bundle_prompt(
+                        items=batch,
                         global_ooda=ooda,
                         section_oodas={name: horizon_oodas[name] for name in batch.keys()},
                     ),
                     model=model,
                 )
-                copy_rows, media_rows = normalize_horizons_bundle(horizon_bundle)
+                copy_rows, media_rows = normalize_horizons_bundle(horizon_bundle, items=batch)
                 horizon_copy_rows.update(copy_rows)
                 horizon_media_rows.update(media_rows)
             except Exception as exc:

@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -166,6 +167,14 @@ def shlex_command(env_name: str) -> list[str]:
             "{target}",
         ],
     }
+    browseract_names = {
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND": "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_WORKFLOW_ID",
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND": "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID",
+        "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND": "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_ID",
+    }
+    required_workflow_id = browseract_names.get(env_name)
+    if required_workflow_id and not env_value(required_workflow_id):
+        return []
     return list(defaults.get(env_name, []))
 
 
@@ -281,13 +290,22 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
     api_key = env_value("AI_MAGICX_API_KEY")
     if not api_key:
         return False, "magixai:not_configured"
-    model = env_value("CHUMMER6_MAGIXAI_MODEL") or "qwen-image"
+    model_candidates: list[str] = []
+    for candidate in (
+        env_value("CHUMMER6_MAGIXAI_MODEL"),
+        "qwen-image",
+        "seedream",
+        "nano-banana",
+    ):
+        normalized_model = str(candidate or "").strip()
+        if normalized_model and normalized_model not in model_candidates:
+            model_candidates.append(normalized_model)
     size = f"{width}x{height}"
     endpoint_specs = [
         (
             "/api/v1/ai-image/generate",
             {
-                "model": model,
+                "model": "{model}",
                 "prompt": prompt,
                 "size": size,
                 "quality": "high",
@@ -299,7 +317,7 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
         (
             "/ai-image/generate",
             {
-                "model": model,
+                "model": "{model}",
                 "prompt": prompt,
                 "size": size,
                 "quality": "high",
@@ -311,7 +329,7 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
         (
             "/api/v1/images/generations",
             {
-                "model": model,
+                "model": "{model}",
                 "prompt": prompt,
                 "size": size,
                 "quality": "high",
@@ -322,7 +340,7 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
         (
             "/images/generations",
             {
-                "model": model,
+                "model": "{model}",
                 "prompt": prompt,
                 "size": size,
                 "quality": "high",
@@ -331,9 +349,32 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
             },
         ),
         (
+            "/v1/images/generations",
+            {
+                "model": "{model}",
+                "prompt": prompt,
+                "size": size,
+                "quality": "high",
+                "response_format": "url",
+                "n": 1,
+            },
+        ),
+        (
+            "/v1/ai-image/generate",
+            {
+                "model": "{model}",
+                "prompt": prompt,
+                "size": size,
+                "quality": "high",
+                "style": "cinematic",
+                "negative_prompt": "text, logo, watermark, UI labels, prompt text, low quality, blurry",
+                "response_format": "url",
+            },
+        ),
+        (
             "/api/v1/ai-image/generate",
             {
-                "model": model,
+                "model": "{model}",
                 "prompt": prompt,
                 "image_size": size,
                 "num_images": 1,
@@ -350,10 +391,13 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
         "https://api.aimagicx.com/api/v1",
         "https://api.aimagicx.com/api",
         "https://api.aimagicx.com",
+        "https://api.aimagicx.com/v1",
         "https://beta.aimagicx.com/api/v1",
         "https://beta.aimagicx.com/api",
+        "https://beta.aimagicx.com/v1",
         "https://www.aimagicx.com/api/v1",
         "https://www.aimagicx.com/api",
+        "https://www.aimagicx.com/v1",
         "https://beta.aimagicx.com",
         "https://www.aimagicx.com",
     ):
@@ -385,80 +429,87 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
             "Content-Type": "application/json",
             "API-KEY": api_key,
         },
+        {
+            "User-Agent": "EA-Chummer6-Magicx/1.0",
+            "Content-Type": "application/json",
+            "X-MGX-API-KEY": api_key,
+        },
     ]
     errors: list[str] = []
     seen_requests: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
     for base_url in base_urls:
-        for endpoint, payload in endpoint_specs:
-            url = build_url(base_url, endpoint)
-            payload_json = json.dumps(payload, sort_keys=True)
-            for headers in header_variants:
-                header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
-                request_key = (url, header_key, payload_json)
-                if request_key in seen_requests:
-                    continue
-                seen_requests.add(request_key)
-                request = urllib.request.Request(
-                    url,
-                    headers=headers,
-                    data=payload_json.encode("utf-8"),
-                    method="POST",
-                )
-                try:
-                    with urllib.request.urlopen(request, timeout=45) as response:
-                        data = response.read()
-                        content_type = str(response.headers.get("Content-Type") or "").lower()
-                except urllib.error.HTTPError as exc:
-                    body = exc.read().decode("utf-8", errors="replace").strip()
-                    errors.append(f"{url}:http_{exc.code}:{body[:180]}")
-                    continue
-                except urllib.error.URLError as exc:
-                    errors.append(f"{url}:urlerror:{exc.reason}")
-                    continue
-                if data:
-                    if content_type.startswith("image/"):
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        output_path.write_bytes(data)
-                        return True, "magixai:rendered"
-                    decoded = data.decode("utf-8", errors="replace").strip()
-                    if decoded.startswith("http://") or decoded.startswith("https://"):
-                        ok, detail = _download_remote_image(decoded, output_path=output_path, name="magixai")
+        for model in model_candidates:
+            for endpoint, payload_template in endpoint_specs:
+                payload = json.loads(json.dumps(payload_template).replace('"{model}"', json.dumps(model)))
+                url = build_url(base_url, endpoint)
+                payload_json = json.dumps(payload, sort_keys=True)
+                for headers in header_variants:
+                    header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
+                    request_key = (url, header_key, payload_json)
+                    if request_key in seen_requests:
+                        continue
+                    seen_requests.add(request_key)
+                    request = urllib.request.Request(
+                        url,
+                        headers=headers,
+                        data=payload_json.encode("utf-8"),
+                        method="POST",
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=45) as response:
+                            data = response.read()
+                            content_type = str(response.headers.get("Content-Type") or "").lower()
+                    except urllib.error.HTTPError as exc:
+                        body = exc.read().decode("utf-8", errors="replace").strip()
+                        errors.append(f"{url}:{model}:http_{exc.code}:{body[:180]}")
+                        continue
+                    except urllib.error.URLError as exc:
+                        errors.append(f"{url}:{model}:urlerror:{exc.reason}")
+                        continue
+                    if data:
+                        if content_type.startswith("image/"):
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            output_path.write_bytes(data)
+                            return True, "magixai:rendered"
+                        decoded = data.decode("utf-8", errors="replace").strip()
+                        if decoded.startswith("http://") or decoded.startswith("https://"):
+                            ok, detail = _download_remote_image(decoded, output_path=output_path, name="magixai")
+                            if ok:
+                                return ok, detail
+                            errors.append(detail)
+                            continue
+                        try:
+                            body = json.loads(decoded)
+                        except Exception:
+                            errors.append(f"{url}:{model}:non_json_response:{decoded[:180]}")
+                            continue
+                    candidates: list[str] = []
+                    if isinstance(body, dict):
+                        for field in ("url", "image_url"):
+                            value = str(body.get(field) or "").strip()
+                            if value:
+                                candidates.append(value)
+                        data_rows = body.get("data")
+                        if isinstance(data_rows, list):
+                            for entry in data_rows:
+                                if not isinstance(entry, dict):
+                                    continue
+                                value = str(entry.get("url") or entry.get("image_url") or "").strip()
+                                if value:
+                                    candidates.append(value)
+                        output_rows = body.get("output")
+                        if isinstance(output_rows, list):
+                            for entry in output_rows:
+                                if not isinstance(entry, dict):
+                                    continue
+                                value = str(entry.get("url") or entry.get("image_url") or "").strip()
+                                if value:
+                                    candidates.append(value)
+                    for candidate in candidates:
+                        ok, detail = _download_remote_image(candidate, output_path=output_path, name="magixai")
                         if ok:
                             return ok, detail
                         errors.append(detail)
-                        continue
-                    try:
-                        body = json.loads(decoded)
-                    except Exception:
-                        errors.append(f"{url}:non_json_response:{decoded[:180]}")
-                        continue
-                candidates: list[str] = []
-                if isinstance(body, dict):
-                    for field in ("url", "image_url"):
-                        value = str(body.get(field) or "").strip()
-                        if value:
-                            candidates.append(value)
-                    data_rows = body.get("data")
-                    if isinstance(data_rows, list):
-                        for entry in data_rows:
-                            if not isinstance(entry, dict):
-                                continue
-                            value = str(entry.get("url") or entry.get("image_url") or "").strip()
-                            if value:
-                                candidates.append(value)
-                    output_rows = body.get("output")
-                    if isinstance(output_rows, list):
-                        for entry in output_rows:
-                            if not isinstance(entry, dict):
-                                continue
-                            value = str(entry.get("url") or entry.get("image_url") or "").strip()
-                            if value:
-                                candidates.append(value)
-                for candidate in candidates:
-                    ok, detail = _download_remote_image(candidate, output_path=output_path, name="magixai")
-                    if ok:
-                        return ok, detail
-                    errors.append(detail)
     return False, "magixai:" + " || ".join(errors[:6])
 
 
@@ -484,7 +535,7 @@ def resolve_onemin_image_keys() -> list[str]:
         if key and key not in seen:
             seen.add(key)
             keys.append(key)
-    if str(env_value("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+    if str(env_value("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS") or "1").strip().lower() in {"0", "false", "no", "off"}:
         primary = keys[:1]
         if primary:
             return primary
@@ -496,14 +547,24 @@ def _collect_image_candidates(value: object) -> list[str]:
     if isinstance(value, str):
         candidate = str(value or "").strip()
         lowered = candidate.lower()
+        if (" " in candidate) or ("\n" in candidate) or ("\t" in candidate):
+            return found
         if candidate.startswith("http://") or candidate.startswith("https://"):
             found.append(candidate)
-        elif candidate.startswith("/"):
+        elif candidate.startswith("/") and re.search(r"\.(png|jpg|jpeg|webp|gif)(\?|$)", lowered):
             found.append("https://api.1min.ai" + candidate)
-        elif any(token in lowered for token in ("asset", "image", "render", "download")) and ("/" in candidate or "." in candidate):
+        elif (
+            ("/" in candidate or "." in candidate)
+            and any(token in lowered for token in ("/asset/", "/image/", "/render/", "/download/", ".png", ".jpg", ".jpeg", ".webp", ".gif"))
+            and re.search(r"\.(png|jpg|jpeg|webp|gif)(\?|$)", lowered)
+        ):
             found.append("https://api.1min.ai/" + candidate.lstrip("/"))
         return found
     if isinstance(value, dict):
+        prioritized_fields = ("url", "image_url", "download_url", "image", "imageUrl", "image_url_path")
+        for field in prioritized_fields:
+            if field in value:
+                found.extend(_collect_image_candidates(value.get(field)))
         for nested in value.values():
             found.extend(_collect_image_candidates(nested))
         return found
@@ -513,21 +574,108 @@ def _collect_image_candidates(value: object) -> list[str]:
     return found
 
 
+def onemin_model_candidates() -> list[str]:
+    candidates: list[str] = []
+    for candidate in (
+        env_value("CHUMMER6_ONEMIN_MODEL"),
+        "gpt-image-1-mini",
+        "gpt-image-1",
+        "dall-e-3",
+    ):
+        normalized = str(candidate or "").strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+    return candidates
+
+
+def onemin_size_candidates(model: str, *, width: int, height: int) -> list[str]:
+    configured = str(env_value("CHUMMER6_ONEMIN_IMAGE_SIZE") or "").strip()
+    if configured:
+        return [configured]
+    normalized = str(model or "").strip().lower()
+    if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
+        return ["auto", "1024x1024", "1024x1536", "1536x1024"]
+    return [f"{width}x{height}", "1024x1024", "auto"]
+
+
+def onemin_aspect_ratio(width: int, height: int) -> str:
+    try:
+        w = max(1, int(width))
+        h = max(1, int(height))
+    except Exception:
+        return "16:9"
+    known = [
+        (16, 9),
+        (4, 3),
+        (3, 2),
+        (1, 1),
+        (9, 16),
+        (2, 3),
+        (3, 4),
+        (21, 9),
+    ]
+    ratio = w / h
+    best = min(known, key=lambda pair: abs((pair[0] / pair[1]) - ratio))
+    return f"{best[0]}:{best[1]}"
+
+
+def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list[dict[str, object]]:
+    normalized = str(model or "").strip().lower()
+    if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
+        payloads: list[dict[str, object]] = []
+        for size in onemin_size_candidates(model, width=width, height=height):
+            prompt_object = {
+                "prompt": prompt,
+                "n": 1,
+                "size": size,
+                "quality": env_value("CHUMMER6_ONEMIN_IMAGE_QUALITY") or "low",
+                "style": "natural",
+                "output_format": "png",
+                "background": "opaque",
+            }
+            payloads.append(
+                {
+                    "type": "IMAGE_GENERATOR",
+                    "model": model,
+                    "promptObject": dict(prompt_object),
+                }
+            )
+        return payloads
+    aspect_ratio = env_value("CHUMMER6_ONEMIN_ASPECT_RATIO") or onemin_aspect_ratio(width, height)
+    render_mode = env_value("CHUMMER6_ONEMIN_MODE") or "relax"
+    base_prompt_object = {
+        "prompt": prompt,
+        "n": 1,
+        "num_outputs": 1,
+        "aspect_ratio": aspect_ratio,
+        "mode": render_mode,
+    }
+    payloads = [
+        {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": dict(base_prompt_object),
+        }
+    ]
+    style = str(env_value("CHUMMER6_ONEMIN_IMAGE_STYLE") or "").strip()
+    if style:
+        with_style = dict(base_prompt_object)
+        with_style["style"] = style
+        payloads.append(
+            {
+                "type": "IMAGE_GENERATOR",
+                "model": model,
+                "promptObject": with_style,
+            }
+        )
+    return payloads
+
+
 def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
     keys = resolve_onemin_image_keys()
     if not keys:
         return False, "onemin:not_configured"
-    model_candidates: list[str] = []
-    for candidate in (
-        env_value("CHUMMER6_ONEMIN_MODEL"),
-        "gpt-image-1",
-        "gpt-image-1-mini",
-        "dall-e-3",
-    ):
-        normalized = str(candidate or "").strip()
-        if normalized and normalized not in model_candidates:
-            model_candidates.append(normalized)
-    size = env_value("CHUMMER6_ONEMIN_IMAGE_SIZE") or "512x512"
+    model_candidates = onemin_model_candidates()
     endpoints = [
         env_value("CHUMMER6_ONEMIN_ENDPOINT") or "https://api.1min.ai/api/features",
     ]
@@ -544,23 +692,22 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
     seen_requests: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
     for url in endpoints:
         for model in model_candidates:
-            prompt_object = {
-                "prompt": prompt,
-                "n": 1,
-                "size": size,
-                "quality": env_value("CHUMMER6_ONEMIN_IMAGE_QUALITY") or "low",
-                "style": "natural",
-                "output_format": "png",
-                "background": "opaque",
-            }
-            payloads = [
-                {
-                    "type": "IMAGE_GENERATOR",
-                    "model": model,
-                    "promptObject": dict(prompt_object),
-                },
-            ]
+            payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
             for payload in payloads:
+                prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
+                size_label = str(
+                    (
+                        prompt_object.get("size")
+                        if isinstance(prompt_object, dict)
+                        else ""
+                    )
+                    or (
+                        prompt_object.get("aspect_ratio")
+                        if isinstance(prompt_object, dict)
+                        else ""
+                    )
+                    or "auto"
+                ).strip()
                 payload_json = json.dumps(payload, sort_keys=True)
                 for headers in header_variants:
                     header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
@@ -580,7 +727,8 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                             content_type = str(response.headers.get("Content-Type") or "").lower()
                     except urllib.error.HTTPError as exc:
                         body = exc.read().decode("utf-8", errors="replace").strip()
-                        retryable_busy = exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body
+                        invalid_size = "Invalid value:" in body and "Supported values are:" in body
+                        retryable_busy = exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
                         if retryable_busy:
                             busy_recovered = False
                             for _attempt in range(provider_busy_retries()):
@@ -599,24 +747,23 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                                         break
                                 except urllib.error.HTTPError as retry_exc:
                                     body = retry_exc.read().decode("utf-8", errors="replace").strip()
-                                    retryable_busy = retry_exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body
+                                    invalid_size = "Invalid value:" in body and "Supported values are:" in body
+                                    retryable_busy = retry_exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
                                     if not retryable_busy:
-                                        errors.append(f"{url}:{model}:http_{retry_exc.code}:{body[:180]}")
+                                        errors.append(f"{url}:{model}:{size_label}:http_{retry_exc.code}:{body[:180]}")
                                         break
                                 except urllib.error.URLError as retry_url_exc:
-                                    errors.append(f"{url}:{model}:urlerror:{retry_url_exc.reason}")
+                                    errors.append(f"{url}:{model}:{size_label}:urlerror:{retry_url_exc.reason}")
                                     break
                             if not busy_recovered:
                                 if retryable_busy:
-                                    errors.append(f"{url}:{model}:openai_busy")
+                                    errors.append(f"{url}:{model}:{size_label}:openai_busy")
                                 continue
                         else:
-                            errors.append(f"{url}:{model}:http_{exc.code}:{body[:180]}")
-                            if exc.code == 401:
-                                break
+                            errors.append(f"{url}:{model}:{size_label}:http_{exc.code}:{body[:180]}")
                             continue
                     except urllib.error.URLError as exc:
-                        errors.append(f"{url}:{model}:urlerror:{exc.reason}")
+                        errors.append(f"{url}:{model}:{size_label}:urlerror:{exc.reason}")
                         continue
                     if data:
                         if content_type.startswith("image/"):
@@ -633,7 +780,7 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                         try:
                             body = json.loads(decoded)
                         except Exception:
-                            errors.append(f"{url}:{model}:non_json_response:{decoded[:180]}")
+                            errors.append(f"{url}:{model}:{size_label}:non_json_response:{decoded[:180]}")
                             continue
                         for candidate in _collect_image_candidates(body):
                             ok, detail = _download_remote_image(candidate, output_path=output_path, name="onemin")
@@ -777,8 +924,28 @@ def refine_prompt_local(prompt: str, *, target: str) -> str:
     return " ".join(prompt.split()).strip()
 
 
+def prompt_refinement_required() -> bool:
+    raw = env_value("CHUMMER6_PROMPT_REFINEMENT_REQUIRED")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def prompt_refinement_attempts_enabled() -> bool:
+    explicit_env_names = [
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
+        "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
+        "CHUMMER6_PROMPT_REFINER_COMMAND",
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_URL_TEMPLATE",
+        "CHUMMER6_PROMPTING_SYSTEMS_REFINE_URL_TEMPLATE",
+        "CHUMMER6_PROMPT_REFINER_URL_TEMPLATE",
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID",
+    ]
+    return any(env_value(name) for name in explicit_env_names)
+
+
 def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
-    # Prompt refinement must use the external lane when it is configured.
+    # OODA-authored visual_prompt is the required source of truth.
+    # External prompt refinement is an optional enhancer and should never
+    # block publishing unless it is explicitly marked required.
     command_names = [
         "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
         "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
@@ -790,12 +957,11 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
         "CHUMMER6_PROMPT_REFINER_URL_TEMPLATE",
     ]
     attempted: list[str] = []
-    external_expected = bool(env_value("BROWSERACT_API_KEY"))
+    external_expected = prompt_refinement_attempts_enabled()
     for env_name in command_names:
         command = shlex_command(env_name)
         if not command:
             continue
-        external_expected = True
         try:
             completed = subprocess.run(
                 [part.format(prompt=prompt, target=target) for part in command],
@@ -813,7 +979,6 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
         template = url_template(env_name)
         if not template:
             continue
-        external_expected = True
         url = template.format(
             prompt=urllib.parse.quote(prompt, safe=""),
             target=urllib.parse.quote(target, safe=""),
@@ -827,7 +992,7 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
             attempted.append(f"{env_name}:empty_output")
         except Exception as exc:
             attempted.append(f"{env_name}:{exc}")
-    if external_expected:
+    if external_expected and prompt_refinement_required():
         detail = " || ".join(attempted) if attempted else "no_external_refiner_succeeded"
         raise RuntimeError(f"prompt_refinement_failed:{detail}")
     return refine_prompt_local(prompt, target=target)

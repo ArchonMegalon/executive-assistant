@@ -68,10 +68,10 @@ def key_names_present(names: list[str]) -> list[str]:
 def provider_order() -> list[str]:
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
-        return ["browseract_magixai", "magixai", "onemin"]
+        return ["onemin", "magixai"]
     values = [part.strip().lower() for part in raw.split(",") if part.strip()]
     filtered = [value for value in values if value not in {"local_raster", "markupgo", "ooda_compositor", "scene_contract_renderer", "pollinations"}]
-    return filtered or ["browseract_magixai", "magixai", "onemin"]
+    return filtered or ["onemin", "magixai"]
 
 
 def provider_state(name: str) -> dict[str, object]:
