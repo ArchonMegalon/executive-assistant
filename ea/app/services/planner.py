@@ -683,7 +683,7 @@ class PlannerService:
         principal_id: str,
         goal: str,
     ) -> IntentSpecV3:
-        contract = self._task_contracts.contract_or_default(task_key)
+        contract = self._task_contracts.get_contract_or_raise(task_key)
         budget_class = str(contract.runtime_policy().budget_class or "low")
         return IntentSpecV3(
             principal_id=self._require_principal_id(principal_id),
@@ -706,7 +706,7 @@ class PlannerService:
         principal_id: str,
         goal: str,
     ) -> tuple[IntentSpecV3, PlanSpec]:
-        contract = self._task_contracts.contract_or_default(task_key)
+        contract = self._task_contracts.get_contract_or_raise(task_key)
         intent = self.compile_intent(task_key=task_key, principal_id=principal_id, goal=goal)
         steps = self._steps_for_contract(intent, contract)
         plan = PlanSpec(

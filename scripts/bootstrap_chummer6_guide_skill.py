@@ -61,10 +61,10 @@ def main() -> int:
         "tags": ["chummer6", "guide", "docs", "media"],
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
         "provider_hints_json": {
-            "primary": ["1min.AI", "AI Magicx", "Prompting Systems"],
+            "primary": ["Codex", "AI Magicx", "Prompting Systems"],
             "research": ["BrowserAct"],
-            "output": ["MarkupGo", "AI Magicx", "Prompting Systems"],
-            "media": ["AI Magicx", "MarkupGo", "Prompting Systems"],
+            "output": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+            "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
         },
         "tool_policy_json": {"allowed_tools": []},
         "human_policy_json": {"review_roles": ["guide_reviewer"]},

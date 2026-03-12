@@ -64,5 +64,10 @@ def extract_inventory_output_json(execute_response_json: dict[str, Any]) -> dict
     status = str(execute_response_json.get("status") or "").strip()
     next_action = str(execute_response_json.get("next_action") or "").strip()
     if status and next_action:
-        raise ValueError(f"inventory_refresh_not_immediate:{status}")
+        return {
+            "services_json": [],
+            "status": status,
+            "next_action": next_action,
+            "async_pending": True,
+        }
     raise ValueError("inventory_payload_not_found")

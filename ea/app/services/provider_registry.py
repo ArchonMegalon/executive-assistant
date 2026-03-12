@@ -83,13 +83,107 @@ class ProviderRegistryService:
                     ),
                 ),
             ),
+            ProviderBinding(
+                provider_key="prompting_systems",
+                display_name="Prompting Systems",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="prompting_systems",
+                        capability_key="prompt_refine",
+                        tool_name="provider.prompting_systems.prompt_refine",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="prompting_systems",
+                        capability_key="image_to_prompt",
+                        tool_name="provider.prompting_systems.image_to_prompt",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="magixai",
+                display_name="AI Magicx",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="magixai",
+                        capability_key="image_generate",
+                        tool_name="provider.magixai.image_generate",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="markupgo",
+                display_name="MarkupGo",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="markupgo",
+                        capability_key="image_composite",
+                        tool_name="provider.markupgo.image_composite",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="onemin",
+                display_name="1min.AI",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="onemin",
+                        capability_key="image_generate",
+                        tool_name="provider.onemin.image_generate",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="teable",
+                display_name="Teable",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="teable",
+                        capability_key="table_sync",
+                        tool_name="provider.teable.table_sync",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
+                provider_key="unmixr",
+                display_name="Unmixr AI",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="unmixr",
+                        capability_key="voice_render",
+                        tool_name="provider.unmixr.voice_render",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
         )
 
     def list_bindings(self) -> tuple[ProviderBinding, ...]:
         return self._bindings
 
     def bindings_for_skill(self, skill: SkillContract) -> tuple[ProviderBinding, ...]:
-        hints = {value.strip().lower() for value in _collect_strings(skill.provider_hints_json) if value.strip()}
+        hints = {
+            self._normalize_provider_key(value)
+            for value in _collect_strings(skill.provider_hints_json)
+            if str(value or "").strip()
+        }
         allowed_tools = {str(value or "").strip() for value in skill.allowed_tools if str(value or "").strip()}
         matched: list[ProviderBinding] = []
         for binding in self._bindings:
@@ -97,3 +191,14 @@ class ProviderRegistryService:
             if binding.provider_key in hints or capability_tools.intersection(allowed_tools):
                 matched.append(binding)
         return tuple(matched)
+
+    def _normalize_provider_key(self, value: object) -> str:
+        normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "1min.ai": "onemin",
+            "1min_ai": "onemin",
+            "ai_magicx": "magixai",
+            "aimagicx": "magixai",
+            "prompting.systems": "prompting_systems",
+        }
+        return aliases.get(normalized, normalized)

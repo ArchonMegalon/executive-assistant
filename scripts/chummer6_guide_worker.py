@@ -4,8 +4,11 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -15,12 +18,14 @@ EA_ROOT = Path(__file__).resolve().parents[1]
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
 DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_CODEX_MODEL = "gpt-5.3-codex"
 FALLBACK_MODELS = (
     "gpt-4o-mini",
     "gpt-4.1-mini",
     "gpt-4.1-nano",
 )
 WORKING_VARIANT: dict[str, object] | None = None
+TEXT_PROVIDER_USED: str = ""
 
 
 def extract_json(text: str) -> dict[str, object]:
@@ -55,6 +60,10 @@ def resolve_onemin_keys() -> list[str]:
         if key and key not in seen:
             seen.add(key)
             keys.append(key)
+    if str(os.environ.get("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS") or LOCAL_ENV.get("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+        primary = keys[:1]
+        if primary:
+            return primary
     if not keys:
         raise RuntimeError("no 1min.AI key configured")
     return keys
@@ -78,7 +87,7 @@ HORIZONS = load_literal("HORIZONS")
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
 
 
-def read_markdown_excerpt(relative_path: str, *, limit: int = 900) -> str:
+def read_markdown_excerpt(relative_path: str, *, limit: int = 360) -> str:
     path = GUIDE_ROOT / relative_path
     if not path.exists():
         return ""
@@ -133,6 +142,16 @@ def model_candidates(requested: str) -> list[str]:
             seen.add(candidate)
             models.append(candidate)
     return models
+
+
+def codex_model_candidate(requested: str) -> str:
+    explicit = str(requested or "").strip()
+    if explicit and "codex" in explicit.lower():
+        return explicit
+    env_override = str(os.environ.get("CHUMMER6_CODEX_TEXT_MODEL") or "").strip()
+    if env_override:
+        return env_override
+    return DEFAULT_CODEX_MODEL
 
 
 def request_variants(prompt: str, *, model: str, api_key: str) -> list[tuple[str, dict[str, str], dict[str, object]]]:
@@ -201,54 +220,132 @@ def extract_response_json(body: dict[str, object]) -> dict[str, object]:
     raise RuntimeError("1min.AI returned no parseable JSON payload")
 
 
-def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
-    global WORKING_VARIANT
-    errors: list[str] = []
-    keys = resolve_onemin_keys()
-    models = model_candidates(model)
-    for api_key in keys:
-        key_mask = f"{api_key[:6]}…{api_key[-4:]}" if len(api_key) > 10 else "***"
-        for candidate_model in models:
-            variants = request_variants(prompt, model=candidate_model, api_key=api_key)
-            if WORKING_VARIANT:
-                variants = [tuple(WORKING_VARIANT.values())] + variants
-            seen: set[str] = set()
-            deduped: list[tuple[str, dict[str, str], dict[str, object]]] = []
-            for url, headers, payload in variants:
-                identity = json.dumps([url, headers, payload], sort_keys=True)
-                if identity in seen:
-                    continue
-                seen.add(identity)
-                deduped.append((url, headers, payload))
-            for url, headers, payload in deduped:
-                request = urllib.request.Request(
-                    url,
-                    headers=headers,
-                    data=json.dumps(payload).encode("utf-8"),
-                    method="POST",
-                )
-                try:
-                    with urllib.request.urlopen(request, timeout=180) as response:
-                        body = json.loads(response.read().decode("utf-8"))
-                except urllib.error.HTTPError as exc:
-                    body = exc.read().decode("utf-8", errors="replace").strip()
-                    errors.append(
-                        f"{exc.code} model={candidate_model} key={key_mask} url={url} auth={','.join(headers.keys())} body={body[:240]}"
-                    )
-                    continue
-                except urllib.error.URLError as exc:
-                    errors.append(f"urlerror model={candidate_model} key={key_mask} url={url} reason={exc.reason}")
-                    continue
-                WORKING_VARIANT = {
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                }
+def onemin_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+    last_error = "no_attempts"
+    for api_key in resolve_onemin_keys():
+        for url, headers, payload in request_variants(prompt, model=model, api_key=api_key):
+            body_bytes = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    body = json.loads(response.read().decode("utf-8", errors="replace") or "{}")
                 return extract_response_json(body)
-    raise RuntimeError("1min.AI request failed; " + " || ".join(errors[:8]))
+            except urllib.error.HTTPError as exc:
+                response_text = exc.read().decode("utf-8", errors="replace")
+                if exc.code == 401:
+                    last_error = f"{url}:http_{exc.code}:{response_text[:220]}"
+                    break
+                if exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in response_text:
+                    for _attempt in range(provider_busy_retries()):
+                        time.sleep(provider_busy_delay_seconds())
+                        retry = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+                        try:
+                            with urllib.request.urlopen(retry, timeout=60) as response:
+                                body = json.loads(response.read().decode("utf-8", errors="replace") or "{}")
+                            return extract_response_json(body)
+                        except urllib.error.HTTPError as retry_exc:
+                            retry_text = retry_exc.read().decode("utf-8", errors="replace")
+                            if retry_exc.code == 401:
+                                last_error = f"{url}:http_{retry_exc.code}:{retry_text[:220]}"
+                                break
+                            if retry_exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in retry_text:
+                                last_error = f"{url}:openai_busy"
+                                continue
+                            last_error = f"{url}:http_{retry_exc.code}:{retry_text[:220]}"
+                            break
+                        except Exception as retry_exc:
+                            last_error = f"{url}:{type(retry_exc).__name__}:{str(retry_exc)[:220]}"
+                            break
+                    continue
+                last_error = f"{url}:http_{exc.code}:{response_text[:220]}"
+            except Exception as exc:
+                last_error = f"{url}:{type(exc).__name__}:{str(exc)[:220]}"
+    raise RuntimeError(f"onemin_text_failed:{last_error}")
 
 
-def build_part_prompt(name: str, item: dict[str, object], ooda: dict[str, object] | None = None) -> str:
+def codex_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+    codex = shutil.which("codex")
+    if not codex:
+        raise RuntimeError("codex_cli_unavailable")
+    codex_model = codex_model_candidate(model)
+    codex_sandbox = str(os.environ.get("CHUMMER6_CODEX_SANDBOX") or "danger-full-access").strip()
+    with tempfile.NamedTemporaryFile(prefix="chummer6_codex_", suffix=".txt", delete=False) as handle:
+        output_path = Path(handle.name)
+    try:
+        command = [
+            codex,
+            "exec",
+            "-C",
+            str(EA_ROOT),
+            "--skip-git-repo-check",
+            "--ephemeral",
+        ]
+        if codex_sandbox:
+            command.extend(["-s", codex_sandbox])
+        command.extend(
+            [
+                "-m",
+                codex_model,
+                "-c",
+                'model_reasoning_effort="low"',
+                "-o",
+                str(output_path),
+                prompt,
+            ]
+        )
+        completed = subprocess.run(
+            command,
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=90,
+        )
+        text = output_path.read_text(encoding="utf-8", errors="replace").strip()
+        if not text:
+            raise RuntimeError("codex_empty_output")
+        return extract_json(text)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        detail = stderr or stdout or str(exc)
+        raise RuntimeError(f"codex_exec_failed:{detail[:400]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("codex_exec_timeout") from exc
+    finally:
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+    global TEXT_PROVIDER_USED
+    order_raw = str(os.environ.get("CHUMMER6_TEXT_PROVIDER_ORDER") or "onemin,codex").strip()
+    order = [entry.strip().lower() for entry in order_raw.split(",") if entry.strip()]
+    attempted: list[str] = []
+    for provider in order:
+        try:
+            if provider in {"onemin", "1min", "1min.ai", "oneminai"}:
+                payload = onemin_json(prompt, model=model)
+                TEXT_PROVIDER_USED = "onemin"
+                return payload
+            if provider == "codex":
+                payload = codex_json(prompt, model=model)
+                TEXT_PROVIDER_USED = "codex"
+                return payload
+            attempted.append(f"{provider}:unknown_provider")
+        except Exception as exc:
+            attempted.append(f"{provider}:{exc}")
+    raise RuntimeError("no text provider succeeded: " + " || ".join(attempted))
+
+
+def build_part_prompt(
+    name: str,
+    item: dict[str, object],
+    ooda: dict[str, object] | None = None,
+    *,
+    section_ooda: dict[str, object] | None = None,
+) -> str:
     owns = "\n".join(f"- {line}" for line in item.get("owns", []))
     not_owns = "\n".join(f"- {line}" for line in item.get("not_owns", []))
     return f"""You are writing downstream-only copy for the human-facing Chummer6 guide.
@@ -286,11 +383,20 @@ Current now-text:
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
 
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
 Return valid JSON only.
 """
 
 
-def build_horizon_prompt(name: str, item: dict[str, object], ooda: dict[str, object] | None = None) -> str:
+def build_horizon_prompt(
+    name: str,
+    item: dict[str, object],
+    ooda: dict[str, object] | None = None,
+    *,
+    section_ooda: dict[str, object] | None = None,
+) -> str:
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
     repos = ", ".join(str(repo) for repo in item.get("repos", []))
     return f"""You are writing downstream-only horizon copy for the human-facing Chummer6 guide.
@@ -330,13 +436,445 @@ Touched repos later:
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
 
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
 Return valid JSON only.
 """
+
+
+def build_section_ooda_prompt(
+    section_type: str,
+    name: str,
+    item: dict[str, object],
+    *,
+    global_ooda: dict[str, object] | None = None,
+) -> str:
+    title = str(item.get("title", name.replace("-", " ").title())).strip()
+    prompt_bits = {
+        "hero": {
+            "context": "the landing hero for the human-facing Chummer6 guide",
+            "source": "\n\n".join(
+                [
+                    "README:\n" + read_markdown_excerpt("README.md", limit=320),
+                    "Current phase:\n" + read_markdown_excerpt("NOW/current-phase.md", limit=220),
+                ]
+            ),
+        },
+        "part": {
+            "context": f"the PARTS/{name}.md page for the human-facing Chummer6 guide",
+            "source": "\n\n".join(
+                [
+                    f"Tagline: {item.get('tagline', '')}",
+                    f"Intro: {item.get('intro', '')}",
+                    f"Why: {item.get('why', '')}",
+                    "Owns:\n" + "\n".join(f"- {line}" for line in item.get("owns", [])),
+                    "Does not own:\n" + "\n".join(f"- {line}" for line in item.get("not_owns", [])),
+                    f"Now: {item.get('now', '')}",
+                ]
+            ),
+        },
+        "horizon": {
+            "context": f"the HORIZONS/{name}.md page for the human-facing Chummer6 guide",
+            "source": "\n\n".join(
+                [
+                    f"Hook: {item.get('hook', '')}",
+                    f"Brutal truth: {item.get('brutal_truth', '')}",
+                    f"Use case: {item.get('use_case', '')}",
+                    f"Problem: {item.get('problem', '')}",
+                    "Foundations:\n" + "\n".join(f"- {line}" for line in item.get("foundations", [])),
+                    "Touched repos later:\n" + "\n".join(f"- {line}" for line in item.get("repos", [])),
+                ]
+            ),
+        },
+        "page": {
+            "context": f"the {name} guide page for the human-facing Chummer6 repo",
+            "source": str(item.get("source", "")).strip(),
+        },
+    }[section_type]
+    return f"""You are doing section-level OODA for {prompt_bits['context']}.
+
+Task: return a JSON object only with keys observe, orient, decide, act.
+
+Required shape:
+- observe: reader_question, likely_interest, concrete_signals, risks
+- orient: emotional_goal, sales_angle, focal_subject, scene_logic, visual_devices, tone_rule, banned_literalizations
+- decide: copy_priority, image_priority, overlay_priority, subject_rule, hype_limit
+- act: one_liner, paragraph_seed, visual_prompt_seed
+
+Rules:
+- this OODA is for this section only, not the whole repo
+- think about what a curious human reader would actually notice or care about here
+- if the source suggests strong selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, or dangerous simulation energy, surface them
+- do not literalize repo governance labels into the scene
+- avoid generic poster language
+- for image thinking, prefer one memorable focal subject or action over abstract icon soup
+- if the section naturally implies a person, choose a believable cyberpunk protagonist instead of a faceless symbol
+- if the concept itself implies a visual metaphor like x-ray, ghost, mirror, passport, web, blackbox, dossier, or crash-test simulation, make that metaphor visually legible in-scene
+- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline
+- overlay hints are design guidance for the renderer, not excuses to print UI labels or prompt text on the image
+- Shadowrun jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+
+Section type: {section_type}
+Section id: {name}
+Section title: {title}
+
+Section source:
+{prompt_bits['source']}
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def build_section_oodas_bundle_prompt(
+    section_type: str,
+    section_items: dict[str, dict[str, object]],
+    *,
+    global_ooda: dict[str, object] | None = None,
+) -> str:
+    payload: dict[str, object] = {}
+    for name, item in section_items.items():
+        title = str(item.get("title", name.replace("-", " ").title())).strip()
+        if section_type == "page":
+            payload[name] = {
+                "title": title,
+                "source": str(item.get("source", "")).strip(),
+            }
+        elif section_type == "part":
+            payload[name] = {
+                "title": title,
+                "tagline": item.get("tagline", ""),
+                "intro": item.get("intro", ""),
+                "why": item.get("why", ""),
+                "now": item.get("now", ""),
+                "owns": item.get("owns", []),
+                "not_owns": item.get("not_owns", []),
+            }
+        else:
+            payload[name] = {
+                "title": title,
+                "hook": item.get("hook", ""),
+                "brutal_truth": item.get("brutal_truth", ""),
+                "use_case": item.get("use_case", ""),
+                "problem": item.get("problem", ""),
+                "foundations": item.get("foundations", []),
+                "repos": item.get("repos", []),
+                "not_now": item.get("not_now", ""),
+            }
+    return f"""You are doing section-level OODA for multiple human-facing Chummer6 guide sections.
+
+Task: return one JSON object keyed by section id.
+Each section id must map to an object with keys observe, orient, decide, act.
+
+Required shape per section:
+- observe: reader_question, likely_interest, concrete_signals, risks
+- orient: emotional_goal, sales_angle, focal_subject, scene_logic, visual_devices, tone_rule, banned_literalizations
+- decide: copy_priority, image_priority, overlay_priority, subject_rule, hype_limit
+- act: one_liner, paragraph_seed, visual_prompt_seed
+
+Rules:
+- think like a sharp human guide writer, not a compliance bot
+- this OODA is for each section only, not the whole repo
+- focus on what a curious human reader would actually care about here
+- if the source suggests strong selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossier flows, or dangerous simulation energy, surface them
+- if source signals clearly include multi-era support or scripted rules, make at least one section hook say so in plain language instead of burying it
+- do not literalize repo governance labels into the scene
+- avoid generic poster language and repeated sentence frames
+- prefer one memorable focal subject or action over abstract icon soup
+- if the section naturally implies a person, choose a believable cyberpunk protagonist instead of a faceless symbol
+- if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, blackbox, forge, or crash-test simulation, make that metaphor visibly legible in-scene
+- if the title reads like a codename or person, let the scene revolve around a specific cyberpunk character instead of a generic skyline
+- overlay hints are design guidance for the renderer, not excuses to print labels, prompts, OODA, or resolution junk on the image
+- Shadowrun jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+- keep the whole JSON compact
+
+Section type: {section_type}
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Sections:
+{json.dumps(payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def normalize_section_ooda(
+    result: dict[str, object],
+    *,
+    section_type: str,
+    name: str,
+    item: dict[str, object],
+    global_ooda: dict[str, object] | None = None,
+) -> dict[str, object]:
+    normalized: dict[str, object] = {}
+    for stage, fields in {
+        "observe": ["reader_question", "likely_interest", "concrete_signals", "risks"],
+        "orient": ["emotional_goal", "sales_angle", "focal_subject", "scene_logic", "visual_devices", "tone_rule", "banned_literalizations"],
+        "decide": ["copy_priority", "image_priority", "overlay_priority", "subject_rule", "hype_limit"],
+        "act": ["one_liner", "paragraph_seed", "visual_prompt_seed"],
+    }.items():
+        raw_stage = result.get(stage) if isinstance(result.get(stage), dict) else {}
+        merged: dict[str, object] = {}
+        for field in fields:
+            raw = raw_stage.get(field) if isinstance(raw_stage, dict) else None
+            if isinstance(raw, list):
+                cleaned = [str(entry).strip() for entry in raw if str(entry).strip()]
+                if not cleaned:
+                    raise ValueError(f"section OODA field is missing: {section_type}/{name}.{stage}.{field}")
+                merged[field] = cleaned
+            else:
+                value = str(raw or "").strip()
+                if not value:
+                    raise ValueError(f"section OODA field is missing: {section_type}/{name}.{stage}.{field}")
+                merged[field] = value
+        normalized[stage] = merged
+    return normalized
+
+
+def normalize_section_oodas_bundle(
+    result: dict[str, object],
+    *,
+    section_type: str,
+    section_items: dict[str, dict[str, object]],
+    global_ooda: dict[str, object] | None = None,
+) -> dict[str, dict[str, object]]:
+    normalized: dict[str, dict[str, object]] = {}
+    for name, item in section_items.items():
+        row = result.get(name)
+        if not isinstance(row, dict):
+            raise ValueError(f"missing section OODA bundle row: {section_type}/{name}")
+        normalized[name] = normalize_section_ooda(
+            row,
+            section_type=section_type,
+            name=name,
+            item=item,
+            global_ooda=global_ooda,
+        )
+    return normalized
+
+
+def build_page_prompt(page_id: str, item: dict[str, object], *, global_ooda: dict[str, object] | None = None, section_ooda: dict[str, object] | None = None) -> str:
+    return f"""You are writing downstream-only copy for the human-facing Chummer6 guide page `{page_id}`.
+
+Task: return a JSON object only with keys intro, body, kicker.
+
+Rules:
+- plain language first
+- human-facing, slightly playful, Shadowrun-flavored
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+- explain why this page matters to a normal reader
+- avoid internal jargon unless it is immediately translated
+- make the page sound distinct instead of reusing one canned sentence pattern
+
+Page id: {page_id}
+Current source:
+{item.get("source", "")}
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def build_pages_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+    pages_payload: dict[str, object] = {}
+    for page_id, item in PAGE_PROMPTS.items():
+        pages_payload[page_id] = {
+            "source": str(item.get("source", "")).strip(),
+            "section_ooda": section_oodas.get(page_id, {}),
+        }
+    return f"""You are writing downstream-only copy for multiple human-facing Chummer6 guide pages.
+
+Task: return one JSON object keyed by page id. Each page id must map to an object with keys intro, body, kicker.
+
+Rules:
+- plain language first
+- human-facing, slightly playful, Shadowrun-flavored
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+- explain why each page matters to a normal reader
+- avoid internal jargon unless it is immediately translated
+- keep each page compact and useful
+- make each page feel distinct instead of reusing one sentence frame
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Pages:
+{json.dumps(pages_payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def build_parts_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+    parts_payload: dict[str, object] = {}
+    for name, item in PARTS.items():
+        parts_payload[name] = {
+            "title": item.get("title", ""),
+            "tagline": item.get("tagline", ""),
+            "intro": item.get("intro", ""),
+            "why": item.get("why", ""),
+            "now": item.get("now", ""),
+            "owns": item.get("owns", []),
+            "not_owns": item.get("not_owns", []),
+            "section_ooda": section_oodas.get(name, {}),
+        }
+    return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 part pages.
+
+Task: return one JSON object keyed by part id.
+Each part id must map to:
+- copy: object with intro, why, now
+- media: object with badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract
+
+Rules:
+- clear, slightly playful, Shadowrun-flavored
+- plain language first
+- SR jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+- keep copy grounded and useful
+- make each part sound like its own place, not another templated glossary card
+- make the media scene-first, not icon soup
+- no literal on-image text or prompt leakage
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Parts:
+{json.dumps(parts_payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def build_horizons_bundle_prompt(*, global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+    horizons_payload: dict[str, object] = {}
+    for name, item in HORIZONS.items():
+        horizons_payload[name] = {
+            "title": item.get("title", ""),
+            "hook": item.get("hook", ""),
+            "brutal_truth": item.get("brutal_truth", ""),
+            "use_case": item.get("use_case", ""),
+            "problem": item.get("problem", ""),
+            "foundations": item.get("foundations", []),
+            "repos": item.get("repos", []),
+            "not_now": item.get("not_now", ""),
+            "section_ooda": section_oodas.get(name, {}),
+        }
+    return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 horizon pages.
+
+Task: return one JSON object keyed by horizon id.
+Each horizon id must map to:
+- copy: object with hook, why_wiz, brutal_truth, use_case, idea, problem, why_waits
+- media: object with badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract
+
+Rules:
+- sell the idea harder without pretending it ships tomorrow
+- clear, punchy, Shadowrun-flavored
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+- scenes should feel specific, cool, and dangerous
+- if the codename implies a person or metaphor, make that legible
+- do not reuse the same sentence stem across multiple horizons
+- the copy should feel distinct per horizon, not like one template with swapped nouns
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Horizons:
+{json.dumps(horizons_payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def normalize_pages_bundle(result: dict[str, object]) -> dict[str, dict[str, str]]:
+    normalized: dict[str, dict[str, str]] = {}
+    for page_id in PAGE_PROMPTS:
+        row = result.get(page_id)
+        if not isinstance(row, dict):
+            raise ValueError(f"missing page bundle row: {page_id}")
+        cleaned = {key: str(row.get(key, "")).strip() for key in ("intro", "body", "kicker") if str(row.get(key, "")).strip()}
+        if len(cleaned) < 2:
+            raise ValueError(f"insufficient page bundle content: {page_id}")
+        normalized[page_id] = cleaned
+    return normalized
+
+
+def normalize_parts_bundle(result: dict[str, object]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
+    copy_rows: dict[str, dict[str, str]] = {}
+    media_rows: dict[str, dict[str, object]] = {}
+    for name, item in PARTS.items():
+        row = result.get(name)
+        if not isinstance(row, dict):
+            raise ValueError(f"missing part bundle row: {name}")
+        copy = row.get("copy")
+        media = row.get("media")
+        if not isinstance(copy, dict) or not isinstance(media, dict):
+            raise ValueError(f"invalid part bundle row: {name}")
+        cleaned_copy = {key: str(copy.get(key, "")).strip() for key in ("intro", "why", "now") if str(copy.get(key, "")).strip()}
+        if len(cleaned_copy) < 3:
+            raise ValueError(f"insufficient part copy: {name}")
+        media_cleaned = normalize_media_override("horizon", dict(media), item)
+        copy_rows[name] = cleaned_copy
+        media_rows[name] = media_cleaned
+    return copy_rows, media_rows
+
+
+def normalize_horizons_bundle(result: dict[str, object]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
+    copy_rows: dict[str, dict[str, str]] = {}
+    media_rows: dict[str, dict[str, object]] = {}
+    for name, item in HORIZONS.items():
+        row = result.get(name)
+        if not isinstance(row, dict):
+            raise ValueError(f"missing horizon bundle row: {name}")
+        copy = row.get("copy")
+        media = row.get("media")
+        if not isinstance(copy, dict) or not isinstance(media, dict):
+            raise ValueError(f"invalid horizon bundle row: {name}")
+        cleaned_copy = {
+            key: str(copy.get(key, "")).strip()
+            for key in ("hook", "why_wiz", "brutal_truth", "use_case", "idea", "problem", "why_waits")
+            if str(copy.get(key, "")).strip()
+        }
+        if len(cleaned_copy) < 7:
+            raise ValueError(f"insufficient horizon copy: {name}")
+        media_cleaned = normalize_media_override("horizon", dict(media), item)
+        copy_rows[name] = cleaned_copy
+        media_rows[name] = media_cleaned
+    return copy_rows, media_rows
 
 
 SOURCE_SIGNAL_FILES = [
     ("/docker/chummercomplete/chummer-core-engine/instructions.md", "core_instructions"),
     ("/docker/chummercomplete/chummer-core-engine/README.md", "core_readme"),
+    ("/docker/chummercomplete/chummer-core-engine/test-lua-evaluator.sh", "core_lua_rules"),
+    ("/docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs", "core_sr4_plugin"),
     ("/docker/chummercomplete/chummer-presentation/README.md", "ui_readme"),
     ("/docker/chummercomplete/chummer-play/README.md", "play_readme"),
     ("/docker/chummercomplete/chummer.run-services/README.md", "hub_readme"),
@@ -355,18 +893,19 @@ def collect_interest_signals() -> dict[str, object]:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         lowered = text.lower()
-        excerpt = " ".join(text.split())[:900]
+        excerpt = short_sentence(text, limit=220)
         if excerpt:
             snippets.append(f"[{label}] {excerpt}")
         for token, tag in (
-            ("lua", "lua_scripted_rules"),
-            ("script pack", "lua_scripted_rules"),
             ("sr4", "sr4_support"),
             ("sr5", "sr5_support"),
             ("sr6", "sr6_support"),
             ("shadowrun 4", "sr4_support"),
             ("shadowrun 5", "sr5_support"),
             ("shadowrun 6", "sr6_support"),
+            ("lua", "lua_rules"),
+            ("scripted rules", "lua_rules"),
+            ("rulesetplugin", "multi_era_rulesets"),
             ("offline", "offline_play"),
             ("pwa", "installable_pwa"),
             ("explain", "explain_receipts"),
@@ -377,7 +916,7 @@ def collect_interest_signals() -> dict[str, object]:
         ):
             if token in lowered and tag not in tags:
                 tags.append(tag)
-    return {"tags": tags, "snippets": snippets[:10]}
+    return {"tags": tags, "snippets": snippets[:6]}
 
 
 def build_ooda_prompt(signals: dict[str, object]) -> str:
@@ -398,7 +937,9 @@ Rules:
 - Shadowrun jargon is welcome
 - light dev roasting is allowed
 - focus on what a curious human would actually care about first
-- if the source suggests strong user-facing selling points like Lua-scripted rules or SR4/SR5/SR6 support, surface them
+- if the source suggests strong user-facing selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossiers, or dangerous simulation energy, surface them
+- if source signals clearly include multi-era support or scripted rules, make at least one landing-facing sentence say so plainly
+- do not invent implementation-specific claims unless the source canon makes them explicit
 - no mention of Fleet
 - no mention of chummer5a
 - no markdown fences
@@ -415,6 +956,7 @@ Rules:
 - what_it_is should explain the repo in plain language
 - watch_intro should tee up why the project is worth following
 - horizon_intro should tee up the future ideas in a fun way without pretending they are active work
+- keep the whole JSON compact enough to fit on one terminal screen
 
 Observed tags:
 {tags}
@@ -426,72 +968,7 @@ Return valid JSON only.
 """
 
 
-def fallback_ooda(signals: dict[str, object]) -> dict[str, object]:
-    tags = [str(tag) for tag in signals.get("tags", []) if str(tag).strip()]
-    highlights: list[str] = []
-    if "lua_scripted_rules" in tags:
-        highlights.append("Lua-scripted rules make Chummer more moddable without turning every table into a code fork.")
-    sr_tags = [tag for tag in tags if tag in {"sr4_support", "sr5_support", "sr6_support"}]
-    if sr_tags:
-        highlights.append("The project is aiming to support Shadowrun 4, 5, and 6 instead of pretending the Sixth World started yesterday.")
-    if "local_first_play" in tags or "offline_play" in tags:
-        highlights.append("Play is being built local-first, so the table does not fall apart the moment the network gets cute.")
-    if "explain_receipts" in tags or "provenance_receipts" in tags:
-        highlights.append("Explain and provenance work means the machine should eventually be able to show its receipts instead of shrugging at your dice pool.")
-    if "runtime_stacks" in tags:
-        highlights.append("Runtime stacks and overlays are the future power-up path, but only after the foundations stop wobbling.")
-    if not highlights:
-        highlights.append("Chummer is growing into a sharper multi-repo ecosystem instead of staying one haunted toolbox.")
-    return {
-        "observe": {
-            "source_signal_tags": tags,
-            "source_excerpt_labels": [f"signal:{tag}" for tag in tags[:6]],
-            "audience_needs": [
-                "understand the project fast",
-                "spot what is actually cool",
-                "avoid internal control-plane jargon",
-            ],
-            "user_interest_signals": highlights,
-            "risks": [
-                "the guide can slide into compliance-speak",
-                "future ideas can sound dispatchable if not framed carefully",
-            ],
-        },
-        "orient": {
-            "audience": "curious chummers, skeptical testers, and people trying to figure out why this split matters",
-            "promise": "Chummer6 should make the project feel exciting, legible, and worth following without making readers wade through internal machinery.",
-            "tension": "The future is exciting, but the current job is still foundations, cleanup, and making the split real.",
-            "why_care": highlights[:4],
-            "current_focus": [
-                "clean up the shared rules and interfaces",
-                "finish the play/session boundary",
-                "make the UI kit, registry, and media seams real",
-            ],
-            "visual_direction": "street-level cyberpunk, dangerous but inviting, analytical overlays, dark humor, no brochure energy",
-            "humor_line": "Give the dev a little heat when deserved, but keep the guide readable for actual humans.",
-            "signals_to_highlight": highlights,
-            "banned_terms": ["Fleet", "mission control", "contract plane", "preview debt"],
-        },
-        "decide": {
-            "information_order": "lead with hook, usefulness, and current shape before disclaimers or governance caveats",
-            "tone_rules": "plain language first, a little SR swagger, mild dev roasting, zero corp-compliance voice",
-            "horizon_policy": "sell the horizon as a cool future lane, but keep it clearly non-dispatchable",
-            "media_strategy": "show scene-first cyberpunk art with meaningful HUD overlays driven by user-interest signals, not literal repo-role labels",
-            "overlay_policy": "use overlay callouts for selling points like Lua rules, SR4-SR6 support, explain receipts, and local-first play",
-            "cta_strategy": "invite curious test dummies, bug reports, stars, and laughter without sounding needy or sketchy",
-        },
-        "act": {
-            "landing_tagline": "Same shadows. Bigger future. Less confusion.",
-            "landing_intro": "Chummer6 is the readable guide to the next Chummer: what it is becoming, how the parts fit together, what is happening right now, and which future ideas are still parked in the garage.",
-            "what_it_is": "Chummer6 is the friendly guide to the next Chummer, built for curious chummers who want the lay of the land without spelunking through every repo.",
-            "watch_intro": "People who care about Shadowrun tools should probably care because:",
-            "horizon_intro": "Some ideas are too fun not to document. They are real possibilities, but they are not active build commitments.",
-        },
-    }
-
-
 def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dict[str, object]:
-    fallback = fallback_ooda(signals)
     normalized: dict[str, object] = {}
     raw_observe = result.get("observe") if isinstance(result.get("observe"), dict) else {}
     raw_orient = result.get("orient") if isinstance(result.get("orient"), dict) else result
@@ -505,29 +982,39 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
             cleaned = [str(item).strip() for item in raw if str(item).strip()]
         else:
             cleaned = []
-        observe[key] = cleaned or list((fallback.get("observe") or {}).get(key, []))
+        if not cleaned:
+            raise ValueError(f"global OODA list field is missing: observe.{key}")
+        observe[key] = cleaned
 
     orient: dict[str, object] = {}
     for key in ("audience", "promise", "tension", "visual_direction", "humor_line"):
         value = str(raw_orient.get(key, "")).strip() if isinstance(raw_orient, dict) else ""
-        orient[key] = value or str((fallback.get("orient") or {}).get(key, ""))
+        if not value:
+            raise ValueError(f"global OODA field is missing: orient.{key}")
+        orient[key] = value
     for key in ("why_care", "current_focus", "signals_to_highlight", "banned_terms"):
         raw = raw_orient.get(key) if isinstance(raw_orient, dict) else None
         if isinstance(raw, list):
             cleaned = [str(item).strip() for item in raw if str(item).strip()]
         else:
             cleaned = []
-        orient[key] = cleaned or list((fallback.get("orient") or {}).get(key, []))
+        if not cleaned:
+            raise ValueError(f"global OODA list field is missing: orient.{key}")
+        orient[key] = cleaned
 
     decide: dict[str, object] = {}
     for key in ("information_order", "tone_rules", "horizon_policy", "media_strategy", "overlay_policy", "cta_strategy"):
         value = str(raw_decide.get(key, "")).strip() if isinstance(raw_decide, dict) else ""
-        decide[key] = value or str((fallback.get("decide") or {}).get(key, ""))
+        if not value:
+            raise ValueError(f"global OODA field is missing: decide.{key}")
+        decide[key] = value
 
     act: dict[str, object] = {}
     for key in ("landing_tagline", "landing_intro", "what_it_is", "watch_intro", "horizon_intro"):
         value = str(raw_act.get(key, "")).strip() if isinstance(raw_act, dict) else ""
-        act[key] = value or str((fallback.get("act") or {}).get(key, ""))
+        if not value:
+            raise ValueError(f"global OODA field is missing: act.{key}")
+        act[key] = value
 
     normalized["observe"] = observe
     normalized["orient"] = orient
@@ -536,16 +1023,23 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
     return normalized
 
 
-def build_media_prompt(kind: str, name: str, item: dict[str, object], ooda: dict[str, object] | None = None) -> str:
+def build_media_prompt(
+    kind: str,
+    name: str,
+    item: dict[str, object],
+    ooda: dict[str, object] | None = None,
+    *,
+    section_ooda: dict[str, object] | None = None,
+) -> str:
     title = str(item.get("title", name.replace("-", " ").title())).strip()
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
     repos = ", ".join(str(repo) for repo in item.get("repos", []))
     if kind == "hero":
-        readme_excerpt = read_markdown_excerpt("README.md", limit=900)
-        current_excerpt = read_markdown_excerpt("NOW/current-phase.md", limit=700)
+        readme_excerpt = read_markdown_excerpt("README.md", limit=320)
+        current_excerpt = read_markdown_excerpt("NOW/current-phase.md", limit=220)
         return f"""You are writing image-card copy for the human-facing Chummer6 guide landing hero.
 
-Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts.
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract.
 
 Voice rules:
 - clear, inviting, slightly playful, Shadowrun-flavored
@@ -566,22 +1060,105 @@ Current phase:
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
 
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
 Requirements:
 - infer the scene from the source, do not literalize repo-role labels
 - do not say or imply "visitor center"
 - visual_prompt must describe an actual cyberpunk scene, not a brochure cover
+- visual_prompt must center one memorable focal subject, setup, or action instead of generic poster collage
+- if the section implies a person or team, choose a believable protagonist instead of abstract symbols
+- if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, or crash-test simulation, make that metaphor visibly legible in-scene
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible badge/title/subtitle/kicker/note should feel like guide copy, not compliance language
-- overlay_hint should name the kind of HUD/analysis overlay this image wants, in a few words
+- overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
-- overlay_callouts should be 2-4 short HUD labels or overlay phrases worth surfacing to the reader
+- overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- scene_contract must be an object with keys:
+  - subject
+  - environment
+  - action
+  - metaphor
+  - props
+  - overlays
+  - composition
+  - palette
+  - mood
+  - humor
+- scene_contract.subject should name the focal subject in plain language
+- scene_contract.metaphor should name the strongest visual metaphor if one exists
+- scene_contract.props should be a short list of concrete visible things
+- scene_contract.overlays should be a short list of diegetic overlay ideas
+- scene_contract.composition should be a short layout phrase like single_protagonist, group_table, desk_still_life, or city_edge
 
 Return valid JSON only.
 """
-    horizon_excerpt = read_markdown_excerpt(f"HORIZONS/{name}.md", limit=900)
+    if kind == "part":
+        part_excerpt = read_markdown_excerpt(f"PARTS/{name}.md", limit=320)
+        return f"""You are writing image-card copy for a human-facing Chummer6 part banner.
+
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract.
+
+Voice rules:
+- clear, punchy, slightly funny, Shadowrun-flavored
+- sell the part as something a reader should care about right now
+- the image should feel grounded, useful, and scene-first
+- SR jargon is welcome
+- mild dev roasting is allowed
+- no mention of Fleet
+- no mention of chummer5a
+- no markdown fences
+
+Source page excerpt:
+{part_excerpt}
+
+Part id: {name}
+Title: {title}
+Tagline: {item.get("tagline", "")}
+Intro: {item.get("intro", "")}
+Why: {item.get("why", "")}
+Now: {item.get("now", "")}
+Owns:
+{chr(10).join(f"- {line}" for line in item.get("owns", []))}
+
+Does not own:
+{chr(10).join(f"- {line}" for line in item.get("not_owns", []))}
+
+Guide OODA:
+{json.dumps(ooda or {}, ensure_ascii=True)}
+
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
+Requirements:
+- infer the scene from the source, do not repeat repo labels back as literal signage
+- visual_prompt must describe an actual cyberpunk scene tied to this part in use
+- visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
+- if the part naturally implies a person or team, choose believable cyberpunk people
+- if the part naturally implies a machine room, archive, workshop, or table scene, make that spatial metaphor visibly legible
+- visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
+- visual_motifs should be 3-6 short noun phrases for what should actually be visible
+- overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- scene_contract must be an object with keys:
+  - subject
+  - environment
+  - action
+  - metaphor
+  - props
+  - overlays
+  - composition
+  - palette
+  - mood
+  - humor
+
+Return valid JSON only.
+"""
+    horizon_excerpt = read_markdown_excerpt(f"HORIZONS/{name}.md", limit=320)
     return f"""You are writing image-card copy for a human-facing Chummer6 horizon banner.
 
-Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts.
+Task: return a JSON object only with keys badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract.
 
 Voice rules:
 - clear, punchy, slightly funny, Shadowrun-flavored
@@ -619,289 +1196,389 @@ Touched repos later:
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
 
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
 Requirements:
 - infer the scene from the source, do not just repeat headings back
 - visual_prompt must describe an actual cyberpunk scene tied to this horizon
+- visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
+- if the section naturally implies a person, make that person specific and believable
+- if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, or blackbox, make that metaphor visibly legible in-scene
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work
-- overlay_hint should name the kind of HUD/analysis overlay this image wants, in a few words
+- overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
-- overlay_callouts should be 2-4 short HUD labels or overlay phrases worth surfacing to the reader
+- overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- scene_contract must be an object with keys:
+  - subject
+  - environment
+  - action
+  - metaphor
+  - props
+  - overlays
+  - composition
+  - palette
+  - mood
+  - humor
+- if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline
+- if the metaphor is x-ray / dossier / forge / ghost / heat web / mirror / passport / blackbox / simulation, make scene_contract.metaphor explicit
 
 Return valid JSON only.
 """
 
 
-def fallback_part_override(name: str, item: dict[str, object]) -> dict[str, str]:
-    title = str(item.get("title", name.replace("-", " ").title())).strip()
-    tagline = str(item.get("tagline", "")).strip().rstrip(".")
-    intro = str(item.get("intro", "")).strip()
-    why = str(item.get("why", "")).strip()
-    now = str(item.get("now", "")).strip()
-    return {
-        "intro": (
-            f"{title} is {tagline.lower()} when the chrome is working and the excuses are not. "
-            f"{intro}"
-        ).strip(),
-        "why": (
-            f"{why} If this part goes sideways, the whole run gets janky fast and somebody starts blaming the dev."
-            if why
-            else f"If {title} goes sideways, the whole run gets janky fast and somebody starts blaming the dev."
-        ),
-        "now": (
-            f"{now} The short version: make it real, keep it sharp, and stop letting legacy duct tape cosplay as architecture."
-            if now
-            else f"Right now the job is to make {title} real, sharp, and impossible to mistake for another half-finished split."
-        ),
-    }
-
-
-def fallback_horizon_override(name: str, item: dict[str, object]) -> dict[str, str]:
-    title = str(item.get("title", name.replace("-", " ").title())).strip()
-    hook = str(item.get("hook", "")).strip()
-    brutal_truth = str(item.get("brutal_truth", "")).strip()
-    use_case = str(item.get("use_case", "")).strip()
-    return {
-        "hook": (
-            f"{hook} This is the kind of horizon that makes a runner grin, a GM squint, and the dev pretend this was definitely the plan all along."
-            if hook
-            else f"{title} is the kind of horizon that makes a runner grin, a GM squint, and the dev pretend this was definitely the plan all along."
-        ),
-        "brutal_truth": (
-            f"{brutal_truth} If this ever lands cleanly, Chummer gets smarter, meaner, and much harder to bullshit."
-            if brutal_truth
-            else f"The brutal truth: if {title} ever lands cleanly, Chummer gets smarter, meaner, and much harder to bullshit."
-        ),
-        "use_case": (
-            f"{use_case} That is the moment where the future version of Chummer stops sounding like chrome daydreams and starts feeling dangerously real."
-            if use_case
-            else f"The use case: you hit the button, the chrome lights up, and the future version of Chummer suddenly feels dangerously real."
-        ),
-    }
-
-
-def fallback_media_override(kind: str, name: str, item: dict[str, object]) -> dict[str, str]:
-    title = str(item.get("title", name.replace("-", " ").title())).strip()
-    hook = " ".join(str(item.get("hook", "")).split()).strip()
-    brutal_truth = " ".join(str(item.get("brutal_truth", "")).split()).strip()
-    use_case = " ".join(str(item.get("use_case", "")).split()).strip()
-    foundations = [str(line).strip() for line in item.get("foundations", []) if str(line).strip()]
-    repos = [str(repo).replace("chummer6-", "") for repo in item.get("repos", []) if str(repo).strip()]
-    short_foundations = [line.replace("DTOs", "DTO").replace(" and ", " / ") for line in foundations[:3]]
-    if kind == "hero":
-        guide_summary = read_markdown_excerpt("README.md", limit=320) or "The human guide to the next Chummer."
-        phase_summary = read_markdown_excerpt("NOW/current-phase.md", limit=220)
-        short_guide = short_sentence(guide_summary) or "The human guide to the next Chummer"
-        short_phase = short_sentence(phase_summary) or "Foundation work first, fireworks later"
-        return {
-            "badge": "Chummer6",
-            "title": "Chummer6",
-            "subtitle": hook or short_guide,
-            "kicker": foundations[0] if foundations else "Guide",
-            "note": brutal_truth or short_phase or "A readable guide wall for curious chummers, nervous test dummies, and the occasional roasted dev.",
-            "meta": "",
-            "overlay_hint": "street map overlay",
-            "visual_prompt": (
-                f"Wide cinematic cyberpunk concept art for Chummer6, inspired by this guide summary: {guide_summary}. "
-                f"Current phase mood: {phase_summary or 'foundations first, chrome later'}. "
-                "Use a dangerous but inviting street-level scene with commlink, cyberdeck, holographic artifacts, rain, neon, and map-on-the-wall energy. "
-                "No text, no logo, no watermark, 16:9."
-            ),
-            "visual_motifs": [
-                "battered cyberdeck on a wet crate",
-                "floating holographic repo cards",
-                "city map overlays",
-                "rainy neon alley",
-            ],
-            "overlay_callouts": [
-                "Lua rules",
-                "SR4-SR6",
-                "Local-first play",
-                "Explain receipts",
-            ],
-        }
-    return {
-        "badge": "Horizon",
-        "title": title,
-        "subtitle": hook or use_case or brutal_truth or f"{title} is a horizon lane with too much chrome to ignore and too much blast radius to rush.",
-        "kicker": repos[0] if repos else (foundations[0] if foundations else "Horizon lane"),
-        "note": brutal_truth or use_case or "Horizon only. Slick enough to sell, dangerous enough to keep parked for now.",
-        "meta": "",
-        "overlay_hint": foundations[0] if foundations else "analysis overlay",
-        "visual_prompt": f"Wide cinematic cyberpunk concept art for {title}, {hook or use_case or brutal_truth or 'future-shadowrun capability'}, scene-first composition, dark humor, no text, no logo, no watermark, 16:9",
-        "visual_motifs": [hook or title, *(foundations[:3] if foundations else ["cyberpunk horizon"])],
-        "overlay_callouts": [title, *(short_foundations[:2] if short_foundations else repos[:2] or ["Horizon"])],
-    }
-
-
 def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[str, object]) -> dict[str, object]:
+    def infer_scene_contract(*, asset_key: str, visual_prompt: str) -> dict[str, object]:
+        lowered = visual_prompt.lower()
+        subject = "a cyberpunk protagonist"
+        if "team" in lowered or "table" in lowered or "gm" in lowered:
+            subject = "a runner team at a live table"
+        elif "girl" in lowered or "woman" in lowered or asset_key == "alice":
+            subject = "a cyberpunk woman"
+        elif "troll" in lowered or "forge" in lowered or asset_key == "karma-forge":
+            subject = "a cybernetic troll"
+        environment = "a dangerous but inviting cyberpunk scene"
+        if "archive" in lowered or "blueprint" in lowered:
+            environment = "a blueprint room lit by cold neon"
+        elif "workshop" in lowered or "foundation" in lowered:
+            environment = "a cyberpunk workshop with exposed internals"
+        elif "street" in lowered or "preview" in lowered:
+            environment = "a rainy neon street front"
+        action = "framing the next move before the chrome starts smoking"
+        if "x-ray" in lowered or "xray" in lowered:
+            action = "pulling a glowing x-ray of cause and effect through the air"
+        elif "simulation" in lowered or "branch" in lowered:
+            action = "walking through branching combat outcomes"
+        elif "dossier" in lowered or "evidence" in lowered:
+            action = "sorting a hot dossier and live evidence threads"
+        elif "forge" in lowered:
+            action = "hammering volatile rules into controlled shape"
+        metaphor = "scene-aware cyberpunk guide art"
+        for token, label in (
+            ("x-ray", "x-ray causality scan"),
+            ("xray", "x-ray causality scan"),
+            ("simulation", "branching simulation grid"),
+            ("ghost", "forensic replay echoes"),
+            ("dossier", "dossier evidence wall"),
+            ("forge", "forge sparks and molten rules"),
+            ("network", "living consequence web"),
+            ("passport", "passport gate"),
+            ("mirror", "mirror split"),
+            ("blackbox", "blackbox loadout check"),
+        ):
+            if token in lowered or token in asset_key:
+                metaphor = label
+                break
+        composition = "single_protagonist"
+        if "table" in lowered or "team" in lowered:
+            composition = "group_table"
+        elif "dossier" in lowered or "blackbox" in lowered:
+            composition = "desk_still_life"
+        elif "horizon" in lowered or asset_key in {"horizons-index", "hero"}:
+            composition = "city_edge"
+        palette = "cyan-magenta neon"
+        mood = "dangerous, curious, and slightly amused"
+        humor = "dry roast energy without clown mode"
+        props = [
+            "wet chrome",
+            "holographic receipts",
+            "rain haze",
+        ]
+        overlays = [
+            "diegetic HUD traces",
+            "receipt markers",
+            "signal arcs",
+        ]
+        return {
+            "subject": subject,
+            "environment": environment,
+            "action": action,
+            "metaphor": metaphor,
+            "props": props,
+            "overlays": overlays,
+            "composition": composition,
+            "palette": palette,
+            "mood": mood,
+            "humor": humor,
+            "visual_prompt": visual_prompt,
+        }
+
+    def normalize_scene_contract(raw: object, *, asset_key: str, visual_prompt: str) -> dict[str, object]:
+        default = infer_scene_contract(asset_key=asset_key, visual_prompt=visual_prompt)
+        if not isinstance(raw, dict):
+            return default
+        contract: dict[str, object] = dict(default)
+        for key in ("subject", "environment", "action", "metaphor", "composition", "palette", "mood", "humor"):
+            value = str(raw.get(key, "")).strip()
+            if value:
+                contract[key] = value
+        for key in ("props", "overlays"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                cleaned_values = [str(entry).strip() for entry in value if str(entry).strip()]
+                if cleaned_values:
+                    contract[key] = cleaned_values[:6]
+        # Keep the prompt close by so downstream renderers can reason over both.
+        contract["visual_prompt"] = visual_prompt
+        return contract
+
     normalized = dict(cleaned)
     if kind == "hero":
-        title = str(normalized.get("title", "")).strip().lower()
-        if title in {"", "hero", "guide", "guide hero", "landing hero"}:
-            normalized["title"] = "Chummer6"
-        badge = str(normalized.get("badge", "")).strip()
-        if not badge:
-            normalized["badge"] = "Chummer6"
-        kicker = str(normalized.get("kicker", "")).strip()
-        if not kicker or kicker.lower() in {"visitor center", "front door"}:
-            normalized["kicker"] = "Guide"
-        subtitle = str(normalized.get("subtitle", "")).strip()
-        if subtitle:
-            normalized["subtitle"] = subtitle.replace("visitor center", "guide").replace("Visitor Center", "Guide")
-            if normalized["subtitle"].lower().startswith("chummer6 "):
-                normalized["subtitle"] = normalized["subtitle"][len("Chummer6 ") :].strip()
-        note = str(normalized.get("note", "")).strip()
-        if note:
-            normalized["note"] = note.replace("visitor center", "guide").replace("Visitor center", "Guide")
-            if normalized["note"].lower().startswith("current phase "):
-                normalized["note"] = normalized["note"][len("Current Phase ") :].strip()
-            normalized["note"] = short_sentence(normalized["note"], limit=180) or normalized["note"]
-        normalized["meta"] = ""
-        if not str(normalized.get("overlay_hint", "")).strip():
-            normalized["overlay_hint"] = "street map overlay"
-        if not str(normalized.get("visual_prompt", "")).strip():
-            normalized["visual_prompt"] = fallback_media_override("hero", "hero", {})["visual_prompt"]
+        for field in ("badge", "title", "subtitle", "kicker", "note", "overlay_hint", "visual_prompt"):
+            value = str(normalized.get(field, "")).strip()
+            if not value:
+                raise ValueError(f"hero media field is missing: {field}")
+            normalized[field] = value
+        normalized["meta"] = str(normalized.get("meta", "")).strip()
         raw_motifs = normalized.get("visual_motifs")
-        if isinstance(raw_motifs, list):
-            normalized["visual_motifs"] = [str(item).strip() for item in raw_motifs if str(item).strip()]
-        else:
-            normalized["visual_motifs"] = list(fallback_media_override("hero", "hero", {})["visual_motifs"])
+        if not isinstance(raw_motifs, list):
+            raise ValueError("hero media field is missing: visual_motifs")
+        motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
+        if not motifs:
+            raise ValueError("hero media field is missing: visual_motifs")
+        normalized["visual_motifs"] = motifs
         raw_callouts = normalized.get("overlay_callouts")
-        if isinstance(raw_callouts, list):
-            normalized["overlay_callouts"] = [str(item).strip() for item in raw_callouts if str(item).strip()]
-        else:
-            normalized["overlay_callouts"] = list(fallback_media_override("hero", "hero", {})["overlay_callouts"])
+        if not isinstance(raw_callouts, list):
+            raise ValueError("hero media field is missing: overlay_callouts")
+        callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()]
+        if not callouts:
+            raise ValueError("hero media field is missing: overlay_callouts")
+        normalized["overlay_callouts"] = callouts
+        normalized["scene_contract"] = normalize_scene_contract(
+            normalized.get("scene_contract"),
+            asset_key="hero",
+            visual_prompt=str(normalized["visual_prompt"]),
+        )
         return normalized
-    if not str(normalized.get("title", "")).strip():
-        normalized["title"] = str(item.get("title", "")).strip()
-    if not str(normalized.get("badge", "")).strip():
-        normalized["badge"] = "Horizon"
-    normalized["meta"] = ""
-    if not str(normalized.get("overlay_hint", "")).strip():
-        normalized["overlay_hint"] = "analysis overlay"
-    if not str(normalized.get("visual_prompt", "")).strip():
-        normalized["visual_prompt"] = fallback_media_override("horizon", str(item.get("slug", "") or item.get("title", "horizon")), item)["visual_prompt"]
+    for field in ("badge", "title", "subtitle", "kicker", "note", "overlay_hint", "visual_prompt"):
+        value = str(normalized.get(field, "")).strip()
+        if not value:
+            raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.{field}")
+        normalized[field] = value
+    normalized["meta"] = str(normalized.get("meta", "")).strip()
     raw_motifs = normalized.get("visual_motifs")
-    if isinstance(raw_motifs, list):
-        normalized["visual_motifs"] = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
-    else:
-        normalized["visual_motifs"] = list(fallback_media_override("horizon", str(item.get("slug", "") or item.get("title", "horizon")), item)["visual_motifs"])
+    if not isinstance(raw_motifs, list):
+        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.visual_motifs")
+    motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
+    if not motifs:
+        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.visual_motifs")
+    normalized["visual_motifs"] = motifs
     raw_callouts = normalized.get("overlay_callouts")
-    if isinstance(raw_callouts, list):
-        normalized["overlay_callouts"] = [str(entry).strip() for entry in raw_callouts if str(entry).strip()]
-    else:
-        normalized["overlay_callouts"] = list(fallback_media_override("horizon", str(item.get("slug", "") or item.get("title", "horizon")), item)["overlay_callouts"])
+    if not isinstance(raw_callouts, list):
+        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.overlay_callouts")
+    callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()]
+    if not callouts:
+        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.overlay_callouts")
+    normalized["overlay_callouts"] = callouts
+    normalized["scene_contract"] = normalize_scene_contract(
+        normalized.get("scene_contract"),
+        asset_key=item.get("slug", item.get("title", "horizon")),
+        visual_prompt=str(normalized["visual_prompt"]),
+    )
     return normalized
 
 
+PAGE_PROMPTS: dict[str, dict[str, str]] = {
+    "readme": {
+        "source": "The main landing page. Explain why Chummer6 exists, why a human should care, where they should click next, and why the current phase is foundations first.",
+    },
+    "start_here": {
+        "source": "Welcome and first-run orientation for a new human reader. Explain why there are many repos without sounding like internal process sludge.",
+    },
+    "what_chummer6_is": {
+        "source": "Explain what Chummer6 is, why it exists, who it helps, and what it deliberately is not.",
+    },
+    "where_to_go_deeper": {
+        "source": "Explain where deeper blueprint and code truth live without bureaucratic wording.",
+    },
+    "current_phase": {
+        "source": "Explain the current phase in human language: foundations first, not feature fireworks.",
+    },
+    "current_status": {
+        "source": "Explain the current visible state without sounding like raw ops telemetry.",
+    },
+    "public_surfaces": {
+        "source": "Explain what is visible now and why preview does not mean final public shape.",
+    },
+    "parts_index": {
+        "source": "Introduce the main parts in a field-guide voice and help the reader choose where to go next.",
+    },
+    "horizons_index": {
+        "source": "Sell the horizon section as an exciting garage of future ideas without pretending they are active work.",
+    },
+}
+
+
+def chunk_mapping(mapping: dict[str, object], *, size: int) -> list[dict[str, object]]:
+    items = list(mapping.items())
+    return [dict(items[index : index + size]) for index in range(0, len(items), size)]
+
+
 def generate_overrides(*, include_parts: bool, include_horizons: bool, model: str) -> dict[str, object]:
+    global TEXT_PROVIDER_USED
+    TEXT_PROVIDER_USED = ""
     signals = collect_interest_signals()
     overrides: dict[str, object] = {
         "parts": {},
         "horizons": {},
+        "pages": {},
         "media": {"hero": {}, "horizons": {}},
         "ooda": {},
+        "section_ooda": {"hero": {}, "parts": {}, "horizons": {}, "pages": {}},
         "meta": {
             "generator": "ea",
-            "provider": "1min.AI",
+            "provider": "unknown",
             "provider_status": "unknown",
             "provider_error": "",
-            "ooda_version": "v2",
+            "ooda_version": "v3",
         },
     }
-    provider_available = True
     provider_error = ""
-    if provider_available:
-        try:
-            ooda_result = chat_json(build_ooda_prompt(signals), model=model)
-            overrides["ooda"] = normalize_ooda(ooda_result, signals)
-        except Exception as exc:
-            provider_available = False
-            provider_error = str(exc)
-            overrides["ooda"] = fallback_ooda(signals)
-    else:
-        overrides["ooda"] = fallback_ooda(signals)
+    try:
+        ooda_result = chat_json(build_ooda_prompt(signals), model=model)
+        overrides["ooda"] = normalize_ooda(ooda_result, signals)
+    except Exception as exc:
+        raise RuntimeError(f"global OODA generation failed: {exc}") from exc
     ooda = dict(overrides.get("ooda") or {})
-    if provider_available:
-        try:
-            result = chat_json(build_media_prompt("hero", "hero", {}, ooda=ooda), model=model)
-            cleaned = {}
-            for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
-                value = str(result.get(key, "")).strip()
-                if value:
-                    cleaned[key] = value
-            for key in ("visual_motifs", "overlay_callouts"):
-                raw = result.get(key)
-                if isinstance(raw, list):
-                    cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
-            cleaned = normalize_media_override("hero", cleaned, {})
-        except Exception as exc:
-            provider_available = False
-            provider_error = str(exc)
-            cleaned = fallback_media_override("hero", "hero", {})
-    else:
-        cleaned = fallback_media_override("hero", "hero", {})
+    try:
+        hero_ooda_result = chat_json(build_section_ooda_prompt("hero", "hero", {}, global_ooda=ooda), model=model)
+        hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
+    except Exception as exc:
+        raise RuntimeError(f"hero section OODA generation failed: {exc}") from exc
+    overrides["section_ooda"]["hero"]["hero"] = hero_ooda
+    try:
+        result = chat_json(build_media_prompt("hero", "hero", {}, ooda=ooda, section_ooda=hero_ooda), model=model)
+        cleaned = {}
+        for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
+            value = str(result.get(key, "")).strip()
+            if value:
+                cleaned[key] = value
+        for key in ("visual_motifs", "overlay_callouts"):
+            raw = result.get(key)
+            if isinstance(raw, list):
+                cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
+        cleaned = normalize_media_override("hero", cleaned, {})
+    except Exception as exc:
+        raise RuntimeError(f"hero media generation failed: {exc}") from exc
     cleaned = normalize_media_override("hero", cleaned, {})
     overrides["media"]["hero"] = cleaned
+    page_oodas: dict[str, object] = {}
+    for batch in chunk_mapping(PAGE_PROMPTS, size=max(len(PAGE_PROMPTS), 1)):
+        try:
+            page_ooda_result = chat_json(
+                build_section_oodas_bundle_prompt("page", batch, global_ooda=ooda),
+                model=model,
+            )
+            page_oodas.update(
+                normalize_section_oodas_bundle(
+                    page_ooda_result,
+                    section_type="page",
+                    section_items=batch,
+                    global_ooda=ooda,
+                )
+            )
+        except Exception as exc:
+            raise RuntimeError(f"page section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+    overrides["section_ooda"]["pages"] = page_oodas
+    page_rows: dict[str, object] = {}
+    for batch in chunk_mapping(PAGE_PROMPTS, size=max(len(PAGE_PROMPTS), 1)):
+        try:
+            page_bundle = chat_json(
+                build_pages_bundle_prompt(
+                    global_ooda=ooda,
+                    section_oodas={name: page_oodas[name] for name in batch.keys()},
+                ),
+                model=model,
+            )
+            page_rows.update(normalize_pages_bundle(page_bundle))
+        except Exception as exc:
+            raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+    overrides["pages"] = page_rows
     if include_parts:
-        for name, item in PARTS.items():
-            if provider_available:
-                try:
-                    result = chat_json(build_part_prompt(name, item, ooda=ooda), model=model)
-                    cleaned = {key: str(result.get(key, "")).strip() for key in ("intro", "why", "now") if str(result.get(key, "")).strip()}
-                except Exception as exc:
-                    provider_available = False
-                    provider_error = str(exc)
-                    cleaned = fallback_part_override(name, item)
-            else:
-                cleaned = fallback_part_override(name, item)
-            if cleaned:
-                overrides["parts"][name] = cleaned
+        part_oodas: dict[str, object] = {}
+        for batch in chunk_mapping(PARTS, size=max(len(PARTS), 1)):
+            try:
+                part_ooda_result = chat_json(
+                    build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda),
+                    model=model,
+                )
+                part_oodas.update(
+                    normalize_section_oodas_bundle(
+                        part_ooda_result,
+                        section_type="part",
+                        section_items=batch,
+                        global_ooda=ooda,
+                    )
+                )
+            except Exception as exc:
+                raise RuntimeError(f"part section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        overrides["section_ooda"]["parts"] = part_oodas
+        part_copy_rows: dict[str, object] = {}
+        part_media_rows: dict[str, object] = {}
+        for batch in chunk_mapping(PARTS, size=max(len(PARTS), 1)):
+            try:
+                part_bundle = chat_json(
+                    build_parts_bundle_prompt(
+                        global_ooda=ooda,
+                        section_oodas={name: part_oodas[name] for name in batch.keys()},
+                    ),
+                    model=model,
+                )
+                copy_rows, media_rows = normalize_parts_bundle(part_bundle)
+                part_copy_rows.update(copy_rows)
+                part_media_rows.update(media_rows)
+            except Exception as exc:
+                raise RuntimeError(f"part bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        overrides["parts"] = part_copy_rows
+        overrides["media"]["parts"] = part_media_rows
     if include_horizons:
-        for name, item in HORIZONS.items():
-            if provider_available:
-                try:
-                    result = chat_json(build_horizon_prompt(name, item, ooda=ooda), model=model)
-                    cleaned = {key: str(result.get(key, "")).strip() for key in ("hook", "brutal_truth", "use_case") if str(result.get(key, "")).strip()}
-                except Exception as exc:
-                    provider_available = False
-                    provider_error = str(exc)
-                    cleaned = fallback_horizon_override(name, item)
-            else:
-                cleaned = fallback_horizon_override(name, item)
-            if cleaned:
-                overrides["horizons"][name] = cleaned
-            if provider_available:
-                try:
-                    media_result = chat_json(build_media_prompt("horizon", name, item, ooda=ooda), model=model)
-                    media_cleaned = {}
-                    for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
-                        value = str(media_result.get(key, "")).strip()
-                        if value:
-                            media_cleaned[key] = value
-                    for key in ("visual_motifs", "overlay_callouts"):
-                        raw = media_result.get(key)
-                        if isinstance(raw, list):
-                            media_cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
-                    media_cleaned = normalize_media_override("horizon", media_cleaned, item)
-                except Exception as exc:
-                    provider_available = False
-                    provider_error = str(exc)
-                    media_cleaned = fallback_media_override("horizon", name, item)
-            else:
-                media_cleaned = fallback_media_override("horizon", name, item)
-            media_cleaned = normalize_media_override("horizon", media_cleaned, item)
-            overrides["media"]["horizons"][name] = media_cleaned
-    overrides["meta"]["provider_status"] = "ok" if provider_available else "fallback_local_templates"
+        horizon_oodas: dict[str, object] = {}
+        for batch in chunk_mapping(HORIZONS, size=max(len(HORIZONS), 1)):
+            try:
+                horizon_ooda_result = chat_json(
+                    build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda),
+                    model=model,
+                )
+                horizon_oodas.update(
+                    normalize_section_oodas_bundle(
+                        horizon_ooda_result,
+                        section_type="horizon",
+                        section_items=batch,
+                        global_ooda=ooda,
+                    )
+                )
+            except Exception as exc:
+                raise RuntimeError(f"horizon section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        overrides["section_ooda"]["horizons"] = horizon_oodas
+        horizon_copy_rows: dict[str, object] = {}
+        horizon_media_rows: dict[str, object] = {}
+        for batch in chunk_mapping(HORIZONS, size=max(len(HORIZONS), 1)):
+            try:
+                horizon_bundle = chat_json(
+                    build_horizons_bundle_prompt(
+                        global_ooda=ooda,
+                        section_oodas={name: horizon_oodas[name] for name in batch.keys()},
+                    ),
+                    model=model,
+                )
+                copy_rows, media_rows = normalize_horizons_bundle(horizon_bundle)
+                horizon_copy_rows.update(copy_rows)
+                horizon_media_rows.update(media_rows)
+            except Exception as exc:
+                raise RuntimeError(f"horizon bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        overrides["horizons"] = horizon_copy_rows
+        overrides["media"]["horizons"] = horizon_media_rows
+    overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"
+    overrides["meta"]["provider_status"] = "ok"
     overrides["meta"]["provider_error"] = provider_error
     return overrides
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate Chummer6 downstream guide overrides through EA using 1min.AI.")
+    parser = argparse.ArgumentParser(description="Generate Chummer6 downstream guide overrides through EA using section-level OODA.")
     parser.add_argument("--output", default=str(OVERRIDE_OUT), help="Where to write the override JSON.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="1min.AI chat model.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Preferred non-Codex text model.")
     parser.add_argument("--parts-only", action="store_true", help="Generate part-page overrides only.")
     parser.add_argument("--horizons-only", action="store_true", help="Generate horizon-page overrides only.")
     args = parser.parse_args()

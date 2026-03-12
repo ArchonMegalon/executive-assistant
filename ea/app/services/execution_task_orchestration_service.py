@@ -160,7 +160,7 @@ class ExecutionTaskOrchestrationService:
                 desired_artifact="rewrite_note",
                 memory_write_policy="reviewed_only",
             )
-        contract = self._task_contracts.contract_or_default(key) if self._task_contracts else None
+        contract = self._task_contracts.get_contract_or_raise(key) if self._task_contracts else None
         deliverable_type = str(contract.deliverable_type if contract is not None else "generic_artifact") or "generic_artifact"
         default_risk_class = str(contract.default_risk_class if contract is not None else "low") or "low"
         default_approval_class = str(contract.default_approval_class if contract is not None else "none") or "none"

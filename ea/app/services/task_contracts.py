@@ -110,14 +110,12 @@ class TaskContractService:
     def get_contract(self, task_key: str) -> TaskContract | None:
         return self._repo.get(task_key)
 
-    def list_contracts(self, limit: int = 100) -> list[TaskContract]:
-        return self._repo.list_all(limit=limit)
-
-    def contract_or_default(self, task_key: str) -> TaskContract:
+    def get_contract_or_raise(self, task_key: str) -> TaskContract:
         found = self._repo.get(task_key)
-        if found:
+        if found is not None:
             return found
-        if task_key == "rewrite_text":
+        normalized = str(task_key or "").strip() or "unknown"
+        if normalized == "rewrite_text":
             return TaskContract(
                 task_key="rewrite_text",
                 deliverable_type="rewrite_note",
@@ -129,17 +127,13 @@ class TaskContractService:
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
             )
-        return TaskContract(
-            task_key=task_key,
-            deliverable_type="generic_artifact",
-            default_risk_class="low",
-            default_approval_class="none",
-            allowed_tools=(),
-            evidence_requirements=(),
-            memory_write_policy="reviewed_only",
-            budget_policy_json={"class": "low"},
-            updated_at=now_utc_iso(),
-        )
+        raise ValueError(f"task_contract_not_found:{normalized}")
+
+    def list_contracts(self, limit: int = 100) -> list[TaskContract]:
+        return self._repo.list_all(limit=limit)
+
+    def contract_or_default(self, task_key: str) -> TaskContract:
+        return self.get_contract_or_raise(task_key)
 
     def compile_rewrite_intent(
         self,
