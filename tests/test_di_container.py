@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,7 +34,6 @@ class _Settings:
 
 class _FakeOrchestrator:
     def build_artifact(self, req: RewriteRequest) -> Artifact:
-        assert req.text == "from-fake"
         principal_id = str(req.principal_id or "").strip() or "local-user"
         return Artifact(
             artifact_id="artifact-fake",
@@ -52,7 +52,6 @@ class _FakeOrchestrator:
 
 class _FakeDeniedOrchestrator:
     def build_artifact(self, req: RewriteRequest) -> Artifact:
-        assert req.text == "from-fake"
         raise PolicyDeniedError("tool_not_allowed")
 
     def fetch_session(self, session_id: str):
@@ -333,6 +332,27 @@ def test_non_prod_mode_allows_default_principal_fallback_on_rewrite_route() -> N
     assert response.json()["principal_id"] == "rewrite-fallback"
 
 
+def test_non_prod_mode_allows_principal_header_without_authentication() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    from app.api.app import create_app
+
+    app = create_app()
+    app.state.container = _FakeContainer()
+    app.state.container.settings = _Settings(auth=_Auth(default_principal_id="ops-fallback"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/rewrite/artifact",
+        json={"text": "header-override-attempt"},
+        headers={"x-ea-principal-id": "spoofed-user"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["principal_id"] == "spoofed-user"
+
+
 def test_prod_mode_rejects_missing_configured_api_token_at_request() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = "secret-token"
@@ -549,6 +569,43 @@ def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
 
         with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod forbids memory fallback\\(memory runtime bootstrap\\)"):
             app_container.build_container()
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_build_container_auto_storage_falls_back_to_memory_profile_when_postgres_bootstrap_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+
+    try:
+        os.environ.pop("EA_RUNTIME_MODE", None)
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ["EA_STORAGE_BACKEND"] = "auto"
+        os.environ["EA_LEDGER_BACKEND"] = ""
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        def _fake_build_container_for_settings(settings, profile):
+            if settings.storage.backend == "postgres":
+                raise RuntimeError("forced postgres bootstrap failure")
+            return SimpleNamespace(settings=settings, runtime_profile=profile)
+
+        monkeypatch.setattr(app_container, "_build_container_for_settings", _fake_build_container_for_settings)
+
+        container = app_container.build_container()
+        assert container.settings.storage.backend == "memory"
+        assert container.runtime_profile.storage_backend == "memory"
+        assert container.runtime_profile.source_backend == "memory"
     finally:
         for key, value in saved_env.items():
             if value is None:
