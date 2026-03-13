@@ -24,6 +24,8 @@ ENV_FILE = EA_ROOT / ".env"
 STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
 MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
+GUIDE_VISUAL_OVERRIDES = Path("/docker/chummercomplete/Chummer6/VISUAL_OVERRIDES.json")
+TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
     "onemin",
     "magixai",
@@ -109,6 +111,31 @@ def provider_order() -> list[str]:
         key=lambda value: preferred.index(value) if value in preferred else len(preferred),
     )
     return ordered or list(preferred)
+
+
+def deep_merge(base: object, override: object) -> object:
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = dict(base)
+        for key, value in override.items():
+            merged[key] = deep_merge(merged.get(key), value)
+        return merged
+    return override if override is not None else base
+
+
+def load_visual_overrides() -> dict[str, dict[str, object]]:
+    if not GUIDE_VISUAL_OVERRIDES.exists():
+        return {}
+    try:
+        loaded = json.loads(GUIDE_VISUAL_OVERRIDES.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    normalized: dict[str, dict[str, object]] = {}
+    for key, value in loaded.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            normalized[key] = value
+    return normalized
 
 
 OVERRIDE_PATH = Path("/docker/fleet/state/chummer6/ea_overrides.json")
@@ -646,6 +673,19 @@ def onemin_aspect_ratio(width: int, height: int) -> str:
     return f"{best[0]}:{best[1]}"
 
 
+def onemin_request_timeout_seconds(model: str) -> int:
+    raw = env_value("CHUMMER6_ONEMIN_TIMEOUT_SECONDS")
+    if raw:
+        try:
+            return max(30, int(raw))
+        except Exception:
+            pass
+    normalized = str(model or "").strip().lower()
+    if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
+        return 150
+    return 45
+
+
 def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list[dict[str, object]]:
     normalized = str(model or "").strip().lower()
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
@@ -720,6 +760,7 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
     for url in endpoints:
         for model in model_candidates:
             payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
+            timeout_seconds = onemin_request_timeout_seconds(model)
             for payload in payloads:
                 prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
                 size_label = str(
@@ -749,7 +790,7 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                         method="POST",
                     )
                     try:
-                        with urllib.request.urlopen(request, timeout=45) as response:
+                        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                             data = response.read()
                             content_type = str(response.headers.get("Content-Type") or "").lower()
                     except urllib.error.HTTPError as exc:
@@ -767,7 +808,7 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                                         data=payload_json.encode("utf-8"),
                                         method="POST",
                                     )
-                                    with urllib.request.urlopen(request, timeout=45) as response:
+                                    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                                         data = response.read()
                                         content_type = str(response.headers.get("Content-Type") or "").lower()
                                         busy_recovered = True
@@ -782,6 +823,9 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                                 except urllib.error.URLError as retry_url_exc:
                                     errors.append(f"{url}:{model}:{size_label}:urlerror:{retry_url_exc.reason}")
                                     break
+                                except TimeoutError:
+                                    errors.append(f"{url}:{model}:{size_label}:timeout")
+                                    break
                             if not busy_recovered:
                                 if retryable_busy:
                                     errors.append(f"{url}:{model}:{size_label}:openai_busy")
@@ -791,6 +835,9 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
                             continue
                     except urllib.error.URLError as exc:
                         errors.append(f"{url}:{model}:{size_label}:urlerror:{exc.reason}")
+                        continue
+                    except TimeoutError:
+                        errors.append(f"{url}:{model}:{size_label}:timeout")
                         continue
                     if data:
                         if content_type.startswith("image/"):
@@ -969,6 +1016,11 @@ def prompt_refinement_attempts_enabled() -> bool:
     return any(env_value(name) for name in explicit_env_names)
 
 
+def troll_postpass_enabled() -> bool:
+    raw = env_value("CHUMMER6_TROLL_POSTPASS")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     # OODA-authored visual_prompt is the required source of truth.
     # External prompt refinement is an optional enhancer and should never
@@ -1074,11 +1126,262 @@ def easter_egg_clause(contract: dict[str, object] | None) -> str:
     )
 
 
+def easter_egg_instruction_set(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    kind = str(data.get("easter_egg_kind") or "small prop").strip()
+    placement = str(data.get("easter_egg_placement") or "inside the safe crop").strip()
+    detail = str(
+        data.get("easter_egg_detail")
+        or "a troll in the classic Chummer horned squat stance"
+    ).strip()
+    return (
+        "Secondary art direction for the same image: integrate one small troll easter egg seamlessly into the scene. "
+        f"Make it a real {kind} placed {placement}. "
+        f"Use this specific motif: {detail}. "
+        "It must share the scene lighting, material, texture, and perspective so it feels native to the world. "
+        "Do not render it as a pasted logo, floating UI symbol, watermark, or random face decal."
+    )
+
+
+def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    composition = str(data.get("composition") or "").strip().lower()
+    if composition in {"city_edge", "street_front", "horizon_boulevard", "district_map"}:
+        return (
+            "Street and transit clues must use pictograms, arrows, mascot art, crossed-out symbols, color lanes, "
+            "and physical landmarks instead of readable signs, posters, or neon words."
+        )
+    if composition in {
+        "safehouse_table",
+        "group_table",
+        "desk_still_life",
+        "dossier_desk",
+        "archive_room",
+        "workshop",
+        "simulation_lab",
+        "rule_xray",
+        "passport_gate",
+        "mirror_split",
+        "loadout_table",
+        "forensic_replay",
+        "conspiracy_wall",
+    }:
+        return (
+            "Keep papers, dossiers, screens, labels, and forms unreadable, edge-on, cropped, or replaced by chips, "
+            "stamps, traces, tokens, light bars, and body language."
+        )
+    return "Use objects, symbols, and lighting to explain the moment before any readable text would."
+
+
+def scene_integrity_instruction_set(contract: dict[str, object] | None, *, target: str) -> str:
+    _ = target
+    return (
+        "Secondary art direction for the same image: keep it as a lived moment, not a poster or title card. "
+        "Show one focal action, one readable prop cluster, and one secondary story clue. "
+        f"{composition_visual_guardrails(contract)} "
+        "Avoid centered brochure posing, fake readable typography, and generic wallpaper composition."
+    )
+
+
 def easter_egg_stub(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     kind = str(data.get("easter_egg_kind") or "pin").strip()
     placement = str(data.get("easter_egg_placement") or "inside the safe crop").strip()
     return f"subtle diegetic troll motif as {kind} {placement}"
+
+
+def short_easter_egg_stub(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    kind = compact_text(data.get("easter_egg_kind") or "pin", limit=18)
+    placement = compact_text(data.get("easter_egg_placement") or "inside the safe crop", limit=64)
+    return f"Troll motif: {kind} {placement}."
+
+
+def compact_easter_egg_clause(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    kind = compact_text(data.get("easter_egg_kind") or "small troll motif", limit=36)
+    placement = compact_text(data.get("easter_egg_placement") or "inside the safe crop", limit=90)
+    detail = compact_text(
+        data.get("easter_egg_detail") or "classic horned Chummer troll silhouette",
+        limit=96,
+    )
+    visibility = compact_text(data.get("easter_egg_visibility") or "clearly visible on the banner", limit=72)
+    return (
+        f"Troll motif: {kind} at {placement}. "
+        f"Detail: {detail}. "
+        f"Keep it {visibility}."
+    )
+
+
+def troll_mark_tint(kind: str) -> str:
+    lowered = str(kind or "").strip().lower()
+    if any(token in lowered for token in ("brass", "gold", "pin")):
+        return "#d8ab49"
+    if any(token in lowered for token in ("red", "wax", "seal")):
+        return "#e76a53"
+    if "blue" in lowered:
+        return "#4cc0ff"
+    if any(token in lowered for token in ("crt", "screen", "green", "ad")):
+        return "#61e7a3"
+    return "#f2f1e8"
+
+
+def troll_overlay_defaults(*, composition: str, width: int, height: int, kind: str) -> dict[str, object]:
+    base_positions = {
+        "safehouse_table": (0.46, 0.82),
+        "group_table": (0.50, 0.82),
+        "desk_still_life": (0.15, 0.80),
+        "dossier_desk": (0.20, 0.79),
+        "archive_room": (0.14, 0.68),
+        "workshop": (0.74, 0.22),
+        "district_map": (0.18, 0.78),
+        "horizon_boulevard": (0.79, 0.18),
+        "city_edge": (0.78, 0.21),
+        "street_front": (0.78, 0.21),
+        "simulation_lab": (0.14, 0.72),
+        "rule_xray": (0.42, 0.82),
+        "passport_gate": (0.15, 0.71),
+        "mirror_split": (0.48, 0.82),
+        "loadout_table": (0.75, 0.74),
+        "forensic_replay": (0.78, 0.72),
+        "conspiracy_wall": (0.77, 0.33),
+    }
+    lowered_kind = str(kind or "").strip().lower()
+    scale = max(0.75, min(width / 960.0, height / 540.0))
+    size = int(34 * scale)
+    alpha = 0.86
+    rotate = 0.0
+    if "sticker" in lowered_kind:
+        alpha = 0.78
+        rotate = -6.0
+    elif any(token in lowered_kind for token in ("stamp", "wax", "seal")):
+        alpha = 0.58
+        rotate = -4.0
+    elif any(token in lowered_kind for token in ("crt", "screen", "ad")):
+        alpha = 0.52
+    elif "figurine" in lowered_kind:
+        alpha = 0.90
+        size = int(40 * scale)
+    x_ratio, y_ratio = base_positions.get(composition, (0.12, 0.78))
+    return {
+        "x": int(width * x_ratio),
+        "y": int(height * y_ratio),
+        "w": size,
+        "h": size,
+        "alpha": alpha,
+        "shadow_alpha": min(0.42, alpha * 0.38),
+        "rotate": rotate,
+        "tint": troll_mark_tint(kind),
+    }
+
+
+def troll_postpass_settings(*, spec: dict[str, object], width: int, height: int) -> dict[str, object]:
+    row = spec.get("media_row") if isinstance(spec, dict) and isinstance(spec.get("media_row"), dict) else {}
+    contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    kind = str(contract.get("easter_egg_kind") or "troll mark").strip()
+    composition = str(contract.get("composition") or "").strip()
+    settings = troll_overlay_defaults(composition=composition, width=width, height=height, kind=kind)
+    override = contract.get("troll_postpass") if isinstance(contract.get("troll_postpass"), dict) else {}
+    for key in ("x", "y", "w", "h", "alpha", "shadow_alpha", "rotate", "tint"):
+        if key in override and override[key] not in (None, ""):
+            settings[key] = override[key]
+    return settings
+
+
+def apply_troll_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
+    if not image_path.exists():
+        raise RuntimeError(f"troll_postpass:missing_image:{image_path}")
+    if not TROLL_MARK_PATH.exists():
+        raise RuntimeError(f"troll_postpass:missing_mark:{TROLL_MARK_PATH}")
+    settings = troll_postpass_settings(spec=spec, width=width, height=height)
+    tint = str(settings.get("tint") or "#f2f1e8").strip()
+    red, green, blue = GUIDE.hex_rgb(tint)
+    rg = max(0.0, min(1.0, red / 255.0))
+    gg = max(0.0, min(1.0, green / 255.0))
+    bg = max(0.0, min(1.0, blue / 255.0))
+    alpha = max(0.15, min(1.0, float(settings.get("alpha") or 0.82)))
+    shadow_alpha = max(0.08, min(0.6, float(settings.get("shadow_alpha") or 0.28)))
+    rotate = float(settings.get("rotate") or 0.0)
+    width_px = max(18, int(settings.get("w") or 32))
+    height_px = max(18, int(settings.get("h") or 32))
+    x = max(0, int(settings.get("x") or 0))
+    y = max(0, int(settings.get("y") or 0))
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+        temp_path = Path(handle.name)
+    filter_graph = (
+        f"[1:v]scale={width_px}:{height_px},format=rgba,"
+        f"colorchannelmixer=rr=0:rg={rg:.3f}:rb=0:gr=0:gg={gg:.3f}:gb=0:br=0:bg={bg:.3f}:bb=0:aa={alpha:.3f},"
+        f"rotate={rotate:.3f}*PI/180:ow=rotw(iw):oh=roth(ih):c=none[logo];"
+        f"[logo]split[logo_main][logo_shadow];"
+        f"[logo_shadow]colorchannelmixer=rr=0:gg=0:bb=0:aa={shadow_alpha:.3f},boxblur=2:1[shadow];"
+        f"[0:v][shadow]overlay={x + 2}:{y + 2}[bg];"
+        f"[bg][logo_main]overlay={x}:{y}:format=auto"
+    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(image_path),
+                "-i",
+                str(TROLL_MARK_PATH),
+                "-filter_complex",
+                filter_graph,
+                "-frames:v",
+                "1",
+                str(temp_path),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        temp_path.replace(image_path)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"troll_postpass:ffmpeg_failed:{detail[:240]}") from exc
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return f"troll_postpass:applied:{x}:{y}:{width_px}x{height_px}"
+
+
+def normalize_banner_size(*, image_path: Path, width: int, height: int) -> str:
+    if not image_path.exists():
+        raise RuntimeError(f"normalize_banner_size:missing_image:{image_path}")
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+        temp_path = Path(handle.name)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(image_path),
+                "-vf",
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+                "-frames:v",
+                "1",
+                str(temp_path),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        temp_path.replace(image_path)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"normalize_banner_size:ffmpeg_failed:{detail[:240]}") from exc
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return f"normalize_banner_size:applied:{width}x{height}"
 
 
 def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
@@ -1087,10 +1390,39 @@ def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
         return cleaned
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     contract = row.get("scene_contract") if isinstance(row, dict) and isinstance(row.get("scene_contract"), dict) else {}
+    target = str(spec.get("target") or "").strip()
     lowered = cleaned.lower()
-    if "chummer troll motif" in lowered or "diegetic troll motif" in lowered or "horned squat stance" in lowered:
+    additions: list[str] = []
+    if "keep it as a lived moment, not a poster or title card" not in lowered:
+        additions.append(scene_integrity_instruction_set(contract, target=target))
+    if "chummer troll motif" not in lowered and "diegetic troll motif" not in lowered and "horned squat stance" not in lowered:
+        additions.append(easter_egg_clause(contract))
+        additions.append(easter_egg_instruction_set(contract))
+    if not additions:
         return cleaned
-    return f"{cleaned} {easter_egg_clause(contract)}".strip()
+    return f"{cleaned} {' '.join(additions)}".strip()
+
+
+def compact_text(value: object, *, limit: int = 120) -> str:
+    cleaned = " ".join(str(value or "").split()).strip()
+    if not cleaned:
+        return ""
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        return ""
+    for splitter in (". ", "! ", "? "):
+        head, sep, _tail = cleaned.partition(splitter)
+        if sep and head.strip():
+            cleaned = head.strip()
+            break
+    return cleaned[:limit].rstrip(" ,;:-")
+
+
+def compact_items(values: object, *, limit: int = 3, item_limit: int = 48) -> str:
+    if not isinstance(values, (list, tuple)):
+        return ""
+    cleaned = [compact_text(entry, limit=item_limit) for entry in values]
+    items = [entry for entry in cleaned if entry][:limit]
+    return ", ".join(items)
 
 
 def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> str:
@@ -1125,33 +1457,35 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     contract = row.get("scene_contract") if isinstance(row, dict) else {}
     if not isinstance(contract, dict):
         return sanitize_prompt_for_provider(prompt, provider="onemin")
-    subject = str(contract.get("subject") or "a cyberpunk protagonist").strip()
-    environment = str(contract.get("environment") or "a neon-lit cyberpunk setting").strip()
-    action = str(contract.get("action") or "holding the moment together").strip()
-    metaphor = str(contract.get("metaphor") or "").strip()
-    composition = str(contract.get("composition") or "single_protagonist").strip()
-    palette = str(contract.get("palette") or "cool neon").strip()
-    mood = str(contract.get("mood") or "focused").strip()
-    props = ", ".join(str(entry).strip() for entry in (contract.get("props") or []) if str(entry).strip())
-    overlays = ", ".join(str(entry).strip() for entry in (contract.get("overlays") or []) if str(entry).strip())
+    visual_prompt = compact_text(row.get("visual_prompt") or contract.get("visual_prompt") or prompt, limit=220)
+    subject = compact_text(contract.get("subject") or "a cyberpunk protagonist", limit=90)
+    environment = compact_text(contract.get("environment") or "a neon-lit cyberpunk setting", limit=90)
+    action = compact_text(contract.get("action") or "holding the moment together", limit=110)
+    metaphor = compact_text(contract.get("metaphor") or "", limit=60)
+    composition = compact_text(contract.get("composition") or "single_protagonist", limit=32)
+    mood = compact_text(contract.get("mood") or "focused", limit=72)
+    props = compact_items(contract.get("props"), limit=4, item_limit=32)
+    motifs = compact_items((row.get("visual_motifs") or []), limit=4, item_limit=36)
+    guardrail = compact_text(composition_visual_guardrails(contract), limit=156)
     parts = [
-        "Wide cinematic cyberpunk concept art.",
-        prompt,
-        f"Subject: {subject}.",
-        f"Environment: {environment}.",
-        f"Action: {action}.",
-        f"Visual metaphor: {metaphor}." if metaphor else "",
-        f"Composition: {composition}.",
-        f"Palette: {palette}.",
-        f"Mood: {mood}.",
-        f"Visible props: {props}." if props else "",
-        f"Diegetic overlays: {overlays}." if overlays else "",
-        easter_egg_clause(contract),
-        "Keep the scene grounded, readable, and specific instead of generic poster collage.",
-        "Safe-for-work, no gore, no watermark, no printed prompt text.",
-        "No readable titles, no watermark, no giant centered logos, 16:9.",
+        "Grounded cinematic cyberpunk guide art.",
+        visual_prompt,
+        compact_easter_egg_clause(contract),
+        f"Focus on {subject}." if subject else "",
+        f"Scene: {environment}." if environment else "",
+        f"Moment: {action}." if action else "",
+        f"Metaphor: {metaphor}." if metaphor else "",
+        f"Composition: {composition}." if composition else "",
+        f"Mood: {mood}." if mood else "",
+        f"Props: {props}." if props else "",
+        f"Motifs: {motifs}." if motifs else "",
+        f"Guardrail: {guardrail}." if guardrail else "",
+        "Real table, street, lab, archive, desk, or workshop scene. Not abstract infographic. Not product poster.",
+        "No readable words or numbers anywhere. Use pictograms, bars, chips, glyphs, traces, stamps, and silhouette icons instead.",
+        "No watermark. 16:9.",
     ]
-    return sanitize_prompt_for_provider(" ".join(part for part in parts if part), provider="onemin")
+    compact_prompt = " ".join(part for part in parts if part)
+    return sanitize_prompt_for_provider(compact_prompt[:520], provider="onemin")
 
 
 def _overlay_family(row: dict[str, object], spec: dict[str, object]) -> str:
@@ -1394,6 +1728,7 @@ def asset_specs() -> list[dict[str, object]]:
     pages = loaded.get("pages") if isinstance(loaded, dict) else {}
     section_ooda = loaded.get("section_ooda") if isinstance(loaded, dict) else {}
     page_ooda = section_ooda.get("pages") if isinstance(section_ooda, dict) else {}
+    visual_overrides = load_visual_overrides()
     hero_override = media.get("hero") if isinstance(media, dict) else {}
     if not isinstance(hero_override, dict) or not str(hero_override.get("visual_prompt", "")).strip():
         raise RuntimeError("missing hero visual_prompt in EA overrides")
@@ -1401,6 +1736,13 @@ def asset_specs() -> list[dict[str, object]]:
         raise RuntimeError("missing page overrides in EA output")
     if not isinstance(page_ooda, dict):
         raise RuntimeError("missing page section OODA in EA output")
+
+    def apply_visual_override(target: str, row: dict[str, object]) -> dict[str, object]:
+        override = visual_overrides.get(target)
+        if not isinstance(override, dict):
+            return row
+        merged = deep_merge(row, override)
+        return merged if isinstance(merged, dict) else row
 
     def render_prompt_from_row(row: dict[str, object], *, role: str) -> str:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
@@ -1436,6 +1778,7 @@ def asset_specs() -> list[dict[str, object]]:
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
+            "No readable words or numbers on screens, papers, props, or overlays; use abstract bars, chips, glyphs, or traces instead.",
             "No readable titles, no watermark, no giant centered logos, 16:9.",
         ]
         return " ".join(part for part in prompt_parts if part)
@@ -1484,93 +1827,36 @@ def asset_specs() -> list[dict[str, object]]:
             },
         }
 
-    def page_visual_prompt(page_id: str, *, role: str, composition_hint: str) -> str:
-        return render_prompt_from_row(
-            page_media_row(page_id, role=role, composition_hint=composition_hint),
-            role=role,
-        )
+    def page_spec(*, target: str, page_id: str, role: str, composition_hint: str) -> dict[str, object]:
+        row = apply_visual_override(target, page_media_row(page_id, role=role, composition_hint=composition_hint))
+        return {
+            "target": target,
+            "prompt": render_prompt_from_row(row, role=role),
+            "width": 960,
+            "height": 540,
+            "media_row": row,
+            "providers": provider_order(),
+        }
 
+    hero_row = apply_visual_override("assets/hero/chummer6-hero.png", hero_override)
     specs: list[dict[str, object]] = [
         {
             "target": "assets/hero/chummer6-hero.png",
-            "prompt": render_prompt_from_row(hero_override, role="landing hero"),
+            "prompt": render_prompt_from_row(hero_row, role="landing hero"),
             "width": 960,
             "height": 540,
-            "media_row": hero_override,
+            "media_row": hero_row,
             "providers": provider_order(),
         },
-        {
-            "target": "assets/hero/poc-warning.png",
-            "prompt": page_visual_prompt("readme", role="POC warning shelf", composition_hint="desk_still_life"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("readme", role="POC warning shelf", composition_hint="desk_still_life"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/start-here.png",
-            "prompt": page_visual_prompt("start_here", role="start-here banner", composition_hint="city_edge"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("start_here", role="start-here banner", composition_hint="city_edge"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/what-chummer6-is.png",
-            "prompt": page_visual_prompt("what_chummer6_is", role="what-is banner", composition_hint="single_protagonist"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("what_chummer6_is", role="what-is banner", composition_hint="single_protagonist"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/where-to-go-deeper.png",
-            "prompt": page_visual_prompt("where_to_go_deeper", role="deeper-dive banner", composition_hint="archive_room"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("where_to_go_deeper", role="deeper-dive banner", composition_hint="archive_room"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/current-phase.png",
-            "prompt": page_visual_prompt("current_phase", role="current-phase banner", composition_hint="workshop"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("current_phase", role="current-phase banner", composition_hint="workshop"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/current-status.png",
-            "prompt": page_visual_prompt("current_status", role="current-status banner", composition_hint="street_front"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("current_status", role="current-status banner", composition_hint="street_front"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/public-surfaces.png",
-            "prompt": page_visual_prompt("public_surfaces", role="public-surfaces banner", composition_hint="street_front"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("public_surfaces", role="public-surfaces banner", composition_hint="street_front"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/parts-index.png",
-            "prompt": page_visual_prompt("parts_index", role="parts-overview banner", composition_hint="district_map"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("parts_index", role="parts-overview banner", composition_hint="district_map"),
-            "providers": provider_order(),
-        },
-        {
-            "target": "assets/pages/horizons-index.png",
-            "prompt": page_visual_prompt("horizons_index", role="horizons boulevard banner", composition_hint="horizon_boulevard"),
-            "width": 960,
-            "height": 540,
-            "media_row": page_media_row("horizons_index", role="horizons boulevard banner", composition_hint="horizon_boulevard"),
-            "providers": provider_order(),
-        },
+        page_spec(target="assets/hero/poc-warning.png", page_id="readme", role="POC warning shelf", composition_hint="desk_still_life"),
+        page_spec(target="assets/pages/start-here.png", page_id="start_here", role="start-here banner", composition_hint="city_edge"),
+        page_spec(target="assets/pages/what-chummer6-is.png", page_id="what_chummer6_is", role="what-is banner", composition_hint="single_protagonist"),
+        page_spec(target="assets/pages/where-to-go-deeper.png", page_id="where_to_go_deeper", role="deeper-dive banner", composition_hint="archive_room"),
+        page_spec(target="assets/pages/current-phase.png", page_id="current_phase", role="current-phase banner", composition_hint="workshop"),
+        page_spec(target="assets/pages/current-status.png", page_id="current_status", role="current-status banner", composition_hint="street_front"),
+        page_spec(target="assets/pages/public-surfaces.png", page_id="public_surfaces", role="public-surfaces banner", composition_hint="street_front"),
+        page_spec(target="assets/pages/parts-index.png", page_id="parts_index", role="parts-overview banner", composition_hint="district_map"),
+        page_spec(target="assets/pages/horizons-index.png", page_id="horizons_index", role="horizons boulevard banner", composition_hint="horizon_boulevard"),
     ]
     part_overrides = media.get("parts") if isinstance(media, dict) else {}
     for slug, item in GUIDE.PARTS.items():
@@ -1580,13 +1866,15 @@ def asset_specs() -> list[dict[str, object]]:
             override = part_overrides.get(legacy_slug) if isinstance(part_overrides, dict) and legacy_slug else None
         if not isinstance(override, dict) or not str(override.get("visual_prompt", "")).strip():
             raise RuntimeError(f"missing part visual_prompt in EA overrides: {slug}")
+        target = f"assets/parts/{slug}.png"
+        row = apply_visual_override(target, override)
         specs.append(
             {
-                "target": f"assets/parts/{slug}.png",
-                "prompt": render_prompt_from_row(override, role=f"{slug} part page"),
+                "target": target,
+                "prompt": render_prompt_from_row(row, role=f"{slug} part page"),
                 "width": 960,
                 "height": 540,
-                "media_row": override,
+                "media_row": row,
                 "providers": provider_order(),
             }
         )
@@ -1595,22 +1883,25 @@ def asset_specs() -> list[dict[str, object]]:
         override = horizon_overrides.get(slug) if isinstance(horizon_overrides, dict) else None
         if not isinstance(override, dict) or not str(override.get("visual_prompt", "")).strip():
             raise RuntimeError(f"missing horizon visual_prompt in EA overrides: {slug}")
+        target = f"assets/horizons/{slug}.png"
+        row = apply_visual_override(target, override)
         specs.append(
             {
-                "target": f"assets/horizons/{slug}.png",
-                "prompt": render_prompt_from_row(override, role=f"{slug} horizon page"),
+                "target": target,
+                "prompt": render_prompt_from_row(row, role=f"{slug} horizon page"),
                 "width": 960,
                 "height": 540,
-                "media_row": override,
+                "media_row": row,
                 "providers": provider_order(),
             }
         )
     return specs
 
 
-def render_pack(*, output_dir: Path) -> dict[str, object]:
+def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[str, object]:
+    if not specs:
+        raise RuntimeError("no asset specs selected for rendering")
     output_dir.mkdir(parents=True, exist_ok=True)
-    specs = asset_specs()
     concurrency = max(1, min(4, int(env_value("CHUMMER6_MEDIA_RENDER_CONCURRENCY") or "1")))
 
     def _render_spec(spec: dict[str, object]) -> dict[str, object]:
@@ -1622,6 +1913,12 @@ def render_pack(*, output_dir: Path) -> dict[str, object]:
         out_path = output_dir / target
         out_path.parent.mkdir(parents=True, exist_ok=True)
         result = render_with_ooda(prompt=prompt, output_path=out_path, width=width, height=height, spec=spec)
+        normalize_status = normalize_banner_size(image_path=out_path, width=width, height=height)
+        postpass_attempts: list[str] = []
+        if troll_postpass_enabled():
+            postpass_attempts.append(
+                apply_troll_postpass(image_path=out_path, spec=spec, width=width, height=height)
+            )
         row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
         return {
@@ -1629,7 +1926,7 @@ def render_pack(*, output_dir: Path) -> dict[str, object]:
             "output": str(out_path),
             "provider": result["provider"],
             "status": result["status"],
-            "attempts": result["attempts"],
+            "attempts": list(result["attempts"]) + [normalize_status] + postpass_attempts,
             "prompt": prompt,
             "easter_egg": {
                 "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
@@ -1681,6 +1978,31 @@ def render_pack(*, output_dir: Path) -> dict[str, object]:
     return manifest
 
 
+def render_pack(*, output_dir: Path) -> dict[str, object]:
+    return render_specs(specs=asset_specs(), output_dir=output_dir)
+
+
+def render_targets(*, targets: list[str], output_dir: Path) -> dict[str, object]:
+    wanted = {str(target).strip() for target in targets if str(target).strip()}
+    if not wanted:
+        raise RuntimeError("no targets requested")
+    available = asset_specs()
+    selected = [
+        spec
+        for spec in available
+        if str(spec.get("target")) in wanted or Path(str(spec.get("target"))).name in wanted
+    ]
+    missing = sorted(
+        target
+        for target in wanted
+        if target not in {str(spec.get("target")) for spec in selected}
+        and target not in {Path(str(spec.get("target"))).name for spec in selected}
+    )
+    if missing:
+        raise RuntimeError("unknown render targets: " + ", ".join(missing))
+    return render_specs(specs=selected, output_dir=output_dir)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render a Chummer6 guide asset through EA provider selection.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1691,10 +2013,17 @@ def main() -> int:
     render.add_argument("--height", type=int, default=720)
     render_pack_parser = sub.add_parser("render-pack")
     render_pack_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
+    render_targets_parser = sub.add_parser("render-targets")
+    render_targets_parser.add_argument("--target", action="append", required=True)
+    render_targets_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
     args = parser.parse_args()
 
     if args.command == "render-pack":
         manifest = render_pack(output_dir=Path(args.output_dir).expanduser())
+        print(json.dumps({"output_dir": manifest["output_dir"], "assets": len(manifest["assets"]), "status": "rendered"}))
+        return 0
+    if args.command == "render-targets":
+        manifest = render_targets(targets=list(args.target), output_dir=Path(args.output_dir).expanduser())
         print(json.dumps({"output_dir": manifest["output_dir"], "assets": len(manifest["assets"]), "status": "rendered"}))
         return 0
 
