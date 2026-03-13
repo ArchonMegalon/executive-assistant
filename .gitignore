@@ -32,3 +32,8 @@ artifacts/
 .codex/work_queue/
 TASKS_WORK_LOG.md
 TASKS_ARCHIVE.md
+
+# Generated audit noise
+feedback/*audit-task-*.md
+feedback/*github-checks-pr.md
+feedback/*github-review-pr.md

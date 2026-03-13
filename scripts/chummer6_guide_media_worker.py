@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import textwrap
 import time
@@ -17,6 +18,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 
 EA_ROOT = Path(__file__).resolve().parents[1]
@@ -42,24 +49,12 @@ PALETTES = [
 ]
 
 
-def load_local_env() -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not ENV_FILE.exists():
-        return values
-    for raw in ENV_FILE.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
-
-
 LOCAL_ENV = load_local_env()
+POLICY_ENV = load_runtime_overrides()
 
 
 def env_value(name: str) -> str:
-    return str(os.environ.get(name) or LOCAL_ENV.get(name) or "").strip()
+    return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
 
 
 def provider_busy_retries() -> int:

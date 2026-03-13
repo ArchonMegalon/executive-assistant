@@ -14,6 +14,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
@@ -44,26 +49,12 @@ def extract_json(text: str) -> dict[str, object]:
             return loaded
     raise ValueError("response did not contain a JSON object")
 
-
-def load_local_env() -> dict[str, str]:
-    values: dict[str, str] = {}
-    env_file = EA_ROOT / ".env"
-    if not env_file.exists():
-        return values
-    for raw in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
-
-
 LOCAL_ENV = load_local_env()
+POLICY_ENV = load_runtime_overrides()
 
 
 def env_value(name: str) -> str:
-    return str(os.environ.get(name) or LOCAL_ENV.get(name) or "").strip()
+    return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
 
 
 def shlex_command(env_name: str) -> list[str]:

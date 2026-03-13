@@ -5,8 +5,14 @@ import json
 import os
 import shlex
 import shutil
+import sys
 from pathlib import Path
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
@@ -48,20 +54,12 @@ ADAPTER_ENV_NAMES = {
     "onemin": ["CHUMMER6_1MIN_RENDER_COMMAND", "CHUMMER6_1MIN_RENDER_URL_TEMPLATE"],
 }
 
+LOCAL_ENV = load_local_env()
+POLICY_ENV = load_runtime_overrides()
+
 
 def env_value(name: str) -> str:
-    direct = str(os.environ.get(name) or "").strip()
-    if direct:
-        return direct
-    if ENV_FILE.exists():
-        for raw in ENV_FILE.read_text(errors="ignore").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            if key.strip() == name:
-                return value.strip()
-    return ""
+    return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
 
 
 def key_names_present(names: list[str]) -> list[str]:
