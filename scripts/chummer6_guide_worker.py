@@ -356,6 +356,95 @@ def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
     raise RuntimeError("no text provider succeeded: " + " || ".join(attempted))
 
 
+def humanizer_available() -> bool:
+    explicit_env_names = [
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
+        "CHUMMER6_TEXT_HUMANIZER_COMMAND",
+        "CHUMMER6_BROWSERACT_HUMANIZER_URL_TEMPLATE",
+        "CHUMMER6_TEXT_HUMANIZER_URL_TEMPLATE",
+        "CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID",
+        "CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY",
+    ]
+    return any(env_value(name) for name in explicit_env_names)
+
+
+def humanizer_required() -> bool:
+    raw = env_value("CHUMMER6_TEXT_HUMANIZER_REQUIRED")
+    if raw:
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    return humanizer_available()
+
+
+def humanize_text_local(text: str, *, target: str) -> str:
+    return " ".join(str(text or "").split()).strip()
+
+
+def humanize_text(text: str, *, target: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return cleaned
+    command_names = [
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
+        "CHUMMER6_TEXT_HUMANIZER_COMMAND",
+    ]
+    template_names = [
+        "CHUMMER6_BROWSERACT_HUMANIZER_URL_TEMPLATE",
+        "CHUMMER6_TEXT_HUMANIZER_URL_TEMPLATE",
+    ]
+    attempted: list[str] = []
+    external_expected = humanizer_available()
+    for env_name in command_names:
+        command = shlex_command(env_name)
+        if not command:
+            continue
+        try:
+            completed = subprocess.run(
+                [part.format(text=cleaned, prompt=cleaned, target=target) for part in command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            humanized = (completed.stdout or "").strip()
+            if humanized:
+                return humanized
+            attempted.append(f"{env_name}:empty_output")
+        except Exception as exc:
+            attempted.append(f"{env_name}:{exc}")
+    for env_name in template_names:
+        template = url_template(env_name)
+        if not template:
+            continue
+        url = template.format(
+            text=urllib.parse.quote(cleaned, safe=""),
+            prompt=urllib.parse.quote(cleaned, safe=""),
+            target=urllib.parse.quote(target, safe=""),
+        )
+        request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-Humanizer/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                humanized = response.read().decode("utf-8", errors="replace").strip()
+            if humanized:
+                return humanized
+            attempted.append(f"{env_name}:empty_output")
+        except Exception as exc:
+            attempted.append(f"{env_name}:{exc}")
+    if external_expected or humanizer_required():
+        detail = " || ".join(attempted) if attempted else "no_external_humanizer_succeeded"
+        raise RuntimeError(f"text_humanizer_failed:{detail}")
+    return humanize_text_local(cleaned, target=target)
+
+
+def humanize_mapping_fields(mapping: dict[str, object], keys: tuple[str, ...], *, target_prefix: str) -> dict[str, object]:
+    for key in keys:
+        if key not in mapping:
+            continue
+        value = str(mapping.get(key, "")).strip()
+        if not value:
+            continue
+        mapping[key] = humanize_text(value, target=f"{target_prefix}:{key}")
+    return mapping
+
+
 def build_part_prompt(
     name: str,
     item: dict[str, object],
@@ -373,8 +462,10 @@ Voice rules:
 - clear, slightly playful, Shadowrun-flavored
 - plain language first
 - SR jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no control-plane jargon
 - no markdown fences
@@ -424,9 +515,11 @@ Voice rules:
 - sell the idea harder
 - clear, punchy, Shadowrun-flavored
 - SR jargon is welcome
-- mild dev roasting is allowed
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
 - keep it exciting without pretending it is active work
-- no mention of Fleet
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 
@@ -533,8 +626,10 @@ Rules:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print UI labels or prompt text on the image
 - Shadowrun jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 
@@ -614,8 +709,10 @@ Rules:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print labels, prompts, OODA, or resolution junk on the image
 - Shadowrun jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - keep the whole JSON compact
@@ -695,7 +792,7 @@ Task: return a JSON object only with keys intro, body, kicker.
 Rules:
 - plain language first
 - human-facing, slightly playful, Shadowrun-flavored
-- no mention of Fleet
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - explain why this page matters to a normal reader
@@ -730,7 +827,7 @@ Task: return one JSON object keyed by page id. Each page id must map to an objec
 Rules:
 - plain language first
 - human-facing, slightly playful, Shadowrun-flavored
-- no mention of Fleet
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - explain why each page matters to a normal reader
@@ -772,8 +869,10 @@ Rules:
 - clear, slightly playful, Shadowrun-flavored
 - plain language first
 - SR jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - keep copy grounded and useful
@@ -815,8 +914,10 @@ Each horizon id must map to:
 Rules:
 - sell the idea harder without pretending it ships tomorrow
 - clear, punchy, Shadowrun-flavored
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - scenes should feel specific, cool, and dangerous
@@ -956,12 +1057,14 @@ Required shape:
 Rules:
 - think like a sharp human guide writer, not a compliance bot
 - Shadowrun jargon is welcome
-- light dev roasting is allowed
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
 - focus on what a curious human would actually care about first
 - if the source suggests strong user-facing selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossiers, or dangerous simulation energy, surface them
 - if source signals clearly include multi-era support or scripted rules, make at least one landing-facing sentence say so plainly
 - do not invent implementation-specific claims unless the source canon makes them explicit
-- no mention of Fleet
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 - keep every field compact and useful
@@ -1066,8 +1169,10 @@ Voice rules:
 - clear, inviting, slightly playful, Shadowrun-flavored
 - this is a human-facing guide, not a spec
 - SR jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 
@@ -1126,8 +1231,10 @@ Voice rules:
 - sell the part as something a reader should care about right now
 - the image should feel grounded, useful, and scene-first
 - SR jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 
@@ -1186,8 +1293,10 @@ Voice rules:
 - sell the horizon harder
 - the image should feel cool, dangerous, specific, and scene-first
 - SR jargon is welcome
-- mild dev roasting is allowed
-- no mention of Fleet
+- sharper dev roasting is allowed
+- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- never expose secrets, tokens, passwords, or private credentials
+- no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
 
@@ -1479,6 +1588,12 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     except Exception as exc:
         raise RuntimeError(f"global OODA generation failed: {exc}") from exc
     ooda = dict(overrides.get("ooda") or {})
+    if isinstance(ooda.get("act"), dict):
+        humanize_mapping_fields(
+            ooda["act"],
+            ("landing_intro", "what_it_is", "watch_intro", "horizon_intro"),
+            target_prefix="guide:ooda:act",
+        )
     try:
         hero_ooda_result = chat_json(build_section_ooda_prompt("hero", "hero", {}, global_ooda=ooda), model=model)
         hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
@@ -1533,6 +1648,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
         except Exception as exc:
             raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+    for page_id, row in page_rows.items():
+        humanize_mapping_fields(row, ("intro", "body", "kicker"), target_prefix=f"guide:page:{page_id}")
     overrides["pages"] = page_rows
     if include_parts:
         part_oodas: dict[str, object] = {}
@@ -1570,6 +1687,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 part_media_rows.update(media_rows)
             except Exception as exc:
                 raise RuntimeError(f"part bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        for part_id, row in part_copy_rows.items():
+            humanize_mapping_fields(row, ("intro", "why", "now"), target_prefix=f"guide:part:{part_id}")
         overrides["parts"] = part_copy_rows
         overrides["media"]["parts"] = part_media_rows
     if include_horizons:
@@ -1608,6 +1727,12 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 horizon_media_rows.update(media_rows)
             except Exception as exc:
                 raise RuntimeError(f"horizon bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        for horizon_id, row in horizon_copy_rows.items():
+            humanize_mapping_fields(
+                row,
+                ("hook", "why_wiz", "brutal_truth", "use_case", "idea", "problem", "why_waits"),
+                target_prefix=f"guide:horizon:{horizon_id}",
+            )
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"

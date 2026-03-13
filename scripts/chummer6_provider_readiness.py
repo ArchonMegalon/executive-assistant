@@ -98,7 +98,7 @@ def provider_state(name: str) -> dict[str, object]:
     if name == "browseract":
         available = bool(raw_keys)
         status = "ready" if available else "missing_credentials"
-        detail = "BrowserAct live automation is available." if available else "No BrowserAct key found in EA env."
+        detail = "BrowserAct live automation is available." if available else "No BrowserAct key found in local env."
         return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
     if name == "browseract_prompting_systems":
         browseract_ready = bool(key_names_present(RAW_KEY_NAMES.get("browseract", [])))
@@ -107,19 +107,23 @@ def provider_state(name: str) -> dict[str, object]:
         if helper_ready and "built_in_browseract_helper" not in effective_adapters:
             effective_adapters.append("built_in_browseract_helper")
         explicit_workflow = bool(env_value("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID"))
-        available = browseract_ready and helper_ready and explicit_workflow
-        if available:
+        query_workflow = bool(env_value("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_QUERY"))
+        available = browseract_ready and helper_ready and (explicit_workflow or query_workflow)
+        if explicit_workflow:
             status = "ready"
             detail = "BrowserAct is configured and a Prompting Systems refine workflow is explicitly configured."
-        elif browseract_ready and helper_ready:
+        elif available:
             status = "workflow_query_only"
-            detail = "BrowserAct and the helper are configured, but no explicit Prompting Systems workflow ID is set yet."
+            detail = "BrowserAct and the helper are configured, and the Prompting Systems workflow will be resolved live from its configured query."
+        elif browseract_ready and helper_ready:
+            status = "browseract_ready_missing_render_adapter"
+            detail = "BrowserAct is configured, but no Prompting Systems workflow id/query or adapter is configured yet."
         elif browseract_ready:
             status = "browseract_ready_missing_render_adapter"
             detail = "BrowserAct is configured, but no Prompting Systems workflow/adapter is configured yet."
         else:
             status = "missing_browseract"
-            detail = "No BrowserAct key found in EA env."
+            detail = "No BrowserAct key found in local env."
         return {"provider": name, "status": status, "available": available, "raw_keys": key_names_present(RAW_KEY_NAMES.get('browseract', [])), "adapters": effective_adapters, "detail": detail}
     if name == "browseract_magixai":
         browseract_ready = bool(key_names_present(RAW_KEY_NAMES.get("browseract", [])))
@@ -128,19 +132,23 @@ def provider_state(name: str) -> dict[str, object]:
         if helper_ready and "built_in_browseract_helper" not in effective_adapters:
             effective_adapters.append("built_in_browseract_helper")
         explicit_workflow = bool(env_value("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_ID"))
-        available = browseract_ready and helper_ready and explicit_workflow
-        if available:
+        query_workflow = bool(env_value("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_QUERY"))
+        available = browseract_ready and helper_ready and (explicit_workflow or query_workflow)
+        if explicit_workflow:
             status = "ready"
             detail = "BrowserAct is configured and an AI Magicx render workflow is explicitly configured."
-        elif browseract_ready and helper_ready:
+        elif available:
             status = "workflow_query_only"
-            detail = "BrowserAct and the helper are configured, but no explicit AI Magicx render workflow ID is set yet."
+            detail = "BrowserAct and the helper are configured, and the AI Magicx workflow will be resolved live from its configured query."
+        elif browseract_ready and helper_ready:
+            status = "browseract_ready_missing_render_adapter"
+            detail = "BrowserAct is configured, but no AI Magicx workflow id/query or adapter is configured yet."
         elif browseract_ready:
             status = "browseract_ready_missing_render_adapter"
             detail = "BrowserAct is configured, but no AI Magicx render workflow/adapter is configured yet."
         else:
             status = "missing_browseract"
-            detail = "No BrowserAct key found in EA env."
+            detail = "No BrowserAct key found in local env."
         return {"provider": name, "status": status, "available": available, "raw_keys": key_names_present(RAW_KEY_NAMES.get('browseract', [])), "adapters": effective_adapters, "detail": detail}
     if name == "magixai":
         available = bool(raw_keys or adapters)

@@ -16,34 +16,64 @@ def slugify(value: str) -> str:
     return cleaned.strip("_") or "adapter"
 
 
-def build_spec(*, workflow_name: str, purpose: str, login_url: str, tool_url: str, output_dir: Path) -> dict[str, object]:
+def build_spec(
+    *,
+    workflow_name: str,
+    purpose: str,
+    login_url: str,
+    tool_url: str,
+    output_dir: Path,
+    prompt_selector: str,
+    submit_selector: str,
+    result_selector: str,
+) -> dict[str, object]:
     slug = slugify(workflow_name)
+    nodes: list[dict[str, object]] = []
+    edges: list[list[str]] = []
+
+    if login_url.lower() not in {"", "none", "public", "noauth"}:
+        nodes.extend(
+            [
+                {"id": "open_login", "type": "visit_page", "label": "Open Login", "config": {"url": login_url}},
+                {"id": "email", "type": "input_text", "label": "Email", "config": {"selector": "input[type=email]", "value_from_secret": "browseract_username"}},
+                {"id": "password", "type": "input_text", "label": "Password", "config": {"selector": "input[type=password]", "value_from_secret": "browseract_password"}},
+                {"id": "submit", "type": "click", "label": "Submit", "config": {"selector": "button[type=submit]"}},
+                {"id": "wait_dashboard", "type": "wait", "label": "Wait Dashboard", "config": {"selector": "body"}},
+            ]
+        )
+        edges.extend(
+            [
+                ["open_login", "email"],
+                ["email", "password"],
+                ["password", "submit"],
+                ["submit", "wait_dashboard"],
+                ["wait_dashboard", "open_tool"],
+            ]
+        )
+
+    nodes.extend(
+        [
+            {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
+            {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": prompt_selector, "value_from_input": "prompt"}},
+            {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": submit_selector}},
+            {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}},
+        ]
+    )
+    edges.extend(
+        [
+            ["open_tool", "input_prompt"],
+            ["input_prompt", "generate"],
+            ["generate", "extract_result"],
+        ]
+    )
+
     return {
         "workflow_name": workflow_name,
         "description": purpose,
         "publish": True,
         "mcp_ready": False,
-        "nodes": [
-            {"id": "open_login", "type": "visit_page", "label": "Open Login", "config": {"url": login_url}},
-            {"id": "email", "type": "input_text", "label": "Email", "config": {"selector": "input[type=email]", "value_from_secret": "browseract_username"}},
-            {"id": "password", "type": "input_text", "label": "Password", "config": {"selector": "input[type=password]", "value_from_secret": "browseract_password"}},
-            {"id": "submit", "type": "click", "label": "Submit", "config": {"selector": "button[type=submit]"}},
-            {"id": "wait_dashboard", "type": "wait", "label": "Wait Dashboard", "config": {"selector": "body"}},
-            {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
-            {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": "textarea", "value_from_input": "prompt"}},
-            {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": "button"}},
-            {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": "main, body"}},
-        ],
-        "edges": [
-            ["open_login", "email"],
-            ["email", "password"],
-            ["password", "submit"],
-            ["submit", "wait_dashboard"],
-            ["wait_dashboard", "open_tool"],
-            ["open_tool", "input_prompt"],
-            ["input_prompt", "generate"],
-            ["generate", "extract_result"],
-        ],
+        "nodes": nodes,
+        "edges": edges,
         "meta": {
             "slug": slug,
             "output_dir": str(output_dir),
@@ -58,6 +88,9 @@ def main() -> int:
     parser.add_argument("--purpose", required=True)
     parser.add_argument("--login-url", required=True)
     parser.add_argument("--tool-url", required=True)
+    parser.add_argument("--prompt-selector", default="textarea")
+    parser.add_argument("--submit-selector", default="button")
+    parser.add_argument("--result-selector", default="main, body")
     parser.add_argument("--output-dir", default=str(STATE_DIR))
     args = parser.parse_args()
 
@@ -70,6 +103,9 @@ def main() -> int:
         login_url=args.login_url,
         tool_url=args.tool_url,
         output_dir=output_dir,
+        prompt_selector=args.prompt_selector,
+        submit_selector=args.submit_selector,
+        result_selector=args.result_selector,
     )
     spec_path = output_dir / f"{slug}.workflow.json"
     spec_path.write_text(json.dumps(spec, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")

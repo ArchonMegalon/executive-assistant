@@ -140,6 +140,15 @@ def shlex_command(env_name: str) -> list[str]:
             "--target",
             "{target}",
         ],
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND": [
+            "python3",
+            str(EA_ROOT / "scripts" / "chummer6_browseract_humanizer.py"),
+            "humanize",
+            "--text",
+            "{text}",
+            "--target",
+            "{target}",
+        ],
         "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND": [
             "python3",
             str(EA_ROOT / "scripts" / "chummer6_browseract_prompting_systems.py"),
@@ -168,12 +177,25 @@ def shlex_command(env_name: str) -> list[str]:
         ],
     }
     browseract_names = {
-        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND": "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_WORKFLOW_ID",
-        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND": "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID",
-        "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND": "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_ID",
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND": (
+            "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_WORKFLOW_ID",
+            "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_WORKFLOW_QUERY",
+        ),
+        "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND": (
+            "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID",
+            "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_QUERY",
+        ),
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND": (
+            "CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID",
+            "CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY",
+        ),
+        "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND": (
+            "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_ID",
+            "CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_QUERY",
+        ),
     }
-    required_workflow_id = browseract_names.get(env_name)
-    if required_workflow_id and not env_value(required_workflow_id):
+    required_workflow_refs = browseract_names.get(env_name)
+    if required_workflow_refs and not any(env_value(name) for name in required_workflow_refs):
         return []
     return list(defaults.get(env_name, []))
 
@@ -384,21 +406,21 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
             },
         ),
     ]
-    configured_base = env_value("CHUMMER6_MAGIXAI_BASE_URL") or "https://api.aimagicx.com/api/v1"
+    configured_base = env_value("CHUMMER6_MAGIXAI_BASE_URL") or "https://beta.aimagicx.com/api/v1"
     base_urls: list[str] = []
     for candidate in (
         configured_base,
+        "https://beta.aimagicx.com/api/v1",
+        "https://beta.aimagicx.com/api",
+        "https://beta.aimagicx.com/v1",
+        "https://beta.aimagicx.com",
         "https://api.aimagicx.com/api/v1",
         "https://api.aimagicx.com/api",
         "https://api.aimagicx.com",
         "https://api.aimagicx.com/v1",
-        "https://beta.aimagicx.com/api/v1",
-        "https://beta.aimagicx.com/api",
-        "https://beta.aimagicx.com/v1",
         "https://www.aimagicx.com/api/v1",
         "https://www.aimagicx.com/api",
         "https://www.aimagicx.com/v1",
-        "https://beta.aimagicx.com",
         "https://www.aimagicx.com",
     ):
         normalized = str(candidate or "").strip().rstrip("/")

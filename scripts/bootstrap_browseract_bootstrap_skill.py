@@ -10,7 +10,7 @@ from pathlib import Path
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
-HOST = os.environ.get("EA_SKILL_HOST", "http://127.0.0.1:8080")
+HOST = os.environ.get("EA_SKILL_HOST", "http://127.0.0.1:8090")
 
 
 def env_value(name: str) -> str:
