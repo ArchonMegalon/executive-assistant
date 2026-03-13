@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from app.domain.models import Artifact, ExecutionStep, HumanTask, IntentSpecV3, PolicyDecision, ToolInvocationResult
+from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.execution_async_state_service import ExecutionAsyncStateService
 from app.services.execution_approval_resume_service import ExecutionApprovalResumeService
 from app.services.execution_runtime_services import ExecutionStepRuntimeService as ExportedExecutionStepRuntimeService
@@ -13,6 +16,8 @@ from app.services.execution_step_dependency_service import ExecutionStepDependen
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
 from app.services.memory_reasoning_service import ContextPack
+from app.services.skills import SkillCatalogService
+from app.services.task_contracts import TaskContractService
 
 
 def _step(
@@ -751,6 +756,79 @@ def test_execution_step_runtime_service_completes_tool_step_and_persists_receipt
     )
 
 
+def test_execution_step_runtime_service_emits_tool_started_before_invocation_failure() -> None:
+    calls: list[tuple[str, object]] = []
+    step_dependency_service = ExecutionStepDependencyService(
+        get_step=lambda step_id: None,
+        steps_for_session=lambda session_id: [],
+    )
+    service = ExecutionStepRuntimeService(
+        get_session=lambda session_id: type(
+            "SessionStub",
+            (),
+            {
+                "intent": IntentSpecV3(
+                    principal_id="exec-1",
+                    goal="goal",
+                    task_type="rewrite_text",
+                    deliverable_type="rewrite_note",
+                    risk_class="low",
+                    approval_class="none",
+                    budget_class="low",
+                )
+            },
+        )(),
+        get_artifact=lambda artifact_id: None,
+        update_step=lambda step_id, **kwargs: calls.append(("update_step", (step_id, kwargs))) or None,
+        append_event=lambda session_id, name, payload: calls.append(("append_event", (session_id, name, payload))),
+        append_policy_decision=lambda session_id, decision: None,
+        append_tool_receipt=lambda session_id, step_id, **kwargs: type("ReceiptStub", (), {"receipt_id": "receipt-1"})(),
+        append_run_cost=lambda session_id, **kwargs: type("CostStub", (), {"cost_id": "cost-1"})(),
+        set_session_status=lambda session_id, status: None,
+        approval_target_step_for_session=lambda session_id: None,
+        step_dependency_service=step_dependency_service,
+        approval_pause_service=ExecutionApprovalPauseService(
+            create_request=lambda session_id, step_id, **kwargs: None,
+            update_step=lambda step_id, **kwargs: None,
+            set_session_status=lambda session_id, status: None,
+            append_event=lambda session_id, name, payload: None,
+        ),
+        human_task_step_service=ExecutionHumanTaskStepService(
+            get_session=lambda session_id: None,
+            merged_step_input_json=lambda session_id, step: {},
+            create_human_task=lambda **kwargs: _human_task(),
+            assign_human_task=lambda human_task_id, **kwargs: None,
+            append_event=lambda session_id, name, payload: None,
+            decorate_human_task=lambda row: row,
+        ),
+        policy=type("PolicyStub", (), {"evaluate_step": lambda *args, **kwargs: None})(),
+        tool_execution=type(
+            "ToolStub",
+            (),
+            {
+                "execute_invocation": lambda self, request: (_ for _ in ()).throw(RuntimeError("tool_failed")),
+            },
+        )(),
+        memory_runtime=None,
+    )
+    step = _step(
+        step_id="step-tool-fail",
+        step_kind="tool_call",
+        state="running",
+        input_json={
+            "plan_step_key": "step_artifact_save",
+            "tool_name": "artifact_repository",
+            "action_kind": "artifact.save",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="tool_failed"):
+        service.complete_tool_step("session-1", step)
+
+    event_names = [entry[1][1] for entry in calls if entry[0] == "append_event"]
+    assert event_names == ["tool_execution_started"]
+
+
 def test_execution_task_orchestration_service_materializes_plan_steps_and_returns_direct_artifact() -> None:
     events: list[tuple[str, str, dict[str, object]]] = []
     started_steps: list[tuple[str, str | None, dict[str, object]]] = []
@@ -936,6 +1014,99 @@ def test_execution_task_orchestration_service_adds_context_pack_to_task_input() 
     assert payload["context_pack"]["principal_id"] == "exec-1"
     assert payload["context_pack"]["task_key"] == "rewrite_text"
     assert payload["context_pack"]["context_refs"] == ["memory:item:item-1"]
+
+
+def test_execution_task_orchestration_service_resolves_skill_key_through_catalog() -> None:
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    skills = SkillCatalogService(contracts)
+    skills.upsert_skill(
+        skill_key="browseract_bootstrap_manager",
+        task_key="browseract_bootstrap_manager",
+        name="BrowserAct Bootstrap Manager",
+        description="Build BrowserAct workflow spec packets.",
+        deliverable_type="browseract_workflow_spec_packet",
+        workflow_template="tool_then_artifact",
+        allowed_tools=("browseract.build_workflow_spec", "artifact_repository"),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "medium",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "workflow_spec_build",
+        },
+    )
+    started_steps: list[tuple[str, str | None, dict[str, object]]] = []
+    session = type(
+        "SessionStub",
+        (),
+        {
+            "session_id": "session-skill-1",
+            "intent": IntentSpecV3(
+                principal_id="exec-1",
+                goal="goal",
+                task_type="browseract_bootstrap_manager",
+                deliverable_type="browseract_workflow_spec_packet",
+                risk_class="medium",
+                approval_class="none",
+                budget_class="medium",
+            ),
+        },
+    )()
+    artifact = Artifact(
+        artifact_id="artifact-skill-1",
+        kind="browseract_workflow_spec_packet",
+        content="Done",
+        execution_session_id="session-skill-1",
+        principal_id="exec-1",
+    )
+    service = ExecutionTaskOrchestrationService(
+        ledger=type(
+            "LedgerStub",
+            (),
+            {
+                "start_session": lambda self, intent: session,
+                "append_event": lambda self, session_id, name, payload: None,
+                "start_step": lambda self, session_id, step_kind, parent_step_id=None, input_json=None, **kwargs: started_steps.append(
+                    (step_kind, parent_step_id, dict(input_json or {}))
+                )
+                or type("StepStub", (), {"step_id": f"step-{len(started_steps)}"})(),
+            },
+        )(),
+        planner=None,
+        task_contracts=contracts,
+        skills=skills,
+        execute_next_ready_step=lambda session_id: artifact,
+        fetch_session_snapshot=lambda session_id: type(
+            "SnapshotStub",
+            (),
+            {"session": type("SnapshotSession", (), {"status": "completed"})(), "artifacts": [artifact]},
+        )(),
+        async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
+    )
+
+    result = service.execute_task_artifact(
+        type(
+            "TaskReq",
+            (),
+            {
+                "task_key": "",
+                "skill_key": "browseract_bootstrap_manager",
+                "principal_id": "exec-1",
+                "goal": "",
+                "text": "",
+                "context_refs": (),
+                "input_json": {
+                    "workflow_name": "Prompt Forge",
+                    "purpose": "Build a BrowserAct workflow spec.",
+                    "login_url": "https://browseract.example/login",
+                    "tool_url": "https://browseract.example/tool",
+                },
+            },
+        )()
+    )
+
+    assert result == artifact
+    assert started_steps[0][2]["skill_key"] == "browseract_bootstrap_manager"
+    assert started_steps[0][2]["workflow_name"] == "Prompt Forge"
 
 
 def test_execution_async_state_service_raises_approval_with_matching_request() -> None:

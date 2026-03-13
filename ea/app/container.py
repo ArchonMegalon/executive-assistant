@@ -37,11 +37,24 @@ from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
 from app.settings import (
     RuntimeProfile,
     Settings,
+    ensure_storage_fallback_allowed,
     ensure_prod_api_token_configured,
     get_settings,
     settings_with_storage_backend,
     validate_startup_settings,
 )
+
+
+def _database_url(settings: Settings) -> str:
+    direct = getattr(settings, "database_url", None)
+    if direct is not None:
+        value = str(direct or "").strip()
+        if value:
+            return value
+    storage = getattr(settings, "storage", None)
+    if storage is None:
+        return str(direct or "").strip()
+    return str(getattr(storage, "database_url", "") or "").strip()
 
 
 class ReadinessService:
@@ -62,7 +75,7 @@ class ReadinessService:
             if str(self._settings.storage.backend or "").strip().lower() == "memory":
                 return True, "memory_ready"
             return True, "auto_memory_ready"
-        if not self._settings.database_url:
+        if not _database_url(self._settings):
             return False, "database_url_missing"
         return self._probe_database()
 
@@ -72,7 +85,7 @@ class ReadinessService:
         except Exception:
             return False, "psycopg_missing"
         try:
-            with psycopg.connect(self._settings.database_url, autocommit=True) as conn:
+            with psycopg.connect(_database_url(self._settings), autocommit=True) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     _ = cur.fetchone()
@@ -99,12 +112,21 @@ class AppContainer:
 
 
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
+    provider_registry = ProviderRegistryService()
     artifacts = build_artifact_repo(settings)
     task_contracts = build_task_contract_service(settings=settings)
-    planner = PlannerService(task_contracts)
+    planner = PlannerService(task_contracts, provider_registry=provider_registry)
     skills = SkillCatalogService(task_contracts)
-    channel_runtime = build_channel_runtime(settings=settings)
-    memory_runtime = build_memory_runtime(settings=settings)
+    try:
+        channel_runtime = build_channel_runtime(settings=settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "channel runtime bootstrap", exc)
+        raise
+    try:
+        memory_runtime = build_memory_runtime(settings=settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "memory runtime bootstrap", exc)
+        raise
     evidence_runtime = build_evidence_runtime(settings=settings)
     tool_runtime = build_tool_runtime(settings=settings)
     tool_execution = ToolExecutionService(
@@ -112,11 +134,13 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         artifacts=artifacts,
         channel_runtime=channel_runtime,
         evidence_runtime=evidence_runtime,
+        provider_registry=provider_registry,
     )
     orchestrator = build_default_orchestrator(
         settings=settings,
         artifacts=artifacts,
         task_contracts=task_contracts,
+        skills=skills,
         planner=planner,
         evidence_runtime=evidence_runtime,
         memory_runtime=memory_runtime,
@@ -134,7 +158,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         task_contracts=task_contracts,
         skills=skills,
         planner=planner,
-        provider_registry=ProviderRegistryService(),
+        provider_registry=provider_registry,
         readiness=ReadinessService(settings),
     )
 

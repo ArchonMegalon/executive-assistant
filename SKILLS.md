@@ -21,15 +21,18 @@ The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET 
 | `stakeholder_briefing` | `stakeholder_briefing` | `stakeholder_briefing` | `artifact_then_memory_candidate` | `stakeholders`, `relationships`, `commitments`, `decision_windows` | `stakeholder_briefing_fact` | Operator review for high-sensitivity stakeholders | `BrowserAct`, `PeekShot`, `Paperguide`, `MarkupGo` |
 | `meeting_prep` | `meeting_prep` | `meeting_pack` | `artifact_then_memory_candidate` | `stakeholders`, `commitments`, `deadline_windows`, `decision_windows` | `meeting_pack_fact` | Human review for executive-facing packs | `BrowserAct`, `Paperguide`, `MarkupGo` |
 | `ltd_inventory_refresh` | `ltd_inventory_refresh` | `ltd_inventory_profile` | `tool_then_artifact` | `account_inventory` |  | BrowserAct-backed observation only; no approval required for discovery-only refresh | `BrowserAct`, `Teable`, `MarkupGo` |
+| `browseract_bootstrap_manager` | `browseract_bootstrap_manager` | `browseract_workflow_spec_packet` | `tool_then_artifact` | `entities`, `relationships` |  | Draft-only BrowserAct workflow-spec builder; operator review stays available for architect packets | `BrowserAct` |
 | `external_send` | `external_send` | `draft_message` | `artifact_then_dispatch` | `communication_policies`, `delivery_preferences`, `authority_bindings` | `stakeholder_follow_up_fact` | Approval-backed send; optional human review before dispatch | `ApproveThis`, `ApiX-Drive`, `MarkupGo` |
 | `follow_up_enforcement` | `follow_up_enforcement` | `follow_up_bundle` | `artifact_then_dispatch_then_memory_candidate` | `commitments`, `follow_ups`, `follow_up_rules`, `deadline_windows` | `follow_up_fact` | Human escalation when SLA or authority rules require it | `Teable`, `ApiX-Drive`, `ApproveThis` |
 | `travel_ops` | `travel_ops` | `travel_itinerary` | `artifact_then_dispatch` | `delivery_preferences`, `interruption_budgets`, `authority_bindings` | `travel_follow_up_fact` | Approval for bookings and cost-sensitive changes | `OneAir`, `MarkupGo`, `ApproveThis` |
 | `research_decision_memo` | `research_decision_memo` | `decision_summary` | `artifact_then_memory_candidate` | `decision_windows`, `stakeholders`, `relationships` | `decision_research_fact` | Human review for high-stakes decisions | `Paperguide`, `Vizologi`, `ChatPlayground AI` |
 | `documentation_freshness` | `documentation_freshness` | `documentation_refresh_packet` | `tool_then_artifact` | `entities`, `relationships`, `communication_policies` | `documentation_freshness_fact` | Human review before publishing docs or runbook changes | `Documentation.AI`, `AI Magicx` |
+| `chummer6_visual_director` | `chummer6_guide_refresh` | `chummer6_guide_refresh_packet` | `tool_then_artifact` | `entities`, `relationships`, `repo_readmes`, `design_scope`, `public_status` |  | Operator review for public-guide copy and image direction; Gemini Vortex is the planner brain, and Chummer6 text generation now hard-fails instead of falling back to Codex | `Gemini Vortex`, `AI Magicx`, `Prompting Systems`, `BrowserAct` |
 
 ## Notes
 
 - External providers are capability hints, not the source of truth. EA keeps Postgres as the runtime and memory system of record.
 - `Teable` belongs on the operator cockpit side, not in the core execution ledger.
 - `ApproveThis` is the external approval edge, not the internal policy engine.
-- `ChatPlayground AI` and `Prompting Systems` are evaluation and prompt-authoring tools, not the live planner brain.
+- `ChatPlayground AI` and `Prompting Systems` are evaluation and prompt-authoring tools, not the live planner brain; `Gemini Vortex` now owns the primary structured-generation lane for `chummer6_visual_director`, while downstream helpers stay bounded to refinement/render work.
+- `browseract_bootstrap_manager` is now a real first-class skill, not just a helper script with stage fright.

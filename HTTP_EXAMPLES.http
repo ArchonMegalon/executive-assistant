@@ -838,6 +838,173 @@ Content-Type: application/json
   }
 }
 
+### Skills -> upsert `browseract_bootstrap_manager` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "task_key": "browseract_bootstrap_manager",
+  "name": "BrowserAct Bootstrap Manager",
+  "description": "Planner-executed BrowserAct workflow-spec builder for stage-0 BrowserAct template creation and architect packets.",
+  "deliverable_type": "browseract_workflow_spec_packet",
+  "default_risk_class": "medium",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "browseract.build_workflow_spec",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "target_domain_brief",
+    "workflow_spec",
+    "browseract_seed_state"
+  ],
+  "memory_write_policy": "none",
+  "memory_reads": [
+    "entities",
+    "relationships"
+  ],
+  "memory_writes": [],
+  "tags": [
+    "browseract",
+    "bootstrap",
+    "workflow",
+    "architect"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "BrowserAct"
+    ],
+    "notes": [
+      "Stage-0 architect compiles prepared workflow specs into BrowserAct-ready packets."
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "browseract.build_workflow_spec",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "automation_architect"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "browseract_bootstrap_manager_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "medium",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "workflow_spec_build",
+    "browseract_failure_strategy": "retry",
+    "browseract_max_attempts": 2,
+    "browseract_retry_backoff_seconds": 1
+  }
+}
+
+### Skills -> upsert `chummer6_visual_director` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "chummer6_visual_director",
+  "task_key": "chummer6_guide_refresh",
+  "name": "Chummer6 Visual Director",
+  "description": "Planner-executed Chummer6 OODA, scene direction, and structured prompt-authoring skill for the public-facing guide.",
+  "deliverable_type": "chummer6_guide_refresh_packet",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "provider.gemini_vortex.structured_generate",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "repo_readmes",
+    "design_scope",
+    "public_status",
+    "source_prompt"
+  ],
+  "memory_write_policy": "none",
+  "memory_reads": [
+    "entities",
+    "relationships",
+    "repo_readmes",
+    "design_scope",
+    "public_status"
+  ],
+  "memory_writes": [],
+  "tags": [
+    "chummer6",
+    "guide",
+    "visual-direction",
+    "ooda",
+    "prompt-brain"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "model_policy_json": {
+    "provider": "gemini_vortex",
+    "default_model": "gemini-3-flash-preview",
+    "output_mode": "json"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "Gemini Vortex"
+    ],
+    "research": [
+      "BrowserAct"
+    ],
+    "output": [
+      "Gemini Vortex",
+      "AI Magicx",
+      "Prompting Systems",
+      "BrowserAct"
+    ],
+    "media": [
+      "AI Magicx",
+      "Prompting Systems",
+      "BrowserAct"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "provider.gemini_vortex.structured_generate",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "guide_reviewer"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "chummer6_guide_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "structured_generate",
+    "artifact_failure_strategy": "retry",
+    "artifact_max_attempts": 2,
+    "artifact_retry_backoff_seconds": 1
+  }
+}
+
 ### Skills -> list catalog entries
 GET {{host}}/v1/skills?limit=20
 
@@ -849,6 +1016,12 @@ GET {{host}}/v1/skills/meeting_prep
 
 ### Skills -> fetch `ltd_inventory_refresh`
 GET {{host}}/v1/skills/ltd_inventory_refresh
+
+### Skills -> fetch `browseract_bootstrap_manager`
+GET {{host}}/v1/skills/browseract_bootstrap_manager
+
+### Skills -> fetch `chummer6_visual_director`
+GET {{host}}/v1/skills/chummer6_visual_director
 
 ### Plans -> compile dispatch workflow template
 POST {{host}}/v1/plans/compile
@@ -930,6 +1103,26 @@ X-EA-Principal-ID: {{principal_id}}
 {
   "task_key": "ltd_inventory_refresh",
   "goal": "refresh LTD inventory facts"
+}
+
+### Plans -> compile `browseract_bootstrap_manager` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "goal": "build a BrowserAct workflow spec packet"
+}
+
+### Plans -> compile `chummer6_visual_director` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "chummer6_visual_director",
+  "goal": "author a structured Chummer6 guide refresh packet"
 }
 
 ### Task Contracts -> upsert generic tool-then-artifact workflow template (BrowserAct via reusable macro)
@@ -1253,6 +1446,22 @@ X-EA-Principal-ID: {{principal_id}}
       "account_email",
       "status"
     ]
+  }
+}
+
+### Plans -> execute `browseract_bootstrap_manager` directly via `skill_key`
+POST {{host}}/v1/plans/execute
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "browseract_bootstrap_manager",
+  "goal": "build a BrowserAct workflow spec packet",
+  "input_json": {
+    "workflow_name": "Prompt Forge",
+    "purpose": "Build a prepared BrowserAct workflow spec for prompt refinement.",
+    "login_url": "https://browseract.example/login",
+    "tool_url": "https://browseract.example/tools/prompting-systems"
   }
 }
 

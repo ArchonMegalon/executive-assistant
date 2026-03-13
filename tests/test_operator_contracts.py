@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,6 +107,26 @@ def test_architecture_map_api_surface_route_prefix_matches_router(documented_pre
     ), f"ARCHITECTURE_MAP.md documents {documented_prefix} but no APIRouter prefix matches it"
 
 
+def test_architecture_map_documents_every_v1_router_prefix() -> None:
+    documented_prefixes = _documented_api_prefixes_from_architecture_map()
+    actual_prefixes = _route_prefixes_from_router_modules()
+    assert documented_prefixes
+    assert actual_prefixes
+
+    undocumented_prefixes = sorted(
+        actual_prefix
+        for actual_prefix in actual_prefixes
+        if not any(
+            actual_prefix == documented_prefix or actual_prefix.startswith(f"{documented_prefix}/")
+            for documented_prefix in documented_prefixes
+        )
+    )
+
+    assert not undocumented_prefixes, (
+        "ARCHITECTURE_MAP.md is missing mounted /v1 router prefixes: " + ", ".join(undocumented_prefixes)
+    )
+
+
 def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     tasks_work_log = (ROOT / "TASKS_WORK_LOG.md").read_text(encoding="utf-8")
@@ -131,6 +152,25 @@ def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
         assert task_refs.issubset(queued_ids | done_ids)
 
 
+def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() -> None:
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+    overlay = yaml.safe_load((ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml").read_text(encoding="utf-8"))
+    required_released = {
+        "runtime_surface_docs_env_deploy_parity",
+        "provider_registry_capability_routing",
+        "typed_task_and_skill_policy_models",
+        "startup_authoritative_runtime_profile",
+    }
+    released_caps = {
+        entry["name"]
+        for entry in milestone["capabilities"]
+        if entry["name"] in required_released and entry.get("status") == "released"
+    }
+
+    assert released_caps == required_released
+    assert overlay == {"mode": "prepend", "items": []}
+
+
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -138,9 +178,24 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     assert "EA_ROLE" in dockerfile
     assert "worker','scheduler" in dockerfile
     assert "http://127.0.0.1:8090/health" in dockerfile
+    assert ".status != 200" in dockerfile
+    assert ".status < 500" not in dockerfile
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose
+
+
+def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+
+    assert 'TOPOLOGY_SERVICES=(ea-api)' in deploy
+    assert 'TOPOLOGY_SERVICES=(ea-api ea-worker ea-scheduler)' in deploy
+    assert 'service_container_ready "${service}"' in deploy
+    assert "docker inspect -f '{{.State.Running}}'" in deploy
+    assert "docker inspect -f '{{.State.Restarting}}'" in deploy
+    assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
+    assert 'FAILURE_LOG_SERVICES=(ea-api ea-worker ea-scheduler ea-db)' in deploy
+    assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
 
 
 def test_milestone_uses_status_model_and_release_tags() -> None:
@@ -728,6 +783,67 @@ def test_ltd_inventory_refresh_skill_slice_is_documented_and_guarded() -> None:
         entry for entry in milestone["capabilities"] if entry["name"] == "ltd_inventory_refresh_skill_catalog_slice"
     )
     assert capability["status"] == "released"
+
+
+def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> None:
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    worker = (ROOT / "scripts/chummer6_guide_worker.py").read_text(encoding="utf-8")
+    readiness = (ROOT / "scripts/chummer6_provider_readiness.py").read_text(encoding="utf-8")
+    fleet_scaffolder = Path("/docker/fleet/scripts/advance_ea_chummer6_worker.py").read_text(encoding="utf-8")
+
+    assert "chummer6_visual_director" in skills_test
+    assert "provider.gemini_vortex.structured_generate" in skills_test
+    assert "test_chat_json_rejects_legacy_provider_aliases" in worker_test
+    assert "test_ea_json_executes_chummer6_skill_identity" in worker_test
+    assert "chummer6_visual_director" in smoke_script
+    assert "Gemini Vortex" in smoke_script
+    assert "chummer6_visual_director" in readme
+    assert "chummer6_visual_director" in runbook
+    assert "chummer6_visual_director" in http_examples
+    assert "`chummer6_visual_director`" in skills_doc
+    assert "Gemini Vortex" in skills_doc
+    assert 'skill_key="chummer6_visual_director"' in worker
+    assert "unsupported_chummer6_text_provider" in worker
+    assert "codex_json(" not in worker
+    assert "onemin_json(" not in worker
+    assert 'return ["ea"]' in readiness
+    assert "expected to run through EA only" in readiness
+    assert "codex_json(" not in fleet_scaffolder
+    assert "onemin_json(" not in fleet_scaffolder
+    assert '"secondary": ["Codex"]' not in fleet_scaffolder
+
+
+def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() -> None:
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    bootstrap_script = (ROOT / "scripts/bootstrap_browseract_bootstrap_skill.py").read_text(encoding="utf-8")
+    fleet_bootstrap = Path("/docker/fleet/scripts/bootstrap_ea_browseract_architect.py").read_text(encoding="utf-8")
+    fleet_deploy = Path("/docker/fleet/scripts/deploy.sh").read_text(encoding="utf-8")
+
+    assert "browseract_bootstrap_manager" in skills_test
+    assert "browseract.build_workflow_spec" in skills_test
+    assert "browseract_bootstrap_manager" in smoke_script
+    assert "step_browseract_workflow_spec_build" in smoke_script
+    assert "browseract_bootstrap_manager" in readme
+    assert "browseract_bootstrap_manager" in runbook
+    assert "browseract_bootstrap_manager" in http_examples
+    assert "`browseract_bootstrap_manager`" in skills_doc
+    assert '"workflow_template": "tool_then_artifact"' in bootstrap_script
+    assert '"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]' in bootstrap_script
+    assert '"pre_artifact_capability_key": "workflow_spec_build"' in bootstrap_script
+    assert '"secondary": ["Codex"]' not in bootstrap_script
+    assert '"secondary": ["Codex"]' not in fleet_bootstrap
+    assert 'python3 /docker/EA/scripts/bootstrap_browseract_bootstrap_skill.py' in fleet_deploy
 
 
 def test_skill_provider_hints_projection_is_documented_and_released() -> None:

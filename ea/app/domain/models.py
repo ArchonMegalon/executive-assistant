@@ -14,7 +14,8 @@ class RewriteRequest:
 
 @dataclass(frozen=True)
 class TaskExecutionRequest:
-    task_key: str
+    task_key: str = ""
+    skill_key: str = ""
     text: str = ""
     principal_id: str = ""
     goal: str = ""
@@ -581,6 +582,7 @@ class TaskContractRuntimePolicy:
     budget_class: str = "low"
     workflow_template: str = "rewrite"
     pre_artifact_tool_name: str = ""
+    pre_artifact_capability_key: str = ""
     browseract_timeout_budget_seconds: int = 120
     post_artifact_packs: tuple[str, ...] = ()
     artifact_retry: TaskContractRetryPolicy = field(default_factory=TaskContractRetryPolicy)
@@ -634,6 +636,7 @@ def parse_task_contract_runtime_policy(
         budget_class=str(metadata.get("class") or "low"),
         workflow_template=str(metadata.get("workflow_template") or "rewrite").strip() or "rewrite",
         pre_artifact_tool_name=str(metadata.get("pre_artifact_tool_name") or "").strip(),
+        pre_artifact_capability_key=str(metadata.get("pre_artifact_capability_key") or "").strip(),
         browseract_timeout_budget_seconds=max(
             1,
             _policy_int(metadata.get("browseract_timeout_budget_seconds"), default=120),

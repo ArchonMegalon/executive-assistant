@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -43,52 +44,137 @@ def upsert_skill(body: dict[str, object]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def main() -> int:
-    skill = {
-        "skill_key": "chummer6_guide_refresh",
+def build_skill_payload() -> dict[str, object]:
+    return {
+        "skill_key": "chummer6_visual_director",
         "task_key": "chummer6_guide_refresh",
-        "name": "Chummer6 Guide Refresh",
-        "description": "Generate human-facing Chummer6 guide copy and art from canonical sources, with provider-aware text and media hints.",
+        "name": "Chummer6 Visual Director",
+        "description": "Planner-executed Chummer6 OODA, scene direction, and structured prompt-authoring skill for the public-facing guide.",
         "deliverable_type": "chummer6_guide_refresh_packet",
         "default_risk_class": "low",
         "default_approval_class": "none",
-        "workflow_template": "rewrite",
-        "allowed_tools": [],
-        "evidence_requirements": ["repo_readmes", "design_scope", "public_status"],
+        "workflow_template": "tool_then_artifact",
+        "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+        "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
         "memory_write_policy": "none",
-        "memory_reads": ["entities", "relationships"],
+        "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
         "memory_writes": [],
-        "tags": ["chummer6", "guide", "docs", "media"],
+        "tags": ["chummer6", "guide", "visual-direction", "ooda", "prompt-brain"],
+        "input_schema_json": {
+            "type": "object",
+            "properties": {
+                "source_text": {"type": "string"},
+                "generation_instruction": {"type": "string"},
+                "response_schema_json": {"type": "object"},
+                "context_pack": {"type": "object"},
+                "goal": {"type": "string"},
+                "model": {"type": "string"},
+            },
+            "required": ["source_text"],
+        },
+        "output_schema_json": {
+            "type": "object",
+            "properties": {
+                "deliverable_type": {"const": "chummer6_guide_refresh_packet"},
+                "artifact_kind": {"type": "string"},
+                "structured_output_json": {"type": "object"},
+            },
+            "required": ["deliverable_type"],
+        },
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+        "model_policy_json": {
+            "provider": "gemini_vortex",
+            "default_model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview",
+            "output_mode": "json",
+        },
         "provider_hints_json": {
-            "primary": ["Codex", "AI Magicx", "Prompting Systems"],
+            "primary": ["Gemini Vortex"],
             "research": ["BrowserAct"],
-            "output": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+            "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
             "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
         },
-        "tool_policy_json": {"allowed_tools": []},
+        "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
         "human_policy_json": {"review_roles": ["guide_reviewer"]},
         "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
         "budget_policy_json": {
             "class": "low",
-            "workflow_template": "rewrite",
-            "skill_catalog_json": {
-                "mode": "downstream_only",
-                "capabilities": ["human_guide_copy", "guide_media_rendering", "tone_audit"],
-            },
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "structured_generate",
+            "artifact_failure_strategy": "retry",
+            "artifact_max_attempts": 2,
+            "artifact_retry_backoff_seconds": 1,
         },
     }
+
+
+def apply_skill_payload(skills, body: dict[str, object]) -> dict[str, object]:
+    row = skills.upsert_skill(
+        skill_key=str(body.get("skill_key") or ""),
+        task_key=str(body.get("task_key") or ""),
+        name=str(body.get("name") or ""),
+        description=str(body.get("description") or ""),
+        deliverable_type=str(body.get("deliverable_type") or ""),
+        default_risk_class=str(body.get("default_risk_class") or "low"),
+        default_approval_class=str(body.get("default_approval_class") or "none"),
+        workflow_template=str(body.get("workflow_template") or "rewrite"),
+        allowed_tools=tuple(str(value) for value in (body.get("allowed_tools") or []) if str(value or "").strip()),
+        evidence_requirements=tuple(str(value) for value in (body.get("evidence_requirements") or []) if str(value or "").strip()),
+        memory_write_policy=str(body.get("memory_write_policy") or "none"),
+        memory_reads=tuple(str(value) for value in (body.get("memory_reads") or []) if str(value or "").strip()),
+        memory_writes=tuple(str(value) for value in (body.get("memory_writes") or []) if str(value or "").strip()),
+        tags=tuple(str(value) for value in (body.get("tags") or []) if str(value or "").strip()),
+        input_schema_json=dict(body.get("input_schema_json") or {}),
+        output_schema_json=dict(body.get("output_schema_json") or {}),
+        authority_profile_json=dict(body.get("authority_profile_json") or {}),
+        model_policy_json=dict(body.get("model_policy_json") or {}),
+        provider_hints_json=dict(body.get("provider_hints_json") or {}),
+        tool_policy_json=dict(body.get("tool_policy_json") or {}),
+        human_policy_json=dict(body.get("human_policy_json") or {}),
+        evaluation_cases_json=tuple(dict(value) for value in (body.get("evaluation_cases_json") or [])),
+        budget_policy_json=dict(body.get("budget_policy_json") or {}),
+    )
+    return {
+        "skill_key": row.skill_key,
+        "task_key": row.task_key,
+        "workflow_template": row.workflow_template,
+        "provider_hints_json": dict(row.provider_hints_json or {}),
+    }
+
+
+def upsert_skill_local(body: dict[str, object]) -> dict[str, object]:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.services.skills import SkillCatalogService
+    from app.services.task_contracts import build_task_contract_service
+
+    skills = SkillCatalogService(build_task_contract_service())
+    return apply_skill_payload(skills, body)
+
+
+def main() -> int:
+    skill = build_skill_payload()
     try:
         result = upsert_skill(skill)
-    except urllib.error.URLError as exc:
-        print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}"}))
+        print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "api"}))
         return 0
+    except urllib.error.URLError as exc:
+        try:
+            result = upsert_skill_local(skill)
+            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"api_unavailable:{exc.reason}"}))
+            return 0
+        except Exception as local_exc:
+            print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}", "local_error": str(local_exc)[:240]}))
+            return 0
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace").strip()
-        print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240]}))
-        return 0
-    print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", "")}))
-    return 0
+        try:
+            result = upsert_skill_local(skill)
+            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"http_{exc.code}", "body": body[:240]}))
+            return 0
+        except Exception as local_exc:
+            print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240], "local_error": str(local_exc)[:240]}))
+            return 0
 
 
 if __name__ == "__main__":

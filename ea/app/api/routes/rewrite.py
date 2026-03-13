@@ -317,7 +317,10 @@ def _resolve_skill_key(container: AppContainer, task_key: str) -> str:
     resolved_task_key = str(task_key or "").strip()
     if not resolved_task_key:
         return ""
-    row = container.skills.get_skill(resolved_task_key)
+    skills_service = getattr(container, "skills", None)
+    if skills_service is None:
+        return resolved_task_key
+    row = skills_service.get_skill(resolved_task_key)
     if row is None:
         return resolved_task_key
     return str(row.skill_key or resolved_task_key)

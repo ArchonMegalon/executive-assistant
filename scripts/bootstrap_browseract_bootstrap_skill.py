@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -43,51 +44,136 @@ def upsert_skill(body: dict[str, object]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def main() -> int:
-    skill = {
+def build_skill_payload() -> dict[str, object]:
+    return {
         "skill_key": "browseract_bootstrap_manager",
         "task_key": "browseract_bootstrap_manager",
         "name": "BrowserAct Bootstrap Manager",
-        "description": "Build prepared BrowserAct workflow specs and architect packets for stage-0 workflow materialization.",
+        "description": "Planner-executed BrowserAct workflow-spec builder for stage-0 BrowserAct template creation and architect packets.",
         "deliverable_type": "browseract_workflow_spec_packet",
         "default_risk_class": "medium",
-        "default_approval_class": "operator",
-        "workflow_template": "artifact_then_memory_candidate",
-        "allowed_tools": [],
+        "default_approval_class": "none",
+        "workflow_template": "tool_then_artifact",
+        "allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"],
         "evidence_requirements": ["target_domain_brief", "workflow_spec", "browseract_seed_state"],
         "memory_write_policy": "none",
         "memory_reads": ["entities", "relationships"],
         "memory_writes": [],
         "tags": ["browseract", "bootstrap", "workflow", "architect"],
+        "input_schema_json": {
+            "type": "object",
+            "properties": {
+                "workflow_name": {"type": "string"},
+                "purpose": {"type": "string"},
+                "login_url": {"type": "string"},
+                "tool_url": {"type": "string"},
+                "prompt_selector": {"type": "string"},
+                "submit_selector": {"type": "string"},
+                "result_selector": {"type": "string"},
+                "output_dir": {"type": "string"},
+            },
+            "required": ["workflow_name", "purpose", "login_url", "tool_url"],
+        },
+        "output_schema_json": {
+            "type": "object",
+            "properties": {
+                "deliverable_type": {"const": "browseract_workflow_spec_packet"},
+                "artifact_kind": {"type": "string"},
+                "structured_output_json": {"type": "object"},
+            },
+            "required": ["deliverable_type"],
+        },
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
         "provider_hints_json": {
             "primary": ["BrowserAct"],
-            "secondary": ["Codex"],
-            "notes": ["Stage-0 architect compiles prepared specs into BrowserAct workflows."],
+            "notes": ["Stage-0 architect compiles prepared workflow specs into BrowserAct-ready packets."],
         },
-        "tool_policy_json": {"allowed_tools": []},
+        "tool_policy_json": {"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]},
         "human_policy_json": {"review_roles": ["automation_architect"]},
         "evaluation_cases_json": [{"case_key": "browseract_bootstrap_manager_golden", "priority": "medium"}],
         "budget_policy_json": {
             "class": "medium",
-            "workflow_template": "artifact_then_memory_candidate",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "workflow_spec_build",
+            "browseract_failure_strategy": "retry",
+            "browseract_max_attempts": 2,
+            "browseract_retry_backoff_seconds": 1,
             "skill_catalog_json": {
                 "mode": "spec_compiler",
                 "capabilities": ["workflow_spec", "builder_packet", "seed_validation"],
             },
         },
     }
+
+
+def apply_skill_payload(skills, body: dict[str, object]) -> dict[str, object]:
+    row = skills.upsert_skill(
+        skill_key=str(body.get("skill_key") or ""),
+        task_key=str(body.get("task_key") or ""),
+        name=str(body.get("name") or ""),
+        description=str(body.get("description") or ""),
+        deliverable_type=str(body.get("deliverable_type") or ""),
+        default_risk_class=str(body.get("default_risk_class") or "low"),
+        default_approval_class=str(body.get("default_approval_class") or "none"),
+        workflow_template=str(body.get("workflow_template") or "rewrite"),
+        allowed_tools=tuple(str(value) for value in (body.get("allowed_tools") or []) if str(value or "").strip()),
+        evidence_requirements=tuple(str(value) for value in (body.get("evidence_requirements") or []) if str(value or "").strip()),
+        memory_write_policy=str(body.get("memory_write_policy") or "none"),
+        memory_reads=tuple(str(value) for value in (body.get("memory_reads") or []) if str(value or "").strip()),
+        memory_writes=tuple(str(value) for value in (body.get("memory_writes") or []) if str(value or "").strip()),
+        tags=tuple(str(value) for value in (body.get("tags") or []) if str(value or "").strip()),
+        input_schema_json=dict(body.get("input_schema_json") or {}),
+        output_schema_json=dict(body.get("output_schema_json") or {}),
+        authority_profile_json=dict(body.get("authority_profile_json") or {}),
+        model_policy_json=dict(body.get("model_policy_json") or {}),
+        provider_hints_json=dict(body.get("provider_hints_json") or {}),
+        tool_policy_json=dict(body.get("tool_policy_json") or {}),
+        human_policy_json=dict(body.get("human_policy_json") or {}),
+        evaluation_cases_json=tuple(dict(value) for value in (body.get("evaluation_cases_json") or [])),
+        budget_policy_json=dict(body.get("budget_policy_json") or {}),
+    )
+    return {
+        "skill_key": row.skill_key,
+        "task_key": row.task_key,
+        "workflow_template": row.workflow_template,
+        "provider_hints_json": dict(row.provider_hints_json or {}),
+    }
+
+
+def upsert_skill_local(body: dict[str, object]) -> dict[str, object]:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.services.skills import SkillCatalogService
+    from app.services.task_contracts import build_task_contract_service
+
+    skills = SkillCatalogService(build_task_contract_service())
+    return apply_skill_payload(skills, body)
+
+
+def main() -> int:
+    skill = build_skill_payload()
     try:
         result = upsert_skill(skill)
-    except urllib.error.URLError as exc:
-        print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}"}))
+        print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "api"}))
         return 0
+    except urllib.error.URLError as exc:
+        try:
+            result = upsert_skill_local(skill)
+            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"api_unavailable:{exc.reason}"}))
+            return 0
+        except Exception as local_exc:
+            print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}", "local_error": str(local_exc)[:240]}))
+            return 0
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace").strip()
-        print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240]}))
-        return 0
-    print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", "")}))
-    return 0
+        try:
+            result = upsert_skill_local(skill)
+            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"http_{exc.code}", "body": body[:240]}))
+            return 0
+        except Exception as local_exc:
+            print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240], "local_error": str(local_exc)[:240]}))
+            return 0
 
 
 if __name__ == "__main__":

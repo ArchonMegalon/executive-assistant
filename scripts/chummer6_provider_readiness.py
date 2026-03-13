@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 from pathlib import Path
 
 
@@ -21,6 +23,7 @@ RAW_KEY_NAMES = {
 }
 
 ADAPTER_ENV_NAMES = {
+    "gemini_vortex": ["EA_GEMINI_VORTEX_COMMAND", "EA_GEMINI_VORTEX_MODEL", "EA_GEMINI_VORTEX_TIMEOUT_SECONDS"],
     "magixai": ["CHUMMER6_MAGIXAI_RENDER_COMMAND", "CHUMMER6_MAGIXAI_RENDER_URL_TEMPLATE"],
     "markupgo": ["CHUMMER6_MARKUPGO_RENDER_COMMAND", "CHUMMER6_MARKUPGO_RENDER_URL_TEMPLATE"],
     "prompting_systems": ["CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND", "CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"],
@@ -65,6 +68,14 @@ def key_names_present(names: list[str]) -> list[str]:
     return [name for name in names if env_value(name)]
 
 
+def command_state(command_name: str) -> tuple[str, bool]:
+    parts = shlex.split(str(command_name or "").strip() or "gemini")
+    if not parts:
+        return ("", False)
+    resolved = shutil.which(parts[0]) or ""
+    return (parts[0], bool(resolved))
+
+
 def provider_order() -> list[str]:
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
@@ -72,6 +83,14 @@ def provider_order() -> list[str]:
     values = [part.strip().lower() for part in raw.split(",") if part.strip()]
     filtered = [value for value in values if value not in {"local_raster", "markupgo", "ooda_compositor", "scene_contract_renderer", "pollinations"}]
     return filtered or ["onemin", "magixai"]
+
+
+def text_provider_order() -> list[str]:
+    raw = env_value("CHUMMER6_TEXT_PROVIDER_ORDER")
+    if not raw:
+        return ["ea"]
+    values = [part.strip().lower() for part in raw.split(",") if part.strip()]
+    return values or ["ea"]
 
 
 def provider_state(name: str) -> dict[str, object]:
@@ -95,6 +114,25 @@ def provider_state(name: str) -> dict[str, object]:
         }
     raw_keys = key_names_present(RAW_KEY_NAMES.get(name, []))
     adapters = key_names_present(ADAPTER_ENV_NAMES.get(name, []))
+    if name == "gemini_vortex":
+        command_name, cli_ready = command_state(env_value("EA_GEMINI_VORTEX_COMMAND") or "gemini")
+        available = cli_ready
+        status = "ready" if available else "cli_missing"
+        detail = (
+            f"Gemini Vortex structured generation is available through `{command_name}`."
+            if available
+            else f"Gemini Vortex CLI `{command_name}` was not found on PATH."
+        )
+        return {
+            "provider": name,
+            "status": status,
+            "available": available,
+            "raw_keys": raw_keys,
+            "adapters": adapters,
+            "detail": detail,
+            "command": command_name,
+            "model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview",
+        }
     if name == "browseract":
         available = bool(raw_keys)
         status = "ready" if available else "missing_credentials"
@@ -184,13 +222,46 @@ def provider_state(name: str) -> dict[str, object]:
     return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
 
 
+def text_provider_state(name: str) -> dict[str, object]:
+    normalized = str(name or "").strip().lower()
+    if normalized in {"ea", "planner", "skill", "gemini", "gemini_vortex"}:
+        gemini = provider_state("gemini_vortex")
+        worker_ready = (EA_ROOT / "scripts" / "chummer6_guide_worker.py").exists()
+        bootstrap_ready = (EA_ROOT / "scripts" / "bootstrap_chummer6_guide_skill.py").exists()
+        available = bool(gemini.get("available")) and worker_ready and bootstrap_ready
+        if available:
+            status = "ready"
+            detail = "EA planner brain can route Chummer6 prompt generation through the Gemini Vortex structured-generation tool."
+        else:
+            status = "not_ready"
+            detail = "EA text brain is missing either Gemini Vortex, the worker, or the Chummer6 skill bootstrap."
+        return {
+            "provider": "ea",
+            "status": status,
+            "available": available,
+            "detail": detail,
+            "backing_provider": "gemini_vortex",
+        }
+    return {
+        "provider": normalized or "unknown",
+        "status": "unknown",
+        "available": False,
+        "detail": "No readiness rule exists for this text provider alias. Chummer6 text generation is expected to run through EA only.",
+    }
+
+
 def main() -> int:
     providers = provider_order()
     states = [provider_state(name) for name in providers]
+    text_providers = text_provider_order()
+    text_states = [text_provider_state(name) for name in text_providers]
     result = {
         "provider_order": providers,
         "providers": states,
         "recommended_provider": next((row["provider"] for row in states if row["available"]), ""),
+        "text_provider_order": text_providers,
+        "text_providers": text_states,
+        "recommended_text_provider": next((row["provider"] for row in text_states if row["available"]), ""),
     }
     STATE_OUT.parent.mkdir(parents=True, exist_ok=True)
     STATE_OUT.write_text(json.dumps(result, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")

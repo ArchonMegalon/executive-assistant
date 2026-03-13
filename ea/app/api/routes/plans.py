@@ -219,6 +219,8 @@ def _artifact_execute_out_payload(artifact):  # type: ignore[no-untyped-def]
 
 
 def _raise_plan_route_error(exc: ValueError) -> None:
+    if isinstance(exc, PlanValidationError):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     reason = str(exc or "").strip() or "invalid_plan_request"
     if reason.startswith("task_contract_not_found:"):
         raise HTTPException(status_code=404, detail=reason) from exc
@@ -327,6 +329,7 @@ def execute_plan(
         artifact = container.orchestrator.execute_task_artifact(
             TaskExecutionRequest(
                 task_key=resolved_task_key,
+                skill_key=skill_key,
                 text=str(body.text or ""),
                 principal_id=principal_id,
                 goal=body.goal,

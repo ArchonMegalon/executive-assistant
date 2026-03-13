@@ -65,6 +65,8 @@ def serialize_task_contract_runtime_policy(policy: TaskContractRuntimePolicy) ->
     }
     if str(policy.pre_artifact_tool_name or "").strip():
         metadata["pre_artifact_tool_name"] = str(policy.pre_artifact_tool_name).strip()
+    if str(policy.pre_artifact_capability_key or "").strip():
+        metadata["pre_artifact_capability_key"] = str(policy.pre_artifact_capability_key).strip()
     return metadata
 
 

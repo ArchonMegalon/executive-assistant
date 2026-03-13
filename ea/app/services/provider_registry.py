@@ -78,6 +78,11 @@ class ProviderRegistryService:
                         capability_key="account_inventory",
                         tool_name="browseract.extract_account_inventory",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="workflow_spec_build",
+                        tool_name="browseract.build_workflow_spec",
+                    ),
                 ),
             ),
             ProviderBinding(
@@ -89,6 +94,18 @@ class ProviderRegistryService:
                         provider_key="connector_dispatch",
                         capability_key="dispatch",
                         tool_name="connector.dispatch",
+                    ),
+                ),
+            ),
+            ProviderBinding(
+                provider_key="gemini_vortex",
+                display_name="Gemini Vortex",
+                executable=True,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="gemini_vortex",
+                        capability_key="structured_generate",
+                        tool_name="provider.gemini_vortex.structured_generate",
                     ),
                 ),
             ),
@@ -296,8 +313,14 @@ class ProviderRegistryService:
             "extract_account_facts": "account_facts",
             "account_inventory_extract": "account_inventory",
             "extract_account_inventory": "account_inventory",
+            "workflow_spec": "workflow_spec_build",
+            "build_workflow_spec": "workflow_spec_build",
+            "browseract_workflow_spec": "workflow_spec_build",
             "delivery_dispatch": "dispatch",
             "connector_dispatch": "dispatch",
+            "generate_json": "structured_generate",
+            "json_generate": "structured_generate",
+            "structured_generation": "structured_generate",
         }
         return aliases.get(normalized, normalized)
 
@@ -311,5 +334,9 @@ class ProviderRegistryService:
             "browserly.ai": "browserly",
             "browsely": "browserly",
             "prompting.systems": "prompting_systems",
+            "gemini": "gemini_vortex",
+            "gemini_cli": "gemini_vortex",
+            "vortex": "gemini_vortex",
+            "gemini_vortex": "gemini_vortex",
         }
         return aliases.get(normalized, normalized)

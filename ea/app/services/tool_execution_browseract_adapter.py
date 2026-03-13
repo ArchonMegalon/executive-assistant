@@ -159,6 +159,71 @@ class BrowserActToolAdapter:
             },
         )
 
+    def execute_build_workflow_spec(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        workflow_name = str(payload.get("workflow_name") or "").strip()
+        purpose = str(payload.get("purpose") or "").strip()
+        login_url = str(payload.get("login_url") or "").strip()
+        tool_url = str(payload.get("tool_url") or "").strip()
+        if not workflow_name:
+            raise ToolExecutionError("workflow_name_required:browseract.build_workflow_spec")
+        if not purpose:
+            raise ToolExecutionError("purpose_required:browseract.build_workflow_spec")
+        if not login_url:
+            raise ToolExecutionError("login_url_required:browseract.build_workflow_spec")
+        if not tool_url:
+            raise ToolExecutionError("tool_url_required:browseract.build_workflow_spec")
+        prompt_selector = str(payload.get("prompt_selector") or "textarea").strip() or "textarea"
+        submit_selector = str(payload.get("submit_selector") or "button").strip() or "button"
+        result_selector = str(payload.get("result_selector") or "main, body").strip() or "main, body"
+        output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
+        spec = self._build_workflow_spec(
+            workflow_name=workflow_name,
+            purpose=purpose,
+            login_url=login_url,
+            tool_url=tool_url,
+            prompt_selector=prompt_selector,
+            submit_selector=submit_selector,
+            result_selector=result_selector,
+            output_dir=output_dir,
+        )
+        slug = str(((spec.get("meta") or {}).get("slug")) or self._slugify(workflow_name))
+        action_kind = str(request.action_kind or "workflow.spec_build") or "workflow.spec_build"
+        normalized_text = "\n".join(
+            [
+                f"Workflow: {workflow_name}",
+                f"Purpose: {purpose}",
+                f"Tool URL: {tool_url}",
+                f"Prompt selector: {prompt_selector}",
+                f"Submit selector: {submit_selector}",
+                f"Result selector: {result_selector}",
+                f"Node count: {len(spec.get('nodes') or [])}",
+                f"Edge count: {len(spec.get('edges') or [])}",
+            ]
+        )
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"browseract:workflow-spec:{slug}",
+            output_json={
+                "workflow_name": workflow_name,
+                "workflow_slug": slug,
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "mime_type": "application/json",
+                "structured_output_json": spec,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "workflow_name": workflow_name,
+                "workflow_slug": slug,
+                "tool_version": definition.version,
+            },
+        )
+
     def _resolve_browseract_binding(
         self,
         *,
@@ -251,6 +316,75 @@ class BrowserActToolAdapter:
                 if isinstance(value, dict):
                     add(value.get("service_name") or value.get("service") or value.get("name"))
         return tuple(ordered)
+
+    def _slugify(self, value: str) -> str:
+        cleaned = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or ""))
+        while "__" in cleaned:
+            cleaned = cleaned.replace("__", "_")
+        return cleaned.strip("_") or "adapter"
+
+    def _build_workflow_spec(
+        self,
+        *,
+        workflow_name: str,
+        purpose: str,
+        login_url: str,
+        tool_url: str,
+        prompt_selector: str,
+        submit_selector: str,
+        result_selector: str,
+        output_dir: str,
+    ) -> dict[str, object]:
+        slug = self._slugify(workflow_name)
+        nodes: list[dict[str, object]] = []
+        edges: list[list[str]] = []
+        if login_url.lower() not in {"", "none", "public", "noauth"}:
+            nodes.extend(
+                [
+                    {"id": "open_login", "type": "visit_page", "label": "Open Login", "config": {"url": login_url}},
+                    {"id": "email", "type": "input_text", "label": "Email", "config": {"selector": "input[type=email]", "value_from_secret": "browseract_username"}},
+                    {"id": "password", "type": "input_text", "label": "Password", "config": {"selector": "input[type=password]", "value_from_secret": "browseract_password"}},
+                    {"id": "submit", "type": "click", "label": "Submit", "config": {"selector": "button[type=submit]"}},
+                    {"id": "wait_dashboard", "type": "wait", "label": "Wait Dashboard", "config": {"selector": "body"}},
+                ]
+            )
+            edges.extend(
+                [
+                    ["open_login", "email"],
+                    ["email", "password"],
+                    ["password", "submit"],
+                    ["submit", "wait_dashboard"],
+                    ["wait_dashboard", "open_tool"],
+                ]
+            )
+        nodes.extend(
+            [
+                {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
+                {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": prompt_selector, "value_from_input": "prompt"}},
+                {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": submit_selector}},
+                {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}},
+            ]
+        )
+        edges.extend(
+            [
+                ["open_tool", "input_prompt"],
+                ["input_prompt", "generate"],
+                ["generate", "extract_result"],
+            ]
+        )
+        return {
+            "workflow_name": workflow_name,
+            "description": purpose,
+            "publish": True,
+            "mcp_ready": False,
+            "nodes": nodes,
+            "edges": edges,
+            "meta": {
+                "slug": slug,
+                "output_dir": output_dir,
+                "status": "pending_browseract_seed",
+            },
+        }
 
     def _service_facts(self, *, binding_auth_metadata_json: dict[str, object], service_name: str) -> dict[str, object] | None:
         normalized_service_name = str(service_name or "").strip().lower()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.models import Artifact, ToolInvocationRequest
+from app.domain.models import Artifact, ToolInvocationRequest, ToolInvocationResult
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.artifacts import InMemoryArtifactRepository
@@ -12,6 +12,7 @@ from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
+from app.services.provider_registry import ProviderBinding, ProviderCapability, ProviderRegistryService
 from app.services.tool_execution import (
     CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
     CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS,
@@ -56,6 +57,133 @@ def test_tool_execution_service_executes_builtin_artifact_repository_handler() -
     assert saved is not None
     assert saved.content == "draft note"
     assert saved.principal_id == "exec-1"
+
+
+def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> None:
+    provider_registry = ProviderRegistryService()
+    provider_registry._bindings = tuple(provider_registry.list_bindings()) + (
+        ProviderBinding(
+            provider_key="shadow_provider",
+            display_name="Shadow Provider",
+            executable=False,
+            capabilities=(
+                ProviderCapability(
+                    provider_key="shadow_provider",
+                    capability_key="shadow_action",
+                    tool_name="shadow.provider.action",
+                    executable=False,
+                ),
+            ),
+        ),
+    )
+    service = ToolExecutionService(
+        tool_runtime=ToolRuntimeService(
+            tool_registry=InMemoryToolRegistryRepository(),
+            connector_bindings=InMemoryConnectorBindingRepository(),
+        ),
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    with pytest.raises(ToolExecutionError, match="provider_tool_unavailable:shadow.provider.action"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-provider-route-1",
+                step_id="step-provider-route-1",
+                tool_name="shadow.provider.action",
+                action_kind="shadow.action",
+                payload_json={},
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_tool_execution_service_executes_registered_tool_not_in_provider_catalog() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    tool_runtime.upsert_tool(
+        tool_name="email.send",
+        version="v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        enabled=True,
+    )
+
+    def _email_send(
+        request: ToolInvocationRequest, _definition
+    ):
+        recipient = str(request.payload_json.get("recipient", ""))
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind or "delivery.send",
+            target_ref="email-msg-1",
+            output_json={"status": "queued", "recipient": recipient},
+            receipt_json={"handler_key": request.tool_name, "invocation_contract": "tool.v1"},
+        )
+
+    service.register_handler("email.send", _email_send)
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-custom-tool-1",
+            step_id="step-custom-tool-1",
+            tool_name="email.send",
+            action_kind="delivery.send",
+            payload_json={"recipient": "ops@example.com"},
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "email.send"
+    assert result.output_json["status"] == "queued"
+    assert result.receipt_json["handler_key"] == "email.send"
+
+
+def test_tool_execution_service_re_registers_builtin_handlers_via_provider_registry_route() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-browseract-1",
+        scope_json={"scopes": ["browseract"], "services": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    service._handlers.clear()
+    tool_runtime._tool_registry = InMemoryToolRegistryRepository()
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-provider-route-2",
+                step_id="step-provider-route-2",
+                tool_name="browseract.extract_account_inventory",
+                action_kind="browseract.extract_account_inventory",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "service_names": ["BrowserAct"],
+                    "requested_fields": ["plan_tier"],
+                    "instructions": "refresh inventory",
+                "account_hints_json": {},
+                "run_url": "https://example.test/run/1",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
 
 
 def test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_artifacts() -> None:
@@ -386,7 +514,7 @@ def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -
     assert any(row.delivery_id == result.target_ref and row.idempotency_key == "" for row in pending)
 
 
-def test_connector_dispatch_executor_rejects_missing_payload_principal_even_when_request_principal_present() -> None:
+def test_connector_dispatch_executor_accepts_request_principal_when_payload_principal_is_missing() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -409,22 +537,22 @@ def test_connector_dispatch_executor_rejects_missing_payload_principal_even_when
         status="enabled",
     )
 
-    with pytest.raises(ToolExecutionError, match="principal_id_required"):
-        service.execute_invocation(
-            ToolInvocationRequest(
-                session_id="session-optional-principal-1",
-                step_id="step-optional-principal-1",
-                tool_name="connector.dispatch",
-                action_kind="delivery.send",
-                payload_json={
-                    "binding_id": binding.binding_id,
-                    "channel": "email",
-                    "recipient": "ops@example.com",
-                    "content": "queued dispatch",
-                },
-                context_json={"principal_id": "exec-1"},
-            )
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-optional-principal-1",
+            step_id="step-optional-principal-1",
+            tool_name="connector.dispatch",
+            action_kind="delivery.send",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "channel": "email",
+                "recipient": "ops@example.com",
+                "content": "queued dispatch",
+            },
+            context_json={"principal_id": "exec-1"},
         )
+    )
+    assert result.receipt_json["principal_id"] == "exec-1"
 
 
 def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_tool_definition_is_missing_it() -> None:
@@ -626,7 +754,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         )
 
 
-def test_connector_dispatch_executor_prefers_scope_validation_before_channel_validation() -> None:
+def test_connector_dispatch_executor_prefers_allowed_channel_validation_before_scope_validation() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -651,7 +779,7 @@ def test_connector_dispatch_executor_prefers_scope_validation_before_channel_val
 
     with pytest.raises(
         ToolExecutionError,
-        match=f"connector_binding_scope_mismatch:{binding.binding_id}:push,push.send",
+        match="connector_dispatch_channel_not_allowed:push:email,slack,telegram",
     ):
         service.execute_invocation(
             ToolInvocationRequest(
@@ -907,7 +1035,7 @@ def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_
         )
 
 
-def test_browseract_tool_dispatch_rejects_missing_payload_principal_even_when_request_principal_present() -> None:
+def test_browseract_tool_dispatch_accepts_request_principal_when_payload_principal_is_missing() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
@@ -925,20 +1053,20 @@ def test_browseract_tool_dispatch_rejects_missing_payload_principal_even_when_re
         status="enabled",
     )
 
-    with pytest.raises(ToolExecutionError, match="principal_id_required"):
-        service.execute_invocation(
-            ToolInvocationRequest(
-                session_id="session-browseract-principal-optional-1",
-                step_id="step-browseract-principal-optional-1",
-                tool_name="browseract.extract_account_facts",
-                action_kind="account.extract",
-                payload_json={
-                    "binding_id": binding.binding_id,
-                    "service_name": "BrowserAct",
-                },
-                context_json={"principal_id": "exec-1"},
-            )
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-principal-optional-1",
+            step_id="step-browseract-principal-optional-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "service_name": "BrowserAct",
+            },
+            context_json={"principal_id": "exec-1"},
         )
+    )
+    assert result.receipt_json["principal_id"] == "exec-1"
 
 
 def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> None:
@@ -1404,6 +1532,40 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_definition
 
     assert result.tool_name == "browseract.extract_account_facts"
     assert tool_runtime.get_tool("browseract.extract_account_facts") is not None
+
+
+def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-spec-1",
+            step_id="step-browseract-spec-1",
+            tool_name="browseract.build_workflow_spec",
+            action_kind="workflow.spec_build",
+            payload_json={
+                "workflow_name": "Prompt Forge",
+                "purpose": "Build a prepared BrowserAct workflow spec for prompt refinement.",
+                "login_url": "https://browseract.example/login",
+                "tool_url": "https://browseract.example/tools/prompting-systems",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.build_workflow_spec"
+    assert result.output_json["mime_type"] == "application/json"
+    assert result.output_json["structured_output_json"]["workflow_name"] == "Prompt Forge"
+    assert result.output_json["structured_output_json"]["meta"]["slug"] == "prompt_forge"
+    assert result.receipt_json["handler_key"] == "browseract.build_workflow_spec"
+    assert tool_runtime.get_tool("browseract.build_workflow_spec") is not None
 
 
 def test_rewrite_orchestrator_without_explicit_tool_runtime_does_not_hide_in_memory_fallback() -> None:

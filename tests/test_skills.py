@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 
 import pytest
 
@@ -354,3 +356,222 @@ def test_skill_catalog_can_execute_ltd_inventory_refresh_skill() -> None:
     assert session_body["artifacts"][0]["skill_key"] == "ltd_inventory_refresh"
     assert session_body["receipts"][0]["skill_key"] == "ltd_inventory_refresh"
     assert session_body["run_costs"][0]["skill_key"] == "ltd_inventory_refresh"
+
+
+def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "response": json.dumps(
+                        {
+                            "packet": "guide_refresh",
+                            "scene": "Rain-slick street runner with a troll union sticker on the signal box.",
+                            "flavor": "The dev promised one tiny cleanup. The city filed a weather warning.",
+                        }
+                    ),
+                    "stats": {
+                        "models": {
+                            "gemini-3-flash-preview": {
+                                "tokens": {"input": 111, "candidates": 37}
+                            }
+                        }
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_gemini_vortex_adapter.subprocess.run",
+        fake_run,
+    )
+
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "chummer6_visual_director",
+            "task_key": "chummer6_guide_refresh",
+            "name": "Chummer6 Visual Director",
+            "description": "Planner-executed Chummer6 OODA, scene direction, and structured prompt-authoring skill for the public-facing guide.",
+            "deliverable_type": "chummer6_guide_refresh_packet",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+            "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
+            "memory_writes": [],
+            "tags": ["chummer6", "guide", "visual-direction", "ooda", "prompt-brain"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "model_policy_json": {
+                "provider": "gemini_vortex",
+                "default_model": "gemini-3-flash-preview",
+                "output_mode": "json",
+            },
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
+                "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+            },
+            "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["guide_reviewer"]},
+            "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "structured_generate",
+                "artifact_failure_strategy": "retry",
+                "artifact_max_attempts": 2,
+                "artifact_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "chummer6_visual_director"
+    assert created.json()["task_key"] == "chummer6_guide_refresh"
+    assert created.json()["workflow_template"] == "tool_then_artifact"
+    assert created.json()["provider_hints_json"]["primary"] == ["Gemini Vortex"]
+
+    fetched = client.get("/v1/skills/chummer6_visual_director")
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["task_key"] == "chummer6_guide_refresh"
+    assert fetched_body["model_policy_json"]["provider"] == "gemini_vortex"
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "chummer6_visual_director", "goal": "author a structured Chummer6 guide refresh packet"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "chummer6_visual_director"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "chummer6_visual_director",
+            "goal": "author a structured Chummer6 guide refresh packet",
+            "input_json": {"source_text": "Draft the next Chummer6 guide packet with JSON only."},
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "chummer6_visual_director"
+    assert body["task_key"] == "chummer6_guide_refresh"
+    assert body["kind"] == "chummer6_guide_refresh_packet"
+    assert body["structured_output_json"]["packet"] == "guide_refresh"
+    assert "troll union sticker" in body["structured_output_json"]["scene"]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "chummer6_visual_director"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "provider.gemini_vortex.structured_generate",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "chummer6_visual_director"
+    assert session_body["artifacts"][0]["structured_output_json"]["packet"] == "guide_refresh"
+
+
+def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "browseract_bootstrap_manager",
+            "task_key": "browseract_bootstrap_manager",
+            "name": "BrowserAct Bootstrap Manager",
+            "description": "Planner-executed BrowserAct workflow-spec builder for stage-0 BrowserAct template creation and architect packets.",
+            "deliverable_type": "browseract_workflow_spec_packet",
+            "default_risk_class": "medium",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"],
+            "evidence_requirements": ["target_domain_brief", "workflow_spec", "browseract_seed_state"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships"],
+            "memory_writes": [],
+            "tags": ["browseract", "bootstrap", "workflow", "architect"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["BrowserAct"],
+                "notes": ["Stage-0 architect compiles prepared workflow specs into BrowserAct-ready packets."],
+            },
+            "tool_policy_json": {"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["automation_architect"]},
+            "evaluation_cases_json": [{"case_key": "browseract_bootstrap_manager_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "medium",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "workflow_spec_build",
+                "browseract_failure_strategy": "retry",
+                "browseract_max_attempts": 2,
+                "browseract_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "browseract_bootstrap_manager"
+    assert created.json()["task_key"] == "browseract_bootstrap_manager"
+
+    fetched = client.get("/v1/skills/browseract_bootstrap_manager")
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["workflow_template"] == "tool_then_artifact"
+    assert fetched_body["provider_hints_json"]["primary"] == ["BrowserAct"]
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "browseract_bootstrap_manager", "goal": "build a BrowserAct workflow spec packet"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "browseract_bootstrap_manager"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_workflow_spec_build",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "browseract_bootstrap_manager",
+            "goal": "build a BrowserAct workflow spec packet",
+            "input_json": {
+                "workflow_name": "Prompt Forge",
+                "purpose": "Build a prepared BrowserAct workflow spec for prompt refinement.",
+                "login_url": "https://browseract.example/login",
+                "tool_url": "https://browseract.example/tools/prompting-systems",
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "browseract_bootstrap_manager"
+    assert body["task_key"] == "browseract_bootstrap_manager"
+    assert body["kind"] == "browseract_workflow_spec_packet"
+    assert body["structured_output_json"]["workflow_name"] == "Prompt Forge"
+    assert body["structured_output_json"]["meta"]["slug"] == "prompt_forge"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "browseract_bootstrap_manager"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.build_workflow_spec",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "browseract_bootstrap_manager"

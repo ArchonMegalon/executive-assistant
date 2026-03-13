@@ -16,6 +16,7 @@ from app.domain.models import (
 from app.repositories.ledger import ExecutionLedgerRepository
 from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.planner import PlannerService
+from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
 from app.services.execution_async_state_service import ExecutionAsyncStateService
 
@@ -31,6 +32,7 @@ class ExecutionTaskOrchestrationService:
         fetch_session_snapshot: Callable[[str], object | None],
         async_state_service: ExecutionAsyncStateService,
         memory_reasoning_service: MemoryReasoningService | None = None,
+        skills: SkillCatalogService | None = None,
     ) -> None:
         self._ledger = ledger
         self._planner = planner
@@ -39,9 +41,10 @@ class ExecutionTaskOrchestrationService:
         self._fetch_session_snapshot = fetch_session_snapshot
         self._async_state_service = async_state_service
         self._memory_reasoning_service = memory_reasoning_service
+        self._skills = skills
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
-        task_key = str(req.task_key or "").strip() or "rewrite_text"
+        task_key, skill_key = self.resolve_task_selector(req)
         principal_id = self.require_effective_principal(req.principal_id)
         goal = str(req.goal or "").strip() or self.default_goal_for_task(task_key)
         if self._planner:
@@ -61,6 +64,7 @@ class ExecutionTaskOrchestrationService:
             req,
             principal_id=principal_id,
             task_key=task_key,
+            skill_key=skill_key,
             goal=goal,
         )
         self._start_plan_steps(
@@ -96,11 +100,12 @@ class ExecutionTaskOrchestrationService:
         *,
         principal_id: str | None = None,
         task_key: str | None = None,
+        skill_key: str | None = None,
         goal: str | None = None,
     ) -> dict[str, object]:
         payload = {str(key): value for key, value in dict(req.input_json or {}).items() if str(key).strip()}
         context_refs = tuple(str(value or "").strip() for value in (req.context_refs or ()) if str(value or "").strip())
-        text_alias = str(req.text or "").strip()
+        text_alias = str(getattr(req, "text", "") or "").strip()
         structured_text = str(
             payload.get("normalized_text") or payload.get("source_text") or payload.get("text") or ""
         ).strip()
@@ -112,16 +117,34 @@ class ExecutionTaskOrchestrationService:
             payload["text_length"] = len(effective_text)
         if context_refs:
             payload["context_refs"] = list(context_refs)
-        resolved_principal = str(principal_id or req.principal_id or "").strip()
-        resolved_task_key = str(task_key or req.task_key or "").strip() or "rewrite_text"
+        resolved_principal = str(principal_id or getattr(req, "principal_id", "") or "").strip()
+        resolved_task_key = str(task_key or getattr(req, "task_key", "") or "").strip() or "rewrite_text"
+        resolved_skill_key = str(skill_key or getattr(req, "skill_key", "") or "").strip()
+        if resolved_skill_key:
+            payload.setdefault("skill_key", resolved_skill_key)
         if self._memory_reasoning_service is not None and resolved_principal:
             payload["context_pack"] = self._memory_reasoning_service.build_context_pack(
                 principal_id=resolved_principal,
                 task_key=resolved_task_key,
-                goal=str(goal or req.goal or "").strip(),
+                goal=str(goal or getattr(req, "goal", "") or "").strip(),
                 context_refs=context_refs,
             ).as_dict()
         return payload
+
+    def resolve_task_selector(self, req: TaskExecutionRequest) -> tuple[str, str]:
+        resolved_task_key = str(getattr(req, "task_key", "") or "").strip()
+        resolved_skill_key = str(getattr(req, "skill_key", "") or "").strip()
+        if resolved_skill_key:
+            if self._skills is None:
+                raise ValueError("skill_catalog_unavailable")
+            row = self._skills.get_skill(resolved_skill_key)
+            if row is None:
+                raise ValueError(f"skill_not_found:{resolved_skill_key}")
+            row_task_key = str(row.task_key or resolved_skill_key).strip() or resolved_skill_key
+            if resolved_task_key and resolved_task_key != row_task_key:
+                raise ValueError("task_skill_key_mismatch")
+            return row_task_key, resolved_skill_key
+        return resolved_task_key or "rewrite_text", ""
 
     def require_effective_principal(self, principal_id: str) -> str:
         resolved = str(principal_id or "").strip()

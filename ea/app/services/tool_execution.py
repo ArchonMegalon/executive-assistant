@@ -16,6 +16,7 @@ from app.services.tool_execution_common import (
     ToolExecutionError,
 )
 from app.services.tool_execution_connector_dispatch_module import ConnectorDispatchToolExecutionModule
+from app.services.tool_execution_gemini_vortex_module import GeminiVortexToolExecutionModule
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -42,6 +43,9 @@ class ToolExecutionService:
             tool_runtime=tool_runtime,
             connector_dispatch=self._connector_dispatch_module.adapter,
         )
+        self._gemini_vortex_module = GeminiVortexToolExecutionModule(
+            tool_runtime=tool_runtime,
+        )
         self._artifact_module = ArtifactToolExecutionModule(
             tool_runtime=tool_runtime,
             artifacts=artifacts,
@@ -51,7 +55,9 @@ class ToolExecutionService:
             ("artifact_repository", "artifact_save"): self._register_builtin_artifact_repository,
             ("browseract", "account_facts"): self._register_builtin_browseract_extract,
             ("browseract", "account_inventory"): self._register_builtin_browseract_inventory,
+            ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
+            ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
         }
         self._register_executable_provider_bindings()
 
@@ -130,8 +136,14 @@ class ToolExecutionService:
     def _register_builtin_browseract_inventory(self) -> None:
         self._browseract_module.register_inventory(self.register_handler)
 
+    def _register_builtin_browseract_workflow_spec(self) -> None:
+        self._browseract_module.register_workflow_spec(self.register_handler)
+
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
+
+    def _register_builtin_gemini_vortex_structured_generate(self) -> None:
+        self._gemini_vortex_module.register_structured_generate(self.register_handler)
 
     @property
     def _browseract_live_extract(self):

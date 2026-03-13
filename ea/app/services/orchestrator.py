@@ -64,6 +64,7 @@ from app.services.human_task_routing_runtime_service import HumanTaskRoutingServ
 from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
+from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
@@ -119,6 +120,7 @@ class RewriteOrchestrator:
         operator_profiles: OperatorProfileRepository | None = None,
         policy: PolicyDecisionService | None = None,
         task_contracts: TaskContractService | None = None,
+        skills: SkillCatalogService | None = None,
         planner: PlannerService | None = None,
         memory_runtime: MemoryRuntimeService | None = None,
         tool_execution: ToolExecutionService | None = None,
@@ -134,12 +136,17 @@ class RewriteOrchestrator:
         self._operator_profiles = operator_profiles or InMemoryOperatorProfileRepository()
         self._policy = policy or PolicyDecisionService()
         self._task_contracts = task_contracts
+        self._skills = skills
         self._planner = planner
         self._memory_runtime = memory_runtime
         self._memory_reasoning_service = (
             MemoryReasoningService(self._memory_runtime) if self._memory_runtime is not None else None
         )
         self._tool_execution = tool_execution or _UnconfiguredToolExecutionService()
+        runtime_tool_execution = tool_execution or ToolExecutionService(
+            tool_runtime=tool_runtime or build_tool_runtime(),
+            artifacts=self._artifacts,
+        )
         self._queue_runtime = ExecutionQueueRuntimeService(
             enqueue_step=self._ledger.enqueue_step,
             retry_queue_item=self._ledger.retry_queue_item,
@@ -228,6 +235,7 @@ class RewriteOrchestrator:
             update_step=self._ledger.update_step,
             set_session_status=self._ledger.set_session_status,
             append_event=self._ledger.append_event,
+            enqueue_step=self._queue_runtime.enqueue_rewrite_step,
         )
         self._approval_resume_service = ExecutionApprovalResumeService(
             decide_approval=self._approvals.decide,
@@ -273,7 +281,7 @@ class RewriteOrchestrator:
             approval_pause_service=self._approval_pause_service,
             human_task_step_service=self._human_task_step_service,
             policy=self._policy,
-            tool_execution=self._tool_execution,
+            tool_execution=runtime_tool_execution,
             memory_runtime=self._memory_runtime,
         )
         self._operator_profile_service = ExecutionOperatorProfileService(
@@ -293,6 +301,7 @@ class RewriteOrchestrator:
             fetch_session_snapshot=self.fetch_session,
             async_state_service=self._async_state_service,
             memory_reasoning_service=self._memory_reasoning_service,
+            skills=self._skills,
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
@@ -1030,6 +1039,7 @@ def build_default_orchestrator(
     *,
     artifacts: ArtifactRepository | None = None,
     task_contracts: TaskContractService | None = None,
+    skills: SkillCatalogService | None = None,
     planner: PlannerService | None = None,
     evidence_runtime: EvidenceRuntimeService | None = None,
     memory_runtime: MemoryRuntimeService | None = None,
@@ -1044,6 +1054,7 @@ def build_default_orchestrator(
     artifact_repo = artifacts or build_artifact_repo(resolved)
     task_contract_service = task_contracts or build_task_contract_service(resolved)
     planner_service = planner or PlannerService(task_contract_service)
+    skill_service = skills or SkillCatalogService(task_contract_service)
     evidence_service = evidence_runtime or build_evidence_runtime(resolved)
     memory_service = memory_runtime or build_memory_runtime(resolved)
     policy = PolicyDecisionService(
@@ -1059,6 +1070,7 @@ def build_default_orchestrator(
         operator_profiles=operator_profiles,
         policy=policy,
         task_contracts=task_contract_service,
+        skills=skill_service,
         planner=planner_service,
         memory_runtime=memory_service,
         tool_execution=tool_execution,
