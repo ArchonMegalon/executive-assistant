@@ -25,7 +25,7 @@ def test_provider_registry_matches_allowed_tools_and_provider_hints() -> None:
         output_schema_json={},
         authority_profile_json={},
         model_policy_json={},
-        provider_hints_json={"preferred": ["browseract"]},
+        provider_hints_json={"preferred": ["browseract"], "research": ["browserly"]},
         tool_policy_json={},
         human_policy_json={},
         evaluation_cases_json=(),
@@ -34,4 +34,5 @@ def test_provider_registry_matches_allowed_tools_and_provider_hints() -> None:
     bindings = registry.bindings_for_skill(skill)
     keys = {binding.provider_key for binding in bindings}
     assert "browseract" in keys
+    assert "browserly" in keys
     assert "artifact_repository" in keys

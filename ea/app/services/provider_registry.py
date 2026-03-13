@@ -145,6 +145,21 @@ class ProviderRegistryService:
                 ),
                 source="catalog",
             ),
+
+            ProviderBinding(
+                provider_key="browserly",
+                display_name="Browserly",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="browserly",
+                        capability_key="browser_capture",
+                        tool_name="provider.browserly.browser_capture",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
             ProviderBinding(
                 provider_key="teable",
                 display_name="Teable",
@@ -199,6 +214,8 @@ class ProviderRegistryService:
             "1min_ai": "onemin",
             "ai_magicx": "magixai",
             "aimagicx": "magixai",
+            "browserly.ai": "browserly",
+            "browsely": "browserly",
             "prompting.systems": "prompting_systems",
         }
         return aliases.get(normalized, normalized)

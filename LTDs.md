@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-11
+Updated: 2026-03-13
 
 ## Workspace Integration Tier Guide
 
@@ -18,6 +18,7 @@ Updated: 2026-03-11
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `Browserly` | `Plan pending verification` | `1 account` | `Owned` |  | `Tier 2` | EA provider-registry catalog hint, Browserly env placeholders, and media-factory vendor-map reservation | Tracked as a browser-assisted capture/reference vendor; exact deal tier and account facts still need verification before runtime promotion. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
 | `Headway` | `Premium` | `1 account` | `Owned` |  | `Tier 3` | None | Knowledge/content utility only; no local runtime integration yet. |
@@ -44,7 +45,7 @@ Updated: 2026-03-11
 
 ## Summary
 
-- `22` total LTD products tracked
+- `23` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`2 licenses / 2 accounts`)
 
@@ -58,6 +59,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `AI Magicx` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Browserly` |  | `missing` | `manual_inventory` |  | Deal/account facts still need verification; Browserly is reserved as a browser-assisted capture/reference vendor. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
