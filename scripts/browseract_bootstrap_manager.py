@@ -72,6 +72,12 @@ def build_spec(
         "description": purpose,
         "publish": True,
         "mcp_ready": False,
+        "inputs": [
+            {
+                "name": "prompt",
+                "description": "Primary runtime prompt value passed into the BrowserAct tool page.",
+            },
+        ],
         "nodes": nodes,
         "edges": edges,
         "meta": {

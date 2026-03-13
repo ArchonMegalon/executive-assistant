@@ -87,6 +87,22 @@ def test_policy_routes_hide_and_reject_cross_principal_approvals() -> None:
     assert foreign_approve.status_code == 403
     assert foreign_approve.json()["error"]["code"] == "principal_scope_mismatch"
 
+    foreign_deny = client.post(
+        f"/v1/policy/approvals/{approval_id}/deny",
+        json={"decided_by": "exec-2", "reason": "forbidden cross-principal denial"},
+        headers={"X-EA-Principal-ID": "exec-2"},
+    )
+    assert foreign_deny.status_code == 403
+    assert foreign_deny.json()["error"]["code"] == "principal_scope_mismatch"
+
+    foreign_expire = client.post(
+        f"/v1/policy/approvals/{approval_id}/expire",
+        json={"decided_by": "exec-2", "reason": "forbidden cross-principal expiration"},
+        headers={"X-EA-Principal-ID": "exec-2"},
+    )
+    assert foreign_expire.status_code == 403
+    assert foreign_expire.json()["error"]["code"] == "principal_scope_mismatch"
+
     approved = client.post(
         f"/v1/policy/approvals/{approval_id}/approve",
         json={"decided_by": "exec-1", "reason": "approved in principal scope"},

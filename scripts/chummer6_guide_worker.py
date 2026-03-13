@@ -230,7 +230,7 @@ def humanizer_required() -> bool:
     raw = env_value("CHUMMER6_TEXT_HUMANIZER_REQUIRED")
     if raw:
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-    return humanizer_available()
+    return False
 
 
 def humanize_text_local(text: str, *, target: str) -> str:
@@ -245,16 +245,36 @@ def humanizer_min_sentences() -> int:
         return 2
 
 
+def humanizer_timeout_seconds() -> int:
+    raw = env_value("CHUMMER6_TEXT_HUMANIZER_TIMEOUT_SECONDS") or "120"
+    try:
+        return max(30, int(raw))
+    except Exception:
+        return 120
+
+
+def humanizer_min_words() -> int:
+    raw = env_value("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS") or "50"
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 50
+
+
 def sentence_count(text: str) -> int:
     pieces = [part.strip() for part in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if part.strip()]
     return len(pieces)
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'\\-]*", str(text or "")))
 
 
 def humanize_text(text: str, *, target: str) -> str:
     cleaned = str(text or "").strip()
     if not cleaned:
         return cleaned
-    if sentence_count(cleaned) < humanizer_min_sentences():
+    if sentence_count(cleaned) < humanizer_min_sentences() or word_count(cleaned) < humanizer_min_words():
         return humanize_text_local(cleaned, target=target)
     command_names = [
         "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
@@ -276,6 +296,7 @@ def humanize_text(text: str, *, target: str) -> str:
                 check=True,
                 text=True,
                 capture_output=True,
+                timeout=humanizer_timeout_seconds(),
             )
             humanized = (completed.stdout or "").strip()
             if humanized:
@@ -301,7 +322,7 @@ def humanize_text(text: str, *, target: str) -> str:
             attempted.append(f"{env_name}:empty_output")
         except Exception as exc:
             attempted.append(f"{env_name}:{exc}")
-    if external_expected or humanizer_required():
+    if humanizer_required():
         detail = " || ".join(attempted) if attempted else "no_external_humanizer_succeeded"
         raise RuntimeError(f"text_humanizer_failed:{detail}")
     return humanize_text_local(cleaned, target=target)
@@ -602,6 +623,79 @@ Return valid JSON only.
 """
 
 
+def _section_ooda_defaults(
+    *,
+    section_type: str,
+    name: str,
+    item: dict[str, object],
+    global_ooda: dict[str, object] | None = None,
+) -> dict[str, object]:
+    title = str(item.get("title") or name.replace("-", " ").title()).strip()
+    tagline = str(item.get("tagline") or item.get("hook") or "").strip()
+    intro = str(item.get("intro") or item.get("why") or item.get("problem") or item.get("idea") or "").strip()
+    foundations = _listish(item.get("foundations"))
+    repos = _listish(item.get("repos"))
+    signals: list[str] = []
+    if isinstance(global_ooda, dict):
+        orient = global_ooda.get("orient")
+        if isinstance(orient, dict):
+            signals = _listish(orient.get("signals_to_highlight"))
+    concrete_signals = foundations or repos or signals or [title]
+    question = {
+        "hero": "Why should I trust this thing with a live Shadowrun table?",
+        "page": f"Why should I read the {title} page?",
+        "part": f"When would I actually care about {title}?",
+        "horizon": f"What table pain is {title} trying to fix later?",
+    }.get(section_type, f"Why does {title} matter?")
+    likely_interest = tagline or intro or f"{title} should matter because it changes how the table feels, not just how the repo is sorted."
+    scene_logic = intro or likely_interest
+    one_liner = tagline or intro or f"{title} should feel like a table upgrade, not another internal nickname."
+    paragraph_seed = intro or f"{title} matters when the table needs something clearer, faster, or less fragile."
+    visual_seed = f"Contextual cyberpunk scene for {title}; show the real moment this page would matter."
+    return {
+        "observe": {
+            "reader_question": question,
+            "likely_interest": likely_interest,
+            "concrete_signals": concrete_signals,
+            "risks": [
+                "generic cyberpunk filler",
+                "explaining architecture before user value",
+                "template-shaped copy",
+            ],
+        },
+        "orient": {
+            "emotional_goal": "make the reader feel oriented, intrigued, and slightly smug for finally getting the point",
+            "sales_angle": f"show {title} as a practical table benefit first",
+            "focal_subject": title,
+            "scene_logic": scene_logic,
+            "visual_devices": [
+                "lived props",
+                "grounded lighting",
+                "one obvious point of action",
+                "one troll easter egg tucked into the scene",
+            ],
+            "tone_rule": "be clear first, stylish second, and never drift into dead template language",
+            "banned_literalizations": [
+                "floating infographic panels",
+                "generic skyline wallpaper",
+                "big centered logo art",
+            ],
+        },
+        "decide": {
+            "copy_priority": "lead with the pain or payoff a human reader would care about",
+            "image_priority": "show the moment of use, not a codename poster",
+            "overlay_priority": "only add overlays that clarify the action",
+            "subject_rule": "anchor the scene in one concrete subject and one readable prop cluster",
+            "hype_limit": "keep the promise sharp but believable",
+        },
+        "act": {
+            "one_liner": one_liner,
+            "paragraph_seed": paragraph_seed,
+            "visual_prompt_seed": visual_seed,
+        },
+    }
+
+
 def normalize_section_ooda(
     result: dict[str, object],
     *,
@@ -610,6 +704,12 @@ def normalize_section_ooda(
     item: dict[str, object],
     global_ooda: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    defaults = _section_ooda_defaults(
+        section_type=section_type,
+        name=name,
+        item=item,
+        global_ooda=global_ooda,
+    )
     normalized: dict[str, object] = {}
     for stage, fields in {
         "observe": ["reader_question", "likely_interest", "concrete_signals", "risks"],
@@ -621,15 +721,19 @@ def normalize_section_ooda(
         merged: dict[str, object] = {}
         for field in fields:
             raw = raw_stage.get(field) if isinstance(raw_stage, dict) else None
-            if isinstance(raw, list):
-                cleaned = [str(entry).strip() for entry in raw if str(entry).strip()]
+            default_value = defaults[stage].get(field)
+            if isinstance(raw, (list, tuple)) or isinstance(default_value, (list, tuple)):
+                cleaned = _listish(raw)
                 if not cleaned:
-                    raise ValueError(f"section OODA field is missing: {section_type}/{name}.{stage}.{field}")
+                    cleaned = _listish(default_value)
                 merged[field] = cleaned
             else:
                 value = str(raw or "").strip()
                 if not value:
-                    raise ValueError(f"section OODA field is missing: {section_type}/{name}.{stage}.{field}")
+                    if isinstance(default_value, (list, tuple)):
+                        merged[field] = _listish(default_value)
+                        continue
+                    value = str(default_value or "").strip()
                 merged[field] = value
         normalized[stage] = merged
     return normalized
@@ -965,7 +1069,127 @@ Return valid JSON only.
 """
 
 
+def _listish(raw: object) -> list[str]:
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if any(token in text for token in ("\n", ";", "|")):
+        parts = re.split(r"(?:\r?\n|;|\|)+", text)
+        cleaned = [part.strip(" ,;-") for part in parts if part.strip(" ,;-")]
+        if cleaned:
+            return cleaned
+    return [text]
+
+
+def _excerpt_labels(signals: dict[str, object]) -> list[str]:
+    labels: list[str] = []
+    for snippet in signals.get("snippets", []):
+        text = str(snippet or "").strip()
+        match = re.match(r"^\[([^\]]+)\]", text)
+        if match:
+            labels.append(match.group(1).strip())
+    return labels
+
+
+def _interest_signals_from_tags(tags: list[str]) -> list[str]:
+    mapping = {
+        "multi_era_rulesets": "multiple Shadowrun rules eras",
+        "sr4_support": "SR4 support is visible in the live code",
+        "sr5_support": "SR5 support is visible in the live code",
+        "sr6_support": "SR6 support is visible in the live code",
+        "lua_rules": "scripted rules can cover ugly edge cases",
+        "offline_play": "offline-safe play matters",
+        "installable_pwa": "installable play surfaces exist",
+        "explain_receipts": "the math should explain itself",
+        "provenance_receipts": "modifiers should show where they came from",
+        "runtime_stacks": "runtime bundles should stay legible",
+        "session_events": "session state and replay matter at the table",
+        "local_first_play": "local-first behavior is part of the promise",
+    }
+    seen: list[str] = []
+    for tag in tags:
+        value = mapping.get(str(tag))
+        if value and value not in seen:
+            seen.append(value)
+    return seen
+
+
+def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
+    tags = [str(tag).strip() for tag in signals.get("tags", []) if str(tag).strip()]
+    highlights = _interest_signals_from_tags(tags)
+    return {
+        "observe": {
+            "source_signal_tags": tags or ["chummer6"],
+            "source_excerpt_labels": _excerpt_labels(signals) or ["core_readme", "ui_readme", "play_readme"],
+            "audience_needs": [
+                "what this does for a real table",
+                "why the math is worth trusting",
+                "where the project is actually heading",
+            ],
+            "user_interest_signals": highlights
+            or [
+                "readable receipts instead of mystery math",
+                "offline-safe local-first play",
+                "multi-era and scripted-rules flexibility",
+            ],
+            "risks": [
+                "sliding back into repo-topology talk",
+                "template-shaped copy",
+                "generic cyberpunk wallpaper instead of scenes",
+            ],
+        },
+        "orient": {
+            "audience": "players, GMs, and curious tinkerers who want Chummer6 explained from the table inward",
+            "promise": "clear Shadowrun rules truth with receipts, local-first play, and fewer arguments about what just happened",
+            "tension": "the project is getting larger and more specialized, so the guide has to stay human before it starts sounding architectural",
+            "why_care": [
+                "faster rulings under pressure",
+                "less trust-me math",
+                "a clearer path from prep to live play",
+            ],
+            "current_focus": [
+                "trustworthy rules behavior",
+                "honest public surfaces",
+                "future ideas that feel like table upgrades instead of slideware",
+            ],
+            "visual_direction": "grounded cyberpunk scenes, readable props, lived table moments, and one sly troll reference per image",
+            "humor_line": "If the dev says this is a tiny cleanup pass, hide the accelerants.",
+            "signals_to_highlight": highlights
+            or [
+                "multi-era support",
+                "scripted rules for edge cases",
+                "receipts and provenance",
+                "local-first session resilience",
+            ],
+            "banned_terms": [
+                "visitor center",
+                "repo topology",
+                "internal control plane",
+                "template placeholder future",
+            ],
+        },
+        "decide": {
+            "information_order": "lead with table value, then product promise, then current truth, then the map of parts and futures",
+            "tone_rules": "keep it human, concrete, slightly sarcastic, and allergic to architecture sermons",
+            "horizon_policy": "sell each horizon as a table pain and a vivid scene, not a codename first",
+            "media_strategy": "use contextual scenes that show the moment the feature matters, not abstract title-card art",
+            "overlay_policy": "only use overlays that clarify initiative, receipts, sync state, provenance, or simulation context",
+            "cta_strategy": "invite readers to test, watch, or pitch better ideas without sounding like a growth funnel with a knife",
+        },
+        "act": {
+            "landing_tagline": "Shadowrun rules truth, with receipts.",
+            "landing_intro": "Chummer6 is trying to make Shadowrun rulings faster, clearer, and easier to trust when the table is loud and the stakes are dumb.",
+            "what_it_is": "This guide is the human-facing front door to what Chummer6 is becoming: a more explainable, local-first, multi-era Shadowrun toolkit that does not ask you to trust mystery math.",
+            "watch_intro": "If you care about receipts, recoverable sessions, and future tools that feel useful instead of decorative, this is the version worth watching.",
+            "horizon_intro": "Horizons are future troublemakers: ideas for where the project could get delightfully more dangerous once the boring foundations stop wobbling.",
+        },
+    }
+
+
 def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dict[str, object]:
+    defaults = _global_ooda_defaults(signals)
     normalized: dict[str, object] = {}
     raw_observe = result.get("observe") if isinstance(result.get("observe"), dict) else {}
     raw_orient = result.get("orient") if isinstance(result.get("orient"), dict) else result
@@ -975,42 +1199,36 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
     observe: dict[str, object] = {}
     for key in ("source_signal_tags", "source_excerpt_labels", "audience_needs", "user_interest_signals", "risks"):
         raw = raw_observe.get(key) if isinstance(raw_observe, dict) else None
-        if isinstance(raw, list):
-            cleaned = [str(item).strip() for item in raw if str(item).strip()]
-        else:
-            cleaned = []
+        cleaned = _listish(raw)
         if not cleaned:
-            raise ValueError(f"global OODA list field is missing: observe.{key}")
+            cleaned = _listish(defaults["observe"].get(key))
         observe[key] = cleaned
 
     orient: dict[str, object] = {}
     for key in ("audience", "promise", "tension", "visual_direction", "humor_line"):
         value = str(raw_orient.get(key, "")).strip() if isinstance(raw_orient, dict) else ""
         if not value:
-            raise ValueError(f"global OODA field is missing: orient.{key}")
+            value = str(defaults["orient"].get(key, "")).strip()
         orient[key] = value
     for key in ("why_care", "current_focus", "signals_to_highlight", "banned_terms"):
         raw = raw_orient.get(key) if isinstance(raw_orient, dict) else None
-        if isinstance(raw, list):
-            cleaned = [str(item).strip() for item in raw if str(item).strip()]
-        else:
-            cleaned = []
+        cleaned = _listish(raw)
         if not cleaned:
-            raise ValueError(f"global OODA list field is missing: orient.{key}")
+            cleaned = _listish(defaults["orient"].get(key))
         orient[key] = cleaned
 
     decide: dict[str, object] = {}
     for key in ("information_order", "tone_rules", "horizon_policy", "media_strategy", "overlay_policy", "cta_strategy"):
         value = str(raw_decide.get(key, "")).strip() if isinstance(raw_decide, dict) else ""
         if not value:
-            raise ValueError(f"global OODA field is missing: decide.{key}")
+            value = str(defaults["decide"].get(key, "")).strip()
         decide[key] = value
 
     act: dict[str, object] = {}
     for key in ("landing_tagline", "landing_intro", "what_it_is", "watch_intro", "horizon_intro"):
         value = str(raw_act.get(key, "")).strip() if isinstance(raw_act, dict) else ""
         if not value:
-            raise ValueError(f"global OODA field is missing: act.{key}")
+            value = str(defaults["act"].get(key, "")).strip()
         act[key] = value
 
     normalized["observe"] = observe

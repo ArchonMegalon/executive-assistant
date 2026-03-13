@@ -159,7 +159,48 @@ def _task_status(body: dict[str, object]) -> str:
     return ""
 
 
-def wait_for_task(task_id: str, *, timeout_seconds: int = 600) -> dict[str, object]:
+def _task_steps(body: dict[str, object]) -> list[dict[str, object]]:
+    steps = body.get("steps")
+    if isinstance(steps, list):
+        return [entry for entry in steps if isinstance(entry, dict)]
+    data = body.get("data")
+    if isinstance(data, dict):
+        nested = data.get("steps")
+        if isinstance(nested, list):
+            return [entry for entry in nested if isinstance(entry, dict)]
+    return []
+
+
+def _task_step_goals(body: dict[str, object]) -> list[str]:
+    goals: list[str] = []
+    for step in _task_steps(body):
+        goal = str(step.get("step_goal") or "").strip()
+        if goal:
+            goals.append(goal)
+    return goals
+
+
+def min_words() -> int:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_MIN_WORDS") or env_value("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS") or "50"
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 50
+
+
+def humanizer_timeout_seconds() -> int:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_TIMEOUT_SECONDS") or env_value("CHUMMER6_TEXT_HUMANIZER_TIMEOUT_SECONDS") or "90"
+    try:
+        return max(30, int(raw))
+    except Exception:
+        return 90
+
+
+def word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'\\-]*", str(text or "")))
+
+
+def wait_for_task(task_id: str, *, timeout_seconds: int = 20) -> dict[str, object]:
     deadline = time.time() + max(30, int(timeout_seconds))
     last_status = ""
     while time.time() < deadline:
@@ -169,11 +210,21 @@ def wait_for_task(task_id: str, *, timeout_seconds: int = 600) -> dict[str, obje
             last_status = status
         if status in {"done", "completed", "success", "succeeded", "finished"}:
             return api_request("GET", "/get-task", query={"task_id": task_id})
+        finished_at = str(status_body.get("finished_at") or "").strip()
+        if not finished_at:
+            data = status_body.get("data")
+            if isinstance(data, dict):
+                finished_at = str(data.get("finished_at") or "").strip()
+        if finished_at and status not in {"running", "queued", "processing", "in_progress"}:
+            return api_request("GET", "/get-task", query={"task_id": task_id})
         if status in {"failed", "error", "cancelled", "canceled"}:
             detail = json.dumps(status_body, ensure_ascii=True)[:400]
             raise RuntimeError(f"browseract:task_failed:{detail}")
         time.sleep(5)
-    raise RuntimeError(f"browseract:task_timeout:{last_status or 'unknown'}")
+    full = api_request("GET", "/get-task", query={"task_id": task_id})
+    goals = " | ".join(_task_step_goals(full)[:3]).strip()
+    detail = f":{goals}" if goals else ""
+    raise RuntimeError(f"browseract:task_timeout:{last_status or 'unknown'}{detail}")
 
 
 def _collect_strings(value: object) -> list[str]:
@@ -293,11 +344,18 @@ def cmd_check() -> int:
 
 
 def cmd_humanize(text: str, target: str) -> int:
+    if word_count(text) < min_words():
+        raise RuntimeError(f"browseract:below_min_words:{word_count(text)}<{min_words()}")
     workflow_id, _name = resolve_workflow()
     task = run_task(workflow_id=workflow_id, text=text, target=target)
     task_id = _task_id(task)
     print(f"browseract_task_id={task_id}", file=sys.stderr)
-    body = wait_for_task(task_id, timeout_seconds=600)
+    body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+    goals = _task_step_goals(body)
+    if any('Input "/text' in goal or "Input '/text" in goal for goal in goals):
+        raise RuntimeError("browseract:literal_input_binding:/text")
+    if len(goals) <= 2:
+        raise RuntimeError(f"browseract:incomplete_workflow:{' | '.join(goals) or 'no_steps'}")
     print(extract_humanized_text(body, text))
     return 0
 

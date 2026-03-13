@@ -255,6 +255,8 @@ then
      grep -Fq "| GET | \`/v1/policy/approvals/history\` | \`200\` | \`403 principal_scope_mismatch\`, \`404 session_not_found\` when \`session_id\` is scoped to another principal" "RUNBOOK.md" && \
      grep -Fq "POLICY_EVAL_SCOPE_MISMATCH_REASON" "scripts/smoke_api.sh" && \
      grep -Fq 'foreign_approve.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
+     grep -Fq 'foreign_deny.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
+     grep -Fq 'foreign_expire.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
      grep -Fq 'history_foreign.json()["error"]["code"] == "principal_scope_mismatch"' "tests/test_policy_scope_contracts.py" && \
      grep -Fq "decided_by_scope_mismatch" "tests/test_policy_scope_contracts.py" && \
      grep -Fq "policy_plane_principal_scope_enforcement" "CHANGELOG.md"; then

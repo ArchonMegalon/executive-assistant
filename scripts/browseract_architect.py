@@ -123,11 +123,51 @@ def normalize_spec(raw: dict[str, object]) -> dict[str, object]:
         if not source or not target:
             raise RuntimeError("invalid_spec:edge_values")
         normalized_edges.append({"id": f"edge_{index:02d}", "source": source, "target": target})
+    normalized_inputs: list[dict[str, object]] = []
+    seen_inputs: set[str] = set()
+
+    def add_input(name: object, *, description: object = "", default_value: object = "") -> None:
+        normalized_name = str(name or "").strip()
+        if not normalized_name:
+            return
+        key = normalized_name.lower()
+        if key in seen_inputs:
+            return
+        seen_inputs.add(key)
+        normalized_inputs.append(
+            {
+                "name": normalized_name,
+                "description": str(description or "").strip(),
+                "default_value": str(default_value or "").strip(),
+            }
+        )
+
+    raw_inputs = raw.get("inputs")
+    if not isinstance(raw_inputs, list):
+        raw_inputs = raw.get("input_parameters")
+    if isinstance(raw_inputs, list):
+        for entry in raw_inputs:
+            if isinstance(entry, dict):
+                add_input(
+                    entry.get("name") or entry.get("key") or entry.get("id"),
+                    description=entry.get("description") or entry.get("label"),
+                    default_value=entry.get("default_value") or entry.get("default") or entry.get("value"),
+                )
+            elif isinstance(entry, str):
+                add_input(entry)
+    for node in normalized_nodes:
+        config = dict(node.get("config") or {})
+        inferred_name = str(config.get("value_from_input") or "").strip()
+        if not inferred_name:
+            continue
+        inferred_description = str(config.get("description") or f"Runtime input for {node['label']}.").strip()
+        add_input(inferred_name, description=inferred_description)
     return {
         "workflow_name": str(raw.get("workflow_name") or "browseract_architect").strip() or "browseract_architect",
         "description": str(raw.get("description") or "").strip(),
         "publish": bool(raw.get("publish", False)),
         "mcp_ready": bool(raw.get("mcp_ready", False)),
+        "inputs": normalized_inputs,
         "nodes": normalized_nodes,
         "edges": normalized_edges,
     }
@@ -136,9 +176,10 @@ def normalize_spec(raw: dict[str, object]) -> dict[str, object]:
 def builder_packet(spec: dict[str, object]) -> dict[str, object]:
     nodes = list(spec.get("nodes") or [])
     edges = list(spec.get("edges") or [])
+    inputs = list(spec.get("inputs") or [])
     instructions = [
         "Open BrowserAct dashboard and start a new workflow.",
-        "Set workflow name and description from the packet metadata.",
+        "Set workflow name and description from the packet metadata, then declare the runtime input parameters on the Start node.",
         "Add nodes in listed order, then configure each node from its config payload.",
         "Wire edges exactly as listed.",
         "Save draft, publish workflow, then enable MCP later only if explicitly requested.",
@@ -149,6 +190,7 @@ def builder_packet(spec: dict[str, object]) -> dict[str, object]:
         "publish": bool(spec.get("publish")),
         "mcp_ready": bool(spec.get("mcp_ready")),
         "instructions": instructions,
+        "inputs": inputs,
         "nodes": nodes,
         "edges": edges,
     }
