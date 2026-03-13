@@ -3,7 +3,12 @@ from __future__ import annotations
 import uuid
 
 from app.domain.models import IntentSpecV3, PlanSpec, PlanStepSpec, TaskExecutionRequest, now_utc_iso
+from app.repositories.artifacts import InMemoryArtifactRepository
+from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
+from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.tool_execution import ToolExecutionService
+from app.services.tool_runtime import ToolRuntimeService
 
 
 class _GraphPlanner:
@@ -107,7 +112,18 @@ class _GraphPlanner:
 
 
 def test_parent_step_id_tracks_only_single_dependency_edges() -> None:
-    orchestrator = RewriteOrchestrator(planner=_GraphPlanner())
+    artifacts = InMemoryArtifactRepository()
+    orchestrator = RewriteOrchestrator(
+        planner=_GraphPlanner(),
+        artifacts=artifacts,
+        tool_execution=ToolExecutionService(
+            tool_runtime=ToolRuntimeService(
+                tool_registry=InMemoryToolRegistryRepository(),
+                connector_bindings=InMemoryConnectorBindingRepository(),
+            ),
+            artifacts=artifacts,
+        ),
+    )
 
     artifact = orchestrator.execute_task_artifact(
         TaskExecutionRequest(

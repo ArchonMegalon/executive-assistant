@@ -30,10 +30,41 @@ else
   DC=(docker-compose)
 fi
 
+compose() {
+  "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
+}
+
+service_container_ready() {
+  local service="$1"
+  local cid
+  local running
+  local restarting
+  local health
+
+  cid="$(compose ps -q "${service}" || true)"
+  if [[ -z "${cid}" ]]; then
+    return 1
+  fi
+
+  running="$(docker inspect -f '{{.State.Running}}' "${cid}" 2>/dev/null || true)"
+  restarting="$(docker inspect -f '{{.State.Restarting}}' "${cid}" 2>/dev/null || true)"
+  health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${cid}" 2>/dev/null || true)"
+
+  [[ "${running}" == "true" ]] || return 1
+  [[ "${restarting}" != "true" ]] || return 1
+  [[ -z "${health}" || "${health}" == "healthy" ]] || return 1
+}
+
 cd "${EA_ROOT}"
 if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
+  COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.memory.yml)
+  TOPOLOGY_SERVICES=(ea-api)
+  FAILURE_LOG_SERVICES=(ea-api)
   "${DC[@]}" -f docker-compose.yml -f docker-compose.memory.yml up -d --build ea-api
 else
+  COMPOSE_ARGS=()
+  TOPOLOGY_SERVICES=(ea-api ea-worker ea-scheduler)
+  FAILURE_LOG_SERVICES=(ea-api ea-worker ea-scheduler ea-db)
   "${DC[@]}" up -d --build
 fi
 
@@ -50,17 +81,22 @@ HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2
 HOST_PORT="${HOST_PORT:-8090}"
 
 for _ in $(seq 1 60); do
-  if curl -fsS "http://localhost:${HOST_PORT}/health" >/dev/null 2>&1; then
-    echo "EA rewrite baseline healthy at http://localhost:${HOST_PORT}"
+  topology_ready=1
+  for service in "${TOPOLOGY_SERVICES[@]}"; do
+    if ! service_container_ready "${service}"; then
+      topology_ready=0
+      break
+    fi
+  done
+
+  if [[ "${topology_ready}" == "1" ]] && curl -fsS "http://localhost:${HOST_PORT}/health" >/dev/null 2>&1; then
+    echo "EA rewrite baseline healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
     exit 0
   fi
   sleep 1
 done
 
 echo "Health check failed; dumping logs"
-if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
-  "${DC[@]}" logs --tail 200 ea-api || true
-else
-  "${DC[@]}" logs --tail 200 ea-api ea-db || true
-fi
+compose ps || true
+compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}" || true
 exit 1

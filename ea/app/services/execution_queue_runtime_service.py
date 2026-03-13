@@ -65,6 +65,7 @@ class ExecutionQueueRuntimeService:
             queue_item.queue_id,
             last_error=str(exc),
             next_attempt_at=next_attempt_at,
+            lease_owner=queue_item.lease_owner,
         )
         self._update_step(
             rewrite_step.step_id,

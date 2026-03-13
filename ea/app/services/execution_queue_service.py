@@ -173,26 +173,50 @@ class ExecutionQueueService:
         steps = self._steps_for(session_id)
         if not any(row.step_id == step_id for row in steps):
             raise RuntimeError(f"step missing from session order: {step_id}")
+        triggering_step = next((row for row in steps if row.step_id == step_id), None)
         session = self._get_session(session_id)
         if session is not None and str(session.status or "") in {"awaiting_approval", "awaiting_human", "blocked"}:
             return None
 
+        artifact: Artifact | None = None
+        # Prefer draining already queued work before enqueueing new ready steps.
+        should_drain_existing = str(lease_owner or "").strip() == "inline" or (
+            triggering_step is not None and str(triggering_step.state or "") not in {"completed", "failed", "blocked", "waiting_human"}
+        )
+        if should_drain_existing:
+            while True:
+                existing = self._next_eligible_queue_item_for_session(session_id)
+                if existing is None:
+                    break
+                if stop_before_step_id and existing.step_id == stop_before_step_id:
+                    return artifact
+                result = self.run_queue_item(
+                    existing.queue_id,
+                    lease_owner=lease_owner,
+                    stop_before_step_id=stop_before_step_id,
+                )
+                if result is not None:
+                    artifact = result
+                session = self._get_session(session_id)
+                if session is not None and str(session.status or "") in {"awaiting_approval", "awaiting_human", "blocked"}:
+                    return artifact
+
         ready_steps = self.ready_steps(session_id, stop_before_step_id=stop_before_step_id)
         if not ready_steps:
             if steps and all(row.state == "completed" for row in steps):
-                self._complete_session(session_id, status="completed")
-                self._append_event(session_id, "session_completed", {"status": "completed"})
-            return None
+                session = self._get_session(session_id)
+                if session is None or str(session.status or "") != "completed":
+                    self._complete_session(session_id, status="completed")
+                    self._append_event(session_id, "session_completed", {"status": "completed"})
+            return artifact
 
         queue_items = [self._enqueue_step(session_id, row.step_id) for row in ready_steps]
-        if lease_owner != "inline":
-            return None
-
-        artifact: Artifact | None = None
+        if str(lease_owner or "").strip() != "inline":
+            return artifact
         for queue_item in queue_items:
             result = self.run_queue_item(
                 queue_item.queue_id,
-                lease_owner="inline",
+                lease_owner=lease_owner,
                 stop_before_step_id=stop_before_step_id,
             )
             if result is not None:
@@ -212,6 +236,8 @@ class ExecutionQueueService:
         while True:
             queue_item = self.next_eligible_queue_item_for_session(session_id)
             if queue_item is None:
+                return artifact
+            if stop_before_step_id and queue_item.step_id == stop_before_step_id:
                 return artifact
             result = self.run_queue_item(
                 queue_item.queue_id,
@@ -245,6 +271,21 @@ class ExecutionQueueService:
         *,
         stop_before_step_id: str | None = None,
     ) -> Artifact | None:
+        blocked_step_id = str(stop_before_step_id or "").strip()
+        if blocked_step_id and queue_item.step_id == blocked_step_id:
+            self._complete_queue_item(queue_item.queue_id, state="queued")
+            self._set_session_status(queue_item.session_id, "queued")
+            self._append_event(
+                queue_item.session_id,
+                "queue_item_deferred",
+                {
+                    "queue_id": queue_item.queue_id,
+                    "step_id": queue_item.step_id,
+                    "reason": "stop_before_step_id",
+                },
+            )
+            return None
+
         step = self._get_step(queue_item.step_id)
         if step is None:
             self._fail_queue_item(queue_item.queue_id, last_error="step_not_found")

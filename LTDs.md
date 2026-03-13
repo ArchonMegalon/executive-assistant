@@ -15,9 +15,9 @@ Updated: 2026-03-13
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `1min.AI` | `Advanced Business Plan` | `2 licenses / 2 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. |
-| `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Chummer6 guide prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for the Chummer6 guide pipeline; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 2` | Chummer6 guide render adapters, provider-registry hints, and media-worker lane selection | Wired as a bounded render lane for Chummer6 guide assets; still guarded behind the media worker instead of the core execution plane. |
 | `Browserly` | `Plan pending verification` | `1 account` | `Owned` |  | `Tier 2` | EA provider-registry catalog hint, Browserly env placeholders, and media-factory vendor-map reservation | Tracked as a browser-assisted capture/reference vendor; exact deal tier and account facts still need verification before runtime promotion. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
@@ -56,9 +56,9 @@ Use this section to track missing tier/email/account facts discovered through th
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
 | `1min.AI` |  | `manual_seeded` | `local_env` |  | API-key rotation slots exist locally; account emails are still not documented here. |
-| `Prompting Systems` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local Chummer6 prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
-| `AI Magicx` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `AI Magicx` |  | `missing` | `manual_inventory` |  | Local Chummer6 render wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `Browserly` |  | `missing` | `manual_inventory` |  | Deal/account facts still need verification; Browserly is reserved as a browser-assisted capture/reference vendor. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |

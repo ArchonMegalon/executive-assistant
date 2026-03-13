@@ -4,7 +4,7 @@ from typing import Callable
 
 from app.domain.models import ExecutionStep, HumanTask
 
-FetchHumanTaskFn = Callable[[str, str], HumanTask | None]
+FetchHumanTaskFn = Callable[[str], HumanTask | None]
 ClaimHumanTaskFn = Callable[[str, str, str | None], HumanTask | None]
 AssignHumanTaskFn = Callable[[str, str, str, str | None], HumanTask | None]
 ReturnHumanTaskFn = Callable[
@@ -58,8 +58,8 @@ class OperatorTaskRoutingService:
         operator_id: str,
         assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
-        found = self._fetch_human_task(human_task_id, principal_id)
-        if found is None:
+        found = self._fetch_human_task(human_task_id)
+        if found is None or found.principal_id != str(principal_id or ""):
             return None
         updated = self._claim_human_task(
             human_task_id,
@@ -94,8 +94,8 @@ class OperatorTaskRoutingService:
         assignment_source: str = "manual",
         assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
-        found = self._fetch_human_task(human_task_id, principal_id)
-        if found is None:
+        found = self._fetch_human_task(human_task_id)
+        if found is None or found.principal_id != str(principal_id or ""):
             return None
         updated = self._assign_human_task(
             human_task_id,

@@ -312,7 +312,7 @@ class InMemoryHumanTaskRepository:
         assigned_by_actor_id: str | None = None,
     ) -> HumanTask | None:
         found = self._rows.get(str(human_task_id or ""))
-        if not found or found.status != "pending":
+        if not found or found.status not in {"pending", "claimed"}:
             return None
         updated = replace(
             found,

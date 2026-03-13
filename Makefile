@@ -45,7 +45,7 @@ release-docs:
 	$(MAKE) operator-help
 
 test-api:
-	PYTHONPATH=ea EA_STORAGE_BACKEND=memory pytest -q tests
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q tests
 
 test-postgres-contracts:
 	bash scripts/test_postgres_contracts.sh

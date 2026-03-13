@@ -3,11 +3,26 @@ from __future__ import annotations
 import pytest
 
 from app.domain.models import RewriteRequest
+from app.repositories.artifacts import InMemoryArtifactRepository
+from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
+from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.tool_execution import ToolExecutionService
+from app.services.tool_runtime import ToolRuntimeService
 
 
 def test_principal_scoped_rewrite_fetch_helpers_enforce_ownership() -> None:
-    orchestrator = RewriteOrchestrator()
+    artifacts = InMemoryArtifactRepository()
+    orchestrator = RewriteOrchestrator(
+        artifacts=artifacts,
+        tool_execution=ToolExecutionService(
+            tool_runtime=ToolRuntimeService(
+                tool_registry=InMemoryToolRegistryRepository(),
+                connector_bindings=InMemoryConnectorBindingRepository(),
+            ),
+            artifacts=artifacts,
+        ),
+    )
     artifact = orchestrator.build_artifact(RewriteRequest(text="scope-check", principal_id="exec-1"))
     session = orchestrator.fetch_session(artifact.execution_session_id)
 

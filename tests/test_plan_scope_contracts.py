@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     os.environ["EA_API_TOKEN"] = ""
     from app.api.app import create_app
 

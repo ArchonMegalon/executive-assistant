@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -327,7 +328,8 @@ class HumanTaskRoutingService:
         return bool(details["exact_match"])
 
     def decorate_human_task(self, row: HumanTask) -> HumanTask:
-        return row.replace(
+        return replace(
+            row,
             routing_hints_json=self.build_human_task_routing_hints(row),
             **self.build_human_task_last_transition_summary(row),
         )

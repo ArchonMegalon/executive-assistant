@@ -11,7 +11,7 @@ class ExecutionOperatorProfileService:
         *,
         upsert_profile: Callable[..., OperatorProfile],
         get_profile: Callable[[str], OperatorProfile | None],
-        list_profiles_for_principal: Callable[[str, str | None, int], list[OperatorProfile]],
+        list_profiles_for_principal: Callable[..., list[OperatorProfile]],
     ) -> None:
         self._upsert_profile = upsert_profile
         self._get_profile = get_profile
@@ -53,8 +53,9 @@ class ExecutionOperatorProfileService:
         status: str | None = None,
         limit: int = 100,
     ) -> list[OperatorProfile]:
-        return self._list_profiles_for_principal(
-            principal_id,
-            status,
-            limit,
+        rows = self._list_profiles_for_principal(
+            principal_id=principal_id,
+            status=status,
+            limit=limit,
         )
+        return sorted(rows, key=lambda row: str(row.operator_id or ""))

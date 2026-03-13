@@ -565,6 +565,9 @@ class PostgresExecutionLedgerRepository:
         key = str(idempotency_key or "")
         if not sid or not self.get_session(sid):
             raise KeyError(f"unknown session: {sid}")
+        step = self.get_step(stid)
+        if step is None or step.session_id != sid:
+            raise KeyError(f"unknown step for session: {stid}")
         if not key:
             raise ValueError("idempotency_key is required")
         ts = now_utc_iso()
@@ -576,13 +579,13 @@ class PostgresExecutionLedgerRepository:
                     INSERT INTO execution_queue
                     (queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
                      idempotency_key, last_error, created_at, updated_at)
-                    VALUES (%s, %s, %s, 'queued', '', NULL, 0, %s, %s, '', %s, %s)
+                    VALUES (%s, %s, %s, 'queued', '', NULL, %s, %s, %s, '', %s, %s)
                     ON CONFLICT (idempotency_key) DO UPDATE
                     SET updated_at = execution_queue.updated_at
                     RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
                               idempotency_key, last_error, created_at, updated_at
                     """,
-                    (queue_id, sid, stid, next_attempt_at, key, ts, ts),
+                    (queue_id, sid, stid, max(0, int(step.attempt_count)), next_attempt_at, key, ts, ts),
                 )
                 row = cur.fetchone()
         if not row:
@@ -603,7 +606,10 @@ class PostgresExecutionLedgerRepository:
                     SET state = 'leased',
                         lease_owner = %s,
                         lease_expires_at = %s,
-                        attempt_count = attempt_count + 1,
+                        attempt_count = CASE
+                            WHEN execution_queue.attempt_count > 0 AND COALESCE(execution_queue.last_error, '') = '' THEN execution_queue.attempt_count
+                            ELSE execution_queue.attempt_count + 1
+                        END,
                         updated_at = %s
                     FROM execution_sessions
                     WHERE execution_queue.queue_id = %s
@@ -658,7 +664,10 @@ class PostgresExecutionLedgerRepository:
                     SET state = 'leased',
                         lease_owner = %s,
                         lease_expires_at = %s,
-                        attempt_count = execution_queue.attempt_count + 1,
+                        attempt_count = CASE
+                            WHEN execution_queue.attempt_count > 0 AND COALESCE(execution_queue.last_error, '') = '' THEN execution_queue.attempt_count
+                            ELSE execution_queue.attempt_count + 1
+                        END,
                         updated_at = %s
                     FROM candidate
                     WHERE execution_queue.queue_id = candidate.queue_id
@@ -736,6 +745,7 @@ class PostgresExecutionLedgerRepository:
         *,
         last_error: str,
         next_attempt_at: str | None,
+        lease_owner: str | None = None,
     ) -> ExecutionQueueItem | None:
         qid = str(queue_id or "")
         if not qid:
@@ -746,7 +756,7 @@ class PostgresExecutionLedgerRepository:
                     """
                     UPDATE execution_queue
                     SET state = 'queued',
-                        lease_owner = '',
+                        lease_owner = %s,
                         lease_expires_at = NULL,
                         last_error = %s,
                         next_attempt_at = %s,
@@ -755,7 +765,7 @@ class PostgresExecutionLedgerRepository:
                     RETURNING queue_id, session_id, step_id, state, lease_owner, lease_expires_at, attempt_count, next_attempt_at,
                               idempotency_key, last_error, created_at, updated_at
                     """,
-                    (str(last_error or "execution_failed"), next_attempt_at, now_utc_iso(), qid),
+                    (str(lease_owner or ""), str(last_error or "execution_failed"), next_attempt_at, now_utc_iso(), qid),
                 )
                 row = cur.fetchone()
         if not row:

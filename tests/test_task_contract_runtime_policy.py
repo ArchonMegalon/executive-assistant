@@ -96,7 +96,7 @@ def test_task_contract_runtime_policy_applies_safe_defaults_for_invalid_values()
     assert policy.artifact_retry.failure_strategy == "fail"
     assert policy.artifact_retry.max_attempts == 1
     assert policy.artifact_retry.retry_backoff_seconds == 0
-    assert policy.browseract_timeout_budget_seconds == 1
+    assert policy.browseract_timeout_budget_seconds == 120
     assert policy.memory_candidate.confidence == 1.0
     assert policy.human_review.desired_output_json["format"] == "review_packet"
     assert policy.skill_catalog.memory_reads == ()

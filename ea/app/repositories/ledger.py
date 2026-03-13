@@ -96,6 +96,7 @@ class ExecutionLedgerRepository(Protocol):
         *,
         last_error: str,
         next_attempt_at: str | None,
+        lease_owner: str | None = None,
     ) -> ExecutionQueueItem | None:
         ...
 
@@ -303,7 +304,7 @@ class InMemoryExecutionLedgerRepository:
             state="queued",
             lease_owner="",
             lease_expires_at=None,
-            attempt_count=0,
+            attempt_count=max(0, int(step.attempt_count)),
             next_attempt_at=next_attempt_at,
             idempotency_key=key,
             last_error="",
@@ -346,12 +347,15 @@ class InMemoryExecutionLedgerRepository:
         if qid not in self._eligible_queue_item_ids():
             return None
         now = datetime.now(timezone.utc)
+        next_attempt_count = row.attempt_count
+        if row.attempt_count <= 0 or str(row.last_error or "").strip():
+            next_attempt_count = row.attempt_count + 1
         leased = replace(
             row,
             state="leased",
             lease_owner=str(lease_owner or "worker"),
             lease_expires_at=(now + timedelta(seconds=max(1, int(lease_seconds)))).isoformat(),
-            attempt_count=row.attempt_count + 1,
+            attempt_count=next_attempt_count,
             updated_at=now.isoformat(),
         )
         self._queue_items[qid] = leased
@@ -407,6 +411,7 @@ class InMemoryExecutionLedgerRepository:
         *,
         last_error: str,
         next_attempt_at: str | None,
+        lease_owner: str | None = None,
     ) -> ExecutionQueueItem | None:
         qid = str(queue_id or "")
         row = self._queue_items.get(qid)
@@ -415,7 +420,7 @@ class InMemoryExecutionLedgerRepository:
         updated = replace(
             row,
             state="queued",
-            lease_owner="",
+            lease_owner=str(lease_owner or ""),
             lease_expires_at=None,
             last_error=str(last_error or "execution_failed"),
             next_attempt_at=next_attempt_at,

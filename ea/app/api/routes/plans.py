@@ -185,6 +185,22 @@ def _resolve_skill_key(container: AppContainer, task_key: str) -> str:
     return str(row.skill_key or resolved_task_key)
 
 
+def _resolve_execution_skill_key(container: AppContainer, *, task_key: str = "", skill_key: str = "") -> str:
+    resolved_skill_key = str(skill_key or "").strip()
+    if resolved_skill_key:
+        return resolved_skill_key
+    resolved_task_key = str(task_key or "").strip()
+    if not resolved_task_key:
+        return ""
+    row = container.skills.get_skill(resolved_task_key)
+    if row is None:
+        return ""
+    row_task_key = str(row.task_key or resolved_task_key).strip() or resolved_task_key
+    if row_task_key != resolved_task_key:
+        return ""
+    return str(row.skill_key or resolved_task_key)
+
+
 def _resolve_task_key(container: AppContainer, *, task_key: str = "", skill_key: str = "") -> str:
     resolved_task_key = str(task_key or "").strip()
     resolved_skill_key = str(skill_key or "").strip()
@@ -325,11 +341,16 @@ def execute_plan(
         skill_key=body.skill_key,
     )
     skill_key = _resolve_skill_key(container, resolved_task_key)
+    execution_skill_key = _resolve_execution_skill_key(
+        container,
+        task_key=resolved_task_key,
+        skill_key=body.skill_key,
+    )
     try:
         artifact = container.orchestrator.execute_task_artifact(
             TaskExecutionRequest(
                 task_key=resolved_task_key,
-                skill_key=skill_key,
+                skill_key=execution_skill_key,
                 text=str(body.text or ""),
                 principal_id=principal_id,
                 goal=body.goal,

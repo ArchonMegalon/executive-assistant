@@ -24,6 +24,7 @@ from app.services.orchestrator import RewriteOrchestrator
 from app.services.orchestrator import AsyncExecutionQueuedError
 from app.services.policy import ApprovalRequiredError
 from app.services.planner import PlannerService
+from app.services.provider_registry import ProviderBinding, ProviderCapability, ProviderRegistryService
 from app.services.task_contracts import TaskContractService
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService
@@ -59,7 +60,27 @@ def _build_retry_orchestrator(handler):
         approval_default="none",
         enabled=True,
     )
-    tool_execution = ToolExecutionService(tool_runtime=tool_runtime, artifacts=InMemoryArtifactRepository())
+    provider_registry = ProviderRegistryService()
+    provider_registry._bindings = provider_registry.list_bindings() + (
+        ProviderBinding(
+            provider_key="retry_test_tools",
+            display_name="Retry Test Tools",
+            executable=True,
+            capabilities=(
+                ProviderCapability(
+                    provider_key="retry_test_tools",
+                    capability_key="flaky_tool",
+                    tool_name="flaky_tool",
+                ),
+            ),
+            source="tests",
+        ),
+    )
+    tool_execution = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
     tool_execution.register_handler("flaky_tool", handler)
     orchestrator = RewriteOrchestrator(
         ledger=ledger,
@@ -82,7 +103,27 @@ def _build_retry_orchestrator_with_ledger(handler, ledger):
         approval_default="none",
         enabled=True,
     )
-    tool_execution = ToolExecutionService(tool_runtime=tool_runtime, artifacts=InMemoryArtifactRepository())
+    provider_registry = ProviderRegistryService()
+    provider_registry._bindings = provider_registry.list_bindings() + (
+        ProviderBinding(
+            provider_key="retry_test_tools",
+            display_name="Retry Test Tools",
+            executable=True,
+            capabilities=(
+                ProviderCapability(
+                    provider_key="retry_test_tools",
+                    capability_key="flaky_tool",
+                    tool_name="flaky_tool",
+                ),
+            ),
+            source="tests",
+        ),
+    )
+    tool_execution = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
     tool_execution.register_handler("flaky_tool", handler)
     orchestrator = RewriteOrchestrator(
         ledger=ledger,
@@ -243,6 +284,48 @@ def test_retry_failure_strategy_requeues_a_failed_step_until_it_succeeds() -> No
     assert len(receipts) == 1
     assert receipts[0].tool_name == "flaky_tool"
     assert calls["count"] == 2
+
+
+def test_run_queue_item_stop_before_step_id_defers_prequeued_leased_step() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="retry-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    assert (
+        orchestrator.run_queue_item(
+            queue_item.queue_id,
+            lease_owner="inline",
+            stop_before_step_id=step.step_id,
+        )
+        is None
+    )
+
+    assert calls["count"] == 0
+    queued_step = ledger.get_step(step.step_id)
+    assert queued_step is not None
+    assert queued_step.state == "queued"
+    queued_item = ledger.queue_for_session(session.session_id)[0]
+    assert queued_item.state == "queued"
+    assert queued_item.lease_owner == ""
+    event_names = [row.name for row in ledger.events_for(session.session_id)]
+    assert "queue_item_deferred" in event_names
+    assert "step_execution_started" not in event_names
 
 
 def test_retry_scheduling_uses_explicit_session_status_transition_api() -> None:
@@ -826,8 +909,9 @@ def test_execution_queue_control_snapshot_is_stable_for_retry_leasing_flow() -> 
     assert snapshot_after_retry["steps"][-1]["state"] == "queued"
     assert snapshot_after_retry["steps"][-1]["attempt_count"] == 1
     assert snapshot_after_retry["steps"][-1]["error_json"]["reason"] == "retry_scheduled"
-    assert snapshot_after_retry["session_events"][-2:] == [
+    assert snapshot_after_retry["session_events"][-3:] == [
         "step_execution_started",
+        "tool_execution_started",
         "step_retry_scheduled",
     ]
 
@@ -883,6 +967,43 @@ def test_execute_next_ready_step_can_drains_retry_flow_from_service_boundary() -
     assert snapshot_after_completion["steps"][-1]["state"] == "completed"
     assert snapshot_after_completion["steps"][-1]["attempt_count"] == 2
     assert calls["count"] == 2
+
+
+def test_execute_next_ready_step_stop_before_step_id_does_not_loop_on_boundary_item() -> None:
+    calls = {"count": 0}
+
+    def handler(request, definition):
+        calls["count"] += 1
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "flaky.execute") or "flaky.execute",
+            target_ref="snapshot-target",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    orchestrator, ledger = _build_retry_orchestrator(handler)
+    session, step, _queue_item = _start_retry_step(
+        orchestrator,
+        ledger,
+        max_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    artifact = orchestrator._queue_claim_lease_service.execute_next_ready_step(
+        session.session_id,
+        lease_owner="inline",
+        missing_step_error=f"next step missing for session: {session.session_id}",
+        stop_before_step_id=step.step_id,
+    )
+
+    assert artifact is None
+    assert calls["count"] == 0
+    snapshot = _snapshot_queue_state(orchestrator.fetch_session(session.session_id))
+    assert snapshot["session_status"] == "queued"
+    assert snapshot["queue_items"][-1]["state"] == "queued"
+    assert snapshot["steps"][-1]["state"] == "queued"
+    assert snapshot["session_events"][-1] == "queue_item_deferred"
 
 
 def test_queue_next_step_after_public_wrapper_preserves_service_snapshot_contract() -> None:

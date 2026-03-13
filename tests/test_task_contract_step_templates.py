@@ -525,6 +525,46 @@ def test_generic_tool_then_artifact_workflow_template_rejects_unsupported_tool()
     assert str(exc.value) == "pre_artifact_tool_not_allowed:not_real"
 
 
+def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_gemini_vortex() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="chummer6_prompt_brain",
+        deliverable_type="chummer6_guide_refresh_packet",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("provider.gemini_vortex.structured_generate", "artifact_repository"),
+        evidence_requirements=("repo_readmes", "design_scope"),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "low",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "structured_generate",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="chummer6_prompt_brain",
+        principal_id="exec-1",
+        goal="generate a structured Chummer6 refresh packet",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    )
+    assert plan.steps[0].input_keys == ("normalized_text",)
+    assert plan.steps[1].tool_name == "provider.gemini_vortex.structured_generate"
+    assert plan.steps[1].output_keys == (
+        "normalized_text",
+        "structured_output_json",
+        "preview_text",
+        "mime_type",
+    )
+    assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
+
+
 def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(

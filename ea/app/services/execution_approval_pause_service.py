@@ -13,11 +13,13 @@ class ExecutionApprovalPauseService:
         update_step: Callable[[str, ...], ExecutionStep | None],
         set_session_status: Callable[[str, str], object],
         append_event: Callable[[str, str, dict[str, object]], object],
+        enqueue_step: Callable[[str, str], object] | None = None,
     ) -> None:
         self._create_request = create_request
         self._update_step = update_step
         self._set_session_status = set_session_status
         self._append_event = append_event
+        self._enqueue_step = enqueue_step
 
     def pause_for_approval(
         self,
@@ -38,7 +40,10 @@ class ExecutionApprovalPauseService:
             state="waiting_approval",
             output_json=target_step.output_json,
             error_json={"reason": reason, "approval_id": approval_request.approval_id},
+            attempt_count=max(1, int(target_step.attempt_count or 0)),
         )
+        if self._enqueue_step is not None:
+            self._enqueue_step(session_id, target_step.step_id)
         self._set_session_status(session_id, "awaiting_approval")
         self._append_event(
             session_id,

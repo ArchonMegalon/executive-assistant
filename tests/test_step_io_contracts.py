@@ -4,8 +4,22 @@ import pytest
 
 from app.domain.models import IntentSpecV3, PlanSpec, PlanStepSpec, TaskExecutionRequest, now_utc_iso
 from app.repositories.artifacts import InMemoryArtifactRepository
+from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.ledger import InMemoryExecutionLedgerRepository
+from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.orchestrator import RewriteOrchestrator
+from app.services.tool_execution import ToolExecutionService
+from app.services.tool_runtime import ToolRuntimeService
+
+
+def _tool_execution_with_artifacts(artifacts: InMemoryArtifactRepository) -> ToolExecutionService:
+    return ToolExecutionService(
+        tool_runtime=ToolRuntimeService(
+            tool_registry=InMemoryToolRegistryRepository(),
+            connector_bindings=InMemoryConnectorBindingRepository(),
+        ),
+        artifacts=artifacts,
+    )
 
 
 def _intent() -> IntentSpecV3:
@@ -24,9 +38,11 @@ def _intent() -> IntentSpecV3:
 
 def test_merged_step_input_json_filters_dependency_outputs_to_declared_input_keys() -> None:
     ledger = InMemoryExecutionLedgerRepository()
+    artifacts = InMemoryArtifactRepository()
     orchestrator = RewriteOrchestrator(
-        artifacts=InMemoryArtifactRepository(),
+        artifacts=artifacts,
         ledger=ledger,
+        tool_execution=_tool_execution_with_artifacts(artifacts),
     )
     session = ledger.start_session(_intent())
     dependency = ledger.start_step(
@@ -64,9 +80,11 @@ def test_merged_step_input_json_filters_dependency_outputs_to_declared_input_key
 
 def test_merged_step_input_json_rejects_missing_declared_inputs() -> None:
     ledger = InMemoryExecutionLedgerRepository()
+    artifacts = InMemoryArtifactRepository()
     orchestrator = RewriteOrchestrator(
-        artifacts=InMemoryArtifactRepository(),
+        artifacts=artifacts,
         ledger=ledger,
+        tool_execution=_tool_execution_with_artifacts(artifacts),
     )
     session = ledger.start_session(_intent())
     child = ledger.start_step(
@@ -124,10 +142,12 @@ class _OutputContractPlanner:
 
 def test_orchestrator_fails_session_when_declared_step_output_is_missing() -> None:
     ledger = InMemoryExecutionLedgerRepository()
+    artifacts = InMemoryArtifactRepository()
     orchestrator = RewriteOrchestrator(
-        artifacts=InMemoryArtifactRepository(),
+        artifacts=artifacts,
         ledger=ledger,
         planner=_OutputContractPlanner(),
+        tool_execution=_tool_execution_with_artifacts(artifacts),
     )
 
     with pytest.raises(RuntimeError, match="missing_step_output:step_artifact_save:missing_output"):

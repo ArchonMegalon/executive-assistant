@@ -503,7 +503,7 @@ class PostgresHumanTaskRepository:
                         assigned_at = %s,
                         assigned_by_actor_id = %s,
                         updated_at = %s
-                    WHERE human_task_id = %s AND status = 'pending'
+                    WHERE human_task_id = %s AND status IN ('pending', 'claimed')
                     RETURNING human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
                               authority_required, why_human, quality_rubric_json, input_json, desired_output_json, priority,
                               sla_due_at, status, assignment_state, assigned_operator_id, assignment_source, assigned_at, assigned_by_actor_id, resolution, resume_session_on_return,

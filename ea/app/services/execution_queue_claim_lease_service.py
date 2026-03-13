@@ -121,6 +121,17 @@ class ExecutionQueueClaimLeaseService:
         missing_step_error: str,
         stop_before_step_id: str | None = None,
     ):
+        existing = self.next_eligible_queue_item_for_session(session_id)
+        if existing is not None:
+            artifact = self.run_queue_item(
+                existing.queue_id,
+                lease_owner=lease_owner,
+                stop_before_step_id=stop_before_step_id,
+            )
+            drained_artifact = self.drain_session_inline(session_id, stop_before_step_id=stop_before_step_id)
+            if drained_artifact is not None:
+                return drained_artifact
+            return artifact
         next_step = self.next_ready_step(session_id, stop_before_step_id=stop_before_step_id)
         if next_step is None:
             raise MissingReadyStepError(missing_step_error, session_id=session_id)

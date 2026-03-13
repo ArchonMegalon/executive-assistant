@@ -31,16 +31,16 @@ class ConnectorDispatchToolAdapter:
             allowed_channels = tuple(sorted(CONNECTOR_DISPATCH_ALLOWED_CHANNELS))
         if not normalized_channel:
             raise ToolExecutionError("connector_dispatch_channel_required")
+        if allowed_channels and normalized_channel not in allowed_channels:
+            raise ToolExecutionError(
+                f"connector_dispatch_channel_not_allowed:{normalized_channel}:{','.join(allowed_channels)}"
+            )
         _, binding = self.resolve_connector_binding(
             request=request,
             payload=payload,
             required_input_error="connector_binding_required:connector.dispatch",
             required_scopes=self._channel_dispatch_scopes(normalized_channel),
         )
-        if allowed_channels and normalized_channel not in allowed_channels:
-            raise ToolExecutionError(
-                f"connector_dispatch_channel_not_allowed:{normalized_channel}:{','.join(allowed_channels)}"
-            )
         delivery = self.channel_runtime.queue_delivery(
             channel=normalized_channel,
             recipient=str(payload.get("recipient") or "").strip(),
@@ -118,7 +118,7 @@ class ConnectorDispatchToolAdapter:
             raise ToolExecutionError("principal_id_required")
         supplied_principal_id = str(payload.get("principal_id") or "").strip()
         if not supplied_principal_id:
-            raise ToolExecutionError("principal_id_required")
+            return request_principal_id
         if supplied_principal_id != request_principal_id:
             raise ToolExecutionError("principal_scope_mismatch")
         return request_principal_id

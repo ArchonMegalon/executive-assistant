@@ -128,6 +128,15 @@ def stage_memory_candidate(
     return _candidate_out(row)
 
 
+@router.post("/candidates/stage")
+def stage_memory_candidate_legacy(
+    body: MemoryCandidateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> MemoryCandidateOut:
+    return stage_memory_candidate(body=body, container=container, context=context)
+
+
 @router.get("/candidates")
 def list_memory_candidates(
     limit: int = Query(default=100, ge=1, le=500),

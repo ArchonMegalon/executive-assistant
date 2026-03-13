@@ -68,6 +68,10 @@ def test_update_discovery_tracking_table_updates_known_rows_and_appends_new_serv
     assert "| `UnknownService` |  | `missing` | `missing` | 2026-03-07T12:02:00Z | Missing fields: tier, account_email |" in updated
 
 
+def test_update_discovery_tracking_table_rewrites_matching_services_only() -> None:
+    test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services()
+
+
 def test_build_discovery_updates_accepts_artifact_envelope_shape() -> None:
     updates = build_discovery_updates(
         {
