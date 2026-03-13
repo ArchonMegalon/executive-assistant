@@ -218,6 +218,15 @@ def _artifact_execute_out_payload(artifact):  # type: ignore[no-untyped-def]
     }
 
 
+def _raise_plan_route_error(exc: ValueError) -> None:
+    reason = str(exc or "").strip() or "invalid_plan_request"
+    if reason.startswith("task_contract_not_found:"):
+        raise HTTPException(status_code=404, detail=reason) from exc
+    if reason == "principal_id_required":
+        raise HTTPException(status_code=422, detail=reason) from exc
+    raise exc
+
+
 @router.post("/compile")
 def compile_plan(
     body: PlanCompileIn,
@@ -236,6 +245,8 @@ def compile_plan(
             principal_id=principal_id,
             goal=body.goal,
         )
+    except ValueError as exc:
+        _raise_plan_route_error(exc)
     except PlanValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     skill_key = _resolve_skill_key(container, plan.task_key)
@@ -323,6 +334,8 @@ def execute_plan(
                 context_refs=tuple(str(value or "").strip() for value in (body.context_refs or []) if str(value or "").strip()),
             )
         )
+    except ValueError as exc:
+        _raise_plan_route_error(exc)
     except PlanValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ApprovalRequiredError as exc:

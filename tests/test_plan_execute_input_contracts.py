@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 def _client(*, principal_id: str = "exec-1") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     os.environ["EA_API_TOKEN"] = ""
     from app.api.app import create_app
 
@@ -145,6 +146,37 @@ def test_plan_execute_requires_task_or_skill_key() -> None:
         detail["type"] == "task_or_skill_key_required"
         for detail in execute.json()["error"]["details"]
     )
+
+
+def test_plan_compile_returns_not_found_for_unknown_task_contract() -> None:
+    client = _client()
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "unknown_task_contract",
+            "goal": "compile should not explode",
+        },
+    )
+
+    assert compiled.status_code == 404
+    assert compiled.json()["error"]["code"] == "task_contract_not_found:unknown_task_contract"
+
+
+def test_plan_execute_returns_not_found_for_unknown_task_contract() -> None:
+    client = _client()
+
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "unknown_task_contract",
+            "goal": "execute should not explode",
+            "text": "payload",
+        },
+    )
+
+    assert execute.status_code == 404
+    assert execute.json()["error"]["code"] == "task_contract_not_found:unknown_task_contract"
 
 
 def test_plan_execute_surfaces_delayed_retry_as_queued_async_acceptance() -> None:
