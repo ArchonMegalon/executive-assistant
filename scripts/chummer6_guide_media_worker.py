@@ -86,6 +86,11 @@ def import_guide_module():
 
 
 GUIDE = import_guide_module()
+LEGACY_PART_SLUGS = {
+    "ui": "presentation",
+    "mobile": "play",
+    "hub": "run-services",
+}
 
 
 def provider_order() -> list[str]:
@@ -968,6 +973,8 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     # OODA-authored visual_prompt is the required source of truth.
     # External prompt refinement is an optional enhancer and should never
     # block publishing unless it is explicitly marked required.
+    if not prompt_refinement_required():
+        return refine_prompt_local(prompt, target=target)
     command_names = [
         "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
         "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
@@ -1048,6 +1055,44 @@ def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
     return cleaned
 
 
+def easter_egg_clause(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    kind = str(data.get("easter_egg_kind") or "pin").strip()
+    placement = str(data.get("easter_egg_placement") or "as a small in-world detail inside the safe crop").strip()
+    detail = str(
+        data.get("easter_egg_detail")
+        or "a small recurring Chummer troll motif in the classic horned squat stance"
+    ).strip()
+    visibility = str(
+        data.get("easter_egg_visibility")
+        or "secondary but clearly visible on a README banner"
+    ).strip()
+    return (
+        f"Include one small diegetic Chummer troll motif as a {kind}, placed {placement}. "
+        f"Detail: {detail}. Keep it {visibility}. "
+        "Do not center it, do not crop it out, and do not turn it into the main subject."
+    )
+
+
+def easter_egg_stub(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    kind = str(data.get("easter_egg_kind") or "pin").strip()
+    placement = str(data.get("easter_egg_placement") or "inside the safe crop").strip()
+    return f"subtle diegetic troll motif as {kind} {placement}"
+
+
+def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
+    cleaned = " ".join(str(prompt or "").split()).strip()
+    if not cleaned:
+        return cleaned
+    row = spec.get("media_row") if isinstance(spec, dict) else {}
+    contract = row.get("scene_contract") if isinstance(row, dict) and isinstance(row.get("scene_contract"), dict) else {}
+    lowered = cleaned.lower()
+    if "chummer troll motif" in lowered or "diegetic troll motif" in lowered or "horned squat stance" in lowered:
+        return cleaned
+    return f"{cleaned} {easter_egg_clause(contract)}".strip()
+
+
 def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     contract = row.get("scene_contract") if isinstance(row, dict) else {}
@@ -1069,7 +1114,8 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
         mood,
         palette,
         "one focal subject",
-        "no text no logo no watermark 16:9",
+        easter_egg_stub(contract),
+        "no readable text no watermark 16:9",
     ]
     return ", ".join(part for part in parts if part)[:240]
 
@@ -1100,9 +1146,10 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         f"Mood: {mood}.",
         f"Visible props: {props}." if props else "",
         f"Diegetic overlays: {overlays}." if overlays else "",
+        easter_egg_clause(contract),
         "Keep the scene grounded, readable, and specific instead of generic poster collage.",
         "Safe-for-work, no gore, no watermark, no printed prompt text.",
-        "No text, no logo, no watermark, 16:9.",
+        "No readable titles, no watermark, no giant centered logos, 16:9.",
     ]
     return sanitize_prompt_for_provider(" ".join(part for part in parts if part), provider="onemin")
 
@@ -1385,10 +1432,11 @@ def asset_specs() -> list[dict[str, object]]:
             f"Useful diegetic overlays in-scene: {overlays}." if overlays else "",
             f"Reader-facing motifs to weave in visually: {motifs}." if motifs else "",
             f"Overlay ideas to imply, not print literally: {callouts}." if callouts else "",
+            easter_egg_clause(contract),
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
-            "No text, no logo, no watermark, 16:9.",
+            "No readable titles, no watermark, no giant centered logos, 16:9.",
         ]
         return " ".join(part for part in prompt_parts if part)
 
@@ -1527,6 +1575,9 @@ def asset_specs() -> list[dict[str, object]]:
     part_overrides = media.get("parts") if isinstance(media, dict) else {}
     for slug, item in GUIDE.PARTS.items():
         override = part_overrides.get(slug) if isinstance(part_overrides, dict) else None
+        if not isinstance(override, dict):
+            legacy_slug = LEGACY_PART_SLUGS.get(slug)
+            override = part_overrides.get(legacy_slug) if isinstance(part_overrides, dict) and legacy_slug else None
         if not isinstance(override, dict) or not str(override.get("visual_prompt", "")).strip():
             raise RuntimeError(f"missing part visual_prompt in EA overrides: {slug}")
         specs.append(
@@ -1565,17 +1616,33 @@ def render_pack(*, output_dir: Path) -> dict[str, object]:
     def _render_spec(spec: dict[str, object]) -> dict[str, object]:
         target = str(spec["target"])
         prompt = refine_prompt_with_ooda(prompt=str(spec["prompt"]), target=target)
+        prompt = ensure_troll_clause(prompt=prompt, spec=spec)
         width = int(spec.get("width", 1280))
         height = int(spec.get("height", 720))
         out_path = output_dir / target
         out_path.parent.mkdir(parents=True, exist_ok=True)
         result = render_with_ooda(prompt=prompt, output_path=out_path, width=width, height=height, spec=spec)
+        row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
+        contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
         return {
             "target": target,
             "output": str(out_path),
             "provider": result["provider"],
             "status": result["status"],
             "attempts": result["attempts"],
+            "prompt": prompt,
+            "easter_egg": {
+                "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
+                "placement": str(contract.get("easter_egg_placement") or "inside the safe crop").strip(),
+                "detail": str(
+                    contract.get("easter_egg_detail")
+                    or "a small recurring Chummer troll motif in the classic horned squat stance"
+                ).strip(),
+                "visibility": str(
+                    contract.get("easter_egg_visibility")
+                    or "secondary but clearly visible on a README banner"
+                ).strip(),
+            },
         }
 
     # Fail fast on the first asset instead of chewing through the whole pack when no real lane works.

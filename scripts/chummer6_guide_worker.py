@@ -6,6 +6,7 @@ import ast
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -63,6 +64,19 @@ def load_local_env() -> dict[str, str]:
 
 
 LOCAL_ENV = load_local_env()
+
+
+def env_value(name: str) -> str:
+    return str(os.environ.get(name) or LOCAL_ENV.get(name) or "").strip()
+
+
+def shlex_command(env_name: str) -> list[str]:
+    raw = env_value(env_name)
+    return shlex.split(raw) if raw else []
+
+
+def url_template(env_name: str) -> str:
+    return env_value(env_name)
 
 
 def resolve_onemin_keys() -> list[str]:
@@ -370,9 +384,7 @@ def humanizer_available() -> bool:
 
 def humanizer_required() -> bool:
     raw = env_value("CHUMMER6_TEXT_HUMANIZER_REQUIRED")
-    if raw:
-        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-    return humanizer_available()
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"} if raw else False
 
 
 def humanize_text_local(text: str, *, target: str) -> str:
@@ -392,7 +404,6 @@ def humanize_text(text: str, *, target: str) -> str:
         "CHUMMER6_TEXT_HUMANIZER_URL_TEMPLATE",
     ]
     attempted: list[str] = []
-    external_expected = humanizer_available()
     for env_name in command_names:
         command = shlex_command(env_name)
         if not command:
@@ -428,7 +439,7 @@ def humanize_text(text: str, *, target: str) -> str:
             attempted.append(f"{env_name}:empty_output")
         except Exception as exc:
             attempted.append(f"{env_name}:{exc}")
-    if external_expected or humanizer_required():
+    if humanizer_required():
         detail = " || ".join(attempted) if attempted else "no_external_humanizer_succeeded"
         raise RuntimeError(f"text_humanizer_failed:{detail}")
     return humanize_text_local(cleaned, target=target)
@@ -625,6 +636,7 @@ Rules:
 - if the title reads like a personal codename, make the character feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print UI labels or prompt text on the image
+- the whole guide uses one recurring Chummer troll easter egg; leave room for a small diegetic troll motif, patch, sticker, stamp, charm, ad, or background cameo in the scene
 - Shadowrun jargon is welcome
 - sharper dev roasting is allowed
 - roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
@@ -708,6 +720,7 @@ Rules:
 - if the title reads like a personal codename, make the character feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print labels, prompts, OODA, or resolution junk on the image
+- the whole guide uses one recurring Chummer troll easter egg; leave room for a small diegetic troll motif, patch, sticker, stamp, charm, ad, or background cameo in the scene
 - Shadowrun jargon is welcome
 - sharper dev roasting is allowed
 - roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
@@ -908,7 +921,7 @@ def build_horizons_bundle_prompt(*, items: dict[str, dict[str, object]], global_
 
 Task: return one JSON object keyed by horizon id.
 Each horizon id must map to:
-- copy: object with hook, why_wiz, brutal_truth, use_case, idea, problem, why_waits
+- copy: object with hook, image_idea, problem, table_scene, meanwhile, why_great, why_waits, pitch_line
 - media: object with badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract
 
 Rules:
@@ -924,6 +937,11 @@ Rules:
 - if the codename implies a person or metaphor, make that legible
 - do not reuse the same sentence stem across multiple horizons
 - the copy should feel distinct per horizon, not like one template with swapped nouns
+- image_idea is one vivid sentence that would help an illustrator stage the scene
+- table_scene should read like a mini play scene with 4-8 short lines of dialogue or narration from GM, player, and Chummer
+- meanwhile should be 2-4 markdown bullets explaining what Chummer is doing in the background
+- why_great should explain the payoff in plain language, not product jargon
+- pitch_line should invite readers back to the Horizons index if they have a better future idea
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
@@ -981,10 +999,10 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
             raise ValueError(f"invalid horizon bundle row: {name}")
         cleaned_copy = {
             key: str(copy.get(key, "")).strip()
-            for key in ("hook", "why_wiz", "brutal_truth", "use_case", "idea", "problem", "why_waits")
+            for key in ("hook", "image_idea", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line")
             if str(copy.get(key, "")).strip()
         }
-        if len(cleaned_copy) < 7:
+        if len(cleaned_copy) < 8:
             raise ValueError(f"insufficient horizon copy: {name}")
         media_cleaned = normalize_media_override("horizon", dict(media), item)
         copy_rows[name] = cleaned_copy
@@ -1064,6 +1082,7 @@ Rules:
 - if the source suggests strong user-facing selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossiers, or dangerous simulation energy, surface them
 - if source signals clearly include multi-era support or scripted rules, make at least one landing-facing sentence say so plainly
 - do not invent implementation-specific claims unless the source canon makes them explicit
+- the guide art uses a recurring Chummer troll easter egg integrated into scenes as a secondary diegetic detail, never as a giant centered logo
 - no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
@@ -1197,6 +1216,9 @@ Requirements:
 - if the section implies a person or team, choose a believable protagonist instead of abstract symbols
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, or crash-test simulation, make that metaphor visibly legible in-scene
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- every image must include one small recurring Chummer troll easter egg integrated into the scene as a diegetic detail
+- that troll motif can be a jacket pin, patch, sticker, stamp, tattoo, charm, transit ad, CRT mascot, or a real troll in the classic Chummer stance
+- the troll motif must be clearly visible on a README banner, but secondary and never the main subject
 - the visible badge/title/subtitle/kicker/note should feel like guide copy, not compliance language
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
@@ -1212,11 +1234,16 @@ Requirements:
   - palette
   - mood
   - humor
+  - easter_egg_kind
+  - easter_egg_placement
+  - easter_egg_detail
+  - easter_egg_visibility
 - scene_contract.subject should name the focal subject in plain language
 - scene_contract.metaphor should name the strongest visual metaphor if one exists
 - scene_contract.props should be a short list of concrete visible things
 - scene_contract.overlays should be a short list of diegetic overlay ideas
 - scene_contract.composition should be a short layout phrase like single_protagonist, group_table, desk_still_life, or city_edge
+- scene_contract easter egg fields must describe the troll motif in practical art-direction language
 
 Return valid JSON only.
 """
@@ -1266,6 +1293,9 @@ Requirements:
 - if the part naturally implies a person or team, choose believable cyberpunk people
 - if the part naturally implies a machine room, archive, workshop, or table scene, make that spatial metaphor visibly legible
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- every image must include one small recurring Chummer troll easter egg integrated into the scene as a diegetic detail
+- that troll motif can be a jacket pin, patch, sticker, stamp, tattoo, charm, transit ad, CRT mascot, or a real troll in the classic Chummer stance
+- the troll motif must be clearly visible on a README banner, but secondary and never the main subject
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
@@ -1280,6 +1310,10 @@ Requirements:
   - palette
   - mood
   - humor
+  - easter_egg_kind
+  - easter_egg_placement
+  - easter_egg_detail
+  - easter_egg_visibility
 
 Return valid JSON only.
 """
@@ -1338,6 +1372,9 @@ Requirements:
 - if the title reads like a personal codename, make the focal subject feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
+- every image must include one small recurring Chummer troll easter egg integrated into the scene as a diegetic detail
+- that troll motif can be a jacket pin, patch, sticker, stamp, tattoo, charm, transit ad, CRT mascot, or a real troll in the classic Chummer stance
+- the troll motif must be clearly visible on a README banner, but secondary and never the main subject
 - the visible copy should sell the horizon without pretending it is active build work
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
@@ -1353,6 +1390,10 @@ Requirements:
   - palette
   - mood
   - humor
+  - easter_egg_kind
+  - easter_egg_placement
+  - easter_egg_detail
+  - easter_egg_visibility
 - if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline or dashboard
 - if the metaphor is x-ray / dossier / forge / ghost / heat web / mirror / passport / blackbox / simulation, make scene_contract.metaphor explicit
 
@@ -1361,6 +1402,43 @@ Return valid JSON only.
 
 
 def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[str, object]) -> dict[str, object]:
+    def infer_easter_egg(*, asset_key: str, visual_prompt: str, composition: str) -> dict[str, str]:
+        lowered = f"{asset_key} {visual_prompt} {composition}".lower()
+        kind = "pin"
+        placement = "as a small jacket pin or device charm inside the safe crop"
+        detail = "a small recurring Chummer troll motif in the classic horned squat stance"
+        visibility = "secondary but clearly visible on a README banner"
+        if any(token in lowered for token in ("forge", "workshop", "bench")):
+            kind = "patch"
+            placement = "as a stitched patch on an apron, jacket shoulder, or tool bag"
+        elif any(token in lowered for token in ("dossier", "desk", "evidence", "jackpoint", "persona")):
+            kind = "stamp"
+            placement = "as a wax seal, approval stamp, or sticker on a foreground folder, dossier, or chip case"
+        elif any(token in lowered for token in ("passport", "gate", "customs")):
+            kind = "stamp"
+            placement = "as a customs stamp or inspection mark on a passport card or transit document"
+        elif any(token in lowered for token in ("blackbox", "loadout", "gear")):
+            kind = "sticker"
+            placement = "as a sticker or etched decal on a medkit, ammo case, tool case, or tray edge"
+        elif any(token in lowered for token in ("simulation", "alice", "lab")):
+            kind = "decal"
+            placement = "as a warning decal on the sim bench, restraint frame, or diagnostic housing"
+        elif any(token in lowered for token in ("heat", "web", "network", "wall")):
+            kind = "screen mascot"
+            placement = "on a side monitor, wall display, or pinned note near the conspiracy web"
+        elif any(token in lowered for token in ("street", "city", "boulevard", "start-here", "readme", "hero")):
+            kind = "sticker"
+            placement = "as a sticker, transit ad mascot, or peeling poster on street hardware in the midground"
+        elif any(token in lowered for token in ("group_table", "table", "nexus-pan", "tactical")):
+            kind = "pin"
+            placement = "as a tiny pin, patch, or phone-case sticker near the players and their devices"
+        return {
+            "easter_egg_kind": kind,
+            "easter_egg_placement": placement,
+            "easter_egg_detail": detail,
+            "easter_egg_visibility": visibility,
+        }
+
     def infer_scene_contract(*, asset_key: str, visual_prompt: str) -> dict[str, object]:
         lowered = visual_prompt.lower()
         subject = "a cyberpunk protagonist"
@@ -1422,7 +1500,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "receipt markers",
             "signal arcs",
         ]
-        return {
+        contract = {
             "subject": subject,
             "environment": environment,
             "action": action,
@@ -1435,13 +1513,34 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "humor": humor,
             "visual_prompt": visual_prompt,
         }
+        contract.update(
+            infer_easter_egg(
+                asset_key=asset_key,
+                visual_prompt=visual_prompt,
+                composition=composition,
+            )
+        )
+        return contract
 
     def normalize_scene_contract(raw: object, *, asset_key: str, visual_prompt: str) -> dict[str, object]:
         default = infer_scene_contract(asset_key=asset_key, visual_prompt=visual_prompt)
         if not isinstance(raw, dict):
             return default
         contract: dict[str, object] = dict(default)
-        for key in ("subject", "environment", "action", "metaphor", "composition", "palette", "mood", "humor"):
+        for key in (
+            "subject",
+            "environment",
+            "action",
+            "metaphor",
+            "composition",
+            "palette",
+            "mood",
+            "humor",
+            "easter_egg_kind",
+            "easter_egg_placement",
+            "easter_egg_detail",
+            "easter_egg_visibility",
+        ):
             value = str(raw.get(key, "")).strip()
             if value:
                 contract[key] = value
@@ -1469,6 +1568,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
         if not motifs:
             raise ValueError("hero media field is missing: visual_motifs")
+        if not any("troll" in entry.lower() for entry in motifs):
+            motifs.append("small recurring troll motif hidden in-world")
         normalized["visual_motifs"] = motifs
         raw_callouts = normalized.get("overlay_callouts")
         if not isinstance(raw_callouts, list):
@@ -1495,6 +1596,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
     if not motifs:
         raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.visual_motifs")
+    if not any("troll" in entry.lower() for entry in motifs):
+        motifs.append("small recurring troll motif hidden in-world")
     normalized["visual_motifs"] = motifs
     raw_callouts = normalized.get("overlay_callouts")
     if not isinstance(raw_callouts, list):
