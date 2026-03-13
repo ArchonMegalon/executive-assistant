@@ -21,6 +21,7 @@ from chummer6_runtime_config import load_local_env, load_runtime_overrides
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 API_BASE = "https://api.browseract.com/v2/workflow"
+RUNTIME_DIR = Path("/docker/fleet/state/browseract_bootstrap/runtime")
 
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
@@ -196,8 +197,168 @@ def humanizer_timeout_seconds() -> int:
         return 90
 
 
+def auto_repair_enabled() -> bool:
+    raw = env_value("CHUMMER6_BROWSERACT_HUMANIZER_AUTO_REPAIR")
+    if not raw:
+        return True
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def word_count(text: str) -> int:
     return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'\\-]*", str(text or "")))
+
+
+def _slugify(value: str) -> str:
+    lowered = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())
+    lowered = re.sub(r"_+", "_", lowered).strip("_")
+    return lowered or "workflow"
+
+
+def _runtime_workflow_stem() -> str:
+    explicit = env_value("CHUMMER6_BROWSERACT_HUMANIZER_RUNTIME_WORKFLOW")
+    if explicit:
+        return _slugify(explicit)
+    workflow_id = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID")
+    if workflow_id:
+        return _slugify(workflow_id)
+    query = env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY") or "undetectable_humanizer_live"
+    if "humanizer" in query.lower():
+        return _slugify(query)
+    return "undetectable_humanizer_live"
+
+
+def _candidate_spec_paths() -> list[Path]:
+    explicit = env_value("CHUMMER6_BROWSERACT_HUMANIZER_SPEC_PATH")
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    stem = _runtime_workflow_stem()
+    candidates.extend(
+        [
+            RUNTIME_DIR / f"{stem}.workflow.json",
+            RUNTIME_DIR / "undetectable_humanizer_live.workflow.json",
+            RUNTIME_DIR / "undetectable_humanizer_v4.workflow.json",
+        ]
+    )
+    discovered = sorted(RUNTIME_DIR.glob("*humanizer*.workflow.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in discovered:
+        if path not in candidates:
+            candidates.append(path)
+    return [path for path in candidates if path.exists()]
+
+
+def _load_current_spec() -> tuple[dict[str, object], Path | None]:
+    for path in _candidate_spec_paths():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(loaded, dict):
+            return dict(loaded), path
+    return {}, None
+
+
+def _repair_goals_from_message(message: str) -> list[str]:
+    parts = [part.strip() for part in str(message or "").split("|") if part.strip()]
+    return parts[:4]
+
+
+def _ea_orchestrator():
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    scripts_root = str(EA_ROOT / "scripts")
+    if scripts_root not in sys.path:
+        sys.path.insert(0, scripts_root)
+    from app.container import build_container
+    from bootstrap_browseract_workflow_repair_skill import apply_skill_payload, build_skill_payload
+
+    container = build_container()
+    apply_skill_payload(container.skills, build_skill_payload())
+    return container.orchestrator
+
+
+def _persist_repair_packet(packet: dict[str, object], *, workflow_name: str) -> tuple[Path, Path]:
+    slug = _slugify(workflow_name)
+    workflow_spec = dict(packet.get("workflow_spec") or {})
+    packet_path = RUNTIME_DIR / f"{slug}.repair.packet.json"
+    spec_path = RUNTIME_DIR / f"{slug}.repair.workflow.json"
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    packet_path.write_text(json.dumps(packet, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    spec_path.write_text(json.dumps(workflow_spec, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return packet_path, spec_path
+
+
+def request_workflow_repair(*, workflow_name: str, purpose: str, tool_url: str, failure_summary: str, failure_goals: list[str], current_spec: dict[str, object], login_url: str = "public") -> dict[str, object]:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.domain.models import TaskExecutionRequest
+
+    artifact = _ea_orchestrator().execute_task_artifact(
+        TaskExecutionRequest(
+            skill_key="browseract_workflow_repair_manager",
+            principal_id="ea-browseract-humanizer",
+            goal="Repair a failing BrowserAct workflow spec after a runtime execution failure.",
+            input_json={
+                "workflow_name": workflow_name,
+                "purpose": purpose,
+                "login_url": login_url,
+                "tool_url": tool_url,
+                "failure_summary": failure_summary,
+                "failing_step_goals": failure_goals,
+                "current_workflow_spec_json": current_spec,
+                "output_dir": str(RUNTIME_DIR),
+            },
+        )
+    )
+    structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+    if not structured:
+        raise RuntimeError("browseract:repair_empty_artifact")
+    packet = dict(structured.get("workflow_spec") and structured or structured.get("result") or structured)
+    if "workflow_spec" not in packet:
+        raise RuntimeError("browseract:repair_missing_workflow_spec")
+    packet_path, spec_path = _persist_repair_packet(packet, workflow_name=workflow_name)
+    print(f"browseract_repair_packet={packet_path}", file=sys.stderr)
+    print(f"browseract_repair_spec={spec_path}", file=sys.stderr)
+    return packet
+
+
+def maybe_request_workflow_repair(*, failure_summary: str, failure_goals: list[str] | None = None) -> None:
+    if not auto_repair_enabled():
+        return
+    current_spec, spec_path = _load_current_spec()
+    workflow_name = str((current_spec.get("workflow_name") if isinstance(current_spec, dict) else "") or _runtime_workflow_stem()).strip() or _runtime_workflow_stem()
+    purpose = str((current_spec.get("description") if isinstance(current_spec, dict) else "") or "Repair the Undetectable AI BrowserAct humanizer workflow for Chummer6 copy blocks.").strip()
+    tool_url = ""
+    if isinstance(current_spec, dict):
+        nodes = current_spec.get("nodes")
+        if isinstance(nodes, list):
+            for node in nodes:
+                if isinstance(node, dict) and isinstance(node.get("config"), dict):
+                    candidate = str((node.get("config") or {}).get("url") or "").strip()
+                    if candidate:
+                        tool_url = candidate
+                        break
+    if not tool_url:
+        tool_url = "https://undetectable.ai/ai-humanizer"
+    goals = list(failure_goals or [])
+    if not goals:
+        goals = _repair_goals_from_message(failure_summary)
+    try:
+        request_workflow_repair(
+            workflow_name=workflow_name,
+            purpose=purpose,
+            tool_url=tool_url,
+            login_url="public",
+            failure_summary=failure_summary,
+            failure_goals=goals,
+            current_spec=current_spec,
+        )
+        if spec_path is not None:
+            print(f"browseract_repair_source={spec_path}", file=sys.stderr)
+    except Exception as exc:
+        print(f"browseract_repair_failed={str(exc)[:240]}", file=sys.stderr)
 
 
 def wait_for_task(task_id: str, *, timeout_seconds: int = 20) -> dict[str, object]:
@@ -347,15 +508,25 @@ def cmd_humanize(text: str, target: str) -> int:
     if word_count(text) < min_words():
         raise RuntimeError(f"browseract:below_min_words:{word_count(text)}<{min_words()}")
     workflow_id, _name = resolve_workflow()
-    task = run_task(workflow_id=workflow_id, text=text, target=target)
-    task_id = _task_id(task)
-    print(f"browseract_task_id={task_id}", file=sys.stderr)
-    body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+    try:
+        task = run_task(workflow_id=workflow_id, text=text, target=target)
+        task_id = _task_id(task)
+        print(f"browseract_task_id={task_id}", file=sys.stderr)
+        body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+    except RuntimeError as exc:
+        maybe_request_workflow_repair(failure_summary=str(exc))
+        raise
     goals = _task_step_goals(body)
     if any('Input "/text' in goal or "Input '/text" in goal for goal in goals):
+        maybe_request_workflow_repair(
+            failure_summary="browseract:literal_input_binding:/text",
+            failure_goals=goals,
+        )
         raise RuntimeError("browseract:literal_input_binding:/text")
     if len(goals) <= 2:
-        raise RuntimeError(f"browseract:incomplete_workflow:{' | '.join(goals) or 'no_steps'}")
+        detail = f"browseract:incomplete_workflow:{' | '.join(goals) or 'no_steps'}"
+        maybe_request_workflow_repair(failure_summary=detail, failure_goals=goals)
+        raise RuntimeError(detail)
     print(extract_humanized_text(body, text))
     return 0
 

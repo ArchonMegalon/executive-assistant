@@ -106,5 +106,43 @@ def register_builtin_browseract_workflow_spec(
             policy_json={"builtin": True, "action_kind": "workflow.spec_build"},
             approval_default="none",
             enabled=True,
-        )
+    )
     register_handler("browseract.build_workflow_spec", browseract_adapter.execute_build_workflow_spec)
+
+
+def register_builtin_browseract_workflow_repair(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.repair_workflow_spec") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.repair_workflow_spec",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["workflow_name", "purpose", "tool_url", "failure_summary"],
+                "properties": {
+                    "workflow_name": {"type": "string"},
+                    "purpose": {"type": "string"},
+                    "login_url": {"type": "string"},
+                    "tool_url": {"type": "string"},
+                    "failure_summary": {"type": "string"},
+                    "failing_step_goals": {"type": "array", "items": {"type": "string"}},
+                    "current_workflow_spec_json": {"type": "object"},
+                    "prompt_selector": {"type": "string"},
+                    "submit_selector": {"type": "string"},
+                    "result_selector": {"type": "string"},
+                    "output_dir": {"type": "string"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": ["normalized_text", "structured_output_json", "preview_text", "mime_type", "tool_name", "action_kind"],
+            },
+            policy_json={"builtin": True, "action_kind": "workflow.spec_repair"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("browseract.repair_workflow_spec", browseract_adapter.execute_repair_workflow_spec)

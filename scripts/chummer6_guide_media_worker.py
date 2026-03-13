@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,10 +52,17 @@ PALETTES = [
 
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
+FFMPEG_BIN = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def ffmpeg_bin() -> str:
+    if FFMPEG_BIN and Path(FFMPEG_BIN).exists():
+        return FFMPEG_BIN
+    raise RuntimeError("ffmpeg_unavailable:ffmpeg executable not found")
 
 
 def provider_busy_retries() -> int:
@@ -901,7 +909,7 @@ def render_local_raster(*, prompt: str, output_path: Path, width: int, height: i
                 (tmp / f"frame-{index:02d}.png").write_bytes(frame)
             subprocess.run(
                 [
-                    "ffmpeg",
+                    ffmpeg_bin(),
                     "-y",
                     "-hide_banner",
                     "-loglevel",
@@ -1315,7 +1323,7 @@ def apply_troll_postpass(*, image_path: Path, spec: dict[str, object], width: in
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin(),
                 "-y",
                 "-i",
                 str(image_path),
@@ -1352,7 +1360,7 @@ def normalize_banner_size(*, image_path: Path, width: int, height: int) -> str:
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin(),
                 "-y",
                 "-i",
                 str(image_path),
@@ -1603,7 +1611,7 @@ def apply_context_overlay(*, output_path: Path, spec: dict[str, object], width: 
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin(),
                 "-y",
                 "-hide_banner",
                 "-loglevel",

@@ -83,6 +83,11 @@ class ProviderRegistryService:
                         capability_key="workflow_spec_build",
                         tool_name="browseract.build_workflow_spec",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="workflow_spec_repair",
+                        tool_name="browseract.repair_workflow_spec",
+                    ),
                 ),
             ),
             ProviderBinding(
@@ -316,6 +321,9 @@ class ProviderRegistryService:
             "workflow_spec": "workflow_spec_build",
             "build_workflow_spec": "workflow_spec_build",
             "browseract_workflow_spec": "workflow_spec_build",
+            "workflow_repair": "workflow_spec_repair",
+            "repair_workflow_spec": "workflow_spec_repair",
+            "browseract_workflow_repair": "workflow_spec_repair",
             "delivery_dispatch": "dispatch",
             "connector_dispatch": "dispatch",
             "generate_json": "structured_generate",

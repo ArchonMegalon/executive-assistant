@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess
+
 import pytest
 
 from app.domain.models import Artifact, ToolInvocationRequest, ToolInvocationResult
@@ -1566,6 +1569,95 @@ def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> Non
     assert result.output_json["structured_output_json"]["meta"]["slug"] == "prompt_forge"
     assert result.receipt_json["handler_key"] == "browseract.build_workflow_spec"
     assert tool_runtime.get_tool("browseract.build_workflow_spec") is not None
+
+
+def test_tool_execution_service_repairs_browseract_workflow_spec_packets(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "response": json.dumps(
+                        {
+                            "diagnosis": "BrowserAct typed the runtime placeholder literally.",
+                            "repair_strategy": "Restore value_from_input on the input_text node and keep result extraction compact.",
+                            "operator_checks": [
+                                "Confirm the input_text node uses value_from_input text.",
+                                "Confirm the output still extracts the main humanized result.",
+                            ],
+                            "workflow_spec": {
+                                "workflow_name": "Undetectable Humanizer",
+                                "description": "Repair the humanizer workflow after a literal input binding failure.",
+                                "publish": True,
+                                "mcp_ready": False,
+                                "nodes": [
+                                    {
+                                        "id": "open_tool",
+                                        "type": "visit_page",
+                                        "config": {"url": "https://undetectable.ai/ai-humanizer"},
+                                    },
+                                    {
+                                        "id": "input_text",
+                                        "type": "input_text",
+                                        "config": {
+                                            "selector": "textarea[aria-label='Input text']",
+                                            "value_from_input": "text",
+                                        },
+                                    },
+                                ],
+                                "edges": [["open_tool", "input_text"]],
+                                "meta": {"slug": "undetectable_humanizer_live"},
+                            },
+                        }
+                    ),
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_browseract_adapter.subprocess.run",
+        fake_run,
+    )
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-repair-1",
+            step_id="step-browseract-repair-1",
+            tool_name="browseract.repair_workflow_spec",
+            action_kind="workflow.spec_repair",
+            payload_json={
+                "workflow_name": "Undetectable Humanizer",
+                "purpose": "Repair the humanizer workflow after a literal input binding failure.",
+                "tool_url": "https://undetectable.ai/ai-humanizer",
+                "failure_summary": "browseract:literal_input_binding:/text",
+                "failing_step_goals": ['Input "/text" into the main textarea'],
+                "current_workflow_spec_json": {
+                    "workflow_name": "Undetectable Humanizer",
+                    "nodes": [{"id": "input_text", "type": "input_text", "config": {"value": "/text"}}],
+                    "edges": [["open_tool", "input_text"]],
+                },
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.repair_workflow_spec"
+    assert result.output_json["mime_type"] == "application/json"
+    assert result.output_json["structured_output_json"]["workflow_spec"]["meta"]["repair_source"] == "gemini_vortex"
+    assert result.output_json["structured_output_json"]["workflow_spec"]["nodes"][1]["config"]["value_from_input"] == "text"
+    assert result.receipt_json["handler_key"] == "browseract.repair_workflow_spec"
+    assert tool_runtime.get_tool("browseract.repair_workflow_spec") is not None
 
 
 def test_rewrite_orchestrator_without_explicit_tool_runtime_does_not_hide_in_memory_fallback() -> None:

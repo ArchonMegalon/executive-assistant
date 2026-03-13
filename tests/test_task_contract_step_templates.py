@@ -565,6 +565,45 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_ge
     assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
 
 
+def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_browseract_workflow_repair() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="browseract_workflow_repair_manager",
+        deliverable_type="browseract_workflow_repair_packet",
+        default_risk_class="medium",
+        default_approval_class="none",
+        allowed_tools=("browseract.repair_workflow_spec", "artifact_repository"),
+        evidence_requirements=("workflow_runtime_failure", "workflow_spec"),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "medium",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "workflow_spec_repair",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="browseract_workflow_repair_manager",
+        principal_id="exec-1",
+        goal="repair a broken BrowserAct workflow spec",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_browseract_workflow_spec_repair",
+        "step_artifact_save",
+    )
+    assert plan.steps[1].tool_name == "browseract.repair_workflow_spec"
+    assert plan.steps[1].output_keys == (
+        "normalized_text",
+        "structured_output_json",
+        "preview_text",
+        "mime_type",
+    )
+    assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
+
+
 def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(

@@ -82,6 +82,19 @@ def test_provider_registry_routes_browseract_workflow_spec_build_with_alias_hint
     assert route.executable is True
 
 
+def test_provider_registry_routes_browseract_workflow_spec_repair_with_alias_hints() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="repair_workflow_spec",
+        provider_hints=("BrowserAct",),
+        allowed_tools=("browseract.repair_workflow_spec", "artifact_repository"),
+    )
+    assert route.provider_key == "browseract"
+    assert route.capability_key == "workflow_spec_repair"
+    assert route.tool_name == "browseract.repair_workflow_spec"
+    assert route.executable is True
+
+
 def test_provider_registry_rejects_non_executable_capability_route() -> None:
     registry = ProviderRegistryService()
     with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:prompt_refine"):

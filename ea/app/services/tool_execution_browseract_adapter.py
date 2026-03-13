@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import subprocess
 import urllib.error
 import urllib.request
+import uuid
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult, artifact_preview_text, now_utc_iso
 from app.services.tool_execution_common import ToolExecutionError
@@ -224,6 +227,96 @@ class BrowserActToolAdapter:
             },
         )
 
+    def execute_repair_workflow_spec(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        workflow_name = str(payload.get("workflow_name") or "").strip()
+        purpose = str(payload.get("purpose") or "").strip()
+        login_url = str(payload.get("login_url") or "public").strip() or "public"
+        tool_url = str(payload.get("tool_url") or "").strip()
+        failure_summary = str(payload.get("failure_summary") or payload.get("diagnosis") or "").strip()
+        if not workflow_name:
+            raise ToolExecutionError("workflow_name_required:browseract.repair_workflow_spec")
+        if not purpose:
+            raise ToolExecutionError("purpose_required:browseract.repair_workflow_spec")
+        if not tool_url:
+            raise ToolExecutionError("tool_url_required:browseract.repair_workflow_spec")
+        if not failure_summary:
+            raise ToolExecutionError("failure_summary_required:browseract.repair_workflow_spec")
+        prompt_selector = str(payload.get("prompt_selector") or "textarea").strip() or "textarea"
+        submit_selector = str(payload.get("submit_selector") or "button").strip() or "button"
+        result_selector = str(payload.get("result_selector") or "main, body").strip() or "main, body"
+        output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
+        scaffold = self._build_workflow_spec(
+            workflow_name=workflow_name,
+            purpose=purpose,
+            login_url=login_url,
+            tool_url=tool_url,
+            prompt_selector=prompt_selector,
+            submit_selector=submit_selector,
+            result_selector=result_selector,
+            output_dir=output_dir,
+        )
+        failure_goals = self._normalize_string_list(payload.get("failing_step_goals"))
+        current_spec = payload.get("current_workflow_spec_json") if isinstance(payload.get("current_workflow_spec_json"), dict) else {}
+        repair_prompt = self._build_workflow_repair_prompt(
+            workflow_name=workflow_name,
+            purpose=purpose,
+            login_url=login_url,
+            tool_url=tool_url,
+            failure_summary=failure_summary,
+            failure_goals=failure_goals,
+            current_spec=current_spec if isinstance(current_spec, dict) else {},
+            scaffold=scaffold,
+        )
+        envelope, model = self._run_gemini_repair_prompt(repair_prompt)
+        packet = self._normalize_workflow_repair_packet(
+            envelope,
+            workflow_name=workflow_name,
+            purpose=purpose,
+            scaffold=scaffold,
+            failure_summary=failure_summary,
+            failure_goals=failure_goals,
+        )
+        slug = str((((packet.get("workflow_spec") or {}).get("meta") or {}).get("slug")) or self._slugify(workflow_name))
+        normalized_text = "\n".join(
+            [
+                f"Workflow: {workflow_name}",
+                f"Failure: {failure_summary}",
+                f"Diagnosis: {packet.get('diagnosis', '')}",
+                f"Repair strategy: {packet.get('repair_strategy', '')}",
+                f"Node count: {len(((packet.get('workflow_spec') or {}).get('nodes') or []))}",
+                f"Edge count: {len(((packet.get('workflow_spec') or {}).get('edges') or []))}",
+            ]
+        )
+        action_kind = str(request.action_kind or "workflow.spec_repair") or "workflow.spec_repair"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"browseract:workflow-repair:{slug}:{uuid.uuid4()}",
+            output_json={
+                "workflow_name": workflow_name,
+                "workflow_slug": slug,
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "mime_type": "application/json",
+                "structured_output_json": packet,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "workflow_name": workflow_name,
+                "workflow_slug": slug,
+                "failure_summary": failure_summary,
+                "failure_goals": failure_goals,
+                "model": model,
+                "tool_version": definition.version,
+            },
+            model_name=model,
+            cost_usd=0.0,
+        )
+
     def _resolve_browseract_binding(
         self,
         *,
@@ -384,6 +477,197 @@ class BrowserActToolAdapter:
                 "output_dir": output_dir,
                 "status": "pending_browseract_seed",
             },
+        }
+
+    def _normalize_string_list(self, raw: object) -> list[str]:
+        values: list[str] = []
+        if isinstance(raw, (list, tuple, set)):
+            values.extend(str(value or "").strip() for value in raw if str(value or "").strip())
+        elif isinstance(raw, str) and raw.strip():
+            values.extend(part.strip() for part in raw.split("|") if part.strip())
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            key = value.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(value)
+        return deduped
+
+    def _gemini_command_base(self) -> list[str]:
+        raw = str(os.environ.get("EA_GEMINI_VORTEX_COMMAND") or "gemini").strip() or "gemini"
+        return shlex.split(raw)
+
+    def _gemini_model(self) -> str:
+        return str(os.environ.get("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
+
+    def _gemini_timeout_seconds(self) -> int:
+        raw = str(os.environ.get("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "180").strip() or "180"
+        try:
+            return max(15, int(raw))
+        except Exception:
+            return 180
+
+    def _strip_fences(self, text: str) -> str:
+        raw = str(text or "").strip()
+        if raw.startswith("```"):
+            raw = raw.removeprefix("```json").removeprefix("```").strip()
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+        return raw
+
+    def _run_gemini_repair_prompt(self, prompt: str) -> tuple[dict[str, object], str]:
+        model = self._gemini_model()
+        command = self._gemini_command_base() + [
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
+            "--approval-mode",
+            "yolo",
+        ]
+        if model:
+            command.extend(["-m", model])
+        try:
+            completed = subprocess.run(
+                command,
+                check=True,
+                text=True,
+                capture_output=True,
+                timeout=self._gemini_timeout_seconds(),
+            )
+        except FileNotFoundError as exc:
+            raise ToolExecutionError("gemini_vortex_cli_missing:browseract.repair_workflow_spec") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ToolExecutionError("gemini_vortex_timeout:browseract.repair_workflow_spec") from exc
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise ToolExecutionError(f"gemini_vortex_failed:browseract.repair_workflow_spec:{detail[:400]}") from exc
+        raw = str(completed.stdout or "").strip()
+        if not raw:
+            raise ToolExecutionError("gemini_vortex_empty_output:browseract.repair_workflow_spec")
+        try:
+            envelope = json.loads(raw)
+        except Exception:
+            envelope = {"response": raw}
+        response = envelope.get("response") if isinstance(envelope, dict) else raw
+        cleaned = self._strip_fences(str(response or raw))
+        try:
+            loaded = json.loads(cleaned)
+        except Exception as exc:
+            raise ToolExecutionError("gemini_vortex_non_json:browseract.repair_workflow_spec") from exc
+        if not isinstance(loaded, dict):
+            raise ToolExecutionError("gemini_vortex_non_object:browseract.repair_workflow_spec")
+        return loaded, model
+
+    def _build_workflow_repair_prompt(
+        self,
+        *,
+        workflow_name: str,
+        purpose: str,
+        login_url: str,
+        tool_url: str,
+        failure_summary: str,
+        failure_goals: list[str],
+        current_spec: dict[str, object],
+        scaffold: dict[str, object],
+    ) -> str:
+        schema = {
+            "type": "object",
+            "required": ["diagnosis", "repair_strategy", "workflow_spec"],
+            "properties": {
+                "diagnosis": {"type": "string"},
+                "repair_strategy": {"type": "string"},
+                "operator_checks": {"type": "array", "items": {"type": "string"}},
+                "workflow_spec": {
+                    "type": "object",
+                    "required": ["workflow_name", "description", "publish", "mcp_ready", "nodes", "edges", "meta"],
+                    "properties": {
+                        "workflow_name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "publish": {"type": "boolean"},
+                        "mcp_ready": {"type": "boolean"},
+                        "nodes": {"type": "array"},
+                        "edges": {"type": "array"},
+                        "meta": {"type": "object"},
+                    },
+                },
+            },
+        }
+        return "\n\n".join(
+            [
+                "Return JSON only. No markdown fences or commentary.",
+                "You are repairing a BrowserAct workflow spec after a runtime failure.",
+                "Goal: produce a repaired workflow spec packet that keeps the intended workflow name and purpose but fixes the observed execution failure.",
+                "Rules:",
+                "- use Gemini judgment, not generic filler",
+                "- keep the workflow grounded in actual BrowserAct node types like visit_page, input_text, click, wait, extract",
+                "- preserve runtime input bindings when present; do not literalize placeholders like /text",
+                "- if the evidence says a value_from_input binding was typed literally, repair the node config so BrowserAct treats it as a runtime input",
+                "- keep publish true and mcp_ready false unless evidence clearly requires otherwise",
+                "- keep nodes and edges compact and executable",
+                "- operator_checks should be 2 to 4 short human verification checks",
+                "Schema contract:\n" + json.dumps(schema, ensure_ascii=True),
+                "Workflow brief:\n"
+                + json.dumps(
+                    {
+                        "workflow_name": workflow_name,
+                        "purpose": purpose,
+                        "login_url": login_url,
+                        "tool_url": tool_url,
+                        "failure_summary": failure_summary,
+                        "failing_step_goals": failure_goals,
+                        "current_workflow_spec_json": current_spec,
+                        "fallback_scaffold_spec_json": scaffold,
+                    },
+                    ensure_ascii=True,
+                ),
+            ]
+        ).strip()
+
+    def _normalize_workflow_repair_packet(
+        self,
+        raw: dict[str, object],
+        *,
+        workflow_name: str,
+        purpose: str,
+        scaffold: dict[str, object],
+        failure_summary: str,
+        failure_goals: list[str],
+    ) -> dict[str, object]:
+        packet = dict(raw)
+        diagnosis = str(packet.get("diagnosis") or failure_summary).strip() or failure_summary
+        repair_strategy = str(packet.get("repair_strategy") or "Repair the BrowserAct workflow spec to preserve runtime input binding and result extraction.").strip()
+        operator_checks = self._normalize_string_list(packet.get("operator_checks"))[:4]
+        workflow_spec = packet.get("workflow_spec")
+        if not isinstance(workflow_spec, dict):
+            workflow_spec = packet if isinstance(packet.get("nodes"), list) and isinstance(packet.get("edges"), list) else {}
+        spec = dict(scaffold)
+        spec.update({key: value for key, value in dict(workflow_spec).items() if key in {"workflow_name", "description", "publish", "mcp_ready", "nodes", "edges", "meta"}})
+        spec["workflow_name"] = str(spec.get("workflow_name") or workflow_name).strip() or workflow_name
+        spec["description"] = str(spec.get("description") or purpose).strip() or purpose
+        spec["publish"] = bool(spec.get("publish", True))
+        spec["mcp_ready"] = bool(spec.get("mcp_ready", False))
+        nodes = spec.get("nodes")
+        edges = spec.get("edges")
+        if not isinstance(nodes, list) or not nodes:
+            raise ToolExecutionError("workflow_nodes_required:browseract.repair_workflow_spec")
+        if not isinstance(edges, list) or not edges:
+            raise ToolExecutionError("workflow_edges_required:browseract.repair_workflow_spec")
+        meta = dict(spec.get("meta") or {})
+        meta["slug"] = str(meta.get("slug") or self._slugify(spec["workflow_name"])).strip() or self._slugify(spec["workflow_name"])
+        meta["status"] = str(meta.get("status") or "pending_browseract_repair").strip() or "pending_browseract_repair"
+        meta["repair_failure_summary"] = failure_summary
+        meta["repair_failure_goals"] = failure_goals
+        meta["repair_generated_at"] = now_utc_iso()
+        meta["repair_source"] = "gemini_vortex"
+        spec["meta"] = meta
+        return {
+            "diagnosis": diagnosis,
+            "repair_strategy": repair_strategy,
+            "operator_checks": operator_checks,
+            "workflow_spec": spec,
         }
 
     def _service_facts(self, *, binding_auth_metadata_json: dict[str, object], service_name: str) -> dict[str, object] | None:

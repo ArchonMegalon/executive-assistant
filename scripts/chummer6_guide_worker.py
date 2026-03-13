@@ -1546,6 +1546,63 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         contract["visual_prompt"] = visual_prompt
         return contract
 
+    def infer_visual_motifs(
+        *,
+        asset_key: str,
+        scene_contract: dict[str, object],
+        overlay_hint: str,
+        item_title: str,
+    ) -> list[str]:
+        motifs: list[str] = []
+        for key in ("subject", "environment", "action", "metaphor"):
+            value = str(scene_contract.get(key, "")).strip()
+            if value:
+                motifs.append(value)
+        for key in ("props", "overlays"):
+            value = scene_contract.get(key)
+            if isinstance(value, list):
+                motifs.extend(str(entry).strip() for entry in value if str(entry).strip())
+        for candidate in (
+            overlay_hint,
+            f"{item_title} scene",
+            "subtle troll easter egg",
+            f"{asset_key} context",
+        ):
+            cleaned_candidate = str(candidate or "").strip()
+            if cleaned_candidate:
+                motifs.append(cleaned_candidate)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for motif in motifs:
+            key = motif.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(motif)
+            if len(deduped) >= 6:
+                break
+        return deduped or ["contextual scene", "subtle troll easter egg", "diegetic overlays"]
+
+    def infer_overlay_callouts(*, scene_contract: dict[str, object], overlay_hint: str) -> list[str]:
+        callouts: list[str] = []
+        for entry in scene_contract.get("overlays", []):
+            cleaned_entry = str(entry).strip()
+            if cleaned_entry:
+                callouts.append(cleaned_entry)
+        if overlay_hint.strip():
+            callouts.append(overlay_hint.strip())
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for callout in callouts:
+            key = callout.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(callout)
+            if len(deduped) >= 4:
+                break
+        return deduped or ["diegetic HUD traces", "receipt markers"]
+
     normalized = dict(cleaned)
     if kind == "hero":
         for field in ("badge", "title", "subtitle", "kicker", "note", "overlay_hint", "visual_prompt"):
@@ -1554,24 +1611,24 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 raise ValueError(f"hero media field is missing: {field}")
             normalized[field] = value
         normalized["meta"] = str(normalized.get("meta", "")).strip()
-        raw_motifs = normalized.get("visual_motifs")
-        if not isinstance(raw_motifs, list):
-            raise ValueError("hero media field is missing: visual_motifs")
-        motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
-        if not motifs:
-            raise ValueError("hero media field is missing: visual_motifs")
-        normalized["visual_motifs"] = motifs
-        raw_callouts = normalized.get("overlay_callouts")
-        if not isinstance(raw_callouts, list):
-            raise ValueError("hero media field is missing: overlay_callouts")
-        callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()]
-        if not callouts:
-            raise ValueError("hero media field is missing: overlay_callouts")
-        normalized["overlay_callouts"] = callouts
         normalized["scene_contract"] = normalize_scene_contract(
             normalized.get("scene_contract"),
             asset_key="hero",
             visual_prompt=str(normalized["visual_prompt"]),
+        )
+        raw_motifs = normalized.get("visual_motifs")
+        motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()] if isinstance(raw_motifs, list) else []
+        normalized["visual_motifs"] = motifs or infer_visual_motifs(
+            asset_key="hero",
+            scene_contract=normalized["scene_contract"],
+            overlay_hint=str(normalized["overlay_hint"]),
+            item_title="hero",
+        )
+        raw_callouts = normalized.get("overlay_callouts")
+        callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()] if isinstance(raw_callouts, list) else []
+        normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
+            scene_contract=normalized["scene_contract"],
+            overlay_hint=str(normalized["overlay_hint"]),
         )
         return normalized
     for field in ("badge", "title", "subtitle", "kicker", "note", "overlay_hint", "visual_prompt"):
@@ -1580,24 +1637,24 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.{field}")
         normalized[field] = value
     normalized["meta"] = str(normalized.get("meta", "")).strip()
-    raw_motifs = normalized.get("visual_motifs")
-    if not isinstance(raw_motifs, list):
-        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.visual_motifs")
-    motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()]
-    if not motifs:
-        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.visual_motifs")
-    normalized["visual_motifs"] = motifs
-    raw_callouts = normalized.get("overlay_callouts")
-    if not isinstance(raw_callouts, list):
-        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.overlay_callouts")
-    callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()]
-    if not callouts:
-        raise ValueError(f"horizon media field is missing: {item.get('slug', item.get('title', 'horizon'))}.overlay_callouts")
-    normalized["overlay_callouts"] = callouts
     normalized["scene_contract"] = normalize_scene_contract(
         normalized.get("scene_contract"),
         asset_key=item.get("slug", item.get("title", "horizon")),
         visual_prompt=str(normalized["visual_prompt"]),
+    )
+    raw_motifs = normalized.get("visual_motifs")
+    motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()] if isinstance(raw_motifs, list) else []
+    normalized["visual_motifs"] = motifs or infer_visual_motifs(
+        asset_key=str(item.get("slug", item.get("title", "horizon"))),
+        scene_contract=normalized["scene_contract"],
+        overlay_hint=str(normalized["overlay_hint"]),
+        item_title=str(item.get("title", item.get("slug", "horizon"))),
+    )
+    raw_callouts = normalized.get("overlay_callouts")
+    callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()] if isinstance(raw_callouts, list) else []
+    normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
+        scene_contract=normalized["scene_contract"],
+        overlay_hint=str(normalized["overlay_hint"]),
     )
     return normalized
 

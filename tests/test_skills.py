@@ -575,3 +575,140 @@ def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:
         "artifact_repository",
     ]
     assert session_body["artifacts"][0]["skill_key"] == "browseract_bootstrap_manager"
+
+
+def test_skill_catalog_can_execute_browseract_workflow_repair_manager_skill(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "response": json.dumps(
+                        {
+                            "diagnosis": "The workflow typed /text literally instead of using a runtime input binding.",
+                            "repair_strategy": "Restore value_from_input and keep the extraction path short.",
+                            "operator_checks": [
+                                "Check that the input_text node references value_from_input text.",
+                                "Check that the output still exposes humanized_text.",
+                            ],
+                            "workflow_spec": {
+                                "workflow_name": "Undetectable Humanizer",
+                                "description": "Repair the BrowserAct humanizer workflow after a literal input binding failure.",
+                                "publish": True,
+                                "mcp_ready": False,
+                                "nodes": [
+                                    {
+                                        "id": "open_tool",
+                                        "type": "visit_page",
+                                        "config": {"url": "https://undetectable.ai/ai-humanizer"},
+                                    },
+                                    {
+                                        "id": "input_text",
+                                        "type": "input_text",
+                                        "config": {
+                                            "selector": "textarea[aria-label='Input text']",
+                                            "value_from_input": "text",
+                                        },
+                                    },
+                                ],
+                                "edges": [["open_tool", "input_text"]],
+                                "meta": {"slug": "undetectable_humanizer_live"},
+                            },
+                        }
+                    ),
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_browseract_adapter.subprocess.run",
+        fake_run,
+    )
+
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "browseract_workflow_repair_manager",
+            "task_key": "browseract_workflow_repair_manager",
+            "name": "BrowserAct Workflow Repair Manager",
+            "description": "Repair BrowserAct workflow specs after runtime failures.",
+            "deliverable_type": "browseract_workflow_repair_packet",
+            "default_risk_class": "medium",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.repair_workflow_spec", "artifact_repository"],
+            "evidence_requirements": ["workflow_runtime_failure", "workflow_spec"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships"],
+            "memory_writes": [],
+            "tags": ["browseract", "repair", "workflow"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["BrowserAct", "Gemini Vortex"],
+                "notes": ["Repair a failing BrowserAct workflow without handing it to Codex."],
+            },
+            "tool_policy_json": {"allowed_tools": ["browseract.repair_workflow_spec", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["automation_architect"]},
+            "evaluation_cases_json": [{"case_key": "browseract_workflow_repair_manager_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "medium",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "workflow_spec_repair",
+                "browseract_failure_strategy": "retry",
+                "browseract_max_attempts": 2,
+                "browseract_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "browseract_workflow_repair_manager"
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "browseract_workflow_repair_manager", "goal": "repair a broken BrowserAct workflow"},
+    )
+    assert compiled.status_code == 200
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_workflow_spec_repair",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "browseract_workflow_repair_manager",
+            "goal": "repair a broken BrowserAct workflow",
+            "input_json": {
+                "workflow_name": "Undetectable Humanizer",
+                "purpose": "Repair the BrowserAct humanizer workflow after a literal input binding failure.",
+                "tool_url": "https://undetectable.ai/ai-humanizer",
+                "failure_summary": "browseract:literal_input_binding:/text",
+                "failing_step_goals": ['Input "/text" into the main textarea'],
+                "current_workflow_spec_json": {
+                    "workflow_name": "Undetectable Humanizer",
+                    "nodes": [{"id": "input_text", "type": "input_text", "config": {"value": "/text"}}],
+                    "edges": [["open_tool", "input_text"]],
+                },
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "browseract_workflow_repair_manager"
+    assert body["task_key"] == "browseract_workflow_repair_manager"
+    assert body["kind"] == "browseract_workflow_repair_packet"
+    assert body["structured_output_json"]["workflow_spec"]["meta"]["repair_source"] == "gemini_vortex"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "browseract_workflow_repair_manager"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.repair_workflow_spec",
+        "artifact_repository",
+    ]

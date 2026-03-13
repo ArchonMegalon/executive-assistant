@@ -357,13 +357,15 @@ class PlannerService:
             return self._build_browseract_inventory_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
         if capability == "workflow_spec_build":
             return self._build_browseract_workflow_spec_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+        if capability == "workflow_spec_repair":
+            return self._build_browseract_workflow_repair_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
         if capability == "structured_generate":
             return self._build_structured_generate_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
 
     def _additional_artifact_inputs_for_pre_artifact_capability(self, capability_key: str) -> tuple[str, ...]:
         normalized = str(capability_key or "").strip()
-        if normalized in {"account_facts", "account_inventory", "workflow_spec_build", "structured_generate"}:
+        if normalized in {"account_facts", "account_inventory", "workflow_spec_build", "workflow_spec_repair", "structured_generate"}:
             return ("structured_output_json", "preview_text", "mime_type")
         return ()
 
@@ -401,6 +403,44 @@ class PlannerService:
                 "purpose",
                 "login_url",
                 "tool_url",
+            ),
+            output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+        )
+
+    def _build_browseract_workflow_repair_step(
+        self,
+        *,
+        contract: TaskContract,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="browseract",
+        )
+        timeout_budget_seconds = contract.runtime_policy().browseract_timeout_budget_seconds
+        return PlanStepSpec(
+            step_key="step_browseract_workflow_spec_repair",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="browseract_workflow_repair_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=timeout_budget_seconds,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=(
+                "workflow_name",
+                "purpose",
+                "tool_url",
+                "failure_summary",
             ),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
         )

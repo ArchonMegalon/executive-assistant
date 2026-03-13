@@ -56,6 +56,7 @@ class ToolExecutionService:
             ("browseract", "account_facts"): self._register_builtin_browseract_extract,
             ("browseract", "account_inventory"): self._register_builtin_browseract_inventory,
             ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
+            ("browseract", "workflow_spec_repair"): self._register_builtin_browseract_workflow_repair,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
         }
@@ -138,6 +139,9 @@ class ToolExecutionService:
 
     def _register_builtin_browseract_workflow_spec(self) -> None:
         self._browseract_module.register_workflow_spec(self.register_handler)
+
+    def _register_builtin_browseract_workflow_repair(self) -> None:
+        self._browseract_module.register_workflow_repair(self.register_handler)
 
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
