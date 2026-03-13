@@ -16,6 +16,7 @@ def build_client(
     os.environ["EA_STORAGE_BACKEND"] = storage_backend
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = auth_token
+    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     if approval_threshold_chars is None:
         os.environ.pop("EA_APPROVAL_THRESHOLD_CHARS", None)
     else:

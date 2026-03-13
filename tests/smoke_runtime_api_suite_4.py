@@ -271,7 +271,7 @@ def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
 
         from app.api.app import create_app
 
-        with pytest.raises(RuntimeError, match=r"EA_RUNTIME_MODE=prod forbids memory fallback\(artifacts configured for memory\)"):
+        with pytest.raises(RuntimeError, match=r"EA_RUNTIME_MODE=prod requires DATABASE_URL"):
             TestClient(create_app())
     finally:
         for key, value in saved_env.items():
@@ -309,10 +309,30 @@ def test_prod_mode_rejects_blank_api_token_at_startup() -> None:
 
 
 def test_ready_fails_when_postgres_backend_without_database_url() -> None:
-    client = _client(storage_backend="postgres", database_url="")
-    ready = client.get("/health/ready")
-    assert ready.status_code == 503
-    assert ready.json()["error"]["code"].startswith("not_ready:")
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+    try:
+        os.environ.pop("EA_RUNTIME_MODE", None)
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
+        os.environ.pop("EA_LEDGER_BACKEND", None)
+        os.environ.pop("DATABASE_URL", None)
+
+        from app.api.app import create_app
+
+        with pytest.raises(RuntimeError, match=r"EA_STORAGE_BACKEND=postgres requires DATABASE_URL"):
+            TestClient(create_app())
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_prod_ready_fails_when_postgres_backend_database_url_missing() -> None:
@@ -332,10 +352,8 @@ def test_prod_ready_fails_when_postgres_backend_database_url_missing() -> None:
 
         from app.api.app import create_app
 
-        client = TestClient(create_app())
-        ready = client.get("/health/ready")
-        assert ready.status_code == 503
-        assert ready.json()["error"]["code"] == "not_ready:database_url_missing"
+        with pytest.raises(RuntimeError, match=r"EA_RUNTIME_MODE=prod requires DATABASE_URL"):
+            TestClient(create_app())
     finally:
         for key, value in saved_env.items():
             if value is None:

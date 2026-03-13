@@ -70,7 +70,26 @@ class RuntimeProfile:
 
     @property
     def caller_principal_header_allowed(self) -> bool:
-        return self.auth_mode == "token"
+        return self.principal_source in {
+            "caller_header_or_default",
+            "authenticated_header_or_default",
+            "authenticated_header",
+        }
+
+    @property
+    def caller_principal_header_requires_authentication(self) -> bool:
+        return self.principal_source in {
+            "authenticated_header_or_default",
+            "authenticated_header",
+        }
+
+    @property
+    def default_principal_fallback_allowed(self) -> bool:
+        return self.principal_source in {
+            "caller_header_or_default",
+            "authenticated_header_or_default",
+            "default_principal",
+        }
 
 
 @dataclass(frozen=True)
@@ -142,8 +161,21 @@ def is_prod_mode(raw: str | None) -> bool:
     return str(raw or "").strip().lower() == "prod"
 
 
+def _database_url(settings: object) -> str:
+    direct = getattr(settings, "database_url", None)
+    if direct is not None:
+        value = str(direct or "").strip()
+        if value:
+            return value
+    storage = getattr(settings, "storage", None)
+    if storage is None:
+        return str(direct or "").strip()
+    return str(getattr(storage, "database_url", "") or "").strip()
+
+
 def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
+    database_url = _database_url(settings)
     if is_prod_mode(settings.runtime.mode):
         return RuntimeProfile(
             mode="prod",
@@ -152,16 +184,16 @@ def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
             auth_mode="token",
             principal_source="authenticated_header",
             database_required=True,
-            database_configured=bool(settings.database_url),
+            database_configured=bool(database_url),
             source_backend=source_backend,
         )
     storage_backend = "postgres" if source_backend in {"postgres"} else "memory"
     durability = "durable" if storage_backend == "postgres" else "ephemeral"
-    if source_backend == "auto" and settings.database_url:
+    if source_backend == "auto" and database_url:
         storage_backend = "postgres"
         durability = "durable"
     auth_mode = "token" if settings.auth.enabled else "anonymous_dev"
-    principal_source = "authenticated_header" if settings.auth.enabled else "default_principal"
+    principal_source = "authenticated_header_or_default" if auth_mode == "token" else "caller_header_or_default"
     return RuntimeProfile(
         mode=settings.runtime.mode,
         storage_backend=storage_backend,
@@ -169,7 +201,7 @@ def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
         auth_mode=auth_mode,
         principal_source=principal_source,
         database_required=storage_backend == "postgres",
-        database_configured=bool(settings.database_url),
+        database_configured=bool(database_url),
         source_backend=source_backend,
     )
 
@@ -205,12 +237,12 @@ def ensure_prod_api_token_configured(settings: Settings) -> None:
 
 
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
-    profile = resolve_runtime_profile(settings)
     ensure_prod_api_token_configured(settings)
+    profile = resolve_runtime_profile(settings)
     if is_prod_mode(settings.runtime.mode):
         if profile.storage_backend != "postgres":
             raise RuntimeError("EA_RUNTIME_MODE=prod requires a durable postgres runtime profile")
-        if not settings.database_url:
+        if not _database_url(settings):
             raise RuntimeError("EA_RUNTIME_MODE=prod requires DATABASE_URL")
     return profile
 
@@ -274,5 +306,5 @@ def get_settings() -> Settings:
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
     )
-    validate_startup_settings(settings)
+    ensure_prod_api_token_configured(settings)
     return settings
