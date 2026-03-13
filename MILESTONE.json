@@ -106,17 +106,14 @@
     },
     {
       "name": "memory_reasoning_context_packs",
-      "status": "wired",
-      "task_refs": [
-        "Q-448"
-      ],
+      "status": "released",
       "scope": [
         "context_pack_reasoning",
         "memory_candidate_promotion_signals",
         "memory_conflict_detection",
         "commitment_risk_projection"
       ],
-      "notes": "The runtime now synthesizes task-ready context packs from principal-scoped memory items, stakeholders, commitments, deadlines, follow-ups, authority bindings, and policies; exposes `/v1/memory/context-pack`; and injects the synthesized context pack into plan-execution bootstrap input with direct in-process verification."
+      "notes": "The runtime now synthesizes task-ready context packs from principal-scoped memory items, stakeholders, commitments, deadlines, follow-ups, authority bindings, and policies; exposes `/v1/memory/context-pack`; injects the synthesized context pack into plan-execution bootstrap input; and release/operator guards now pin that docs plus runtime contract baseline behavior."
     },
     {
       "name": "operator_db_visibility_and_retention",
@@ -250,20 +247,20 @@
     },
     {
       "name": "startup_authoritative_runtime_profile",
-      "status": "planned",
+      "status": "released",
       "task_refs": [
-        "Q-446"
+        "D-446"
       ],
       "scope": [
         "single_runtime_profile_resolution",
         "durability_and_auth_coherence_contract",
         "startup_profile_readiness_projection"
       ],
-      "notes": "Startup still resolves storage durability and auth dependency posture through multiple fallback paths, so the runtime can surface mixed profiles; planned work is to resolve one authoritative runtime profile at bootstrap and have service startup/readiness consume that exact profile contract."
+      "notes": "Startup now resolves one authoritative runtime profile consumed by bootstrap and readiness paths, with principal/auth posture parity pinned for non-prod (`caller_header_or_default`) versus prod (`authenticated_header` only); focused runtime-profile tests and updated smoke assertions keep this contract explicit while broader CI smoke/contracts continue to verify the full runtime path."
     },
     {
       "name": "typed_task_and_skill_policy_models",
-      "status": "coded",
+      "status": "released",
       "task_refs": [
         "D-454"
       ],
@@ -275,13 +272,13 @@
         "artifact_output_policy_model",
         "skill_catalog_meta_model"
       ],
-      "notes": "Task contracts now expose typed runtime policy parsing (`workflow/retry/human-review/memory-candidate/artifact-output/skill-catalog`) and planner/skill/task-intent surfaces consume those typed models instead of repeatedly unpacking ad-hoc `budget_policy_json` keys; focused typed-policy tests were added, with broader pytest/smoke verification pending in an environment that has pytest available."
+      "notes": "Task contracts now expose typed runtime policy parsing (`workflow/retry/human-review/memory-candidate/artifact-output/skill-catalog`) and planner/skill/task-intent surfaces consume those typed models instead of repeatedly unpacking ad-hoc `budget_policy_json` keys; release/operator guards now pin that typed runtime-policy projection across the existing docs, smoke-path budget-policy examples, and focused runtime-policy tests as current branch baseline behavior."
     },
     {
       "name": "provider_registry_capability_routing",
-      "status": "planned",
+      "status": "released",
       "task_refs": [
-        "Q-451"
+        "D-451"
       ],
       "scope": [
         "provider_profile_model",
@@ -290,13 +287,13 @@
         "skill_provider_binding_projection",
         "capability_addressable_execution_routing"
       ],
-      "notes": "Provider hints are currently broader than executable runtime bindings; planned work is to add a typed provider registry and route tools/workflows through capability-addressable provider contracts instead of vendor-specific hardcoded paths."
+      "notes": "Provider routing now flows through typed registry capability contracts: provider profiles/bindings expose executable capability routes, planner pre-artifact/artifact-save/dispatch tool resolution consumes capability-addressed registry lookups (including typed `pre_artifact_capability_key` metadata), and tool execution keeps provider-route validation for catalog tools without regressing execution/error-contract behavior for dynamically registered runtime tools; release/operator guards now pin that capability-addressed routing baseline."
     },
     {
       "name": "runtime_surface_docs_env_deploy_parity",
-      "status": "planned",
+      "status": "released",
       "task_refs": [
-        "Q-452"
+        "D-452"
       ],
       "scope": [
         "architecture_map_runtime_surface_parity",
@@ -304,7 +301,7 @@
         "compose_profile_provider_topology_parity",
         "deploy_docs_runtime_profile_parity"
       ],
-      "notes": "Architecture, env scaffolding, and deployment docs still lag parts of the live router/provider surface; planned work is to re-baseline those assets so operator/developer guidance matches the actual executable runtime topology."
+      "notes": "Architecture map route prefixes, env scaffolding templates, and deploy/runtime topology configuration are now aligned with the executable router/provider runtime surface (including role-aware compose topology and health contracts), and release/operator guards pin this parity as current branch baseline behavior."
     },
     {
       "name": "principal_request_context_guardrails",

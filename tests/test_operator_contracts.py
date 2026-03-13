@@ -1,11 +1,30 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _assert_valid_dotenv_template(template_path: Path) -> None:
+    for line_number, raw_line in enumerate(template_path.read_text(encoding="utf-8").splitlines(), start=1):
+        stripped = raw_line.strip()
+        assert stripped != r"\n", f"{template_path.name}:{line_number} contains a literal \\\\n placeholder line"
+        if not stripped or stripped.startswith("#"):
+            continue
+        assert "=" in raw_line, f"{template_path.name}:{line_number} is not valid dotenv syntax"
+
+
+def _smoke_runtime_text() -> str:
+    parts: list[str] = []
+    for path in sorted((ROOT / "tests").glob("smoke_runtime_api*.py")):
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 def test_db_size_help_explains_pgdata_volume() -> None:
@@ -49,6 +68,79 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
+
+
+def test_env_templates_use_only_valid_dotenv_lines() -> None:
+    _assert_valid_dotenv_template(ROOT / ".env.example")
+    _assert_valid_dotenv_template(ROOT / ".env.local.example")
+
+
+def _route_prefixes_from_router_modules() -> set[str]:
+    prefixes: set[str] = set()
+    for route_path in sorted((ROOT / "ea" / "app" / "api" / "routes").glob("*.py")):
+        content = route_path.read_text(encoding="utf-8")
+        match = re.search(r'APIRouter\(prefix="([^"]+)"', content)
+        if match is not None:
+            prefixes.add(match.group(1))
+    return prefixes
+
+
+def _documented_api_prefixes_from_architecture_map() -> list[str]:
+    architecture_map = (ROOT / "ARCHITECTURE_MAP.md").read_text(encoding="utf-8")
+    return [
+        match.group(1).removesuffix("/*")
+        for match in re.finditer(r"^- [^:]+: `([^`]+)`", architecture_map, flags=re.MULTILINE)
+        if match.group(1).startswith("/v1/")
+    ]
+
+
+@pytest.mark.parametrize("documented_prefix", _documented_api_prefixes_from_architecture_map())
+def test_architecture_map_api_surface_route_prefix_matches_router(documented_prefix: str) -> None:
+    documented_prefixes = _documented_api_prefixes_from_architecture_map()
+    actual_prefixes = _route_prefixes_from_router_modules()
+    assert documented_prefixes
+    assert actual_prefixes
+
+    assert any(
+        actual == documented_prefix or actual.startswith(f"{documented_prefix}/") for actual in actual_prefixes
+    ), f"ARCHITECTURE_MAP.md documents {documented_prefix} but no APIRouter prefix matches it"
+
+
+def test_runtime_capabilities_reference_materialized_backlog_ids() -> None:
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+    tasks_work_log = (ROOT / "TASKS_WORK_LOG.md").read_text(encoding="utf-8")
+    queued_ids = {
+        match.group(1)
+        for match in re.finditer(r"^\|\s*(Q-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE)
+    }
+    done_ids = {
+        match.group(1)
+        for match in re.finditer(r"^\|\s*(D-\d+)\s*\|", tasks_work_log, flags=re.MULTILINE)
+    }
+    expected_refs = {
+        "provider_registry_capability_routing": {"D-451"},
+        "runtime_surface_docs_env_deploy_parity": {"D-452"},
+        "startup_authoritative_runtime_profile": {"D-446"},
+    }
+
+    for capability_name, expected_queue_ids in expected_refs.items():
+        capability = next(entry for entry in milestone["capabilities"] if entry["name"] == capability_name)
+        task_refs = set(capability.get("task_refs") or [])
+
+        assert task_refs == expected_queue_ids
+        assert task_refs.issubset(queued_ids | done_ids)
+
+
+def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
+    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "EA_ROLE" in dockerfile
+    assert "worker','scheduler" in dockerfile
+    assert "http://127.0.0.1:8090/health" in dockerfile
+    assert "EA_ROLE=api" in compose
+    assert "EA_ROLE=worker" in compose
+    assert "EA_ROLE=scheduler" in compose
 
 
 def test_milestone_uses_status_model_and_release_tags() -> None:
@@ -261,7 +353,7 @@ def test_session_step_dependency_projection_is_covered_by_contract_tests() -> No
 
 
 def test_session_step_dependency_projection_is_covered_by_smoke_runtime() -> None:
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
     assert 'steps_by_key["step_policy_evaluate"]["dependency_states"] == {"step_input_prepare": "completed"}' in smoke_test
@@ -369,7 +461,7 @@ def test_task_contract_workflow_templates_are_wired_into_focused_contract_bundle
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "tests/test_task_contract_step_templates.py" in script
@@ -422,7 +514,7 @@ def test_composable_post_artifact_workflow_packs_are_documented_and_guarded() ->
 
 def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -455,7 +547,7 @@ def test_artifact_then_memory_candidate_workflow_template_is_documented_and_guar
 
 def test_browseract_extract_then_artifact_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -485,7 +577,7 @@ def test_browseract_extract_then_artifact_workflow_template_is_documented_and_gu
 
 def test_tool_then_artifact_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -517,7 +609,7 @@ def test_browseract_account_inventory_tool_execution_slice_is_documented_and_smo
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -546,7 +638,7 @@ def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> No
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -580,7 +672,7 @@ def test_browseract_live_hint_projection_slice_is_documented_and_guarded() -> No
 def test_skill_catalog_layer_is_documented_and_guarded() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     skill_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -611,7 +703,7 @@ def test_skill_catalog_layer_is_documented_and_guarded() -> None:
 
 def test_ltd_inventory_refresh_skill_slice_is_documented_and_guarded() -> None:
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -643,7 +735,7 @@ def test_skill_provider_hints_projection_is_documented_and_released() -> None:
     skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
     skills_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -675,7 +767,7 @@ def test_skill_provider_hint_filtering_is_documented_and_guarded() -> None:
     skills_route = (ROOT / "ea/app/api/routes/skills.py").read_text(encoding="utf-8")
     skills_service = (ROOT / "ea/app/services/skills.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -707,6 +799,7 @@ def test_session_status_transition_api_is_documented_and_guarded() -> None:
     ledger_repo = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
     ledger_postgres = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
     orchestrator = (ROOT / "ea/app/services/orchestrator.py").read_text(encoding="utf-8")
+    approval_pause_service = (ROOT / "ea/app/services/execution_approval_pause_service.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -734,7 +827,7 @@ def test_skill_identity_projection_is_documented_and_guarded() -> None:
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
     execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     openapi_test = (ROOT / "tests/test_openapi_async_acceptance_examples_contracts.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -764,7 +857,7 @@ def test_skill_identity_projection_is_documented_and_guarded() -> None:
 def test_runtime_skill_identity_projection_is_documented_and_guarded() -> None:
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -792,7 +885,7 @@ def test_plan_skill_key_entrypoint_alias_is_documented_and_guarded() -> None:
     plans_route = (ROOT / "ea/app/api/routes/plans.py").read_text(encoding="utf-8")
     skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
     execute_input_test = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -837,7 +930,7 @@ def test_ltd_discovery_markdown_refresh_is_documented_and_guarded() -> None:
     assert "update_discovery_tracking_table" in service
     assert "refresh_ltds_from_inventory.py" in shell_script
     assert "update_discovery_tracking_table" in script
-    assert "test_update_discovery_tracking_table_rewrites_matching_services_only" in test_file
+    assert "test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services" in test_file
     assert "test_refresh_ltds_script_can_write_updated_markdown" in test_file
     assert "refresh_ltds_from_inventory.sh" in readme
     assert "refresh_ltds_from_inventory.sh" in runbook
@@ -930,7 +1023,7 @@ def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
     tool_execution = (ROOT / "ea/app/services/tool_execution_artifact_adapter.py").read_text(encoding="utf-8")
     tool_test = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -957,7 +1050,7 @@ def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
 
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -989,7 +1082,7 @@ def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guar
 
 def test_review_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1046,7 +1139,7 @@ def test_unknown_workflow_templates_fail_fast_at_planner_and_api_boundaries() ->
 
 def test_review_then_dispatch_workflow_template_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1176,7 +1269,7 @@ def test_delayed_retry_async_acceptance_is_documented_and_guarded() -> None:
 
 def test_review_dispatch_delayed_retry_runtime_is_documented_and_guarded() -> None:
     workflow_test = (ROOT / "tests/test_task_contract_step_templates.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -1216,7 +1309,7 @@ def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> No
     postgres_test = (ROOT / "tests/test_artifacts_postgres_integration.py").read_text(encoding="utf-8")
     rewrite_scope_test = (ROOT / "tests/test_rewrite_scope_contracts.py").read_text(encoding="utf-8")
     rewrite_api_scope_test = (ROOT / "tests/test_rewrite_api_scope_contracts.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
     assert "principal_id: str" in rewrite_route
@@ -1249,7 +1342,7 @@ def test_artifact_principal_ownership_docs_and_milestone_cover_explicit_scope() 
 def test_step_parent_projection_contracts_are_wired_into_focused_contract_bundle() -> None:
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     parent_test = (ROOT / "tests/test_step_parent_projection_contracts.py").read_text(encoding="utf-8")
-    smoke_test = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
     smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
 
     assert "tests/test_step_parent_projection_contracts.py" in script
@@ -1318,7 +1411,7 @@ def test_receipt_and_run_cost_lookup_docs_and_milestone_cover_direct_fetch() -> 
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1413,7 +1506,7 @@ def test_human_task_docs_and_milestone_cover_session_linked_packets() -> None:
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     db_status = (ROOT / "scripts/db_status.sh").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/human/tasks" in readme
@@ -1463,7 +1556,7 @@ def test_human_task_review_contract_metadata_release_baseline_is_documented_and_
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
@@ -1495,7 +1588,7 @@ def test_operator_profile_specialized_backlog_routing_is_documented_and_released
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -1555,7 +1648,7 @@ def test_human_task_operator_assignment_hints_are_documented_and_released() -> N
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
@@ -1585,7 +1678,7 @@ def test_human_task_recommended_assignment_action_is_documented_and_smoked() -> 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1610,7 +1703,7 @@ def test_planner_human_task_auto_preselection_is_documented_and_smoked() -> None
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1634,7 +1727,7 @@ def test_human_task_assignment_source_visibility_is_documented_and_smoked() -> N
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -1664,7 +1757,7 @@ def test_human_task_assignment_provenance_fields_are_documented_and_released() -
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -1699,7 +1792,7 @@ def test_human_task_assignment_history_api_is_documented_and_released() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1721,7 +1814,7 @@ def test_human_task_assignment_history_task_identity_projection_is_documented_an
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1743,7 +1836,7 @@ def test_session_human_task_assignment_history_projection_is_documented_and_smok
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "human_task_assignment_history" in readme
@@ -1756,7 +1849,7 @@ def test_session_human_task_assignment_history_projection_is_documented_and_smok
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "session_human_task_assignment_history_projection"
     )
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_session_human_task_assignment_history_task_identity_projection_is_documented_and_smoked() -> None:
@@ -1764,7 +1857,7 @@ def test_session_human_task_assignment_history_task_identity_projection_is_docum
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1789,7 +1882,7 @@ def test_session_human_task_packet_task_identity_projection_is_documented_and_sm
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1814,7 +1907,7 @@ def test_human_task_assignment_history_filters_are_documented_and_smoked() -> No
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1839,7 +1932,7 @@ def test_human_task_last_transition_summary_projection_is_documented_and_smoked(
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -1872,7 +1965,7 @@ def test_human_task_last_transition_sorting_is_documented_and_released() -> None
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -1900,7 +1993,7 @@ def test_human_task_sla_sorting_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -1924,7 +2017,7 @@ def test_human_task_combined_sla_transition_sorting_is_documented_and_smoked() -
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -1955,7 +2048,7 @@ def test_human_task_unscheduled_fallback_sorting_is_documented_and_smoked() -> N
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -1980,7 +2073,7 @@ def test_human_task_created_asc_sorting_is_documented_and_released() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2009,7 +2102,7 @@ def test_human_task_priority_created_sorting_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2036,7 +2129,7 @@ def test_human_task_priority_filters_are_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2060,7 +2153,7 @@ def test_human_task_multi_priority_filters_are_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2084,7 +2177,7 @@ def test_human_task_priority_summary_is_documented_and_released() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2111,7 +2204,7 @@ def test_human_task_assigned_priority_summary_is_documented_and_smoked() -> None
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2131,7 +2224,7 @@ def test_human_task_operator_matched_priority_summary_is_documented_and_smoked()
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2156,7 +2249,7 @@ def test_human_task_assignment_source_priority_summary_is_documented_and_smoked(
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     human_route = (ROOT / "ea/app/api/routes/human.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2206,7 +2299,7 @@ def test_human_task_assignment_source_queue_filters_are_documented_and_smoked() 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2229,7 +2322,7 @@ def test_human_task_ownerless_assignment_source_alias_is_documented_and_smoked()
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2258,7 +2351,7 @@ def test_human_task_ownerless_session_history_alias_is_documented_and_smoked() -
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2282,7 +2375,7 @@ def test_human_task_ownerless_backlog_alias_is_documented_and_smoked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -2294,7 +2387,7 @@ def test_human_task_ownerless_backlog_alias_is_documented_and_smoked() -> None:
     assert "/v1/human/tasks/backlog?assignment_state=unassigned&assignment_source=none&limit=20" in http_examples
     assert "Promoted milestone capability `human_task_ownerless_backlog_alias` to released" in changelog
     assert "release/operator guards" in changelog
-    assert "ownerless backlog and unassigned queue slices stay aligned" in changelog
+    assert "backlog and unassigned queue slices aligned" in changelog
 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "human_task_ownerless_backlog_alias"
@@ -2307,7 +2400,7 @@ def test_human_task_ownerless_backlog_created_sort_is_documented_and_smoked() ->
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2328,7 +2421,7 @@ def test_human_task_ownerless_backlog_last_transition_sort_is_documented_and_smo
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2349,7 +2442,7 @@ def test_human_task_ownerless_unassigned_last_transition_sort_is_documented_and_
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2372,7 +2465,7 @@ def test_human_task_ownerless_unassigned_created_sort_is_documented_and_smoked()
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -2397,7 +2490,7 @@ def test_human_task_ownerless_list_created_sort_is_documented_and_smoked() -> No
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2424,7 +2517,7 @@ def test_human_task_ownerless_list_last_transition_sort_is_documented_and_smoked
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2449,7 +2542,7 @@ def test_human_task_session_ownerless_created_sort_is_documented_and_smoked() ->
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2473,7 +2566,7 @@ def test_human_task_session_ownerless_last_transition_sort_is_documented_and_smo
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2496,7 +2589,7 @@ def test_human_task_session_ownerless_mixed_source_isolation_is_documented_and_s
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "manual and auto-preselected neighbors too" in readme
@@ -2523,7 +2616,7 @@ def test_human_task_ownerless_sorted_queue_mixed_source_isolation_is_documented_
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "manual and auto-preselected neighbors" in readme
@@ -2552,7 +2645,7 @@ def test_human_task_ownerless_priority_summary_mixed_source_counts_are_documente
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "ownerless `priority-summary?assignment_state=unassigned&assignment_source=none` slice is now explicitly covered after mixed-source churn" in readme
@@ -2576,7 +2669,7 @@ def test_human_task_ownerless_unsorted_queue_mixed_source_isolation_is_documente
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "unsorted ownerless `assignment_source=none` list, backlog, and unassigned slices are now also explicitly covered after mixed-source churn" in readme
@@ -2602,7 +2695,7 @@ def test_human_task_session_ownerless_unsorted_mixed_source_isolation_is_documen
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "unsorted session-scoped `session_id=<id>&assignment_source=none` slice is now also explicitly covered after mixed-source churn" in readme
@@ -2624,7 +2717,7 @@ def test_session_ownerless_projection_mixed_source_counts_are_documented_and_smo
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "mixed-source session-detail ownerless slice is now also explicitly count-checked" in readme
@@ -2648,7 +2741,7 @@ def test_session_ownerless_projection_created_order_is_documented_and_smoked() -
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2672,7 +2765,7 @@ def test_session_ownerless_projection_mixed_source_isolation_is_documented_and_s
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "manual and auto-preselected work" in readme
@@ -2695,7 +2788,7 @@ def test_human_task_assignment_history_source_filter_is_documented_and_smoked() 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2716,7 +2809,7 @@ def test_session_human_task_assignment_source_filter_is_documented_and_smoked() 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2739,7 +2832,7 @@ def test_session_scoped_human_task_assignment_source_queue_filters_are_documente
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2790,7 +2883,7 @@ def test_principal_scoped_memory_seed_surface_is_released_and_smoked() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "/v1/memory/candidates" in readme
@@ -2821,7 +2914,7 @@ def test_principal_request_context_guardrails_are_documented_and_smoked() -> Non
     env_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2856,7 +2949,7 @@ def test_principal_scoped_rewrite_and_plan_routes_are_documented_and_smoked() ->
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "rewrite/session/artifact/receipt/run-cost, plan-compile/execute" in readme
@@ -2878,7 +2971,7 @@ def test_session_principal_scoped_human_task_routes_are_documented_and_smoked() 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "session-bound human task create/list requests now also enforce the linked execution session principal" in readme
@@ -2897,7 +2990,7 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     postgres_contracts = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2921,6 +3014,26 @@ def test_generic_task_execution_runtime_is_documented_and_smoked() -> None:
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "generic_task_execution_runtime")
     assert capability["status"] == "released"
+
+
+def test_memory_reasoning_context_packs_are_documented_and_guarded() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    plan_execute_contracts = (ROOT / "tests/test_plan_execute_input_contracts.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "/v1/memory/context-pack" in readme
+    assert "injects synthesized `context_pack` payloads from principal-scoped memory reasoning" in readme
+    assert "/v1/memory/context-pack" in runbook
+    assert "including promoted-memory signals, conflict rows, commitment-risk rows, and unresolved refs" in runbook
+    assert "Promoted milestone capability `memory_reasoning_context_packs` to released" in changelog
+    assert "test_memory_context_pack_route_returns_reasoned_pack" in plan_execute_contracts
+    assert "test_plan_execute_accepts_structured_input_json_and_context_refs" in plan_execute_contracts
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "memory_reasoning_context_packs")
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that docs plus runtime contract baseline behavior" in capability["notes"]
 
 
 def test_plan_graph_validation_is_documented_and_guarded() -> None:
@@ -2960,7 +3073,7 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "same first-class `202 awaiting_approval` and `202 awaiting_human` async contract" in readme
@@ -2990,7 +3103,7 @@ def test_artifact_lookup_task_identity_projection_is_documented_and_smoked() -> 
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "originating task key and deliverable type" in readme
@@ -3012,7 +3125,7 @@ def test_artifact_preview_handle_projection_is_documented_and_smoked() -> None:
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "preview_text" in readme
@@ -3042,7 +3155,7 @@ def test_proof_lookup_task_identity_projection_is_documented_and_smoked() -> Non
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "direct execution proof records" in readme
@@ -3065,7 +3178,7 @@ def test_session_artifact_task_identity_projection_is_documented_and_smoked() ->
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "inline artifact/proof rows now carry originating task identity" in readme
@@ -3085,7 +3198,7 @@ def test_async_queue_projection_task_identity_is_documented_and_smoked() -> None
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "approval projections now carry the originating task identity" in readme
@@ -3128,7 +3241,7 @@ def test_queued_policy_step_audit_truthfulness_is_documented_and_smoked() -> Non
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "policy_decision` is now recorded by the queued `step_policy_evaluate` handler after `input_prepared`" in readme
@@ -3165,7 +3278,7 @@ def test_typed_step_handler_gateway_is_documented_and_smoked() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3198,7 +3311,7 @@ def test_planner_dependency_graph_projection_is_documented_and_smoked() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3209,9 +3322,9 @@ def test_planner_dependency_graph_projection_is_documented_and_smoked() -> None:
     assert "Promoted the dependency-aware planner graph projection into a released milestone capability" in changelog
     assert "expected three-step plan compile response with explicit step semantics" in smoke_api
     assert 'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]' in smoke_runtime
-    assert 'compiled.json()["plan"]["steps"][0]["output_keys"] == ["normalized_text", "source_text", "text_length"]' in smoke_runtime
+    assert 'compiled.json()["plan"]["steps"][1]["output_keys"] == [' in smoke_runtime
     assert 'plan.steps[1].depends_on == ("step_input_prepare",)' in planner_test
-    assert 'plan.steps[2].input_keys == ["normalized_text", "source_text", "text_length"]' in planner_test
+    assert 'plan.steps[0].output_keys == ("normalized_text", "text_length")' in planner_test
 
     capability = next(
         entry for entry in milestone["capabilities"] if entry["name"] == "planner_dependency_graph_projection"
@@ -3224,7 +3337,7 @@ def test_plan_step_operational_semantics_are_documented_and_smoked() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3248,7 +3361,7 @@ def test_planner_human_task_branch_projection_is_documented_and_smoked() -> None
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3274,7 +3387,7 @@ def test_runtime_human_task_step_execution_is_documented_and_released() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
     assert "202 awaiting_human" in runbook
@@ -3295,7 +3408,7 @@ def test_human_review_payload_artifact_override_is_documented_and_released() -> 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3319,7 +3432,7 @@ def test_planner_human_review_operational_metadata_is_documented_and_released() 
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     planner_test = (ROOT / "tests/test_planner.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3349,7 +3462,7 @@ def test_registry_backed_tool_execution_service_is_documented_and_smoked() -> No
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3378,7 +3491,7 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3395,7 +3508,7 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     assert "test_tool_execution_service_executes_builtin_connector_dispatch_handler" in tool_execution_tests
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "connector_dispatch_tool_execution_slice")
-    assert capability["status"] == "tested"
+    assert capability["status"] == "released"
 
 
 def test_browseract_account_facts_tool_execution_slice_is_documented_and_released() -> None:
@@ -3404,7 +3517,7 @@ def test_browseract_account_facts_tool_execution_slice_is_documented_and_release
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3432,7 +3545,7 @@ def test_connector_dispatch_binding_scope_guardrails_are_documented_and_released
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -3459,7 +3572,7 @@ def test_approval_async_acceptance_contract_is_documented_and_released() -> None
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
     smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
-    smoke_runtime = (ROOT / "tests/smoke_runtime_api.py").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -3478,3 +3591,51 @@ def test_approval_async_acceptance_contract_is_documented_and_released() -> None
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "approval_async_acceptance_contract")
     assert capability["status"] == "released"
+
+
+def test_typed_task_and_skill_policy_models_are_documented_and_released() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    runtime_policy_tests = (ROOT / "tests/test_task_contract_runtime_policy.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "typed runtime policy models" in readme
+    assert "artifact_retry" in readme
+    assert "skill_catalog" in readme
+    assert "typed runtime policy models" in runbook
+    assert "artifact_retry" in runbook
+    assert "skill_catalog" in runbook
+    assert "Promoted milestone capability `typed_task_and_skill_policy_models` to released" in changelog
+    assert "typed runtime policy projection" in changelog
+    assert "artifact_failure_strategy" in smoke_api
+    assert "human_review_role" in smoke_api
+    assert "artifact_output_template" in smoke_api
+    assert "pre_artifact_tool_name" in smoke_api
+    assert "test_task_contract_runtime_policy_parses_typed_metadata" in runtime_policy_tests
+    assert "policy.skill_catalog.skill_key" in runtime_policy_tests
+    assert "policy.artifact_retry.failure_strategy" in runtime_policy_tests
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_task_and_skill_policy_models")
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that typed runtime-policy projection" in capability["notes"]
+
+
+def test_provider_registry_capability_routing_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    smoke_runtime = _smoke_runtime_text()
+    tool_execution_tests = (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "Promoted milestone capability `provider_registry_capability_routing` to released" in changelog
+    assert "dynamically registered runtime tools" in changelog
+    assert 'execute_unregistered.json()["error"]["code"] == "tool_not_registered:provider.not_registered"' in smoke_runtime
+    assert 'email_handler_missing.json()["error"]["code"] == "tool_handler_missing:email.send"' in smoke_runtime
+    assert "test_tool_execution_service_executes_registered_tool_not_in_provider_catalog" in tool_execution_tests
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "provider_registry_capability_routing"
+    )
+    assert capability["status"] == "released"
+    assert "release/operator guards now pin that capability-addressed routing baseline" in capability["notes"]

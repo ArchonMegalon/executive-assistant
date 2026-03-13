@@ -35,6 +35,22 @@ fail() {
   exit "${code}"
 }
 
+curl_status_code() {
+  local response_path="$1"
+  shift
+  local header_path code rc
+  header_path="$(mktemp)"
+  if curl -sS -D "${header_path}" -o "${response_path}" "$@"; then
+    code="$(awk '/^HTTP\\// { code=$2 } END { print code }' "${header_path}")"
+    rm -f "${header_path}"
+    printf '%s' "${code}"
+    return 0
+  fi
+  rc=$?
+  rm -f "${header_path}"
+  return "${rc}"
+}
+
 HOST_PORT="${EA_HOST_PORT:-}"
 if [[ -z "${HOST_PORT}" && -f "${EA_ROOT}/.env" ]]; then
   HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
@@ -120,7 +136,7 @@ curl -fsS "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" "${PRINCIP
 curl -fsS "${BASE}/v1/policy/decisions/recent?session_id=${SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/pending?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/policy/approvals/history?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-POLICY_EVAL_SCOPE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_policy_eval_scope_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"content\":\"scoped policy evaluate\",\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"channel\":\"email\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+POLICY_EVAL_SCOPE_MISMATCH_CODE="$(curl_status_code /tmp/ea_policy_eval_scope_mismatch_resp.json -X POST "${BASE}/v1/policy/evaluate" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"content\":\"scoped policy evaluate\",\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"channel\":\"email\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
 if [[ "${POLICY_EVAL_SCOPE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected policy evaluate principal mismatch to return 403; got ${POLICY_EVAL_SCOPE_MISMATCH_CODE}" >&2
   cat /tmp/ea_policy_eval_scope_mismatch_resp.json >&2
@@ -132,7 +148,7 @@ if [[ "${POLICY_EVAL_SCOPE_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; t
   cat /tmp/ea_policy_eval_scope_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_principal_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
+REWRITE_PRINCIPAL_MISMATCH_CODE="$(curl_status_code /tmp/ea_rewrite_principal_mismatch_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"text\":\"principal mismatch\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\"}")"
 if [[ "${REWRITE_PRINCIPAL_MISMATCH_CODE}" != "403" ]]; then
   echo "expected rewrite principal mismatch create to return 403; got ${REWRITE_PRINCIPAL_MISMATCH_CODE}" >&2
   cat /tmp/ea_rewrite_principal_mismatch_resp.json >&2
@@ -144,10 +160,10 @@ if [[ "${REWRITE_PRINCIPAL_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; t
   cat /tmp/ea_rewrite_principal_mismatch_resp.json >&2
   fail 12 "policy contract mismatch"
 fi
-REWRITE_SESSION_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_session_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_ARTIFACT_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_artifact_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_RECEIPT_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_receipt_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-REWRITE_COST_MISMATCH_CODE="$(curl -sS -o /tmp/ea_rewrite_cost_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_SESSION_MISMATCH_CODE="$(curl_status_code /tmp/ea_rewrite_session_mismatch_resp.json "${BASE}/v1/rewrite/sessions/${SESSION_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_ARTIFACT_MISMATCH_CODE="$(curl_status_code /tmp/ea_rewrite_artifact_mismatch_resp.json "${BASE}/v1/rewrite/artifacts/${ARTIFACT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_RECEIPT_MISMATCH_CODE="$(curl_status_code /tmp/ea_rewrite_receipt_mismatch_resp.json "${BASE}/v1/rewrite/receipts/${RECEIPT_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+REWRITE_COST_MISMATCH_CODE="$(curl_status_code /tmp/ea_rewrite_cost_mismatch_resp.json "${BASE}/v1/rewrite/run-costs/${COST_ID}" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" != "403|403|403|403" ]]; then
   echo "expected foreign-principal session/artifact/receipt/run-cost fetches to return 403; got ${REWRITE_SESSION_MISMATCH_CODE}|${REWRITE_ARTIFACT_MISMATCH_CODE}|${REWRITE_RECEIPT_MISMATCH_CODE}|${REWRITE_COST_MISMATCH_CODE}" >&2
   cat /tmp/ea_rewrite_session_mismatch_resp.json >&2
@@ -172,10 +188,10 @@ SESSION_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read()
 if [[ -z "${SESSION_STEP_ID}" ]]; then
   fail 13 "missing step_id from session response"
 fi
-HUMAN_CREATE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_human_create_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' \
+HUMAN_CREATE_MISMATCH_CODE="$(curl_status_code /tmp/ea_human_create_mismatch_resp.json -X POST "${BASE}/v1/human/tasks" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' \
   -d "{\"session_id\":\"${SESSION_ID}\",\"step_id\":\"${SESSION_STEP_ID}\",\"task_type\":\"communications_review\",\"role_required\":\"communications_reviewer\",\"brief\":\"Cross-principal attach attempt.\"}")"
 HUMAN_CREATE_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/ea_human_create_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
-HUMAN_SESSION_LIST_MISMATCH_CODE="$(curl -sS -o /tmp/ea_human_session_list_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/human/tasks?session_id=${SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+HUMAN_SESSION_LIST_MISMATCH_CODE="$(curl_status_code /tmp/ea_human_session_list_mismatch_resp.json "${BASE}/v1/human/tasks?session_id=${SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 HUMAN_SESSION_LIST_MISMATCH_REASON="$(python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/ea_human_session_list_mismatch_resp.json").read_text() or "{}"); print((body.get("error") or {}).get("code",""))')"
 if [[ "${HUMAN_CREATE_MISMATCH_CODE}" != "403" || "${HUMAN_CREATE_MISMATCH_REASON}" != "principal_scope_mismatch" || "${HUMAN_SESSION_LIST_MISMATCH_CODE}" != "403" || "${HUMAN_SESSION_LIST_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   echo "expected foreign-principal session-bound human task create/list requests to fail with principal_scope_mismatch; got ${HUMAN_CREATE_MISMATCH_CODE}|${HUMAN_CREATE_MISMATCH_REASON}|${HUMAN_SESSION_LIST_MISMATCH_CODE}|${HUMAN_SESSION_LIST_MISMATCH_REASON}" >&2
@@ -1062,7 +1078,7 @@ threshold = int(sys.argv[1])
 print("a" * (threshold + 10))
 PY
 )" > "${APPROVAL_PAYLOAD}"
-APPROVAL_CODE="$(curl -sS -o /tmp/ea_approval_required_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
+APPROVAL_CODE="$(curl_status_code /tmp/ea_approval_required_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
 rm -f "${APPROVAL_PAYLOAD}"
 if [[ "${APPROVAL_CODE}" != "202" ]]; then
   echo "expected 202 for approval-required path; got ${APPROVAL_CODE}" >&2
@@ -1139,8 +1155,8 @@ if [[ "${FOREIGN_PENDING_MATCH}" != "False" ]]; then
   echo "${FOREIGN_PENDING_APPROVALS_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-FOREIGN_APPROVAL_HISTORY_CODE="$(curl -sS -o /tmp/ea_policy_history_scope_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/policy/approvals/history?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
-FOREIGN_DECISIONS_CODE="$(curl -sS -o /tmp/ea_policy_decisions_scope_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/policy/decisions/recent?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_APPROVAL_HISTORY_CODE="$(curl_status_code /tmp/ea_policy_history_scope_mismatch_resp.json "${BASE}/v1/policy/approvals/history?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
+FOREIGN_DECISIONS_CODE="$(curl_status_code /tmp/ea_policy_decisions_scope_mismatch_resp.json "${BASE}/v1/policy/decisions/recent?session_id=${APPROVAL_SESSION_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" != "403|403" ]]; then
   echo "expected foreign principal policy history/decision reads to return 403; got ${FOREIGN_APPROVAL_HISTORY_CODE}|${FOREIGN_DECISIONS_CODE}" >&2
   cat /tmp/ea_policy_history_scope_mismatch_resp.json >&2
@@ -1154,7 +1170,7 @@ if [[ "${APPROVAL_WAITING_FIELDS}" != "awaiting_approval|waiting_approval|True|T
   echo "${APPROVAL_WAITING_SESSION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-FOREIGN_APPROVE_CODE="$(curl -sS -o /tmp/ea_policy_approve_scope_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' -d '{"decided_by":"smoke-operator","reason":"cross principal approval should fail"}')"
+FOREIGN_APPROVE_CODE="$(curl_status_code /tmp/ea_policy_approve_scope_mismatch_resp.json -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -H 'content-type: application/json' -d '{"decided_by":"smoke-operator","reason":"cross principal approval should fail"}')"
 if [[ "${FOREIGN_APPROVE_CODE}" != "403" ]]; then
   echo "expected foreign principal approval decision to return 403; got ${FOREIGN_APPROVE_CODE}" >&2
   cat /tmp/ea_policy_approve_scope_mismatch_resp.json >&2
@@ -1188,7 +1204,7 @@ printf '{"text":"%s"}' "$(python3 - <<'PY'
 print("x" * 20001)
 PY
 )" > "${BLOCKED_PAYLOAD}"
-BLOCKED_CODE="$(curl -sS -o /tmp/ea_blocked_policy_resp.json -w '%{http_code}' -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
+BLOCKED_CODE="$(curl_status_code /tmp/ea_blocked_policy_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${BLOCKED_PAYLOAD}")"
 rm -f "${BLOCKED_PAYLOAD}"
 if [[ "${BLOCKED_CODE}" != "403" ]]; then
   echo "expected 403 for blocked policy path; got ${BLOCKED_CODE}" >&2
@@ -1277,7 +1293,7 @@ if [[ "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
   echo "${DELIVERY_PENDING_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-TOOL_EXEC_MISMATCH_CODE="$(curl -sS -o /tmp/ea_tool_exec_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+TOOL_EXEC_MISMATCH_CODE="$(curl_status_code /tmp/ea_tool_exec_mismatch_resp.json -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" \
   -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${EA_PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops@example.com\",\"content\":\"blocked dispatch\"}}")"
 if [[ "${TOOL_EXEC_MISMATCH_CODE}" != "403" ]]; then
@@ -1333,7 +1349,7 @@ if [[ "${BROWSERACT_INVENTORY_FIELDS}" != "browseract.extract_account_inventory|
 fi
 echo "tools ok"
 if [[ -n "${BINDING_ID}" ]]; then
-  FOREIGN_BINDING_CODE="$(curl -sS -o /tmp/ea_foreign_binding_resp.json -w '%{http_code}' -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+  FOREIGN_BINDING_CODE="$(curl_status_code /tmp/ea_foreign_binding_resp.json -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
     -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" -d '{"status":"disabled"}')"
   if [[ "${FOREIGN_BINDING_CODE}" != "404" ]]; then
     echo "expected 404 for foreign principal binding status update; got ${FOREIGN_BINDING_CODE}" >&2
@@ -1343,7 +1359,7 @@ if [[ -n "${BINDING_ID}" ]]; then
   curl -fsS -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"status":"disabled"}' >/dev/null
 fi
 curl -fsS "${BASE}/v1/connectors/bindings?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-CONNECTOR_MISMATCH_CODE="$(curl -sS -o /tmp/ea_connector_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/connectors/bindings?principal_id=${MISMATCH_PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CONNECTOR_MISMATCH_CODE="$(curl_status_code /tmp/ea_connector_mismatch_resp.json "${BASE}/v1/connectors/bindings?principal_id=${MISMATCH_PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 if [[ "${CONNECTOR_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for connector principal mismatch; got ${CONNECTOR_MISMATCH_CODE}" >&2
   cat /tmp/ea_connector_mismatch_resp.json >&2 || true
@@ -1374,7 +1390,7 @@ echo "tools/connectors ok"
 
 echo "== smoke: task contracts =="
 curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":[],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+  -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":[],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","artifact_failure_strategy":"retry","artifact_max_attempts":2,"artifact_retry_backoff_seconds":15}}' >/dev/null
 curl -fsS "${BASE}/v1/tasks/contracts?limit=5" "${AUTH_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/tasks/contracts/rewrite_text" "${AUTH_ARGS[@]}" >/dev/null
 echo "task contracts ok"
@@ -1441,7 +1457,7 @@ if [[ "${PLAN_PRINCIPAL_FIELDS}" != "${PRINCIPAL_ID}|${PRINCIPAL_ID}" ]]; then
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-PLAN_MISMATCH_CODE="$(curl -sS -o /tmp/ea_plan_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"rewrite_text\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
+PLAN_MISMATCH_CODE="$(curl_status_code /tmp/ea_plan_mismatch_resp.json -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"rewrite_text\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
 if [[ "${PLAN_MISMATCH_CODE}" != "403" ]]; then
   echo "expected plan compile principal mismatch to return 403; got ${PLAN_MISMATCH_CODE}" >&2
   cat /tmp/ea_plan_mismatch_resp.json >&2
@@ -1561,7 +1577,7 @@ if [[ "${EVIDENCE_MERGE_FIELDS}" != "evidence_pack|3|3|2|2|2" ]]; then
   echo "${EVIDENCE_MERGE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-TASK_EXECUTE_MISMATCH_CODE="$(curl -sS -o /tmp/ea_task_execute_mismatch_resp.json -w '%{http_code}' -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
+TASK_EXECUTE_MISMATCH_CODE="$(curl_status_code /tmp/ea_task_execute_mismatch_resp.json -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"stakeholder_briefing\",\"text\":\"Should stay in principal scope.\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"prepare a stakeholder briefing\"}")"
 if [[ "${TASK_EXECUTE_MISMATCH_CODE}" != "403" ]]; then
   echo "expected generic task execution principal mismatch to return 403; got ${TASK_EXECUTE_MISMATCH_CODE}" >&2
   cat /tmp/ea_task_execute_mismatch_resp.json >&2
@@ -2223,7 +2239,7 @@ if [[ -z "${MEMORY_ITEM_ID}" ]]; then
 fi
 curl -fsS "${BASE}/v1/memory/candidates?limit=5&status=promoted" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS "${BASE}/v1/memory/items?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-MEMORY_MISMATCH_CODE="$(curl -sS -o /tmp/ea_memory_mismatch_resp.json -w '%{http_code}' "${BASE}/v1/memory/items?limit=5&principal_id=${MISMATCH_PRINCIPAL_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+MEMORY_MISMATCH_CODE="$(curl_status_code /tmp/ea_memory_mismatch_resp.json "${BASE}/v1/memory/items?limit=5&principal_id=${MISMATCH_PRINCIPAL_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 if [[ "${MEMORY_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for memory principal mismatch; got ${MEMORY_MISMATCH_CODE}" >&2
   cat /tmp/ea_memory_mismatch_resp.json >&2 || true

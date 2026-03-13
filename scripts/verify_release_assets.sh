@@ -1281,6 +1281,33 @@ import json
 from pathlib import Path
 
 milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "memory_reasoning_context_packs")
+assert capability["status"] == "released"
+PY
+then
+  if grep -Fq '/v1/memory/context-pack' "README.md" && \
+     grep -Fq 'injects synthesized `context_pack` payloads from principal-scoped memory reasoning' "README.md" && \
+     grep -Fq '/v1/memory/context-pack' "RUNBOOK.md" && \
+     grep -Fq 'including promoted-memory signals, conflict rows, commitment-risk rows, and unresolved refs' "RUNBOOK.md" && \
+     grep -Fq 'Promoted milestone capability `memory_reasoning_context_packs` to released' "CHANGELOG.md" && \
+     grep -Fq 'test_memory_context_pack_route_returns_reasoned_pack' "tests/test_plan_execute_input_contracts.py" && \
+     grep -Fq 'test_plan_execute_accepts_structured_input_json_and_context_refs' "tests/test_plan_execute_input_contracts.py" && \
+     grep -Fq 'release/operator guards now pin that docs plus runtime contract baseline behavior' "MILESTONE.json"; then
+    echo "ok: memory reasoning context-pack docs and contract coverage"
+  else
+    echo "missing: memory reasoning context-pack docs or contract coverage" >&2
+    missing=1
+  fi
+else
+  echo "missing: memory reasoning context-pack milestone release status" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
 capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "plan_graph_validation")
 assert capability["status"] == "released"
 PY
@@ -4372,6 +4399,65 @@ then
   fi
 else
   echo "missing: runtime skill identity projection milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "typed_task_and_skill_policy_models")
+assert capability["status"] == "released"
+PY
+then
+  if grep -Fq "typed runtime policy models" "README.md" && \
+     grep -Fq "artifact_retry" "README.md" && \
+     grep -Fq "skill_catalog" "README.md" && \
+     grep -Fq "typed runtime policy models" "RUNBOOK.md" && \
+     grep -Fq "artifact_retry" "RUNBOOK.md" && \
+     grep -Fq "skill_catalog" "RUNBOOK.md" && \
+     grep -Fq 'Promoted milestone capability `typed_task_and_skill_policy_models` to released' "CHANGELOG.md" && \
+     grep -Fq "typed runtime policy projection" "CHANGELOG.md" && \
+     grep -Fq "artifact_failure_strategy" "scripts/smoke_api.sh" && \
+     grep -Fq "human_review_role" "scripts/smoke_api.sh" && \
+     grep -Fq "artifact_output_template" "scripts/smoke_api.sh" && \
+     grep -Fq "pre_artifact_tool_name" "scripts/smoke_api.sh" && \
+     grep -Fq "test_task_contract_runtime_policy_parses_typed_metadata" "tests/test_task_contract_runtime_policy.py" && \
+     grep -Fq "policy.skill_catalog.skill_key" "tests/test_task_contract_runtime_policy.py" && \
+     grep -Fq "policy.artifact_retry.failure_strategy" "tests/test_task_contract_runtime_policy.py"; then
+    echo "ok: typed task and skill policy models release baseline"
+  else
+    echo "missing: typed task and skill policy models release baseline" >&2
+    missing=1
+  fi
+else
+  echo "missing: typed task and skill policy models milestone" >&2
+  missing=1
+fi
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+milestone = json.loads(Path("MILESTONE.json").read_text(encoding="utf-8"))
+capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "provider_registry_capability_routing")
+assert capability["status"] == "released"
+PY
+then
+  if grep -Fq 'Promoted milestone capability `provider_registry_capability_routing` to released' "CHANGELOG.md" && \
+     grep -Fq "dynamically registered runtime tools" "CHANGELOG.md" && \
+     grep -Fq 'execute_unregistered.json()["error"]["code"] == "tool_not_registered:provider.not_registered"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'email_handler_missing.json()["error"]["code"] == "tool_handler_missing:email.send"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq "test_tool_execution_service_executes_registered_tool_not_in_provider_catalog" "tests/test_tool_execution.py" && \
+     grep -Fq "release/operator guards now pin that capability-addressed routing baseline" "MILESTONE.json"; then
+    echo "ok: provider registry capability routing release baseline"
+  else
+    echo "missing: provider registry capability routing release baseline" >&2
+    missing=1
+  fi
+else
+  echo "missing: provider registry capability routing milestone" >&2
   missing=1
 fi
 

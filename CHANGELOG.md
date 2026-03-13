@@ -2,10 +2,18 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-13
+
+### Changed
+- Promoted milestone capability `startup_authoritative_runtime_profile` to released, and realigned runtime-capability backlog-reference contract checks to the materialized done IDs (`D-446`, `D-451`, `D-452`) so CI/operator contract lanes stay consistent with the current queue ledger state.
+- Promoted milestone capability `typed_task_and_skill_policy_models` to released, so release/operator guards now pin the typed runtime policy projection for workflow, retry, human-review, memory-candidate, artifact-output, and skill-catalog metadata across the existing docs, smoke-path budget-policy examples, and focused runtime-policy tests as current branch baseline behavior.
+- Promoted milestone capability `provider_registry_capability_routing` to released, fixed tool-execution routing so provider-catalog validation does not block dynamically registered runtime tools, and pinned smoke/unit/release-guard coverage for custom-tool execution plus `/v1/tools/execute` unknown-tool error-contract behavior.
+
 ## 2026-03-11
 
 ### Changed
 - Hardened production auth/startup guardrails are now pinned as branch-baseline behavior: prod startup rejects blank `EA_API_TOKEN`, request-context default-principal fallback remains non-prod-only, and readiness/dependency coverage keeps deterministic `prod_api_token_missing` plus prod backend dependency failure reasons visible.
+- Promoted milestone capability `memory_reasoning_context_packs` to released, so release/operator guards now pin `/v1/memory/context-pack` plus plan-execution `context_pack` injection across the existing README/RUNBOOK wording and focused runtime contract coverage as current branch baseline behavior.
 
 ## 2026-03-10
 

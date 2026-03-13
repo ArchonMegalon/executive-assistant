@@ -26,7 +26,7 @@
 - Policy: `/v1/policy/*`
 - Rewrite: `/v1/rewrite/*`
 - Skills: `/v1/skills/*`
-- Task contracts: `/v1/task-contracts/*`
+- Task contracts: `/v1/tasks/contracts/*`
 - Tools: `/v1/tools/*`
 - Route roots: `ea/app/api/routes/`
 
