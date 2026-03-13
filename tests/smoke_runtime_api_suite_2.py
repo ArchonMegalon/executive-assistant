@@ -970,6 +970,17 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert any(row["tool_name"] == "connector.dispatch" for row in listed_tools.json())
     assert any(row["tool_name"] == "email.send" for row in listed_tools.json())
 
+    execute_unregistered = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "provider.not_registered",
+            "action_kind": "delivery.send",
+            "payload_json": {},
+        },
+    )
+    assert execute_unregistered.status_code == 404
+    assert execute_unregistered.json()["error"]["code"] == "tool_not_registered:provider.not_registered"
+
     binding = client.post(
         "/v1/connectors/bindings",
         json={
@@ -1010,6 +1021,21 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert executed.json()["output_json"]["binding_id"] == binding_id
     assert executed.json()["receipt_json"]["handler_key"] == "connector.dispatch"
     assert executed.json()["receipt_json"]["invocation_contract"] == "tool.v1"
+
+    email_handler_missing = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "email.send",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "recipient": "ops@example.com",
+                "content": "Not wired to runtime handler",
+            },
+        },
+    )
+    assert email_handler_missing.status_code == 409
+    assert email_handler_missing.json()["error"]["code"] == "tool_handler_missing:email.send"
+
     pending_after_execute = client.get("/v1/delivery/outbox/pending", params={"limit": 10})
     assert pending_after_execute.status_code == 200
     assert any(row["delivery_id"] == executed.json()["target_ref"] for row in pending_after_execute.json())
@@ -1158,10 +1184,10 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             },
         },
     )
-    assert browseract_unsigned_request_principal_mismatch.status_code == 400
+    assert browseract_unsigned_request_principal_mismatch.status_code == 403
     assert (
         browseract_unsigned_request_principal_mismatch.json()["error"]["code"]
-        == "principal_id_required"
+        == "principal_scope_mismatch"
     )
 
     foreign_status = client.post(
@@ -1970,5 +1996,3 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     )
     assert mismatch.status_code == 403
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
-
-

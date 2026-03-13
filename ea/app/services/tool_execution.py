@@ -6,6 +6,7 @@ from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocat
 from app.repositories.artifacts import ArtifactRepository
 from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
+from app.services.provider_registry import ProviderRegistryService
 from app.services.tool_execution_artifact_module import ArtifactToolExecutionModule
 from app.services.tool_execution_browseract_module import BrowserActToolExecutionModule
 from app.services.tool_execution_common import (
@@ -28,8 +29,10 @@ class ToolExecutionService:
         artifacts: ArtifactRepository,
         channel_runtime: ChannelRuntimeService | None = None,
         evidence_runtime: EvidenceRuntimeService | None = None,
+        provider_registry: ProviderRegistryService | None = None,
     ) -> None:
         self._tool_runtime = tool_runtime
+        self._provider_registry = provider_registry or ProviderRegistryService()
         self._handlers: dict[str, ToolExecutionHandler] = {}
         self._connector_dispatch_module = ConnectorDispatchToolExecutionModule(
             tool_runtime=tool_runtime,
@@ -44,10 +47,13 @@ class ToolExecutionService:
             artifacts=artifacts,
             evidence_runtime=evidence_runtime,
         )
-        self._register_builtin_artifact_repository()
-        self._register_builtin_browseract_extract()
-        self._register_builtin_browseract_inventory()
-        self._register_builtin_connector_dispatch()
+        self._builtin_capability_registrars: dict[tuple[str, str], Callable[[], None]] = {
+            ("artifact_repository", "artifact_save"): self._register_builtin_artifact_repository,
+            ("browseract", "account_facts"): self._register_builtin_browseract_extract,
+            ("browseract", "account_inventory"): self._register_builtin_browseract_inventory,
+            ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
+        }
+        self._register_executable_provider_bindings()
 
     def register_handler(self, tool_name: str, handler: ToolExecutionHandler) -> None:
         key = str(tool_name or "").strip()
@@ -56,7 +62,18 @@ class ToolExecutionService:
         self._handlers[key] = handler
 
     def execute_invocation(self, request: ToolInvocationRequest) -> ToolInvocationResult:
-        tool_name = str(request.tool_name or "").strip()
+        requested_tool_name = str(request.tool_name or "").strip()
+        tool_name = requested_tool_name
+        try:
+            route = self._provider_registry.route_tool(requested_tool_name)
+        except ToolExecutionError as exc:
+            if (
+                str(exc or "") != f"provider_tool_unavailable:{requested_tool_name}"
+                or self._provider_registry.knows_tool(requested_tool_name)
+            ):
+                raise
+        else:
+            tool_name = route.tool_name
         if not tool_name:
             raise ToolExecutionError("tool_name_required")
         definition = self._tool_runtime.get_tool(tool_name)
@@ -70,21 +87,39 @@ class ToolExecutionService:
         handler = self._handlers.get(tool_name)
         if handler is None:
             raise ToolExecutionError(f"tool_handler_missing:{tool_name}")
+        if tool_name != requested_tool_name:
+            request = ToolInvocationRequest(
+                session_id=request.session_id,
+                step_id=request.step_id,
+                tool_name=tool_name,
+                action_kind=request.action_kind,
+                payload_json=dict(request.payload_json or {}),
+                context_json=dict(request.context_json or {}),
+            )
         return handler(request, definition)
 
     def _ensure_builtin_tool_registered(self, tool_name: str) -> None:
         key = str(tool_name or "").strip()
-        if key == "artifact_repository":
-            self._register_builtin_artifact_repository()
+        if not key:
             return
-        if key == "browseract.extract_account_facts":
-            self._register_builtin_browseract_extract()
+        try:
+            route = self._provider_registry.route_tool(key)
+        except ToolExecutionError:
             return
-        if key == "browseract.extract_account_inventory":
-            self._register_builtin_browseract_inventory()
-            return
-        if key == "connector.dispatch":
-            self._register_builtin_connector_dispatch()
+        registrar = self._builtin_capability_registrars.get((route.provider_key, route.capability_key))
+        if registrar is not None:
+            registrar()
+
+    def _register_executable_provider_bindings(self) -> None:
+        for binding in self._provider_registry.list_bindings():
+            if not binding.executable:
+                continue
+            for capability in binding.capabilities:
+                if not capability.executable:
+                    continue
+                registrar = self._builtin_capability_registrars.get((binding.provider_key, capability.capability_key))
+                if registrar is not None:
+                    registrar()
 
     def _register_builtin_artifact_repository(self) -> None:
         self._artifact_module.register_builtin(self.register_handler)
