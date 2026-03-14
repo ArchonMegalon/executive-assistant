@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import datetime as dt
 import json
 import os
 import re
@@ -23,11 +24,63 @@ from chummer6_runtime_config import load_local_env, load_runtime_overrides
 EA_ROOT = Path(__file__).resolve().parents[1]
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
+STYLE_EPOCH_PATH = Path("/docker/fleet/state/chummer6/ea_style_epoch.json")
+SCENE_LEDGER_PATH = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 DEFAULT_MODEL = "gemini-3-flash-preview"
 WORKING_VARIANT: dict[str, object] | None = None
 TEXT_PROVIDER_USED: str = ""
 EA_ORCHESTRATOR = None
 EA_CONTAINER = None
+STYLE_PACKS: tuple[dict[str, str], ...] = (
+    {
+        "style_family": "grimy_cinematic_realism",
+        "palette": "petrol cyan, rust amber, wet charcoal",
+        "lighting": "practical lamps, sodium spill, rain reflections",
+        "realism_mode": "documentary cyberpunk realism",
+        "lens_grammar": "35mm and 50mm handheld intimacy",
+        "texture_treatment": "fine film grain and scratched hardware surfaces",
+        "signage_treatment": "icon-first transit grime and cropped labels",
+        "troll_material_style": "worn stickers, scratched pins, faded decals",
+        "weather_bias": "rain-biased night exterior or damp interior carry-over",
+        "humor_ceiling": "dry and restrained",
+    },
+    {
+        "style_family": "neon_docu_realism",
+        "palette": "acid teal, sodium peach, bruise violet",
+        "lighting": "thin neon spill over believable practical light",
+        "realism_mode": "grounded reportage with sharp subject isolation",
+        "lens_grammar": "40mm reportage frames and over-shoulder evidence shots",
+        "texture_treatment": "cleaner edges, colder glass, subtle electronic bloom",
+        "signage_treatment": "pictograms, lane lights, and half-obscured public markers",
+        "troll_material_style": "enamel pins, transit stickers, CRT mascots",
+        "weather_bias": "humid night air and reflective surfaces",
+        "humor_ceiling": "sarcastic but not showy",
+    },
+    {
+        "style_family": "corp_decay_noir",
+        "palette": "dull brass, bruise blue, nicotine parchment",
+        "lighting": "sickly office fluorescents cut by harder accent light",
+        "realism_mode": "grounded noir with expensive surfaces aging badly",
+        "lens_grammar": "50mm still-life and long-lens surveillance peeks",
+        "texture_treatment": "paper fibers, wax seals, tape residue, smoked glass",
+        "signage_treatment": "approval marks, warnings, and symbol clusters only",
+        "troll_material_style": "wax seals, warning placards, coffee-stained coasters",
+        "weather_bias": "interior-heavy with storm bleed through windows",
+        "humor_ceiling": "meaner and drier",
+    },
+    {
+        "style_family": "industrial_shadowplay",
+        "palette": "forge orange, machine green, midnight steel",
+        "lighting": "task lamps, monitor glow, and hard industrial spill",
+        "realism_mode": "tactile shop-floor realism with cinematic contrast",
+        "lens_grammar": "28mm environment frames and close prop clusters",
+        "texture_treatment": "grease, powder, heat haze, and metal wear",
+        "signage_treatment": "warning icons, hazard bands, stamped surfaces",
+        "troll_material_style": "patches, tool decals, hazard stickers",
+        "weather_bias": "indoor heat with outdoor rain suggested secondarily",
+        "humor_ceiling": "deadpan with sharper roast tolerance",
+    },
+)
 
 
 def extract_json(text: str) -> dict[str, object]:
@@ -55,6 +108,87 @@ POLICY_ENV = load_runtime_overrides()
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def load_json_file(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def write_json_file(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def resolve_style_epoch(*, increment: bool) -> dict[str, object]:
+    existing = load_json_file(STYLE_EPOCH_PATH)
+    try:
+        epoch = int(existing.get("epoch") or -1)
+    except Exception:
+        epoch = -1
+    if increment or epoch < 0:
+        epoch += 1
+    pack = dict(STYLE_PACKS[epoch % len(STYLE_PACKS)])
+    record: dict[str, object] = {
+        "epoch": epoch,
+        "run_id": f"style-{epoch:03d}",
+        "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        **pack,
+    }
+    write_json_file(STYLE_EPOCH_PATH, record)
+    return record
+
+
+def recent_scene_rows(*, limit: int = 10) -> list[dict[str, object]]:
+    ledger = load_json_file(SCENE_LEDGER_PATH)
+    rows = ledger.get("assets")
+    if not isinstance(rows, list):
+        return []
+    cleaned = [dict(row) for row in rows if isinstance(row, dict)]
+    return cleaned[-max(1, limit) :]
+
+
+def scene_ledger_summary(rows: list[dict[str, object]]) -> list[dict[str, str]]:
+    summary: list[dict[str, str]] = []
+    for row in rows[-8:]:
+        summary.append(
+            {
+                "target": str(row.get("target") or "").strip(),
+                "composition": str(row.get("composition") or "").strip(),
+                "cast_signature": str(row.get("cast_signature") or "").strip(),
+                "subject": str(row.get("subject") or "").strip(),
+            }
+        )
+    return summary
+
+
+def variation_guardrails_for(target: str, rows: list[dict[str, object]]) -> list[str]:
+    recent = scene_ledger_summary(rows)
+    compositions = [entry.get("composition", "") for entry in recent if entry.get("composition")]
+    rules: list[str] = [
+        "Do not default to a medium-wide safehouse table unless the page absolutely depends on shared social geometry.",
+        "Prefer a distinct scene family, cast count, and camera grammar over the nearest previous accepted banner.",
+    ]
+    if compositions:
+        last = compositions[-1]
+        rules.append(f"Do not reuse the most recent accepted composition family `{last}` for `{target}`.")
+        safehouse_count = sum(1 for value in compositions if value == "safehouse_table")
+        if safehouse_count >= 2:
+            rules.append("Safehouse-table grammar is already overserved. Use prop-led, solo-operator, dossier, workshop, transit, street, archive, or service-rack grammar instead.")
+    if target.endswith("README.md") or target.endswith("chummer6-hero.png"):
+        rules.append("The landing hero must feel like product truth under pressure, not just another meeting shot.")
+    if target.endswith("what-chummer6-is.png"):
+        rules.append("Prefer over-shoulder receipt proof or a solo trust moment, not a group huddle.")
+    if target.endswith("core.png"):
+        rules.append("Core should be evidence-first: hands, dice, sheets, traces, and proof beat faces.")
+    if target.endswith("horizons-index.png"):
+        rules.append("Horizons index must be environment-first boulevard grammar, not an icon wall and not a meeting tableau.")
+    return rules
 
 
 def shlex_command(env_name: str) -> list[str]:
@@ -401,12 +535,13 @@ def build_horizon_prompt(
 ) -> str:
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
     repos = ", ".join(str(repo) for repo in item.get("repos", []))
+    current_page = read_markdown_excerpt(f"HORIZONS/{name}.md", limit=360)
     return f"""You are writing downstream-only horizon copy for the human-facing Chummer6 guide.
 
-Task: return a JSON object only with keys hook, brutal_truth, use_case.
+Task: return a JSON object only with keys hook, problem, table_scene, meanwhile, why_great, why_waits, pitch_line.
 
 Voice rules:
-- sell the idea harder
+- sell the idea harder without pretending it ships tomorrow
 - clear, punchy, Shadowrun-flavored
 - SR jargon is welcome
 - sharper dev roasting is allowed
@@ -431,6 +566,9 @@ Current use case:
 Problem:
 {item.get("problem", "")}
 
+Current page excerpt:
+{current_page}
+
 Foundations:
 {foundations}
 
@@ -443,6 +581,13 @@ Guide OODA:
 Section OODA:
 {json.dumps(section_ooda or {}, ensure_ascii=True)}
 
+Requirements:
+- `table_scene` must read like a real table moment, not a one-line reminder
+- `table_scene` should be 5-9 short lines with speaker labels or obviously playable dialogue beats
+- `meanwhile` must be 2-4 bullet lines starting with `- `
+- `problem`, `why_great`, and `why_waits` should each be one tight paragraph
+- `pitch_line` should invite a better future idea without sounding corporate
+
 Return valid JSON only.
 """
 
@@ -453,6 +598,8 @@ def build_section_ooda_prompt(
     item: dict[str, object],
     *,
     global_ooda: dict[str, object] | None = None,
+    style_epoch: dict[str, object] | None = None,
+    recent_scenes: list[dict[str, str]] | None = None,
 ) -> str:
     title = str(item.get("title", name.replace("-", " ").title())).strip()
     prompt_bits = {
@@ -482,6 +629,7 @@ def build_section_ooda_prompt(
             "context": f"the HORIZONS/{name}.md page for the human-facing Chummer6 guide",
             "source": "\n\n".join(
                 [
+                    "Current page excerpt:\n" + read_markdown_excerpt(f"HORIZONS/{name}.md", limit=280),
                     f"Hook: {item.get('hook', '')}",
                     f"Brutal truth: {item.get('brutal_truth', '')}",
                     f"Use case: {item.get('use_case', '')}",
@@ -537,6 +685,12 @@ Section source:
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
 Return valid JSON only.
 """
 
@@ -546,6 +700,8 @@ def build_section_oodas_bundle_prompt(
     section_items: dict[str, dict[str, object]],
     *,
     global_ooda: dict[str, object] | None = None,
+    style_epoch: dict[str, object] | None = None,
+    recent_scenes: list[dict[str, str]] | None = None,
 ) -> str:
     payload: dict[str, object] = {}
     for name, item in section_items.items():
@@ -575,6 +731,7 @@ def build_section_oodas_bundle_prompt(
                 "foundations": item.get("foundations", []),
                 "repos": item.get("repos", []),
                 "not_now": item.get("not_now", ""),
+                "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=220),
             }
     return f"""You are doing section-level OODA for multiple human-facing Chummer6 guide sections.
 
@@ -616,6 +773,12 @@ Section type: {section_type}
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
 Sections:
 {json.dumps(payload, ensure_ascii=True)}
 
@@ -632,7 +795,14 @@ def _section_ooda_defaults(
 ) -> dict[str, object]:
     title = str(item.get("title") or name.replace("-", " ").title()).strip()
     tagline = str(item.get("tagline") or item.get("hook") or "").strip()
-    intro = str(item.get("intro") or item.get("why") or item.get("problem") or item.get("idea") or "").strip()
+    intro = str(
+        item.get("intro")
+        or item.get("why")
+        or item.get("problem")
+        or item.get("why_great")
+        or item.get("idea")
+        or ""
+    ).strip()
     foundations = _listish(item.get("foundations"))
     repos = _listish(item.get("repos"))
     signals: list[str] = []
@@ -822,7 +992,14 @@ Return valid JSON only.
 """
 
 
-def build_parts_bundle_prompt(*, items: dict[str, dict[str, object]], global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+def build_parts_bundle_prompt(
+    *,
+    items: dict[str, dict[str, object]],
+    global_ooda: dict[str, object],
+    section_oodas: dict[str, object],
+    style_epoch: dict[str, object] | None = None,
+    recent_scenes: list[dict[str, str]] | None = None,
+) -> str:
     parts_payload: dict[str, object] = {}
     for name, item in items.items():
         parts_payload[name] = {
@@ -860,6 +1037,12 @@ Rules:
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
 Parts:
 {json.dumps(parts_payload, ensure_ascii=True)}
 
@@ -867,7 +1050,14 @@ Return valid JSON only.
 """
 
 
-def build_horizons_bundle_prompt(*, items: dict[str, dict[str, object]], global_ooda: dict[str, object], section_oodas: dict[str, object]) -> str:
+def build_horizons_bundle_prompt(
+    *,
+    items: dict[str, dict[str, object]],
+    global_ooda: dict[str, object],
+    section_oodas: dict[str, object],
+    style_epoch: dict[str, object] | None = None,
+    recent_scenes: list[dict[str, str]] | None = None,
+) -> str:
     horizons_payload: dict[str, object] = {}
     for name, item in items.items():
         horizons_payload[name] = {
@@ -879,13 +1069,14 @@ def build_horizons_bundle_prompt(*, items: dict[str, dict[str, object]], global_
             "foundations": item.get("foundations", []),
             "repos": item.get("repos", []),
             "not_now": item.get("not_now", ""),
+            "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=260),
             "section_ooda": section_oodas.get(name, {}),
         }
     return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 horizon pages.
 
 Task: return one JSON object keyed by horizon id.
 Each horizon id must map to:
-- copy: object with hook, why_wiz, brutal_truth, use_case, idea, problem, why_waits
+- copy: object with hook, problem, table_scene, meanwhile, why_great, why_waits, pitch_line
 - media: object with badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract
 
 Rules:
@@ -897,13 +1088,23 @@ Rules:
 - no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
-- scenes should feel specific, cool, and dangerous
+- scenes should feel specific, cool, dangerous, and actually playable
 - if the codename implies a person or metaphor, make that legible
 - do not reuse the same sentence stem across multiple horizons
 - the copy should feel distinct per horizon, not like one template with swapped nouns
+- `table_scene` must be a mini scene, not a one-sentence use-case stub
+- `table_scene` should feel like table dialogue, with a GM/player/Chummer rhythm when the concept allows it
+- `meanwhile` must be 2-4 bullet lines starting with `- `
+- prefer pain -> scene -> invisible system action -> payoff -> realism
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
 
 Horizons:
 {json.dumps(horizons_payload, ensure_ascii=True)}
@@ -939,7 +1140,7 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
         cleaned_copy = {key: str(copy.get(key, "")).strip() for key in ("intro", "why", "now") if str(copy.get(key, "")).strip()}
         if len(cleaned_copy) < 3:
             raise ValueError(f"insufficient part copy: {name}")
-        media_cleaned = normalize_media_override("horizon", dict(media), item)
+        media_cleaned = normalize_media_override("part", dict(media), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
     return copy_rows, media_rows
@@ -958,7 +1159,7 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
             raise ValueError(f"invalid horizon bundle row: {name}")
         cleaned_copy = {
             key: str(copy.get(key, "")).strip()
-            for key in ("hook", "why_wiz", "brutal_truth", "use_case", "idea", "problem", "why_waits")
+            for key in ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line")
             if str(copy.get(key, "")).strip()
         }
         if len(cleaned_copy) < 7:
@@ -1245,6 +1446,9 @@ def build_media_prompt(
     ooda: dict[str, object] | None = None,
     *,
     section_ooda: dict[str, object] | None = None,
+    style_epoch: dict[str, object] | None = None,
+    recent_scenes: list[dict[str, str]] | None = None,
+    variation_guardrails: list[str] | None = None,
 ) -> str:
     title = str(item.get("title", name.replace("-", " ").title())).strip()
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
@@ -1280,6 +1484,15 @@ Guide OODA:
 Section OODA:
 {json.dumps(section_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
+Variation guardrails:
+{json.dumps(variation_guardrails or [], ensure_ascii=True)}
+
 Requirements:
 - infer the scene from the source, do not literalize repo-role labels
 - do not say or imply "visitor center"
@@ -1292,6 +1505,8 @@ Requirements:
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- avoid repeating a recently accepted composition family when a different scene family would work
+- if the landing truth can be shown with one operator, one prop cluster, one transit lane, or one over-shoulder proof moment, prefer that over a group huddle
 - scene_contract must be an object with keys:
   - subject
   - environment
@@ -1350,6 +1565,15 @@ Guide OODA:
 Section OODA:
 {json.dumps(section_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
+Variation guardrails:
+{json.dumps(variation_guardrails or [], ensure_ascii=True)}
+
 Requirements:
 - infer the scene from the source, do not repeat repo labels back as literal signage
 - visual_prompt must describe an actual cyberpunk scene tied to this part in use
@@ -1360,6 +1584,8 @@ Requirements:
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- if proof, prep, compatibility, or hosted coordination can be shown without a social huddle, prefer the non-table scene family
+- do not solve every part page as people debating around a surface
 - scene_contract must be an object with keys:
   - subject
   - environment
@@ -1420,6 +1646,15 @@ Guide OODA:
 Section OODA:
 {json.dumps(section_ooda or {}, ensure_ascii=True)}
 
+Active style epoch:
+{json.dumps(style_epoch or {}, ensure_ascii=True)}
+
+Recent accepted scene ledger rows:
+{json.dumps(recent_scenes or [], ensure_ascii=True)}
+
+Variation guardrails:
+{json.dumps(variation_guardrails or [], ensure_ascii=True)}
+
 Requirements:
 - infer the scene from the source, do not just repeat headings back
 - visual_prompt must describe an actual cyberpunk scene tied to this horizon
@@ -1433,6 +1668,8 @@ Requirements:
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
+- do not reuse a recent table-huddle family when dossier, boulevard, workshop, sim-bench, archive, transit, service-rack, or solo-operator grammar would fit
+- if the horizon already has a table-scene dialogue block, the banner may represent the in-world scene or the surrounding context instead of restaging the same table
 - scene_contract must be an object with keys:
   - subject
   - environment
@@ -1455,8 +1692,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     def infer_scene_contract(*, asset_key: str, visual_prompt: str) -> dict[str, object]:
         lowered = visual_prompt.lower()
         subject = "a cyberpunk protagonist"
-        if "team" in lowered or "table" in lowered or "gm" in lowered:
+        if "team" in lowered or "group" in lowered:
             subject = "a runner team at a live table"
+        elif "receipt" in lowered or "dice" in lowered or "sheet" in lowered or "table" in lowered:
+            subject = "one operator, one receipt trail, and the props proving the point"
         elif "girl" in lowered or "woman" in lowered or asset_key == "alice":
             subject = "a cyberpunk woman"
         elif "troll" in lowered or "forge" in lowered or asset_key == "karma-forge":
@@ -1494,7 +1733,19 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 metaphor = label
                 break
         composition = "single_protagonist"
-        if "table" in lowered or "team" in lowered:
+        if "boulevard" in lowered or "district" in lowered or "signpost" in lowered:
+            composition = "horizon_boulevard"
+        elif "over-shoulder" in lowered or "receipt" in lowered or "modifier" in lowered or "dice" in lowered:
+            composition = "over_shoulder_receipt"
+        elif "service rack" in lowered or "rack" in lowered or "control surface" in lowered:
+            composition = "service_rack"
+        elif "transit" in lowered or "checkpoint" in lowered or "route board" in lowered or "station" in lowered:
+            composition = "transit_checkpoint"
+        elif "workshop bench" in lowered or "forge" in lowered or "anvil" in lowered:
+            composition = "workshop_bench"
+        elif "operator" in lowered or "solo" in lowered or "kiosk" in lowered:
+            composition = "solo_operator"
+        elif "team" in lowered or "group" in lowered:
             composition = "group_table"
         elif "dossier" in lowered or "blackbox" in lowered:
             composition = "desk_still_life"
@@ -1714,6 +1965,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     global TEXT_PROVIDER_USED
     TEXT_PROVIDER_USED = ""
     signals = collect_interest_signals()
+    style_epoch = resolve_style_epoch(increment=include_parts and include_horizons)
+    recent_scenes = scene_ledger_summary(recent_scene_rows())
     overrides: dict[str, object] = {
         "parts": {},
         "horizons": {},
@@ -1727,6 +1980,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             "provider_status": "unknown",
             "provider_error": "",
             "ooda_version": "v3",
+            "style_epoch": style_epoch,
+            "recent_scene_ledger": recent_scenes,
         },
     }
     provider_error = ""
@@ -1743,13 +1998,35 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             target_prefix="guide:ooda:act",
         )
     try:
-        hero_ooda_result = chat_json(build_section_ooda_prompt("hero", "hero", {}, global_ooda=ooda), model=model)
+        hero_ooda_result = chat_json(
+            build_section_ooda_prompt(
+                "hero",
+                "hero",
+                {},
+                global_ooda=ooda,
+                style_epoch=style_epoch,
+                recent_scenes=recent_scenes,
+            ),
+            model=model,
+        )
         hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
     except Exception as exc:
         raise RuntimeError(f"hero section OODA generation failed: {exc}") from exc
     overrides["section_ooda"]["hero"]["hero"] = hero_ooda
     try:
-        result = chat_json(build_media_prompt("hero", "hero", {}, ooda=ooda, section_ooda=hero_ooda), model=model)
+        result = chat_json(
+            build_media_prompt(
+                "hero",
+                "hero",
+                {},
+                ooda=ooda,
+                section_ooda=hero_ooda,
+                style_epoch=style_epoch,
+                recent_scenes=recent_scenes,
+                variation_guardrails=variation_guardrails_for("assets/hero/chummer6-hero.png", recent_scene_rows()),
+            ),
+            model=model,
+        )
         cleaned = {}
         for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
             value = str(result.get(key, "")).strip()
@@ -1768,7 +2045,13 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     for batch in chunk_mapping(PAGE_PROMPTS, size=section_batch_size("page", len(PAGE_PROMPTS))):
         try:
             page_ooda_result = chat_json(
-                build_section_oodas_bundle_prompt("page", batch, global_ooda=ooda),
+                build_section_oodas_bundle_prompt(
+                    "page",
+                    batch,
+                    global_ooda=ooda,
+                    style_epoch=style_epoch,
+                    recent_scenes=recent_scenes,
+                ),
                 model=model,
             )
             page_oodas.update(
@@ -1804,7 +2087,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
             try:
                 part_ooda_result = chat_json(
-                    build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda),
+                    build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
                 )
                 part_oodas.update(
@@ -1827,6 +2110,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                         items=batch,
                         global_ooda=ooda,
                         section_oodas={name: part_oodas[name] for name in batch.keys()},
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
                     ),
                     model=model,
                 )
@@ -1844,7 +2129,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
             try:
                 horizon_ooda_result = chat_json(
-                    build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda),
+                    build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
                 )
                 horizon_oodas.update(
@@ -1867,6 +2152,8 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                         items=batch,
                         global_ooda=ooda,
                         section_oodas={name: horizon_oodas[name] for name in batch.keys()},
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
                     ),
                     model=model,
                 )
@@ -1878,7 +2165,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         for horizon_id, row in horizon_copy_rows.items():
             humanize_mapping_fields(
                 row,
-                ("hook", "why_wiz", "brutal_truth", "use_case", "idea", "problem", "why_waits"),
+                ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
                 target_prefix=f"guide:horizon:{horizon_id}",
             )
         overrides["horizons"] = horizon_copy_rows

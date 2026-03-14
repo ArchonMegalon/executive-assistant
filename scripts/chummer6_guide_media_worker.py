@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import hashlib
 import importlib.util
 import json
@@ -31,6 +30,7 @@ EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
 MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
+SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 GUIDE_VISUAL_OVERRIDES = Path("/docker/chummercomplete/Chummer6/VISUAL_OVERRIDES.json")
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
@@ -57,6 +57,107 @@ FFMPEG_BIN = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def load_json_file(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def write_json_file(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def load_scene_ledger() -> dict[str, object]:
+    loaded = load_json_file(SCENE_LEDGER_OUT)
+    assets = loaded.get("assets")
+    if not isinstance(assets, list):
+        loaded["assets"] = []
+    return loaded
+
+
+def scene_rows(ledger: dict[str, object]) -> list[dict[str, object]]:
+    rows = ledger.get("assets")
+    if not isinstance(rows, list):
+        return []
+    return [dict(row) for row in rows if isinstance(row, dict)]
+
+
+def recent_scene_rows(ledger: dict[str, object], *, limit: int = 8) -> list[dict[str, object]]:
+    rows = scene_rows(ledger)
+    return rows[-max(1, limit) :]
+
+
+def infer_cast_signature(contract: dict[str, object]) -> str:
+    subject = str(contract.get("subject") or "").lower()
+    composition = str(contract.get("composition") or "").lower()
+    if any(token in subject for token in ("team", "players", "group", "gm and", "crew", "rest of the table")):
+        return "group"
+    if any(token in subject for token in ("two", "duo", "operator and", "player and", "gm and")):
+        return "duo"
+    if composition in {"group_table", "safehouse_table"}:
+        return "group"
+    return "solo"
+
+
+def style_epoch_for_overrides(loaded: dict[str, object]) -> dict[str, object]:
+    meta = loaded.get("meta")
+    if isinstance(meta, dict):
+        style = meta.get("style_epoch")
+        if isinstance(style, dict):
+            return dict(style)
+    return {}
+
+
+def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, object]) -> str:
+    recent = recent_scene_rows(ledger)
+    lowered = composition.strip().lower()
+    if not lowered:
+        return ""
+    if recent:
+        last = str(recent[-1].get("composition") or "").strip().lower()
+        if last and last == lowered:
+            return f"composition_repeat:last={last}"
+    tableish = {"safehouse_table", "group_table"}
+    safehouse_like_count = sum(1 for row in recent if str(row.get("composition") or "").strip().lower() in tableish)
+    if lowered in tableish and safehouse_like_count >= 2:
+        return f"table_monoculture:{safehouse_like_count}"
+    if target.endswith("horizons-index.png") and lowered in tableish:
+        return "horizons_index_must_be_environment_first"
+    if target.endswith("alice.png") and lowered in tableish:
+        return "alice_must_not_be_table_scene"
+    if target.endswith("jackpoint.png") and lowered in tableish:
+        return "jackpoint_should_be_dossier_or_dead_drop"
+    return ""
+
+
+def variation_guardrails_for(*, target: str, rows: list[dict[str, object]]) -> list[str]:
+    recent = [
+        {
+            "target": str(row.get("target") or "").strip(),
+            "composition": str(row.get("composition") or "").strip(),
+            "subject": str(row.get("subject") or "").strip(),
+        }
+        for row in rows[-6:]
+    ]
+    compositions = [entry["composition"] for entry in recent if entry.get("composition")]
+    rules = [
+        "Do not turn this into a generic meeting tableau or medium-wide leather-jacket huddle.",
+        "Prefer a distinct scene family, cast signature, and prop cluster over the most recent accepted banners.",
+    ]
+    if compositions:
+        rules.append(f"Recent composition families already used: {', '.join(compositions)}.")
+    if sum(1 for value in compositions if value in {'safehouse_table', 'group_table'}) >= 2:
+        rules.append("Table grammar is already overserved; prefer boulevard, solo-operator, over-shoulder proof, dossier, workshop, transit, service-rack, or archive grammar.")
+    if target.endswith("horizons-index.png"):
+        rules.append("This image must read as a future boulevard or district scene first, not a concept slide.")
+    return rules
 
 
 def ffmpeg_bin() -> str:
@@ -1149,7 +1250,7 @@ def easter_egg_instruction_set(contract: dict[str, object] | None) -> str:
 def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
-    if composition in {"city_edge", "street_front", "horizon_boulevard", "district_map"}:
+    if composition in {"city_edge", "street_front", "horizon_boulevard", "district_map", "transit_checkpoint"}:
         return (
             "Street and transit clues must use pictograms, arrows, mascot art, crossed-out symbols, color lanes, "
             "and physical landmarks instead of readable signs, posters, or neon words."
@@ -1157,10 +1258,14 @@ def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
     if composition in {
         "safehouse_table",
         "group_table",
+        "over_shoulder_receipt",
+        "solo_operator",
+        "service_rack",
         "desk_still_life",
         "dossier_desk",
         "archive_room",
         "workshop",
+        "workshop_bench",
         "simulation_lab",
         "rule_xray",
         "passport_gate",
@@ -1729,6 +1834,9 @@ def asset_specs() -> list[dict[str, object]]:
     loaded = load_media_overrides()
     media = loaded.get("media") if isinstance(loaded, dict) else {}
     pages = loaded.get("pages") if isinstance(loaded, dict) else {}
+    style_epoch = style_epoch_for_overrides(loaded)
+    ledger = load_scene_ledger()
+    recent_rows = recent_scene_rows(ledger)
     section_ooda = loaded.get("section_ooda") if isinstance(loaded, dict) else {}
     page_ooda = section_ooda.get("pages") if isinstance(section_ooda, dict) else {}
     visual_overrides = load_visual_overrides()
@@ -1747,7 +1855,7 @@ def asset_specs() -> list[dict[str, object]]:
         merged = deep_merge(row, override)
         return merged if isinstance(merged, dict) else row
 
-    def render_prompt_from_row(row: dict[str, object], *, role: str) -> str:
+    def render_prompt_from_row(row: dict[str, object], *, role: str, target: str) -> str:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
         subject = str(contract.get("subject", "")).strip()
         environment = str(contract.get("environment", "")).strip()
@@ -1762,6 +1870,12 @@ def asset_specs() -> list[dict[str, object]]:
         motifs = ", ".join(str(entry).strip() for entry in (row.get("visual_motifs") or []) if str(entry).strip())
         callouts = ", ".join(str(entry).strip() for entry in (row.get("overlay_callouts") or []) if str(entry).strip())
         visual_prompt = str(row.get("visual_prompt", "")).strip()
+        style_bits = ", ".join(
+            str(style_epoch.get(key) or "").strip()
+            for key in ("style_family", "palette", "lighting", "lens_grammar", "texture_treatment", "signage_treatment")
+            if str(style_epoch.get(key) or "").strip()
+        )
+        guardrails = variation_guardrails_for(target=target, rows=recent_rows)
         prompt_parts = [
             f"Wide cinematic cyberpunk concept art for the Chummer6 {role}.",
             visual_prompt,
@@ -1777,6 +1891,8 @@ def asset_specs() -> list[dict[str, object]]:
             f"Useful diegetic overlays in-scene: {overlays}." if overlays else "",
             f"Reader-facing motifs to weave in visually: {motifs}." if motifs else "",
             f"Overlay ideas to imply, not print literally: {callouts}." if callouts else "",
+            f"Style epoch to keep consistent across this pass: {style_bits}." if style_bits else "",
+            "Variation rules: " + " ".join(guardrails) if guardrails else "",
             easter_egg_clause(contract),
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
@@ -1834,10 +1950,11 @@ def asset_specs() -> list[dict[str, object]]:
         row = apply_visual_override(target, page_media_row(page_id, role=role, composition_hint=composition_hint))
         return {
             "target": target,
-            "prompt": render_prompt_from_row(row, role=role),
+            "prompt": render_prompt_from_row(row, role=role, target=target),
             "width": 960,
             "height": 540,
             "media_row": row,
+            "style_epoch": style_epoch,
             "providers": provider_order(),
         }
 
@@ -1845,10 +1962,11 @@ def asset_specs() -> list[dict[str, object]]:
     specs: list[dict[str, object]] = [
         {
             "target": "assets/hero/chummer6-hero.png",
-            "prompt": render_prompt_from_row(hero_row, role="landing hero"),
+            "prompt": render_prompt_from_row(hero_row, role="landing hero", target="assets/hero/chummer6-hero.png"),
             "width": 960,
             "height": 540,
             "media_row": hero_row,
+            "style_epoch": style_epoch,
             "providers": provider_order(),
         },
         page_spec(target="assets/hero/poc-warning.png", page_id="readme", role="POC warning shelf", composition_hint="desk_still_life"),
@@ -1874,10 +1992,11 @@ def asset_specs() -> list[dict[str, object]]:
         specs.append(
             {
                 "target": target,
-                "prompt": render_prompt_from_row(row, role=f"{slug} part page"),
+                "prompt": render_prompt_from_row(row, role=f"{slug} part page", target=target),
                 "width": 960,
                 "height": 540,
                 "media_row": row,
+                "style_epoch": style_epoch,
                 "providers": provider_order(),
             }
         )
@@ -1891,10 +2010,11 @@ def asset_specs() -> list[dict[str, object]]:
         specs.append(
             {
                 "target": target,
-                "prompt": render_prompt_from_row(row, role=f"{slug} horizon page"),
+                "prompt": render_prompt_from_row(row, role=f"{slug} horizon page", target=target),
                 "width": 960,
                 "height": 540,
                 "media_row": row,
+                "style_epoch": style_epoch,
                 "providers": provider_order(),
             }
         )
@@ -1905,10 +2025,39 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
     if not specs:
         raise RuntimeError("no asset specs selected for rendering")
     output_dir.mkdir(parents=True, exist_ok=True)
-    concurrency = max(1, min(4, int(env_value("CHUMMER6_MEDIA_RENDER_CONCURRENCY") or "1")))
+    ledger = load_scene_ledger()
+    accepted_rows = scene_rows(ledger)
+    active_style_epoch = {}
+    if specs and isinstance(specs[0].get("style_epoch"), dict):
+        active_style_epoch = dict(specs[0].get("style_epoch") or {})
 
     def _render_spec(spec: dict[str, object]) -> dict[str, object]:
         target = str(spec["target"])
+        row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
+        contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+        composition = str(contract.get("composition") or "").strip()
+        block_reason = repetition_block_reason(target=target, composition=composition, ledger={"assets": accepted_rows})
+        if block_reason:
+            return {
+                "target": target,
+                "output": "",
+                "provider": "none",
+                "status": f"rejected:{block_reason}",
+                "attempts": [f"variation_guard:{block_reason}"],
+                "prompt": str(spec.get("prompt") or ""),
+                "easter_egg": {
+                    "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
+                    "placement": str(contract.get("easter_egg_placement") or "inside the safe crop").strip(),
+                    "detail": str(
+                        contract.get("easter_egg_detail")
+                        or "a small recurring Chummer troll motif in the classic horned squat stance"
+                    ).strip(),
+                    "visibility": str(
+                        contract.get("easter_egg_visibility")
+                        or "secondary but clearly visible on a README banner"
+                    ).strip(),
+                },
+            }
         prompt = refine_prompt_with_ooda(prompt=str(spec["prompt"]), target=target)
         prompt = ensure_troll_clause(prompt=prompt, spec=spec)
         width = int(spec.get("width", 1280))
@@ -1922,8 +2071,20 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
             postpass_attempts.append(
                 apply_troll_postpass(image_path=out_path, spec=spec, width=width, height=height)
             )
-        row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
-        contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+        accepted_rows.append(
+            {
+                "target": target,
+                "composition": composition,
+                "cast_signature": infer_cast_signature(contract),
+                "subject": str(contract.get("subject") or "").strip(),
+                "mood": str(contract.get("mood") or "").strip(),
+                "easter_egg_kind": str(contract.get("easter_egg_kind") or "pin").strip(),
+                "provider": result["provider"],
+                "prompt_hash": prompt_hash,
+                "style_epoch": dict(spec.get("style_epoch") or {}) if isinstance(spec.get("style_epoch"), dict) else {},
+            }
+        )
         return {
             "target": target,
             "output": str(out_path),
@@ -1944,26 +2105,21 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 ).strip(),
             },
         }
-
-    # Fail fast on the first asset instead of chewing through the whole pack when no real lane works.
-    first_result = _render_spec(specs[0])
-    ordered_results: list[dict[str, object] | None] = [None] * len(specs)
-    ordered_results[0] = first_result
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-        future_map = {
-            executor.submit(_render_spec, spec): index
-            for index, spec in enumerate(specs[1:], start=1)
-        }
-        for future in concurrent.futures.as_completed(future_map):
-            index = future_map[future]
-            ordered_results[index] = future.result()
-    assets = [result for result in ordered_results if isinstance(result, dict)]
+    assets = [_render_spec(spec) for spec in specs]
     manifest = {
         "output_dir": str(output_dir),
         "assets": assets,
+        "style_epoch": active_style_epoch,
     }
     MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_OUT.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    write_json_file(
+        SCENE_LEDGER_OUT,
+        {
+            "style_epoch": active_style_epoch,
+            "assets": accepted_rows,
+        },
+    )
     STATE_OUT.write_text(
         json.dumps(
             {

@@ -432,16 +432,16 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
             "skill_key": "chummer6_visual_director",
             "task_key": "chummer6_guide_refresh",
             "name": "Chummer6 Visual Director",
-            "description": "Planner-executed Chummer6 OODA, scene direction, and structured prompt-authoring skill for the public-facing guide.",
+            "description": "Planner-executed Chummer6 OODA, style-epoch selection, scene-ledger guidance, and structured prompt-authoring skill for the public-facing guide.",
             "deliverable_type": "chummer6_guide_refresh_packet",
             "default_risk_class": "low",
             "default_approval_class": "none",
             "workflow_template": "tool_then_artifact",
             "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
             "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
-            "memory_write_policy": "none",
+            "memory_write_policy": "reviewed_only",
             "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
-            "memory_writes": [],
+            "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
             "tags": ["chummer6", "guide", "visual-direction", "ooda", "prompt-brain"],
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
             "model_policy_json": {
@@ -454,6 +454,7 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
                 "research": ["BrowserAct"],
                 "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
                 "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+                "style": ["Gemini Vortex"],
             },
             "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
             "human_policy_json": {"review_roles": ["guide_reviewer"]},
@@ -465,6 +466,8 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
                 "artifact_failure_strategy": "retry",
                 "artifact_max_attempts": 2,
                 "artifact_retry_backoff_seconds": 1,
+                "style_epoch_enabled": True,
+                "variation_guard_enabled": True,
             },
         },
     )
@@ -479,6 +482,11 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
     fetched_body = fetched.json()
     assert fetched_body["task_key"] == "chummer6_guide_refresh"
     assert fetched_body["model_policy_json"]["provider"] == "gemini_vortex"
+    assert fetched_body["memory_writes"] == [
+        "chummer6_style_epoch",
+        "chummer6_scene_ledger",
+        "chummer6_visual_critic_fact",
+    ]
 
     compiled = client.post(
         "/v1/plans/compile",

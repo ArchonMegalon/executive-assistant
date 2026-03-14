@@ -34,14 +34,15 @@ Under the runtime surface, EA now also projects typed read records instead of ma
 | `travel_ops` | `travel_ops` | `travel_itinerary` | `artifact_then_dispatch` | `delivery_preferences`, `interruption_budgets`, `authority_bindings` | `travel_follow_up_fact` | Approval for bookings and cost-sensitive changes | `OneAir`, `MarkupGo`, `ApproveThis` |
 | `research_decision_memo` | `research_decision_memo` | `decision_summary` | `artifact_then_memory_candidate` | `decision_windows`, `stakeholders`, `relationships` | `decision_research_fact` | Human review for high-stakes decisions | `Paperguide`, `Vizologi`, `ChatPlayground AI` |
 | `documentation_freshness` | `documentation_freshness` | `documentation_refresh_packet` | `tool_then_artifact` | `entities`, `relationships`, `communication_policies` | `documentation_freshness_fact` | Human review before publishing docs or runbook changes | `Documentation.AI`, `AI Magicx` |
-| `chummer6_visual_director` | `chummer6_guide_refresh` | `chummer6_guide_refresh_packet` | `tool_then_artifact` | `entities`, `relationships`, `repo_readmes`, `design_scope`, `public_status` |  | Operator review for public-guide copy and image direction; Gemini Vortex is the planner brain, and Chummer6 text generation now hard-fails instead of falling back to Codex | `Gemini Vortex`, `AI Magicx`, `Prompting Systems`, `BrowserAct` |
+| `chummer6_visual_director` | `chummer6_guide_refresh` | `chummer6_guide_refresh_packet` | `tool_then_artifact` | `entities`, `relationships`, `repo_readmes`, `design_scope`, `public_status` | `chummer6_style_epoch`, `chummer6_scene_ledger`, `chummer6_visual_critic_fact` | Operator review for public-guide copy and image direction; Gemini Vortex is the planner brain, style epochs keep each full pass coherent, and the scene ledger exists to stop another repo-wide table-huddle relapse | `Gemini Vortex`, `AI Magicx`, `Prompting Systems`, `BrowserAct` |
 
 ## Notes
 
 - External providers are capability hints, not the source of truth. EA keeps Postgres as the runtime and memory system of record.
 - `Teable` belongs on the operator cockpit side, not in the core execution ledger.
 - `ApproveThis` is the external approval edge, not the internal policy engine.
-- `ChatPlayground AI` and `Prompting Systems` are evaluation and prompt-authoring tools, not the live planner brain; `Gemini Vortex` now owns the primary structured-generation lane for `chummer6_visual_director`, while downstream helpers stay bounded to refinement/render work.
+- `ChatPlayground AI` and `Prompting Systems` are evaluation and prompt-authoring tools, not the live planner brain; `Gemini Vortex` owns the primary structured-generation lane for `chummer6_visual_director`, while downstream helpers stay bounded to refinement/render work.
+- `chummer6_visual_director` now writes a reviewed style epoch and scene-ledger memory trail so one full regeneration pass can share a visual family without letting every page collapse into the same shot.
 - `browseract_bootstrap_manager` is now a real first-class skill, not just a helper script with stage fright.
 - `browseract_workflow_repair_manager` is the companion self-heal lane for when a BrowserAct workflow decides that typing `/text` literally is somehow a personality.
 - `python3 scripts/generate_browseract_content_templates.py` uses the BrowserAct bootstrap skill to emit ready-to-edit packet and workflow JSON for Economist, Atlantic, NYTimes, ApproveThis, and MetaSurvey reader templates in `/mnt/pcloud/EA/browseract_templates`.
