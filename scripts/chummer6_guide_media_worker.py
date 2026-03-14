@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib.util
 import json
@@ -48,6 +49,7 @@ PALETTES = [
     ("#be123c", "#fb7185"),
     ("#4338ca", "#818cf8"),
 ]
+TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
 
 
 LOCAL_ENV = load_local_env()
@@ -205,11 +207,14 @@ def provider_order() -> list[str]:
     if not raw:
         return list(preferred)
     values = [part.strip().lower() for part in raw.split(",") if part.strip()]
-    filtered = [
-        value
-        for value in values
-        if value not in {"local_raster", "markupgo", "ooda_compositor", "scene_contract_renderer", "pollinations"}
-    ]
+    filtered = []
+    for value in values:
+        if value in {"markupgo", "pollinations"}:
+            continue
+        if value in {"ooda_compositor"}:
+            filtered.append("scene_contract_renderer")
+            continue
+        filtered.append(value)
     ordered = sorted(
         dict.fromkeys(filtered),
         key=lambda value: preferred.index(value) if value in preferred else len(preferred),
@@ -1819,14 +1824,33 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
                 if url_ok or detail.endswith(":not_configured"):
                     ok, detail = url_ok, url_detail
         elif normalized in {"scene_contract_renderer", "ooda_compositor"}:
-            ok, detail = False, f"{normalized}:disabled"
+            ok, detail = run_ooda_compositor(spec=spec, prompt=prompt, output_path=output_path, width=width, height=height)
         elif normalized == "local_raster":
-            ok, detail = False, "local_raster:disabled"
+            ok, detail = render_local_raster(prompt=prompt, output_path=output_path, width=width, height=height)
         else:
             ok, detail = False, f"{normalized}:unknown_provider"
         attempts.append(detail)
         if ok:
             return {"provider": normalized, "status": detail, "attempts": attempts}
+    local_ok, local_detail = run_ooda_compositor(
+        spec=spec,
+        prompt=prompt,
+        output_path=output_path,
+        width=width,
+        height=height,
+    )
+    attempts.append(local_detail)
+    if local_ok:
+        return {"provider": "scene_contract_renderer", "status": local_detail, "attempts": attempts}
+    raster_ok, raster_detail = render_local_raster(
+        prompt=prompt,
+        output_path=output_path,
+        width=width,
+        height=height,
+    )
+    attempts.append(raster_detail)
+    if raster_ok:
+        return {"provider": "local_raster", "status": raster_detail, "attempts": attempts}
     raise RuntimeError("no image provider succeeded: " + " || ".join(attempts))
 
 
@@ -1950,6 +1974,7 @@ def asset_specs() -> list[dict[str, object]]:
         row = apply_visual_override(target, page_media_row(page_id, role=role, composition_hint=composition_hint))
         return {
             "target": target,
+            "role": role,
             "prompt": render_prompt_from_row(row, role=role, target=target),
             "width": 960,
             "height": 540,
@@ -1958,10 +1983,215 @@ def asset_specs() -> list[dict[str, object]]:
             "providers": provider_order(),
         }
 
+    target_scene_policies: dict[str, dict[str, object]] = {
+        "assets/hero/chummer6-hero.png": {
+            "preferred": "over_shoulder_receipt",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Keep this as one rules-truth moment under pressure, not a committee around a surface.",
+        },
+        "assets/pages/what-chummer6-is.png": {
+            "preferred": "over_shoulder_receipt",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Prefer one trust moment with the proof path doing the heavy lifting over another group confrontation.",
+        },
+        "assets/pages/where-to-go-deeper.png": {
+            "preferred": "archive_room",
+            "banned": TABLEAU_COMPOSITIONS | {"desk_still_life"},
+            "prompt_nudge": "Treat go-deeper like an archive descent or evidence room, not a desk meeting.",
+            "subject": "a reader tracing one question across archive materials",
+            "environment": "a dim archive room with binders, drawers, and one glowing review screen",
+        },
+        "assets/pages/current-status.png": {
+            "preferred": "solo_operator",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Show one host or operator keeping the session alive instead of another huddle.",
+        },
+        "assets/pages/public-surfaces.png": {
+            "preferred": "street_front",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Use a real-world surface scene with asymmetrical devices, not another meeting shot.",
+        },
+        "assets/pages/horizons-index.png": {
+            "required": "horizon_boulevard",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Make this a future boulevard of districts and pains, not an icon corridor or meeting tableau.",
+            "subject": "a horizon boulevard crossroads where future districts tempt the viewer deeper",
+            "environment": "a neon transit district with storefronts, alleys, station mouths, and future neighborhoods receding into rain",
+        },
+        "assets/parts/core.png": {
+            "required": "over_shoulder_receipt",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Core is proof-on-props first: hands, dice, chips, and traces beat faces.",
+        },
+        "assets/parts/mobile.png": {
+            "required": "transit_checkpoint",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Anchor this around one reconnecting device or runner in motion, not a posed group.",
+        },
+        "assets/parts/hub.png": {
+            "required": "service_rack",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Hosted coordination should read as racks, control surfaces, and remote presence seams, not a table in disguise.",
+        },
+        "assets/horizons/nexus-pan.png": {
+            "required": "transit_checkpoint",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Anchor the shot around one reconnecting device or operator; the rest of the table can stay implied off-frame.",
+            "subject": "one reconnecting operator bringing a dropped device back into the session",
+            "environment": "a transit threshold or rainy cafe edge with one live handheld and one secondary session surface",
+        },
+        "assets/horizons/alice.png": {
+            "required": "simulation_lab",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "ALICE lives in a sim bench or crash lab, never another social huddle.",
+        },
+        "assets/horizons/jackpoint.png": {
+            "required": "dossier_desk",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "JACKPOINT should feel like dossier, dead-drop, or evidence-desk grammar before faces enter frame.",
+        },
+        "assets/horizons/karma-forge.png": {
+            "required": "workshop_bench",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "KARMA FORGE needs a rulesmith bench or forge station, not a committee around glowing furniture.",
+        },
+    }
+    adjacency_fallbacks = {
+        "archive_room": "street_front",
+        "dossier_desk": "desk_still_life",
+        "horizon_boulevard": "city_edge",
+        "over_shoulder_receipt": "solo_operator",
+        "service_rack": "archive_room",
+        "simulation_lab": "solo_operator",
+        "solo_operator": "street_front",
+        "street_front": "over_shoulder_receipt",
+        "transit_checkpoint": "solo_operator",
+        "workshop_bench": "service_rack",
+    }
+
+    def scene_policy_for_target(target: str) -> dict[str, object]:
+        return dict(target_scene_policies.get(target) or {})
+
+    def planned_scene_row(target: str, row: dict[str, object]) -> dict[str, str]:
+        contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+        return {
+            "target": target,
+            "composition": str(contract.get("composition") or "").strip(),
+            "subject": str(contract.get("subject") or "").strip(),
+        }
+
+    def repair_media_row(target: str, row: dict[str, object], planned_rows: list[dict[str, str]]) -> tuple[dict[str, object], list[str]]:
+        cleaned = copy.deepcopy(row)
+        policy = scene_policy_for_target(target)
+        banned = {str(entry).strip() for entry in policy.get("banned", set()) if str(entry).strip()}
+        required = str(policy.get("required") or "").strip()
+        preferred = str(policy.get("preferred") or required or "").strip()
+        contract = cleaned.get("scene_contract") if isinstance(cleaned.get("scene_contract"), dict) else {}
+        contract = dict(contract)
+        notes: list[str] = []
+
+        composition = str(contract.get("composition") or "").strip()
+        if not composition:
+            composition = preferred or "solo_operator"
+            notes.append(f"scene_plan_audit:missing_composition->{composition}")
+        if composition in banned and preferred and composition != preferred:
+            notes.append(f"scene_plan_audit:{composition}->{preferred}")
+            composition = preferred
+        if required and composition != required:
+            notes.append(f"scene_plan_audit:required:{composition}->{required}")
+            composition = required
+
+        tableish_count = sum(
+            1
+            for planned in planned_rows
+            if str(planned.get("composition") or "").strip() in TABLEAU_COMPOSITIONS
+        )
+        if composition in TABLEAU_COMPOSITIONS and tableish_count >= 2:
+            fallback = preferred or adjacency_fallbacks.get(composition) or "solo_operator"
+            if fallback in TABLEAU_COMPOSITIONS:
+                fallback = "solo_operator"
+            if fallback != composition:
+                notes.append(f"whole_pack_audit:table_monoculture:{composition}->{fallback}")
+                composition = fallback
+
+        if planned_rows:
+            previous = str(planned_rows[-1].get("composition") or "").strip()
+            if previous and composition == previous:
+                fallback = preferred or adjacency_fallbacks.get(composition) or ""
+                if fallback and fallback != composition:
+                    notes.append(f"whole_pack_audit:adjacent_repeat:{composition}->{fallback}")
+                    composition = fallback
+
+        contract["composition"] = composition
+        for key in ("subject", "environment", "action", "metaphor", "mood"):
+            replacement = str(policy.get(key) or "").strip()
+            if replacement and (notes or not str(contract.get(key) or "").strip()):
+                contract[key] = replacement
+        cleaned["scene_contract"] = contract
+
+        prompt_nudge = str(policy.get("prompt_nudge") or "").strip()
+        if prompt_nudge:
+            visual_prompt = str(cleaned.get("visual_prompt") or "").strip()
+            if prompt_nudge.lower() not in visual_prompt.lower():
+                cleaned["visual_prompt"] = f"{prompt_nudge} {visual_prompt}".strip()
+        if notes:
+            cleaned["scene_audit"] = list(notes)
+        return cleaned, notes
+
+    def audit_specs(specs_in: list[dict[str, object]]) -> list[dict[str, object]]:
+        planned_rows = [dict(row) for row in recent_rows]
+        audited_specs: list[dict[str, object]] = []
+        for spec in specs_in:
+            target = str(spec.get("target") or "").strip()
+            role = str(spec.get("role") or "guide asset").strip()
+            row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
+            repaired_row, notes = repair_media_row(target, row, planned_rows)
+            prompt = render_prompt_from_row(repaired_row, role=role, target=target)
+            if notes:
+                prompt = prompt + " Pack audit enforcement: " + " ".join(notes)
+            audited_spec = dict(spec)
+            audited_spec["media_row"] = repaired_row
+            audited_spec["prompt"] = prompt
+            audited_spec["scene_audit"] = notes
+            audited_specs.append(audited_spec)
+            planned_rows.append(planned_scene_row(target, repaired_row))
+
+        compositions = [
+            str(
+                (
+                    (spec.get("media_row") or {}).get("scene_contract")
+                    if isinstance((spec.get("media_row") or {}).get("scene_contract"), dict)
+                    else {}
+                ).get("composition")
+                or ""
+            ).strip()
+            for spec in audited_specs
+        ]
+        tableish_count = sum(1 for composition in compositions if composition in TABLEAU_COMPOSITIONS)
+        if tableish_count > 2:
+            raise RuntimeError(f"whole_pack_audit_failed:table_monoculture:{tableish_count}")
+        for expected_target, required in (
+            ("assets/pages/horizons-index.png", "horizon_boulevard"),
+            ("assets/horizons/alice.png", "simulation_lab"),
+            ("assets/horizons/jackpoint.png", "dossier_desk"),
+            ("assets/horizons/karma-forge.png", "workshop_bench"),
+            ("assets/horizons/nexus-pan.png", "transit_checkpoint"),
+        ):
+            match = next((spec for spec in audited_specs if str(spec.get("target") or "") == expected_target), None)
+            if not isinstance(match, dict):
+                continue
+            contract = match.get("media_row") if isinstance(match.get("media_row"), dict) else {}
+            scene_contract = contract.get("scene_contract") if isinstance(contract.get("scene_contract"), dict) else {}
+            composition = str(scene_contract.get("composition") or "").strip()
+            if composition != required:
+                raise RuntimeError(f"whole_pack_audit_failed:{expected_target}:{composition or 'missing'}!={required}")
+        return audited_specs
+
     hero_row = apply_visual_override("assets/hero/chummer6-hero.png", hero_override)
     specs: list[dict[str, object]] = [
         {
             "target": "assets/hero/chummer6-hero.png",
+            "role": "landing hero",
             "prompt": render_prompt_from_row(hero_row, role="landing hero", target="assets/hero/chummer6-hero.png"),
             "width": 960,
             "height": 540,
@@ -1992,6 +2222,7 @@ def asset_specs() -> list[dict[str, object]]:
         specs.append(
             {
                 "target": target,
+                "role": f"{slug} part page",
                 "prompt": render_prompt_from_row(row, role=f"{slug} part page", target=target),
                 "width": 960,
                 "height": 540,
@@ -2010,6 +2241,7 @@ def asset_specs() -> list[dict[str, object]]:
         specs.append(
             {
                 "target": target,
+                "role": f"{slug} horizon page",
                 "prompt": render_prompt_from_row(row, role=f"{slug} horizon page", target=target),
                 "width": 960,
                 "height": 540,
@@ -2018,7 +2250,7 @@ def asset_specs() -> list[dict[str, object]]:
                 "providers": provider_order(),
             }
         )
-    return specs
+    return audit_specs(specs)
 
 
 def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[str, object]:
@@ -2030,6 +2262,33 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
     active_style_epoch = {}
     if specs and isinstance(specs[0].get("style_epoch"), dict):
         active_style_epoch = dict(specs[0].get("style_epoch") or {})
+    audited_compositions = [
+        str(
+            (
+                (spec.get("media_row") or {}).get("scene_contract")
+                if isinstance((spec.get("media_row") or {}).get("scene_contract"), dict)
+                else {}
+            ).get("composition")
+            or ""
+        ).strip()
+        for spec in specs
+    ]
+    pack_audit = {
+        "tableau_count": sum(1 for composition in audited_compositions if composition in TABLEAU_COMPOSITIONS),
+        "adjacent_repeat_count": sum(
+            1
+            for index in range(1, len(audited_compositions))
+            if audited_compositions[index] and audited_compositions[index] == audited_compositions[index - 1]
+        ),
+        "scene_adjustments": [
+            {
+                "target": str(spec.get("target") or "").strip(),
+                "notes": list(spec.get("scene_audit") or []),
+            }
+            for spec in specs
+            if list(spec.get("scene_audit") or [])
+        ],
+    }
 
     def _render_spec(spec: dict[str, object]) -> dict[str, object]:
         target = str(spec["target"])
@@ -2092,6 +2351,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
             "status": result["status"],
             "attempts": list(result["attempts"]) + [normalize_status] + postpass_attempts,
             "prompt": prompt,
+            "scene_audit": list(spec.get("scene_audit") or []),
             "easter_egg": {
                 "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
                 "placement": str(contract.get("easter_egg_placement") or "inside the safe crop").strip(),
@@ -2110,6 +2370,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         "output_dir": str(output_dir),
         "assets": assets,
         "style_epoch": active_style_epoch,
+        "pack_audit": pack_audit,
     }
     MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_OUT.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -2127,6 +2388,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "provider": assets[0]["provider"] if assets else "none",
                 "status": f"pack:rendered:{len(assets)}",
                 "attempts": [asset["status"] for asset in assets],
+                "pack_audit": pack_audit,
             },
             indent=2,
             ensure_ascii=True,

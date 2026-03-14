@@ -911,15 +911,15 @@ Content-Type: application/json
   }
 }
 
-### Skills -> upsert `chummer6_visual_director` into the first-class skill catalog
+### Skills -> upsert `chummer6_public_writer` into the first-class skill catalog
 POST {{host}}/v1/skills
 Content-Type: application/json
 
 {
-  "skill_key": "chummer6_visual_director",
-  "task_key": "chummer6_guide_refresh",
-  "name": "Chummer6 Visual Director",
-  "description": "Planner-executed Chummer6 OODA, scene direction, and structured prompt-authoring skill for the public-facing guide.",
+  "skill_key": "chummer6_public_writer",
+  "task_key": "chummer6_public_copy_refresh",
+  "name": "Chummer6 Public Writer",
+  "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
   "deliverable_type": "chummer6_guide_refresh_packet",
   "default_risk_class": "low",
   "default_approval_class": "none",
@@ -934,7 +934,7 @@ Content-Type: application/json
     "public_status",
     "source_prompt"
   ],
-  "memory_write_policy": "none",
+  "memory_write_policy": "reviewed_only",
   "memory_reads": [
     "entities",
     "relationships",
@@ -942,13 +942,111 @@ Content-Type: application/json
     "design_scope",
     "public_status"
   ],
-  "memory_writes": [],
+  "memory_writes": [
+    "chummer6_public_copy_fact"
+  ],
+  "tags": [
+    "chummer6",
+    "guide",
+    "public-writer",
+    "audience",
+    "copy"
+  ],
+  "authority_profile_json": {
+    "authority_class": "draft",
+    "review_class": "operator"
+  },
+  "model_policy_json": {
+    "provider": "gemini_vortex",
+    "default_model": "gemini-3-flash-preview",
+    "output_mode": "json"
+  },
+  "provider_hints_json": {
+    "primary": [
+      "Gemini Vortex"
+    ],
+    "research": [
+      "BrowserAct"
+    ],
+    "output": [
+      "Gemini Vortex",
+      "Prompting Systems"
+    ],
+    "style": [
+      "Gemini Vortex"
+    ]
+  },
+  "tool_policy_json": {
+    "allowed_tools": [
+      "provider.gemini_vortex.structured_generate",
+      "artifact_repository"
+    ]
+  },
+  "human_policy_json": {
+    "review_roles": [
+      "guide_reviewer"
+    ]
+  },
+  "evaluation_cases_json": [
+    {
+      "case_key": "chummer6_guide_refresh_golden",
+      "priority": "medium"
+    }
+  ],
+  "budget_policy_json": {
+    "class": "low",
+    "workflow_template": "tool_then_artifact",
+    "pre_artifact_capability_key": "structured_generate",
+    "artifact_failure_strategy": "retry",
+    "artifact_max_attempts": 2,
+    "artifact_retry_backoff_seconds": 1,
+    "style_epoch_enabled": true,
+    "variation_guard_enabled": true
+  }
+}
+
+### Skills -> upsert `chummer6_visual_director` into the first-class skill catalog
+POST {{host}}/v1/skills
+Content-Type: application/json
+
+{
+  "skill_key": "chummer6_visual_director",
+  "task_key": "chummer6_guide_refresh",
+  "name": "Chummer6 Visual Director",
+  "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
+  "deliverable_type": "chummer6_guide_refresh_packet",
+  "default_risk_class": "low",
+  "default_approval_class": "none",
+  "workflow_template": "tool_then_artifact",
+  "allowed_tools": [
+    "provider.gemini_vortex.structured_generate",
+    "artifact_repository"
+  ],
+  "evidence_requirements": [
+    "repo_readmes",
+    "design_scope",
+    "public_status",
+    "source_prompt"
+  ],
+  "memory_write_policy": "reviewed_only",
+  "memory_reads": [
+    "entities",
+    "relationships",
+    "repo_readmes",
+    "design_scope",
+    "public_status"
+  ],
+  "memory_writes": [
+    "chummer6_style_epoch",
+    "chummer6_scene_ledger",
+    "chummer6_visual_critic_fact"
+  ],
   "tags": [
     "chummer6",
     "guide",
     "visual-direction",
-    "ooda",
-    "prompt-brain"
+    "style-epoch",
+    "scene-ledger"
   ],
   "authority_profile_json": {
     "authority_class": "draft",
@@ -976,6 +1074,9 @@ Content-Type: application/json
       "AI Magicx",
       "Prompting Systems",
       "BrowserAct"
+    ],
+    "style": [
+      "Gemini Vortex"
     ]
   },
   "tool_policy_json": {
@@ -1001,7 +1102,9 @@ Content-Type: application/json
     "pre_artifact_capability_key": "structured_generate",
     "artifact_failure_strategy": "retry",
     "artifact_max_attempts": 2,
-    "artifact_retry_backoff_seconds": 1
+    "artifact_retry_backoff_seconds": 1,
+    "style_epoch_enabled": true,
+    "variation_guard_enabled": true
   }
 }
 
@@ -1019,6 +1122,9 @@ GET {{host}}/v1/skills/ltd_inventory_refresh
 
 ### Skills -> fetch `browseract_bootstrap_manager`
 GET {{host}}/v1/skills/browseract_bootstrap_manager
+
+### Skills -> fetch `chummer6_public_writer`
+GET {{host}}/v1/skills/chummer6_public_writer
 
 ### Skills -> fetch `chummer6_visual_director`
 GET {{host}}/v1/skills/chummer6_visual_director
@@ -1113,6 +1219,16 @@ X-EA-Principal-ID: {{principal_id}}
 {
   "skill_key": "browseract_bootstrap_manager",
   "goal": "build a BrowserAct workflow spec packet"
+}
+
+### Plans -> compile `chummer6_public_writer` directly via `skill_key`
+POST {{host}}/v1/plans/compile
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "skill_key": "chummer6_public_writer",
+  "goal": "author reader-safe Chummer6 guide copy"
 }
 
 ### Plans -> compile `chummer6_visual_director` directly via `skill_key`

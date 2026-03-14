@@ -89,6 +89,10 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - explain what the project means for the reader at the table first
 - if the reader can act, route them to the Chummer6 issue tracker, releases, or the owning repos as appropriate
 - do not send normal users to chummer6-design to propose features or clean up guide drift
+- do not open public pages with repo structure, split mechanics, blueprint talk, or architecture lectures
+- use long-range plan instead of blueprint, and only mention code repos when the reader explicitly wants source or implementation detail
+- translate any internal term into a table-facing benefit the moment it appears
+- glossary terms must be things a player or GM can actually feel at the table
 - translate internal jargon immediately or avoid it
 - humor should be sparse, dry, and useful; if the joke is not better than clear prose, skip it
 """
@@ -97,11 +101,38 @@ FORBIDDEN_PUBLIC_COPY_PHRASES: tuple[str, ...] = (
     "correct the blueprint",
     "visitor center",
     "blueprint room",
+    "blueprint truth",
     "control plane",
     "repo topology",
+    "split story",
+    "architectural rules",
+    "repo taxonomy",
+    "three main nodes",
     "signoff only",
     "shared interface",
     "where do i propose design changes?\n\nin `chummer6-design`",
+)
+PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("blueprint", "long-range plan"),
+    ("repo taxonomy", "internal map"),
+    ("repo topology", "internal map"),
+    ("architectural rules", "deeper design notes"),
+    ("split story", "part map"),
+    ("three main nodes", "main paths"),
+    ("the split is real", "the parts are real"),
+    ("workbench", "prep surface"),
+    ("play shell", "live-play surface"),
+)
+ARCHITECTURE_HEAVY_TERMS: tuple[str, ...] = (
+    "architecture",
+    "architectural",
+    "dependency injection",
+    "repo",
+    "topology",
+    "control plane",
+    "worker",
+    "orchestration",
+    "node",
 )
 
 
@@ -225,6 +256,83 @@ def _contains_forbidden_public_copy(text: str) -> str:
     if "fix" in lowered and "guide" in lowered and "first" in lowered:
         return "maintainer_imperative"
     return ""
+
+
+def editorial_self_audit_text(
+    text: str,
+    *,
+    fallback: str = "",
+    context: str = "",
+) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return str(fallback or "").strip()
+    original_lowered = cleaned.lower()
+    lowered = original_lowered
+    for source, target in PUBLIC_COPY_REPLACEMENTS:
+        if source in lowered:
+            cleaned = re.sub(re.escape(source), target, cleaned, flags=re.IGNORECASE)
+            lowered = cleaned.lower()
+    forbidden = _contains_forbidden_public_copy(cleaned)
+    if forbidden and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("page:") or context.startswith("ooda:"):
+        if any(term in original_lowered for term in ARCHITECTURE_HEAVY_TERMS) and fallback:
+            return str(fallback or "").strip()
+    return cleaned
+
+
+def editorial_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
+    issues: list[dict[str, str]] = []
+    checked = 0
+
+    def audit_mapping(scope: str, mapping: object) -> None:
+        nonlocal checked
+        if not isinstance(mapping, dict):
+            return
+        for key, value in mapping.items():
+            lowered_key = str(key or "").strip().lower()
+            if lowered_key.startswith("banned_") or lowered_key == "banned_terms":
+                continue
+            if isinstance(value, dict):
+                audit_mapping(f"{scope}.{key}", value)
+                continue
+            if isinstance(value, list):
+                for index, entry in enumerate(value):
+                    if isinstance(entry, str):
+                        checked += 1
+                        forbidden = _contains_forbidden_public_copy(entry)
+                        if forbidden:
+                            issues.append(
+                                {
+                                    "scope": f"{scope}.{key}[{index}]",
+                                    "reason": forbidden,
+                                }
+                            )
+                continue
+            if isinstance(value, str):
+                checked += 1
+                forbidden = _contains_forbidden_public_copy(value)
+                if forbidden:
+                    issues.append(
+                        {
+                            "scope": f"{scope}.{key}",
+                            "reason": forbidden,
+                        }
+                    )
+
+    for section in ("pages", "parts", "horizons", "ooda", "section_ooda"):
+        audit_mapping(section, overrides.get(section))
+
+    summary = {
+        "checked_fields": checked,
+        "issues": issues,
+        "status": "ok" if not issues else "failed",
+    }
+    if issues:
+        scope_list = ", ".join(f"{row['scope']}:{row['reason']}" for row in issues[:8])
+        raise RuntimeError(f"editorial_pack_audit_failed:{scope_list}")
+    return summary
 
 
 def assert_public_reader_safe(mapping: dict[str, object], *, context: str) -> None:
@@ -968,7 +1076,15 @@ def normalize_section_ooda(
                 cleaned = _listish(raw)
                 if not cleaned:
                     cleaned = _listish(default_value)
-                merged[field] = cleaned
+                fallback_values = _listish(default_value)
+                merged[field] = [
+                    editorial_self_audit_text(
+                        entry,
+                        fallback=(fallback_values[index] if index < len(fallback_values) else entry),
+                        context=f"{section_type}:{name}:{stage}:{field}",
+                    )
+                    for index, entry in enumerate(cleaned)
+                ]
             else:
                 value = str(raw or "").strip()
                 if not value:
@@ -976,7 +1092,11 @@ def normalize_section_ooda(
                         merged[field] = _listish(default_value)
                         continue
                     value = str(default_value or "").strip()
-                merged[field] = value
+                merged[field] = editorial_self_audit_text(
+                    value,
+                    fallback=str(default_value or "").strip(),
+                    context=f"{section_type}:{name}:{stage}:{field}",
+                )
         normalized[stage] = merged
     return normalized
 
@@ -1196,9 +1316,20 @@ def normalize_pages_bundle(result: dict[str, object], *, items: dict[str, dict[s
     normalized: dict[str, dict[str, str]] = {}
     for page_id in items:
         row = result.get(page_id)
+        fallback_row = dict(PAGE_BUNDLE_FALLBACKS.get(page_id) or {})
         if not isinstance(row, dict):
-            raise ValueError(f"missing page bundle row: {page_id}")
-        cleaned = {key: str(row.get(key, "")).strip() for key in ("intro", "body", "kicker") if str(row.get(key, "")).strip()}
+            row = dict(fallback_row)
+        cleaned = {
+            key: editorial_self_audit_text(
+                str(row.get(key, "")).strip(),
+                fallback=str(fallback_row.get(key, "")).strip(),
+                context=f"page:{page_id}:{key}",
+            )
+            for key in ("intro", "body", "kicker")
+            if str(row.get(key, "")).strip() or str(fallback_row.get(key, "")).strip()
+        }
+        if len(cleaned) < 2:
+            cleaned = {key: str(value).strip() for key, value in fallback_row.items() if str(value).strip()}
         if len(cleaned) < 2:
             raise ValueError(f"insufficient page bundle content: {page_id}")
         assert_public_reader_safe(cleaned, context=f"page:{page_id}")
@@ -1217,7 +1348,14 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
         media = row.get("media")
         if not isinstance(copy, dict) or not isinstance(media, dict):
             raise ValueError(f"invalid part bundle row: {name}")
-        cleaned_copy = {key: str(copy.get(key, "")).strip() for key in ("intro", "why", "now") if str(copy.get(key, "")).strip()}
+        cleaned_copy = {
+            key: editorial_self_audit_text(
+                str(copy.get(key, "")).strip(),
+                context=f"part:{name}:{key}",
+            )
+            for key in ("intro", "why", "now")
+            if str(copy.get(key, "")).strip()
+        }
         if len(cleaned_copy) < 3:
             raise ValueError(f"insufficient part copy: {name}")
         assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
@@ -1239,7 +1377,10 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
         if not isinstance(copy, dict) or not isinstance(media, dict):
             raise ValueError(f"invalid horizon bundle row: {name}")
         cleaned_copy = {
-            key: str(copy.get(key, "")).strip()
+            key: editorial_self_audit_text(
+                str(copy.get(key, "")).strip(),
+                context=f"horizon:{name}:{key}",
+            )
             for key in ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line")
             if str(copy.get(key, "")).strip()
         }
@@ -1337,7 +1478,7 @@ Rules:
 - cta_strategy should explain how to invite readers to engage without sounding sketchy
 - landing_tagline should be short, punchy, and human-facing
 - landing_intro should be one short paragraph
-- what_it_is should explain the repo in plain language
+- what_it_is should explain the product in plain language before it mentions the guide or repo
 - watch_intro should tee up why the project is worth following
 - horizon_intro should tee up the future ideas in a fun way without pretending they are active work
 - keep the whole JSON compact enough to fit on one terminal screen
@@ -1500,27 +1641,34 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
         value = str(raw_orient.get(key, "")).strip() if isinstance(raw_orient, dict) else ""
         if not value:
             value = str(defaults["orient"].get(key, "")).strip()
-        orient[key] = value
+        orient[key] = editorial_self_audit_text(value, fallback=str(defaults["orient"].get(key, "")).strip(), context=f"ooda:orient:{key}")
     for key in ("why_care", "current_focus", "signals_to_highlight", "banned_terms"):
         raw = raw_orient.get(key) if isinstance(raw_orient, dict) else None
         cleaned = _listish(raw)
         if not cleaned:
             cleaned = _listish(defaults["orient"].get(key))
-        orient[key] = cleaned
+        orient[key] = [
+            editorial_self_audit_text(
+                entry,
+                fallback=str(fallback).strip(),
+                context=f"ooda:orient:{key}",
+            )
+            for entry, fallback in zip(cleaned, _listish(defaults["orient"].get(key)) + cleaned)
+        ]
 
     decide: dict[str, object] = {}
     for key in ("information_order", "tone_rules", "horizon_policy", "media_strategy", "overlay_policy", "cta_strategy"):
         value = str(raw_decide.get(key, "")).strip() if isinstance(raw_decide, dict) else ""
         if not value:
             value = str(defaults["decide"].get(key, "")).strip()
-        decide[key] = value
+        decide[key] = editorial_self_audit_text(value, fallback=str(defaults["decide"].get(key, "")).strip(), context=f"ooda:decide:{key}")
 
     act: dict[str, object] = {}
     for key in ("landing_tagline", "landing_intro", "what_it_is", "watch_intro", "horizon_intro"):
         value = str(raw_act.get(key, "")).strip() if isinstance(raw_act, dict) else ""
         if not value:
             value = str(defaults["act"].get(key, "")).strip()
-        act[key] = value
+        act[key] = editorial_self_audit_text(value, fallback=str(defaults["act"].get(key, "")).strip(), context=f"ooda:act:{key}")
 
     normalized["observe"] = observe
     normalized["orient"] = orient
@@ -2006,28 +2154,76 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
         "source": "The main landing page. Explain why Chummer6 exists, why a human should care, where they should click next, and why the current phase is foundations first.",
     },
     "start_here": {
-        "source": "Welcome and first-run orientation for a new human reader. Explain why there are many repos without sounding like internal process sludge.",
+        "source": "Welcome and first-run orientation for a new human reader. Lead with tonight's problems and the shortest path to answers. Do not open with repo splits, architecture, nodes, or internal organization.",
     },
     "what_chummer6_is": {
-        "source": "Explain what Chummer6 is, why it exists, who it helps, and what it deliberately is not.",
+        "source": "Explain what Chummer6 is becoming for players and GMs, why it matters at the table, and what feels different from older opaque tools. Keep repo and architecture talk below the product story.",
     },
     "where_to_go_deeper": {
-        "source": "Explain where deeper blueprint and code truth live without bureaucratic wording.",
+        "source": "Explain where to read next, what to trust, and where to report confusion. Do not use blueprint, drift, hierarchy, governance, or repo-maintainer language.",
     },
     "current_phase": {
-        "source": "Explain the current phase in human language: foundations first, not feature fireworks.",
+        "source": "Explain the current phase in human language: trust work first, not feature fireworks. Translate any internal boundary cleanup into what it means for a real session tonight.",
     },
     "current_status": {
-        "source": "Explain the current visible state without sounding like raw ops telemetry.",
+        "source": "Explain the current visible state without sounding like raw ops telemetry or architecture notes. Lead with what a player or GM would notice today.",
     },
     "public_surfaces": {
-        "source": "Explain what is visible now and why preview does not mean final public shape.",
+        "source": "Explain what is visible now, what someone can try, and why preview does not mean fake. Avoid ownership and architecture wording unless immediately translated.",
     },
     "parts_index": {
-        "source": "Introduce the main parts in a field-guide voice and help the reader choose where to go next.",
+        "source": "Introduce the main parts in a field-guide voice and help the reader choose where to go next based on symptoms and use cases, not repo taxonomy.",
     },
     "horizons_index": {
-        "source": "Sell the horizon section as an exciting garage of future ideas without pretending they are active work.",
+        "source": "Sell the horizon section as future table pain relief and vivid scene ideas without pretending they are active work. Avoid blueprint, garage, or architecture metaphors.",
+    },
+}
+
+PAGE_BUNDLE_FALLBACKS: dict[str, dict[str, str]] = {
+    "readme": {
+        "intro": "Chummer6 is the human-facing guide to the next Chummer: what it is becoming, why it matters at the table, and what is already real enough to touch.",
+        "body": "Use this page when you want the shortest route to the product story, the current status, the parts map, and the future lanes without reverse-engineering that story from code ownership.",
+        "kicker": "Friendly guide first. Deep sources later.",
+    },
+    "start_here": {
+        "intro": "Start with the problem you have tonight: run a session, prove the math, support a weird rule, or peek at the future lanes.",
+        "body": "This page exists to get you to the right answer fast, not to lecture you about software structure.",
+        "kicker": "Pick the symptom, not the folder tree.",
+    },
+    "what_chummer6_is": {
+        "intro": "Chummer6 is becoming a more trustworthy, local-first, receipts-heavy Shadowrun toolkit.",
+        "body": "The point is to make game night faster, clearer, and less dependent on mystery math or a stable network.",
+        "kicker": "Rules truth with receipts beats folklore with confidence.",
+    },
+    "where_to_go_deeper": {
+        "intro": "Use this page when the friendly tour stops being enough.",
+        "body": "It points to the long-range plan, the owning repos, and the place to report stale or confusing guide copy.",
+        "kicker": "Know what to trust before you dig deeper.",
+    },
+    "current_phase": {
+        "intro": "The current phase is trust work first: tighten the seams that affect real sessions before piling on flashy promises.",
+        "body": "That means cleaner rules truth, steadier live-play boundaries, and fewer expensive lies hiding behind preview chrome.",
+        "kicker": "The boring work is what keeps game night alive.",
+    },
+    "current_status": {
+        "intro": "The visible surfaces are real enough to try, but the overall shape is still moving.",
+        "body": "Use what helps tonight, but expect the shell and boundaries to keep getting sharper before anything gets called finished.",
+        "kicker": "Preview means usable, not frozen.",
+    },
+    "public_surfaces": {
+        "intro": "These are the surfaces someone can actually try today.",
+        "body": "The page shows what is visible now and how close each surface is to feeling like the promoted version.",
+        "kicker": "Real enough to touch, not final enough to relax.",
+    },
+    "parts_index": {
+        "intro": "The parts page is a symptom map for the program.",
+        "body": "Use it when you want to know which part matters to your pain instead of memorizing the internal map first.",
+        "kicker": "Start from the problem, not the topology.",
+    },
+    "horizons_index": {
+        "intro": "Horizons is the future-pains wing: ideas that could make later sessions smoother, stranger, or more ambitious.",
+        "body": "These pages are invitations to imagine better table moments, not promises that the feature already ships.",
+        "kicker": "Future table pain relief, not roadmap cosplay.",
     },
 }
 
@@ -2309,6 +2505,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             )
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
+    overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"
     overrides["meta"]["provider_status"] = "ok"
     overrides["meta"]["provider_error"] = provider_error

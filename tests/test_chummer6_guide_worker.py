@@ -22,10 +22,22 @@ def _load_worker_module():
 def test_chat_json_routes_through_ea_only(monkeypatch) -> None:
     worker = _load_worker_module()
     monkeypatch.setenv("CHUMMER6_TEXT_PROVIDER_ORDER", "ea")
-    monkeypatch.setattr(worker, "ea_json", lambda prompt, model="gemini-3-flash-preview": {"prompt": prompt, "model": model})
+    monkeypatch.setattr(
+        worker,
+        "ea_json",
+        lambda prompt, model="gemini-3-flash-preview", skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+            "prompt": prompt,
+            "model": model,
+            "skill_key": skill_key,
+        },
+    )
 
     result = worker.chat_json("prompt", model="gemini-3-flash-preview")
-    assert result == {"prompt": "prompt", "model": "gemini-3-flash-preview"}
+    assert result == {
+        "prompt": "prompt",
+        "model": "gemini-3-flash-preview",
+        "skill_key": "chummer6_public_writer",
+    }
     assert worker.TEXT_PROVIDER_USED == "ea"
 
 
@@ -37,7 +49,7 @@ def test_chat_json_rejects_legacy_provider_aliases(monkeypatch) -> None:
         worker.chat_json("prompt")
 
 
-def test_ea_json_executes_chummer6_skill_identity(monkeypatch) -> None:
+def test_ea_json_executes_public_writer_skill_identity_by_default(monkeypatch) -> None:
     worker = _load_worker_module()
     captured: dict[str, object] = {}
 
@@ -56,9 +68,35 @@ def test_ea_json_executes_chummer6_skill_identity(monkeypatch) -> None:
     request = captured["request"]
 
     assert result == {"packet": "guide_refresh", "scene": "troll union sticker"}
-    assert request.skill_key == "chummer6_visual_director"
-    assert request.goal == "Generate a structured JSON packet for the Chummer6 guide worker."
+    assert request.skill_key == "chummer6_public_writer"
+    assert request.goal == "Generate a structured JSON packet for the chummer6_public_writer worker."
     assert request.input_json["model"] == "gemini-3-flash-preview"
+
+
+def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: dict[str, object] = {}
+
+    class _Artifact:
+        structured_output_json = {"packet": "guide_refresh", "scene": "receipt over shoulder"}
+        content = ""
+
+    class _Orchestrator:
+        def execute_task_artifact(self, request):
+            captured["request"] = request
+            return _Artifact()
+
+    monkeypatch.setattr(worker, "_ea_orchestrator", lambda: _Orchestrator())
+
+    result = worker.ea_json(
+        "prompt body",
+        model="gemini-3-flash-preview",
+        skill_key=worker.VISUAL_DIRECTOR_SKILL_KEY,
+    )
+    request = captured["request"]
+
+    assert result == {"packet": "guide_refresh", "scene": "receipt over shoulder"}
+    assert request.skill_key == "chummer6_visual_director"
 
 
 def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults() -> None:
@@ -145,3 +183,68 @@ def test_public_reader_guard_rejects_maintainer_imperatives() -> None:
             {"body": "Fix Chummer6 first. Do not correct the blueprint because the visitor guide got ahead of itself."},
             context="page:where_to_go_deeper",
         )
+
+
+def test_editorial_self_audit_rewrites_machine_room_phrases() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "The blueprint lives in the repo topology.",
+            fallback="The long-range plan lives in the deeper source docs.",
+            context="page:where_to_go_deeper:intro",
+        )
+        == "The long-range plan lives in the deeper source docs."
+    )
+    assert (
+        worker.editorial_self_audit_text(
+            "Workbench and play shell both matter here.",
+            context="part:mobile:intro",
+        )
+        == "prep surface and live-play surface both matter here."
+    )
+
+
+def test_editorial_pack_audit_rejects_maintainer_language() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(RuntimeError, match="editorial_pack_audit_failed"):
+        worker.editorial_pack_audit(
+            {
+                "pages": {
+                    "where_to_go_deeper": {
+                        "body": "Fix Chummer6 first and do not correct the blueprint."
+                    }
+                }
+            }
+        )
+
+
+def test_editorial_pack_audit_ignores_banned_term_lists() -> None:
+    worker = _load_worker_module()
+
+    result = worker.editorial_pack_audit(
+        {
+            "ooda": {
+                "orient": {
+                    "banned_terms": ["correct the blueprint", "visitor center"]
+                }
+            },
+            "pages": {
+                "where_to_go_deeper": {
+                    "body": "If this guide feels stale or confusing, report it here."
+                }
+            },
+        }
+    )
+
+    assert result["status"] == "ok"
+
+
+def test_normalize_pages_bundle_falls_back_when_model_drops_a_page() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_pages_bundle({}, items={"horizons_index": worker.PAGE_PROMPTS["horizons_index"]})
+
+    assert "horizons_index" in normalized
+    assert "future-pains wing" in normalized["horizons_index"]["intro"]

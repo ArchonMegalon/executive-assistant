@@ -103,6 +103,7 @@ def build_public_writer_skill_payload() -> dict[str, object]:
     payload.update(
         {
             "skill_key": "chummer6_public_writer",
+            "task_key": "chummer6_public_copy_refresh",
             "name": "Chummer6 Public Writer",
             "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
             "memory_writes": ["chummer6_public_copy_fact"],

@@ -432,7 +432,7 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
             "skill_key": "chummer6_visual_director",
             "task_key": "chummer6_guide_refresh",
             "name": "Chummer6 Visual Director",
-            "description": "Planner-executed Chummer6 OODA, style-epoch selection, scene-ledger guidance, and structured prompt-authoring skill for the public-facing guide.",
+            "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
             "deliverable_type": "chummer6_guide_refresh_packet",
             "default_risk_class": "low",
             "default_approval_class": "none",
@@ -442,7 +442,7 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
             "memory_write_policy": "reviewed_only",
             "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
             "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
-            "tags": ["chummer6", "guide", "visual-direction", "ooda", "prompt-brain"],
+            "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
             "model_policy_json": {
                 "provider": "gemini_vortex",
@@ -526,6 +526,215 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
     ]
     assert session_body["artifacts"][0]["skill_key"] == "chummer6_visual_director"
     assert session_body["artifacts"][0]["structured_output_json"]["packet"] == "guide_refresh"
+
+
+def test_skill_catalog_can_execute_chummer6_public_writer_skill(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "response": json.dumps(
+                        {
+                            "packet": "guide_refresh",
+                            "copy": "Players get the table-first version instead of the repo talking to itself.",
+                            "flavor": "The doc finally stopped writing love letters to its own folder structure.",
+                        }
+                    ),
+                    "stats": {
+                        "models": {
+                            "gemini-3-flash-preview": {
+                                "tokens": {"input": 101, "candidates": 29}
+                            }
+                        }
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_gemini_vortex_adapter.subprocess.run",
+        fake_run,
+    )
+
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "chummer6_public_writer",
+            "task_key": "chummer6_public_copy_refresh",
+            "name": "Chummer6 Public Writer",
+            "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
+            "deliverable_type": "chummer6_guide_refresh_packet",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+            "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
+            "memory_write_policy": "reviewed_only",
+            "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
+            "memory_writes": ["chummer6_public_copy_fact"],
+            "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "model_policy_json": {
+                "provider": "gemini_vortex",
+                "default_model": "gemini-3-flash-preview",
+                "output_mode": "json",
+            },
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "Prompting Systems"],
+                "style": ["Gemini Vortex"],
+            },
+            "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["guide_reviewer"]},
+            "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "low",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "structured_generate",
+                "artifact_failure_strategy": "retry",
+                "artifact_max_attempts": 2,
+                "artifact_retry_backoff_seconds": 1,
+                "style_epoch_enabled": True,
+                "variation_guard_enabled": True,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "chummer6_public_writer"
+    assert created.json()["task_key"] == "chummer6_public_copy_refresh"
+    assert created.json()["provider_hints_json"]["primary"] == ["Gemini Vortex"]
+
+    fetched = client.get("/v1/skills/chummer6_public_writer")
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["task_key"] == "chummer6_public_copy_refresh"
+    assert fetched_body["model_policy_json"]["provider"] == "gemini_vortex"
+    assert fetched_body["memory_writes"] == ["chummer6_public_copy_fact"]
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "chummer6_public_writer", "goal": "author reader-safe Chummer6 guide copy"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "chummer6_public_writer"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "chummer6_public_writer",
+            "goal": "author reader-safe Chummer6 guide copy",
+            "input_json": {"source_text": "Draft the next Chummer6 public-facing page bundle with JSON only."},
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "chummer6_public_writer"
+    assert body["task_key"] == "chummer6_public_copy_refresh"
+    assert body["kind"] == "chummer6_guide_refresh_packet"
+    assert body["structured_output_json"]["packet"] == "guide_refresh"
+    assert "table-first" in body["structured_output_json"]["copy"]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "chummer6_public_writer"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "provider.gemini_vortex.structured_generate",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "chummer6_public_writer"
+    assert session_body["artifacts"][0]["structured_output_json"]["packet"] == "guide_refresh"
+
+
+def test_chummer6_skill_catalog_keeps_writer_and_visual_director_distinct() -> None:
+    client = _client()
+
+    writer = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "chummer6_public_writer",
+            "task_key": "chummer6_public_copy_refresh",
+            "name": "Chummer6 Public Writer",
+            "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
+            "deliverable_type": "chummer6_guide_refresh_packet",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+            "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
+            "memory_write_policy": "reviewed_only",
+            "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
+            "memory_writes": ["chummer6_public_copy_fact"],
+            "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-3-flash-preview", "output_mode": "json"},
+            "provider_hints_json": {"primary": ["Gemini Vortex"]},
+            "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["guide_reviewer"]},
+            "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
+            "budget_policy_json": {"class": "low", "workflow_template": "tool_then_artifact", "pre_artifact_capability_key": "structured_generate"},
+        },
+    )
+    assert writer.status_code == 200
+
+    director = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "chummer6_visual_director",
+            "task_key": "chummer6_guide_refresh",
+            "name": "Chummer6 Visual Director",
+            "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
+            "deliverable_type": "chummer6_guide_refresh_packet",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+            "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
+            "memory_write_policy": "reviewed_only",
+            "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
+            "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
+            "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-3-flash-preview", "output_mode": "json"},
+            "provider_hints_json": {"primary": ["Gemini Vortex"]},
+            "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["guide_reviewer"]},
+            "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
+            "budget_policy_json": {"class": "low", "workflow_template": "tool_then_artifact", "pre_artifact_capability_key": "structured_generate"},
+        },
+    )
+    assert director.status_code == 200
+
+    writer_fetch = client.get("/v1/skills/chummer6_public_writer")
+    director_fetch = client.get("/v1/skills/chummer6_visual_director")
+    assert writer_fetch.status_code == 200
+    assert director_fetch.status_code == 200
+    assert writer_fetch.json()["task_key"] == "chummer6_public_copy_refresh"
+    assert director_fetch.json()["task_key"] == "chummer6_guide_refresh"
+
+    writer_plan = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "chummer6_public_writer", "goal": "author reader-safe Chummer6 guide copy"},
+    )
+    director_plan = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "chummer6_visual_director", "goal": "author scene-ledger-aware Chummer6 art direction"},
+    )
+    assert writer_plan.status_code == 200
+    assert director_plan.status_code == 200
+    assert writer_plan.json()["plan"]["task_key"] == "chummer6_public_copy_refresh"
+    assert director_plan.json()["plan"]["task_key"] == "chummer6_guide_refresh"
 
 
 def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:

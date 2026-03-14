@@ -168,7 +168,9 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     }
 
     assert released_caps == required_released
-    assert overlay == {"mode": "prepend", "items": []}
+    assert overlay.get("mode") == "prepend"
+    items = overlay.get("items") or []
+    assert items == []
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
@@ -800,15 +802,17 @@ def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> Non
     assert "chummer6_visual_director" in skills_test
     assert "provider.gemini_vortex.structured_generate" in skills_test
     assert "test_chat_json_rejects_legacy_provider_aliases" in worker_test
-    assert "test_ea_json_executes_chummer6_skill_identity" in worker_test
+    assert "test_ea_json_executes_public_writer_skill_identity_by_default" in worker_test
+    assert "test_ea_json_can_execute_visual_director_skill_identity" in worker_test
     assert "chummer6_visual_director" in smoke_script
     assert "Gemini Vortex" in smoke_script
     assert "chummer6_visual_director" in readme
     assert "chummer6_visual_director" in runbook
     assert "chummer6_visual_director" in http_examples
     assert "`chummer6_visual_director`" in skills_doc
+    assert "chummer6_public_writer" in skills_doc
     assert "Gemini Vortex" in skills_doc
-    assert 'skill_key="chummer6_visual_director"' in worker
+    assert 'VISUAL_DIRECTOR_SKILL_KEY = "chummer6_visual_director"' in worker
     assert "unsupported_chummer6_text_provider" in worker
     assert "codex_json(" not in worker
     assert "onemin_json(" not in worker
@@ -817,6 +821,27 @@ def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> Non
     assert "codex_json(" not in fleet_scaffolder
     assert "onemin_json(" not in fleet_scaffolder
     assert '"secondary": ["Codex"]' not in fleet_scaffolder
+
+
+def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
+    skills_test = (ROOT / "tests/test_skills.py").read_text(encoding="utf-8")
+    worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    worker = (ROOT / "scripts/chummer6_guide_worker.py").read_text(encoding="utf-8")
+
+    assert "chummer6_public_writer" in skills_test
+    assert "test_skill_catalog_can_execute_chummer6_public_writer_skill" in skills_test
+    assert "test_public_reader_guard_rejects_maintainer_imperatives" in worker_test
+    assert "chummer6_public_writer" in smoke_script
+    assert "chummer6_public_writer" in readme
+    assert "chummer6_public_writer" in runbook
+    assert "chummer6_public_writer" in http_examples
+    assert "`chummer6_public_writer`" in skills_doc
+    assert 'PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"' in worker
 
 
 def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() -> None:
