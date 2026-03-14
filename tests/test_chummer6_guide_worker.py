@@ -135,3 +135,13 @@ def test_normalize_section_ooda_falls_back_when_fields_are_sparse() -> None:
     assert normalized["orient"]["visual_devices"]
     assert normalized["decide"]["image_priority"]
     assert normalized["act"]["visual_prompt_seed"]
+
+
+def test_public_reader_guard_rejects_maintainer_imperatives() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="forbidden public-copy phrase"):
+        worker.assert_public_reader_safe(
+            {"body": "Fix Chummer6 first. Do not correct the blueprint because the visitor guide got ahead of itself."},
+            context="page:where_to_go_deeper",
+        )

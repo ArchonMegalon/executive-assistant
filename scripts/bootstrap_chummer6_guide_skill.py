@@ -44,12 +44,9 @@ def upsert_skill(body: dict[str, object]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def build_skill_payload() -> dict[str, object]:
+def _common_skill_fields() -> dict[str, object]:
     return {
-        "skill_key": "chummer6_visual_director",
         "task_key": "chummer6_guide_refresh",
-        "name": "Chummer6 Visual Director",
-        "description": "Planner-executed Chummer6 OODA, style-epoch selection, scene-ledger guidance, and structured prompt-authoring skill for the public-facing guide.",
         "deliverable_type": "chummer6_guide_refresh_packet",
         "default_risk_class": "low",
         "default_approval_class": "none",
@@ -58,8 +55,6 @@ def build_skill_payload() -> dict[str, object]:
         "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
         "memory_write_policy": "reviewed_only",
         "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
-        "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
-        "tags": ["chummer6", "guide", "visual-direction", "ooda", "prompt-brain"],
         "input_schema_json": {
             "type": "object",
             "properties": {
@@ -87,13 +82,6 @@ def build_skill_payload() -> dict[str, object]:
             "default_model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview",
             "output_mode": "json",
         },
-        "provider_hints_json": {
-            "primary": ["Gemini Vortex"],
-            "research": ["BrowserAct"],
-            "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
-            "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
-            "style": ["Gemini Vortex"],
-        },
         "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
         "human_policy_json": {"review_roles": ["guide_reviewer"]},
         "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
@@ -108,6 +96,66 @@ def build_skill_payload() -> dict[str, object]:
             "variation_guard_enabled": True,
         },
     }
+
+
+def build_public_writer_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_public_writer",
+            "name": "Chummer6 Public Writer",
+            "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
+            "memory_writes": ["chummer6_public_copy_fact"],
+            "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "Prompting Systems"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
+def build_visual_director_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_visual_director",
+            "name": "Chummer6 Visual Director",
+            "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
+            "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
+            "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
+                "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
+def build_skill_payloads() -> list[dict[str, object]]:
+    return [
+        build_public_writer_skill_payload(),
+        build_visual_director_skill_payload(),
+    ]
+
+
+def build_skill_payload() -> dict[str, object]:
+    # Compatibility wrapper for older callers that still expect one primary skill payload.
+    return build_visual_director_skill_payload()
+
+
+def upsert_skills_via(fn) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    for payload in build_skill_payloads():
+        results.append(fn(payload))
+    return results
 
 
 def apply_skill_payload(skills, body: dict[str, object]) -> dict[str, object]:
@@ -156,15 +204,14 @@ def upsert_skill_local(body: dict[str, object]) -> dict[str, object]:
 
 
 def main() -> int:
-    skill = build_skill_payload()
     try:
-        result = upsert_skill(skill)
-        print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "api"}))
+        results = upsert_skills_via(upsert_skill)
+        print(json.dumps({"status": "ok", "skill_keys": [row.get("skill_key", "") for row in results], "path": "api"}))
         return 0
     except urllib.error.URLError as exc:
         try:
-            result = upsert_skill_local(skill)
-            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"api_unavailable:{exc.reason}"}))
+            results = upsert_skills_via(upsert_skill_local)
+            print(json.dumps({"status": "ok", "skill_keys": [row.get("skill_key", "") for row in results], "path": "local", "reason": f"api_unavailable:{exc.reason}"}))
             return 0
         except Exception as local_exc:
             print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}", "local_error": str(local_exc)[:240]}))
@@ -172,8 +219,8 @@ def main() -> int:
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace").strip()
         try:
-            result = upsert_skill_local(skill)
-            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"http_{exc.code}", "body": body[:240]}))
+            results = upsert_skills_via(upsert_skill_local)
+            print(json.dumps({"status": "ok", "skill_keys": [row.get("skill_key", "") for row in results], "path": "local", "reason": f"http_{exc.code}", "body": body[:240]}))
             return 0
         except Exception as local_exc:
             print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240], "local_error": str(local_exc)[:240]}))

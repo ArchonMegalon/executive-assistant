@@ -31,6 +31,8 @@ WORKING_VARIANT: dict[str, object] | None = None
 TEXT_PROVIDER_USED: str = ""
 EA_ORCHESTRATOR = None
 EA_CONTAINER = None
+PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
+VISUAL_DIRECTOR_SKILL_KEY = "chummer6_visual_director"
 STYLE_PACKS: tuple[dict[str, str], ...] = (
     {
         "style_family": "grimy_cinematic_realism",
@@ -80,6 +82,26 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "weather_bias": "indoor heat with outdoor rain suggested secondarily",
         "humor_ceiling": "deadpan with sharper roast tolerance",
     },
+)
+PUBLIC_WRITER_RULES = """Public-writer contract:
+- write for a curious player, GM, tester, or supporter
+- the reader is not a maintainer and is not expected to fix docs or govern repo hierarchy
+- explain what the project means for the reader at the table first
+- if the reader can act, route them to the Chummer6 issue tracker, releases, or the owning repos as appropriate
+- do not send normal users to chummer6-design to propose features or clean up guide drift
+- translate internal jargon immediately or avoid it
+- humor should be sparse, dry, and useful; if the joke is not better than clear prose, skip it
+"""
+FORBIDDEN_PUBLIC_COPY_PHRASES: tuple[str, ...] = (
+    "fix chummer6 first",
+    "correct the blueprint",
+    "visitor center",
+    "blueprint room",
+    "control plane",
+    "repo topology",
+    "signoff only",
+    "shared interface",
+    "where do i propose design changes?\n\nin `chummer6-design`",
 )
 
 
@@ -191,6 +213,29 @@ def variation_guardrails_for(target: str, rows: list[dict[str, object]]) -> list
     return rules
 
 
+def _contains_forbidden_public_copy(text: str) -> str:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return ""
+    for phrase in FORBIDDEN_PUBLIC_COPY_PHRASES:
+        if phrase in lowered:
+            return phrase
+    if "propose design changes" in lowered and "chummer6-design" in lowered:
+        return "design_repo_redirect"
+    if "fix" in lowered and "guide" in lowered and "first" in lowered:
+        return "maintainer_imperative"
+    return ""
+
+
+def assert_public_reader_safe(mapping: dict[str, object], *, context: str) -> None:
+    for key, value in mapping.items():
+        if not isinstance(value, str):
+            continue
+        forbidden = _contains_forbidden_public_copy(value)
+        if forbidden:
+            raise ValueError(f"forbidden public-copy phrase in {context}:{key}:{forbidden}")
+
+
 def shlex_command(env_name: str) -> list[str]:
     raw = env_value(env_name)
     if raw:
@@ -295,42 +340,67 @@ def _ea_orchestrator():
     if scripts_root not in sys.path:
         sys.path.insert(0, scripts_root)
     from app.container import build_container
-    from bootstrap_chummer6_guide_skill import apply_skill_payload, build_skill_payload
+    from bootstrap_chummer6_guide_skill import apply_skill_payload, build_skill_payloads
 
     EA_CONTAINER = build_container()
-    apply_skill_payload(EA_CONTAINER.skills, build_skill_payload())
+    for payload in build_skill_payloads():
+        apply_skill_payload(EA_CONTAINER.skills, payload)
     EA_ORCHESTRATOR = EA_CONTAINER.orchestrator
     return EA_ORCHESTRATOR
 
 
-def ea_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+def ea_json(
+    prompt: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    skill_key: str = PUBLIC_WRITER_SKILL_KEY,
+) -> dict[str, object]:
     app_root = str(EA_ROOT / "ea")
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
     from app.domain.models import TaskExecutionRequest
 
-    artifact = _ea_orchestrator().execute_task_artifact(
-        TaskExecutionRequest(
-            skill_key="chummer6_visual_director",
-            text=prompt,
-            principal_id="ea-chummer6-guide-worker",
-            goal="Generate a structured JSON packet for the Chummer6 guide worker.",
-            input_json={
-                "model": model,
-                "generation_instruction": "Return JSON only. No markdown fences or commentary.",
-                "mime_type": "application/json",
-            },
-        )
-    )
-    structured = dict(getattr(artifact, "structured_output_json", {}) or {})
-    if structured:
-        if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
-            return dict(structured.get("result") or {})
-        return structured
-    return extract_json(artifact.content)
+    candidates = [skill_key]
+    if skill_key == PUBLIC_WRITER_SKILL_KEY:
+        candidates.append(VISUAL_DIRECTOR_SKILL_KEY)
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            artifact = _ea_orchestrator().execute_task_artifact(
+                TaskExecutionRequest(
+                    skill_key=candidate,
+                    text=prompt,
+                    principal_id=f"ea-{candidate}-worker",
+                    goal=f"Generate a structured JSON packet for the {candidate} worker.",
+                    input_json={
+                        "model": model,
+                        "generation_instruction": "Return JSON only. No markdown fences or commentary.",
+                        "mime_type": "application/json",
+                    },
+                )
+            )
+            structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+            if structured:
+                if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                    return dict(structured.get("result") or {})
+                return structured
+            return extract_json(artifact.content)
+        except ValueError as exc:
+            if str(exc).startswith("skill_not_found:") and candidate != candidates[-1]:
+                last_error = exc
+                continue
+            raise
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("ea_json_failed_without_candidate")
 
 
-def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
+def chat_json(
+    prompt: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    skill_key: str = PUBLIC_WRITER_SKILL_KEY,
+) -> dict[str, object]:
     global TEXT_PROVIDER_USED
     order_raw = str(os.environ.get("CHUMMER6_TEXT_PROVIDER_ORDER") or LOCAL_ENV.get("CHUMMER6_TEXT_PROVIDER_ORDER") or "ea").strip()
     order = [entry.strip().lower() for entry in order_raw.split(",") if entry.strip()]
@@ -343,7 +413,7 @@ def chat_json(prompt: str, *, model: str = DEFAULT_MODEL) -> dict[str, object]:
         raise RuntimeError(
             "unsupported_chummer6_text_provider:" + ",".join(unsupported)
         )
-    payload = ea_json(prompt, model=model)
+    payload = ea_json(prompt, model=model, skill_key=skill_key)
     TEXT_PROVIDER_USED = "ea"
     return payload
 
@@ -497,6 +567,7 @@ Voice rules:
 - no mention of chummer5a
 - no control-plane jargon
 - no markdown fences
+{PUBLIC_WRITER_RULES}
 
 Part id: {name}
 Title: {item.get("title", "")}
@@ -551,6 +622,7 @@ Voice rules:
 - no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
+{PUBLIC_WRITER_RULES}
 
 Horizon id: {name}
 Title: {item.get("title", "")}
@@ -945,6 +1017,9 @@ Rules:
 - explain why this page matters to a normal reader
 - avoid internal jargon unless it is immediately translated
 - make the page sound distinct instead of reusing one canned sentence pattern
+- do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
+- if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
+{PUBLIC_WRITER_RULES}
 
 Page id: {page_id}
 Current source:
@@ -981,6 +1056,9 @@ Rules:
 - avoid internal jargon unless it is immediately translated
 - keep each page compact and useful
 - make each page feel distinct instead of reusing one sentence frame
+- do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
+- if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
+{PUBLIC_WRITER_RULES}
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
@@ -1033,6 +1111,7 @@ Rules:
 - make each part sound like its own place, not another templated glossary card
 - make the media scene-first, not icon soup
 - no literal on-image text or prompt leakage
+{PUBLIC_WRITER_RULES}
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
@@ -1122,6 +1201,7 @@ def normalize_pages_bundle(result: dict[str, object], *, items: dict[str, dict[s
         cleaned = {key: str(row.get(key, "")).strip() for key in ("intro", "body", "kicker") if str(row.get(key, "")).strip()}
         if len(cleaned) < 2:
             raise ValueError(f"insufficient page bundle content: {page_id}")
+        assert_public_reader_safe(cleaned, context=f"page:{page_id}")
         normalized[page_id] = cleaned
     return normalized
 
@@ -1140,6 +1220,7 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
         cleaned_copy = {key: str(copy.get(key, "")).strip() for key in ("intro", "why", "now") if str(copy.get(key, "")).strip()}
         if len(cleaned_copy) < 3:
             raise ValueError(f"insufficient part copy: {name}")
+        assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
         media_cleaned = normalize_media_override("part", dict(media), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
@@ -1164,6 +1245,7 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
         }
         if len(cleaned_copy) < 7:
             raise ValueError(f"insufficient horizon copy: {name}")
+        assert_public_reader_safe(cleaned_copy, context=f"horizon:{name}")
         media_cleaned = normalize_media_override("horizon", dict(media), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
@@ -1259,6 +1341,9 @@ Rules:
 - watch_intro should tee up why the project is worth following
 - horizon_intro should tee up the future ideas in a fun way without pretending they are active work
 - keep the whole JSON compact enough to fit on one terminal screen
+- do not tell the reader to fix docs, correct drift, or maintain hierarchy
+- do not route normal users to chummer6-design for feature requests
+{PUBLIC_WRITER_RULES}
 
 Observed tags:
 {tags}
@@ -1369,6 +1454,11 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
                 "repo topology",
                 "internal control plane",
                 "template placeholder future",
+                "fix Chummer6 first",
+                "correct the blueprint",
+                "blueprint room",
+                "shared interface",
+                "signoff only",
             ],
         },
         "decide": {
@@ -1543,6 +1633,7 @@ Voice rules:
 - no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
+{PUBLIC_WRITER_RULES}
 
 Source page excerpt:
 {part_excerpt}
@@ -1986,7 +2077,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
     }
     provider_error = ""
     try:
-        ooda_result = chat_json(build_ooda_prompt(signals), model=model)
+        ooda_result = chat_json(build_ooda_prompt(signals), model=model, skill_key=PUBLIC_WRITER_SKILL_KEY)
         overrides["ooda"] = normalize_ooda(ooda_result, signals)
     except Exception as exc:
         raise RuntimeError(f"global OODA generation failed: {exc}") from exc
@@ -2008,6 +2099,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 recent_scenes=recent_scenes,
             ),
             model=model,
+            skill_key=VISUAL_DIRECTOR_SKILL_KEY,
         )
         hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
     except Exception as exc:
@@ -2026,6 +2118,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 variation_guardrails=variation_guardrails_for("assets/hero/chummer6-hero.png", recent_scene_rows()),
             ),
             model=model,
+            skill_key=VISUAL_DIRECTOR_SKILL_KEY,
         )
         cleaned = {}
         for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
@@ -2053,6 +2146,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                     recent_scenes=recent_scenes,
                 ),
                 model=model,
+                skill_key=PUBLIC_WRITER_SKILL_KEY,
             )
             page_oodas.update(
                 normalize_section_oodas_bundle(
@@ -2075,6 +2169,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                     section_oodas={name: page_oodas[name] for name in batch.keys()},
                 ),
                 model=model,
+                skill_key=PUBLIC_WRITER_SKILL_KEY,
             )
             page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
         except Exception as exc:
@@ -2089,6 +2184,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 part_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
+                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
                 )
                 part_oodas.update(
                     normalize_section_oodas_bundle(
@@ -2103,23 +2199,44 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["parts"] = part_oodas
         part_copy_rows: dict[str, object] = {}
         part_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
+        for name, item in PARTS.items():
             try:
-                part_bundle = chat_json(
-                    build_parts_bundle_prompt(
-                        items=batch,
-                        global_ooda=ooda,
-                        section_oodas={name: part_oodas[name] for name in batch.keys()},
-                        style_epoch=style_epoch,
-                        recent_scenes=recent_scenes,
+                copy_row = chat_json(
+                    build_part_prompt(
+                        name,
+                        item,
+                        ooda=ooda,
+                        section_ooda=part_oodas[name],
                     ),
                     model=model,
+                    skill_key=PUBLIC_WRITER_SKILL_KEY,
                 )
-                copy_rows, media_rows = normalize_parts_bundle(part_bundle, items=batch)
-                part_copy_rows.update(copy_rows)
-                part_media_rows.update(media_rows)
+                cleaned_copy = {
+                    key: str(copy_row.get(key, "")).strip()
+                    for key in ("intro", "why", "now")
+                    if str(copy_row.get(key, "")).strip()
+                }
+                if len(cleaned_copy) < 3:
+                    raise ValueError(f"insufficient part copy: {name}")
+                assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
+                media_row = chat_json(
+                    build_media_prompt(
+                        "part",
+                        name,
+                        item,
+                        ooda=ooda,
+                        section_ooda=part_oodas[name],
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
+                        variation_guardrails=variation_guardrails_for(f"assets/parts/{name}.png", recent_scene_rows()),
+                    ),
+                    model=model,
+                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
+                )
+                part_copy_rows[name] = cleaned_copy
+                part_media_rows[name] = normalize_media_override("part", dict(media_row), item)
             except Exception as exc:
-                raise RuntimeError(f"part bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                raise RuntimeError(f"part copy/media generation failed ({name}): {exc}") from exc
         for part_id, row in part_copy_rows.items():
             humanize_mapping_fields(row, ("intro", "why", "now"), target_prefix=f"guide:part:{part_id}")
         overrides["parts"] = part_copy_rows
@@ -2131,6 +2248,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 horizon_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
+                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
                 )
                 horizon_oodas.update(
                     normalize_section_oodas_bundle(
@@ -2145,23 +2263,44 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["horizons"] = horizon_oodas
         horizon_copy_rows: dict[str, object] = {}
         horizon_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
+        for name, item in HORIZONS.items():
             try:
-                horizon_bundle = chat_json(
-                    build_horizons_bundle_prompt(
-                        items=batch,
-                        global_ooda=ooda,
-                        section_oodas={name: horizon_oodas[name] for name in batch.keys()},
-                        style_epoch=style_epoch,
-                        recent_scenes=recent_scenes,
+                copy_row = chat_json(
+                    build_horizon_prompt(
+                        name,
+                        item,
+                        ooda=ooda,
+                        section_ooda=horizon_oodas[name],
                     ),
                     model=model,
+                    skill_key=PUBLIC_WRITER_SKILL_KEY,
                 )
-                copy_rows, media_rows = normalize_horizons_bundle(horizon_bundle, items=batch)
-                horizon_copy_rows.update(copy_rows)
-                horizon_media_rows.update(media_rows)
+                cleaned_copy = {
+                    key: str(copy_row.get(key, "")).strip()
+                    for key in ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line")
+                    if str(copy_row.get(key, "")).strip()
+                }
+                if len(cleaned_copy) < 7:
+                    raise ValueError(f"insufficient horizon copy: {name}")
+                assert_public_reader_safe(cleaned_copy, context=f"horizon:{name}")
+                media_row = chat_json(
+                    build_media_prompt(
+                        "horizon",
+                        name,
+                        item,
+                        ooda=ooda,
+                        section_ooda=horizon_oodas[name],
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
+                        variation_guardrails=variation_guardrails_for(f"assets/horizons/{name}.png", recent_scene_rows()),
+                    ),
+                    model=model,
+                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
+                )
+                horizon_copy_rows[name] = cleaned_copy
+                horizon_media_rows[name] = normalize_media_override("horizon", dict(media_row), item)
             except Exception as exc:
-                raise RuntimeError(f"horizon bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                raise RuntimeError(f"horizon copy/media generation failed ({name}): {exc}") from exc
         for horizon_id, row in horizon_copy_rows.items():
             humanize_mapping_fields(
                 row,

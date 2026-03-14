@@ -1,0 +1,452 @@
+{
+  "assets/hero/chummer6-hero.png": {
+    "visual_prompt": "Rainy over-the-shoulder rules-truth scene at night: one runner leans over a battered commlink cradle while a receipt trail resolves across dice, chips, and a scratched cyberdeck case, one blurred teammate and one waiting GM live only at the edge of frame, a worn brass-and-cyan troll sticker is clearly visible on the deck case, tactile clutter and wet window light everywhere, gritty cinematic realism, no readable text, not a poster.",
+    "scene_contract": {
+      "subject": "one runner catching a ruling in the act while the receipt trail blooms over the evidence",
+      "environment": "a rain-lit safehouse edge with one task lamp, a battered table corner, and neon leaking through the window",
+      "action": "showing that the rules truth is visible before the argument turns into folklore",
+      "composition": "over_shoulder_receipt",
+      "props": ["rugged cyberdeck", "dice tray", "modifier chips", "receipt hologram"],
+      "mood": "tense, grounded, and quietly satisfying",
+      "easter_egg_kind": "worn troll sticker",
+      "easter_egg_placement": "on the cyberdeck case near the lower-left third, clearly lamp-lit and fully inside the safe crop",
+      "easter_egg_detail": "classic Chummer troll silhouette as a worn brass-and-cyan sticker on the deck case",
+      "easter_egg_visibility": "small but obvious enough to spot on a README banner without zooming"
+    }
+  },
+  "assets/hero/poc-warning.png": {
+    "visual_prompt": "A grimy desk still life for a risky prerelease: test build case, hazard tape, small warning lights, USB stick, and coffee ring under hard shop lighting, tactile and believable, no readable labels or paperwork.",
+    "scene_contract": {
+      "subject": "a suspicious prerelease package on a workbench",
+      "environment": "a scarred desk with hazard tape, scattered notes, and one unforgiving task lamp",
+      "action": "daring the viewer to stop reading and risk their evening",
+      "composition": "desk_still_life",
+      "props": ["build case", "USB stick", "warning tape", "coffee ring"],
+      "mood": "funny, risky, and slightly singed",
+      "easter_egg_kind": "troll sticker",
+      "easter_egg_placement": "on the pelican-style build case near the lower-left third",
+      "easter_egg_detail": "classic horned Chummer troll as a worn sticker with scuffed edges",
+      "easter_egg_visibility": "visible on a README banner without stealing the shot"
+    }
+  },
+  "assets/pages/start-here.png": {
+    "visual_prompt": "A cyberpunk station-style choice point with four clear icon-based lanes for session play, proof, modding, and future ideas, one newcomer studying the board, physical arrows and pictogram totems instead of words, and one side door marked with a sarcastic crossed-out troll service pictogram instead of readable text, cinematic and grounded rather than interface wallpaper.",
+    "scene_contract": {
+      "subject": "a newcomer choosing a lane at a transit-style guidance board",
+      "environment": "a rainy metro alcove with route lights, worn panels, and a believable public map frame",
+      "action": "turning repo orientation into a clear first choice instead of topology homework",
+      "composition": "city_edge",
+      "props": ["route board", "ticket kiosk", "pictogram lane markers", "wet floor reflections"],
+      "mood": "welcoming, curious, and streetwise",
+      "easter_egg_kind": "half-peeled troll sticker",
+      "easter_egg_placement": "on the board frame near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll mark as a transit sticker that regulars stopped noticing",
+      "easter_egg_visibility": "small but clearly visible once you know to look"
+    }
+  },
+  "assets/pages/what-chummer6-is.png": {
+    "visual_prompt": "Trust-under-pressure scene with one operator at a rulings station: receipt traces run from a battered commlink cradle through dice, chips, and gear notes while the rest of the table stays implied in blur beyond the light cone, a small red troll tattoo is clearly visible behind the operator ear, grounded documentary cyberpunk realism, no readable paperwork or monitors.",
+    "scene_contract": {
+      "subject": "one operator watching a ruling become trustworthy because the proof is visible",
+      "environment": "a cluttered rulings station under one task lamp with cold neon bleeding through the room",
+      "action": "making Chummer6 feel like readable trust instead of mystery math",
+      "composition": "street_front",
+      "props": ["battered commlink cradle", "dice tray", "modifier chips", "task lamp"],
+      "mood": "focused relief and earned trust",
+      "easter_egg_kind": "small red troll tattoo",
+      "easter_egg_placement": "behind the operator ear in the right third, fully inside the safe crop and easy to spot",
+      "easter_egg_detail": "classic Chummer troll silhouette as a small red tattoo behind the operator ear",
+      "easter_egg_visibility": "clearly visible on a page banner"
+    }
+  },
+  "assets/pages/where-to-go-deeper.png": {
+    "visual_prompt": "Evidence-trail archive room: one reader follows a chain from guide notes to deeper source binders and screen captures, shelves and dossier drawers around them, more detective than dashboard.",
+    "scene_contract": {
+      "subject": "a reader tracing one question across archive materials",
+      "environment": "a dim archive room with binders, drawers, and one glowing review screen",
+      "action": "showing where to dig next without turning the page into a repo topology poster",
+      "composition": "archive_room",
+      "props": ["binders", "dossier drawers", "annotated printouts", "archive monitor"],
+      "mood": "curious, methodical, and a little noir",
+      "easter_egg_kind": "troll archive stamp",
+      "easter_egg_placement": "on a manila folder near the lower-left third",
+      "easter_egg_detail": "classic Chummer troll used as a small archive-room approval stamp",
+      "easter_egg_visibility": "visible at banner scale"
+    }
+  },
+  "assets/pages/current-phase.png": {
+    "visual_prompt": "Workshop bench scene where the glamorous feature is absent on purpose: chassis parts, tightened seams, and a careful operator hardening the foundation under pragmatic shop lighting.",
+    "scene_contract": {
+      "subject": "an operator tightening the chassis instead of showing off fireworks",
+      "environment": "a workshop bench with parts trays, diagnostics, and one sturdy overhead light",
+      "action": "making the boring foundation work feel honest and necessary",
+      "composition": "workshop",
+      "props": ["parts trays", "torque tool", "diagnostic tablet", "half-open casing"],
+      "mood": "disciplined, honest, and slightly stubborn",
+      "easter_egg_kind": "troll patch",
+      "easter_egg_placement": "stitched onto the operator sleeve in the midground",
+      "easter_egg_detail": "classic Chummer troll pose embroidered as a tiny workshop patch",
+      "easter_egg_visibility": "subtle but readable on the banner"
+    }
+  },
+  "assets/pages/current-status.png": {
+    "visual_prompt": "Late-night cafe edge during a real session: one session host keeps playing after the Wi-Fi dies, a phone shows a dead connection while receipt history and shared state stay alive on a secondary tablet, rain-streaked glass and portable clutter, no huddle shot, no abstract status board.",
+    "scene_contract": {
+      "subject": "one session host keeping the night alive even after the cafe Wi-Fi dies",
+      "environment": "a cramped late-night cafe edge with cups, wet coats, and one dead connection icon on a phone",
+      "action": "showing preview software that is usable tonight even if the shape is still moving",
+      "composition": "solo_operator",
+      "props": ["phone", "tablet", "initiative note", "coffee cup"],
+      "mood": "tense but functional",
+      "easter_egg_kind": "troll phone sticker",
+      "easter_egg_placement": "on the reconnecting phone case near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll icon as a scratched sticker on the device case",
+      "easter_egg_visibility": "easy to catch on a page banner"
+    }
+  },
+  "assets/pages/public-surfaces.png": {
+    "visual_prompt": "Preview surface scene in the wild: builder, play shell, and inspection view appear on a storefront monitor, a tablet, and a phone around one prep counter, grounded and credible instead of a floating UI collage or another meeting table.",
+    "scene_contract": {
+      "subject": "real public-facing screens being used across one prep counter and portable devices",
+      "environment": "a runner prep counter with a storefront monitor, a tablet, and a phone all showing different public surfaces",
+      "action": "making preview feel tangible and usable rather than theoretical",
+      "composition": "street_front",
+      "props": ["storefront monitor", "tablet", "phone", "paper notes"],
+      "mood": "promising, concrete, and a little scrappy",
+      "easter_egg_kind": "troll keychain",
+      "easter_egg_placement": "hanging from the table bag zipper near the bottom edge",
+      "easter_egg_detail": "classic horned Chummer troll as a tiny metal bag charm",
+      "easter_egg_visibility": "small but clearly visible in the crop"
+    }
+  },
+  "assets/pages/parts-index.png": {
+    "visual_prompt": "Program map turned into a lived-in tabletop district view: laptops, tablets, dossiers, and service nodes arranged like neighborhoods around a real worktable, cinematic and legible without becoming an infographic.",
+    "scene_contract": {
+      "subject": "the program map expressed through real tools and work zones on one table",
+      "environment": "a wide prep table where each part has a distinct physical station",
+      "action": "making the parts feel like landmarks a user can touch",
+      "composition": "district_map",
+      "props": ["laptop station", "phone dock", "service rack", "dossier stack"],
+      "mood": "curious, organized, and slightly mischievous",
+      "easter_egg_kind": "troll desk sticker",
+      "easter_egg_placement": "on the edge of the central table in the lower-left third",
+      "easter_egg_detail": "classic Chummer troll as a scuffed workbench sticker",
+      "easter_egg_visibility": "readable on the banner"
+    }
+  },
+  "assets/pages/horizons-index.png": {
+    "visual_prompt": "Neon boulevard of future table pains at street level: five distinct storefronts, transit entrances, alley mouths, and clinic doors hint at desync recovery, forensic math, rulesmithing, sim-lab stress tests, and dossier generation, with real wet pavement, service clutter, cables, window glow, and believable district depth, symbol-first wayfinding instead of word signs, and one rude crossed-out troll door pictogram on a dive-bar side entrance in the right alley, not abstract concept art or icon wallpaper.",
+    "scene_contract": {
+      "subject": "a horizon boulevard crossroads where five future districts tempt the viewer deeper",
+      "environment": "a neon transit district with storefronts, alleys, station mouths, and future neighborhoods receding into rain",
+      "action": "turning the horizons list into a menu of future pains instead of a codename graveyard",
+      "composition": "horizon_boulevard",
+      "props": ["storefronts", "station lights", "side alleys", "rain puddles"],
+      "mood": "tempting, funny, and a little dangerous",
+      "easter_egg_kind": "crossed-out troll door pictogram",
+      "easter_egg_placement": "painted on a dive-bar side-door plate in the right third, fully inside the safe crop",
+      "easter_egg_detail": "classic Chummer troll silhouette used in a rude crossed-out bar pictogram",
+      "easter_egg_visibility": "visible on a page banner without stealing focus"
+    }
+  },
+  "assets/parts/core.png": {
+    "visual_prompt": "Over-the-shoulder proof scene for one dice pool: the camera rides just behind a chrome-jacketed operator while short glowing modifier chips and faint trace lines resolve the math between the dice tray, battered commlink, and a scarred tabletop edge, a small blue troll tattoo is clearly visible behind the operator ear, gritty prep realism, no readable text, not corporate wallpaper.",
+    "scene_contract": {
+      "subject": "one operator settling a disputed dice pool with visible modifier traces",
+      "environment": "a scarred prep edge in a neon safehouse with close tactile clutter",
+      "action": "turning suspicious math into inspectable traces over dice, chips, and one battered commlink",
+      "composition": "over_shoulder_receipt",
+      "props": ["battered commlink", "dice tray", "receipt overlay", "modifier chips"],
+      "mood": "technical, grounded, and exacting",
+      "easter_egg_kind": "small blue troll tattoo",
+      "easter_egg_placement": "behind the operator ear in the right third, catching a cyan rim light",
+      "easter_egg_detail": "classic Chummer troll silhouette as a small blue tattoo behind the operator ear",
+      "easter_egg_visibility": "clearly readable on the part banner"
+    }
+  },
+  "assets/parts/ui.png": {
+    "visual_prompt": "Prep-and-inspect workbench scene: one runner sheet on screen, gear comparison and inspection spread on the desk, human hands interacting with the tool, tactile and grounded.",
+    "scene_contract": {
+      "subject": "a player building and inspecting a runner before the run",
+      "environment": "a prep desk with one main screen, notes, and gear cards",
+      "action": "showing the part you touch while building, comparing, and inspecting",
+      "composition": "desk_still_life",
+      "props": ["laptop", "gear cards", "stylus", "runner notes"],
+      "mood": "focused and practical",
+      "easter_egg_kind": "troll monitor sticker",
+      "easter_egg_placement": "on the bezel of the main screen near the upper-left quarter",
+      "easter_egg_detail": "classic Chummer troll sticker faded by years of caffeine",
+      "easter_egg_visibility": "noticeable on the banner"
+    }
+  },
+  "assets/parts/mobile.png": {
+    "visual_prompt": "Transit-side mobile play shell scene: one runner has just rejoined from a station platform or cafe threshold while initiative, effects, and reconnect state snap back onto a phone and one secondary tablet, asymmetrical device realism over diagram vibes, no huddle shot.",
+    "scene_contract": {
+      "subject": "one runner rejoining the play shell while the session keeps moving",
+      "environment": "a transit threshold with one phone, one tablet, wet coats, and portable session clutter",
+      "action": "keeping the shared state alive even when one device drops and comes back mid-session",
+      "composition": "transit_checkpoint",
+      "props": ["phone", "tablet", "initiative tracker", "coffee cup"],
+      "mood": "busy, resilient, and controlled",
+      "easter_egg_kind": "troll phone-case sticker",
+      "easter_egg_placement": "on the nearest phone case along the lower-right third",
+      "easter_egg_detail": "classic Chummer troll sticker, scuffed but unmistakable",
+      "easter_egg_visibility": "visible at part-banner scale"
+    }
+  },
+  "assets/parts/hub.png": {
+    "visual_prompt": "Hosted coordination scene that actually needs a service layer: one compact service rack, one control surface, and one remote session presence tied cleanly to a live local state feed, believable screens and rack hardware, not a cloud diagram and not another table meeting shot.",
+    "scene_contract": {
+      "subject": "one coordination surface connecting local and remote session state",
+      "environment": "a back-room ops station with a rack, one control screen, and remote presences",
+      "action": "showing where hosted coordination starts being honestly useful",
+      "composition": "service_rack",
+      "props": ["service rack", "control screen", "remote session window", "network lights"],
+      "mood": "quietly competent",
+      "easter_egg_kind": "troll rack decal",
+      "easter_egg_placement": "on the face of the small service rack in the mid-right third",
+      "easter_egg_detail": "classic Chummer troll as a tiny hardware decal",
+      "easter_egg_visibility": "visible but secondary"
+    }
+  },
+  "assets/parts/ui-kit.png": {
+    "visual_prompt": "Shared chrome scene expressed physically: two devices show the same design language while a designer adjusts components on a real desk, coherent visual family without becoming generic Figma wallpaper.",
+    "scene_contract": {
+      "subject": "one shared design language showing up across multiple real surfaces",
+      "environment": "a design desk with two screens, swatches, and component notes",
+      "action": "making reusable chrome feel like product consistency instead of abstract atoms",
+      "composition": "desk_still_life",
+      "props": ["dual screens", "component notes", "swatches", "stylus"],
+      "mood": "clean, deliberate, and mildly smug",
+      "easter_egg_kind": "troll pin",
+      "easter_egg_placement": "pinned to the desk organizer near the lower-left third",
+      "easter_egg_detail": "classic Chummer troll as a tiny enamel desk pin",
+      "easter_egg_visibility": "readable on the banner"
+    }
+  },
+  "assets/parts/hub-registry.png": {
+    "visual_prompt": "Artifact intake and compatibility desk: package cards, moderation state, icon stamps, color bands, and evidence bins arranged like a real registry station, grounded and useful, no readable forms or labels.",
+    "scene_contract": {
+      "subject": "a registry desk judging whether packs and artifacts belong here",
+      "environment": "an intake counter with package cards, scanners, and labeled bins",
+      "action": "turning compatibility and moderation into something inspectable",
+      "composition": "dossier_desk",
+      "props": ["package cards", "scanner", "bins", "approval slips"],
+      "mood": "orderly, skeptical, and slightly weary",
+      "easter_egg_kind": "troll stamp",
+      "easter_egg_placement": "on one approval slip near the lower-right quarter",
+      "easter_egg_detail": "classic Chummer troll used as a registry stamp",
+      "easter_egg_visibility": "clear on the banner"
+    }
+  },
+  "assets/parts/media-factory.png": {
+    "visual_prompt": "Render queue workshop with outputs becoming real artifacts: dossier cards, thumbnails, and export rigs in a believable media station, industrial and tactile rather than abstract render icons.",
+    "scene_contract": {
+      "subject": "a media station turning jobs into visible outputs",
+      "environment": "a cramped render workshop with monitors, print proofs, and hardware",
+      "action": "showing where assets and artifacts are manufactured, not merely imagined",
+      "composition": "workshop",
+      "props": ["render monitor", "print proofs", "hardware rig", "asset trays"],
+      "mood": "busy, practical, and slightly overheated",
+      "easter_egg_kind": "troll rig sticker",
+      "easter_egg_placement": "on the render rig casing in the right third",
+      "easter_egg_detail": "classic Chummer troll sticker cooked by too much heat",
+      "easter_egg_visibility": "visible on the part banner"
+    }
+  },
+  "assets/parts/design.png": {
+    "visual_prompt": "Blueprint room with one wall of plans, ownership lines, and future feature sketches, human hands moving paper and pins around, more war room than architecture diagram.",
+    "scene_contract": {
+      "subject": "the blueprint truth behind the product",
+      "environment": "a design room wall covered in plans, threads, and pinned boards",
+      "action": "turning the design repo into something visual and grounded",
+      "composition": "archive_room",
+      "props": ["blueprint wall", "pins", "note cards", "rolled plans"],
+      "mood": "thoughtful, disciplined, and a little haunted",
+      "easter_egg_kind": "troll doodle",
+      "easter_egg_placement": "scribbled on a corner note near the upper-left third",
+      "easter_egg_detail": "classic Chummer troll pose doodled in marker on a planning note",
+      "easter_egg_visibility": "small but visible on the banner"
+    }
+  },
+  "assets/horizons/alice.png": {
+    "visual_prompt": "Cold simulation lab with a runner strapped into a crash bench while an operator studies the exact failure point on nearby glass, seeded breach outcomes ghosted around the chamber, one test mannequin or projected body silhouette showing where the build folds, grounded and clinical with dark humor, no abstract HUD wallpaper, no person simply holding a glowing panel, no readable text.",
+    "scene_contract": {
+      "composition": "simulation_lab",
+      "subject": "one operator, one crash bench, and one failing build trace made painfully visible",
+      "environment": "a cold sim lab with glass partitions, restraint hardware, and seeded scenario telemetry",
+      "action": "showing the exact moment a build collapses before the real table finds out the hard way",
+      "props": [
+        "crash bench",
+        "glass telemetry",
+        "failure trace",
+        "test mannequin"
+      ],
+      "mood": "clinical, mean, and useful",
+      "easter_egg_kind": "troll warning decal",
+      "easter_egg_placement": "on the crash bench housing near the lower-left third",
+      "easter_egg_detail": "classic Chummer troll used as a tiny safety decal on the sim rig",
+      "easter_egg_visibility": "clear at banner scale"
+    }
+  },
+  "assets/horizons/blackbox-loadout.png": {
+    "visual_prompt": "Pre-breach loadout table with missing essentials called out by the scene itself: one medkit, sparse ammo, no backup entry tool, and a team looking slightly embarrassed under harsh prep lighting.",
+    "scene_contract": {
+      "composition": "loadout_table",
+      "easter_egg_kind": "troll patch",
+      "easter_egg_placement": "on the medbag near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll patch sewn onto the trauma bag flap",
+      "easter_egg_visibility": "visible on the banner"
+    }
+  },
+  "assets/horizons/command-casket.png": {
+    "visual_prompt": "Controlled operator action scene: secure admin desk, one sealed change capsule, approval receipt visible, rollback close at hand, grounded procedure instead of abstract governance art.",
+    "scene_contract": {
+      "composition": "dossier_desk",
+      "easter_egg_kind": "troll wax seal",
+      "easter_egg_placement": "on the action capsule envelope in the lower center",
+      "easter_egg_detail": "classic Chummer troll impressed into a small wax seal",
+      "easter_egg_visibility": "easy to spot at banner scale"
+    }
+  },
+  "assets/horizons/evidence-room.png": {
+    "visual_prompt": "A review room that feels like evidence instead of a dump: grouped sources, verified versus inferred lanes, collapsible trace depth on real displays, human-scale and forensic.",
+    "scene_contract": {
+      "composition": "archive_room",
+      "easter_egg_kind": "troll evidence stamp",
+      "easter_egg_placement": "on a proof folder in the lower-left quarter",
+      "easter_egg_detail": "classic Chummer troll used as a small evidence-room stamp",
+      "easter_egg_visibility": "readable on the banner"
+    }
+  },
+  "assets/horizons/ghostwire.png": {
+    "visual_prompt": "Timeline replay scene: the team rewinds a run to the exact alarm trigger, linked causes visible on a real wall or projected surface, memory versus evidence in one tense moment.",
+    "scene_contract": {
+      "composition": "forensic_replay",
+      "easter_egg_kind": "troll projector sticker",
+      "easter_egg_placement": "on the replay projector case near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll as a scratched projector sticker",
+      "easter_egg_visibility": "visible on the banner"
+    }
+  },
+  "assets/horizons/heat-web.png": {
+    "visual_prompt": "Consequence web scene: witness, corp pressure, and sour contacts tied together across one living investigation wall, aftermath stalking the team long after the cool scene ended.",
+    "scene_contract": {
+      "composition": "conspiracy_wall",
+      "easter_egg_kind": "troll transit sticker",
+      "easter_egg_placement": "on the frame of a side monitor in the right third",
+      "easter_egg_detail": "classic Chummer troll as a transit sticker someone slapped onto the monitor",
+      "easter_egg_visibility": "visible but secondary"
+    }
+  },
+  "assets/horizons/jackpoint.png": {
+    "visual_prompt": "Mission-brief dossier desk: verified and inferred material clearly separated, coffee rings, chip cases, and one grounded brief ready for the table, stylish but evidence-bound, no readable forms or labels.",
+    "scene_contract": {
+      "composition": "dossier_desk",
+      "easter_egg_kind": "troll wax seal",
+      "easter_egg_placement": "on one evidence envelope near the lower-left third",
+      "easter_egg_detail": "classic Chummer troll pressed into the envelope seal and slightly coffee-smudged",
+      "easter_egg_visibility": "clear on the banner"
+    }
+  },
+  "assets/horizons/karma-forge.png": {
+    "visual_prompt": "Rulesmithing forge scene at a workshop bench: custom rule shards, rollback markers, and receipt traces are being hammered into shape by one stubborn rulesmith under hard bench lighting, funny and tactile rather than mystical, no meeting tableau.",
+    "scene_contract": {
+      "composition": "workshop_bench",
+      "easter_egg_kind": "troll shoulder patch",
+      "easter_egg_placement": "on the apron shoulder of the rulesmith in the mid-left third",
+      "easter_egg_detail": "classic Chummer troll embroidered as a forge patch",
+      "easter_egg_visibility": "visible on the banner"
+    }
+  },
+  "assets/horizons/mirrorshard.png": {
+    "visual_prompt": "Split-future build comparison scene: one runner forked into stealth and loud futures on paired displays, the player choosing between two bad ideas before committing, grounded desk realism.",
+    "scene_contract": {
+      "composition": "mirror_split",
+      "easter_egg_kind": "troll monitor decal",
+      "easter_egg_placement": "on the base of one comparison monitor near the lower center",
+      "easter_egg_detail": "classic Chummer troll as a tiny decal on the display base",
+      "easter_egg_visibility": "clear enough to find on a banner"
+    }
+  },
+  "assets/horizons/nexus-pan.png": {
+    "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across the device, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur, grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
+    "scene_contract": {
+      "composition": "solo_operator",
+      "subject": "a reconnecting phone, one relieved returning operator, and the rest of the session already moving in the blur",
+      "environment": "a wet-window cafe edge with a phone, a secondary tablet, and rain-lit street glow bleeding in",
+      "action": "replaying missed table state onto the just-rejoined device before anybody starts forensic accounting",
+      "props": [
+        "reconnecting phone",
+        "secondary tablet",
+        "coffee cup",
+        "initiative traces"
+      ],
+      "mood": "relieved, kinetic, and slightly mean to Wi-Fi",
+      "easter_egg_kind": "troll phone sticker",
+      "easter_egg_placement": "on the reconnecting phone case near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll sticker on the phone that just came back from the dead",
+      "easter_egg_visibility": "obvious on the banner"
+    }
+  },
+  "assets/horizons/persona-echo.png": {
+    "visual_prompt": "Continuity scene built from approved facts: a dossier wall or archive desk where legend is present but labeled, myth and verified history living together without lying to the viewer.",
+    "scene_contract": {
+      "composition": "archive_room",
+      "easter_egg_kind": "troll drawer tag",
+      "easter_egg_placement": "on an archive drawer pull in the lower-left third",
+      "easter_egg_detail": "classic Chummer troll on a tiny metal archive label",
+      "easter_egg_visibility": "visible at banner scale"
+    }
+  },
+  "assets/horizons/rule-x-ray.png": {
+    "visual_prompt": "Forensic dice-pool scene: a real character sheet and dice tray with the modifier chain exposed like evidence, click-the-number energy without turning the image into a sterile diagram.",
+    "scene_contract": {
+      "composition": "rule_xray",
+      "easter_egg_kind": "troll dice-bag charm",
+      "easter_egg_placement": "hanging from the dice bag near the bottom edge",
+      "easter_egg_detail": "classic Chummer troll as a small charm beside the sheet",
+      "easter_egg_visibility": "clearly visible on the banner"
+    }
+  },
+  "assets/horizons/run-passport.png": {
+    "visual_prompt": "Migration customs scene between rule eras: one runner crosses a desk with mapped changes, blocked interactions, and visible receipts before anything commits, playful but precise.",
+    "scene_contract": {
+      "composition": "passport_gate",
+      "easter_egg_kind": "troll customs stamp",
+      "easter_egg_placement": "on the passport sleeve near the lower-left third",
+      "easter_egg_detail": "classic Chummer troll used as a tiny customs stamp",
+      "easter_egg_visibility": "readable on the banner"
+    }
+  },
+  "assets/horizons/shadow-market.png": {
+    "visual_prompt": "Compatibility market scene with vendor stalls and package cards, some trustworthy and some clearly cursed, discovery and moderation shown through real objects and signage, with one sarcastic little no-troll-haggling sign on a side stall.",
+    "scene_contract": {
+      "composition": "street_front",
+      "easter_egg_kind": "troll CRT mascot",
+      "easter_egg_placement": "on a vendor CRT display in the upper-right third",
+      "easter_egg_detail": "classic Chummer troll used as a tiny looping market mascot",
+      "easter_egg_visibility": "visible on the banner"
+    }
+  },
+  "assets/horizons/tactical-pulse.png": {
+    "visual_prompt": "Active-session tactical awareness scene: one shared view keeps threats, penalties, and team status coherent while players stay in flow, table tension first, UI second.",
+    "scene_contract": {
+      "composition": "group_table",
+      "easter_egg_kind": "troll tablet decal",
+      "easter_egg_placement": "on the edge of the shared-view tablet in the lower-right third",
+      "easter_egg_detail": "classic Chummer troll as a worn decal on the shared tactical tablet",
+      "easter_egg_visibility": "visible at banner scale"
+    }
+  },
+  "assets/horizons/threadcutter.png": {
+    "visual_prompt": "Mod-conflict intervention scene: two clever package changes collide on one preview surface while rollback and compare options stay close at hand, conflict drama without generic code art.",
+    "scene_contract": {
+      "composition": "mirror_split",
+      "easter_egg_kind": "troll laptop sticker",
+      "easter_egg_placement": "on the lower bezel of the diff-view laptop near the center",
+      "easter_egg_detail": "classic Chummer troll sticker on the conflict preview machine",
+      "easter_egg_visibility": "easy to notice on the banner"
+    }
+  }
+}
