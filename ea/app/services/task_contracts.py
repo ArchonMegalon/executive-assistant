@@ -6,6 +6,7 @@ from typing import Any
 from app.domain.models import (
     IntentSpecV3,
     TaskContract,
+    TaskContractPolicyRecord,
     TaskContractRuntimePolicy,
     TaskContractSkillCatalogPolicy,
     now_utc_iso,
@@ -112,6 +113,26 @@ class TaskContractService:
     def get_contract(self, task_key: str) -> TaskContract | None:
         return self._repo.get(task_key)
 
+    def contract_to_policy_record(self, contract: TaskContract) -> TaskContractPolicyRecord:
+        runtime_policy = contract.runtime_policy()
+        return TaskContractPolicyRecord(
+            task_key=contract.task_key,
+            deliverable_type=contract.deliverable_type,
+            default_risk_class=contract.default_risk_class,
+            default_approval_class=contract.default_approval_class,
+            allowed_tools=tuple(contract.allowed_tools or ()),
+            evidence_requirements=tuple(contract.evidence_requirements or ()),
+            memory_write_policy=contract.memory_write_policy,
+            runtime_policy=runtime_policy,
+            updated_at=contract.updated_at,
+        )
+
+    def get_policy_record(self, task_key: str) -> TaskContractPolicyRecord | None:
+        contract = self.get_contract(task_key)
+        if contract is None:
+            return None
+        return self.contract_to_policy_record(contract)
+
     def get_contract_or_raise(self, task_key: str) -> TaskContract:
         found = self._repo.get(task_key)
         if found is not None:
@@ -133,6 +154,9 @@ class TaskContractService:
 
     def list_contracts(self, limit: int = 100) -> list[TaskContract]:
         return self._repo.list_all(limit=limit)
+
+    def list_policy_records(self, limit: int = 100) -> list[TaskContractPolicyRecord]:
+        return [self.contract_to_policy_record(contract) for contract in self.list_contracts(limit=limit)]
 
     def contract_or_default(self, task_key: str) -> TaskContract:
         return self.get_contract_or_raise(task_key)

@@ -176,18 +176,30 @@ class BrowserActToolAdapter:
             raise ToolExecutionError("login_url_required:browseract.build_workflow_spec")
         if not tool_url:
             raise ToolExecutionError("tool_url_required:browseract.build_workflow_spec")
+        workflow_kind = str(payload.get("workflow_kind") or "prompt_tool").strip().lower() or "prompt_tool"
+        if workflow_kind not in {"prompt_tool", "page_extract"}:
+            raise ToolExecutionError(f"workflow_kind_invalid:browseract.build_workflow_spec:{workflow_kind}")
+        runtime_input_name = str(payload.get("runtime_input_name") or "").strip()
         prompt_selector = str(payload.get("prompt_selector") or "textarea").strip() or "textarea"
         submit_selector = str(payload.get("submit_selector") or "button").strip() or "button"
         result_selector = str(payload.get("result_selector") or "main, body").strip() or "main, body"
+        wait_selector = str(payload.get("wait_selector") or result_selector).strip() or result_selector
+        title_selector = str(payload.get("title_selector") or "").strip()
+        dismiss_selectors = self._normalize_string_list(payload.get("dismiss_selectors"))
         output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
         spec = self._build_workflow_spec(
             workflow_name=workflow_name,
             purpose=purpose,
             login_url=login_url,
             tool_url=tool_url,
+            workflow_kind=workflow_kind,
+            runtime_input_name=runtime_input_name,
             prompt_selector=prompt_selector,
             submit_selector=submit_selector,
             result_selector=result_selector,
+            wait_selector=wait_selector,
+            title_selector=title_selector,
+            dismiss_selectors=dismiss_selectors,
             output_dir=output_dir,
         )
         slug = str(((spec.get("meta") or {}).get("slug")) or self._slugify(workflow_name))
@@ -196,10 +208,15 @@ class BrowserActToolAdapter:
             [
                 f"Workflow: {workflow_name}",
                 f"Purpose: {purpose}",
+                f"Kind: {workflow_kind}",
                 f"Tool URL: {tool_url}",
+                f"Runtime input: {runtime_input_name or '<none>'}",
                 f"Prompt selector: {prompt_selector}",
                 f"Submit selector: {submit_selector}",
                 f"Result selector: {result_selector}",
+                f"Wait selector: {wait_selector}",
+                f"Title selector: {title_selector or '<none>'}",
+                f"Dismiss selectors: {len(dismiss_selectors)}",
                 f"Node count: {len(spec.get('nodes') or [])}",
                 f"Edge count: {len(spec.get('edges') or [])}",
             ]
@@ -245,15 +262,25 @@ class BrowserActToolAdapter:
         prompt_selector = str(payload.get("prompt_selector") or "textarea").strip() or "textarea"
         submit_selector = str(payload.get("submit_selector") or "button").strip() or "button"
         result_selector = str(payload.get("result_selector") or "main, body").strip() or "main, body"
+        workflow_kind = str(payload.get("workflow_kind") or "prompt_tool").strip().lower() or "prompt_tool"
+        runtime_input_name = str(payload.get("runtime_input_name") or "prompt").strip() or "prompt"
+        wait_selector = str(payload.get("wait_selector") or result_selector).strip() or result_selector
+        title_selector = str(payload.get("title_selector") or "").strip()
+        dismiss_selectors = self._normalize_string_list(payload.get("dismiss_selectors"))
         output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
         scaffold = self._build_workflow_spec(
             workflow_name=workflow_name,
             purpose=purpose,
             login_url=login_url,
             tool_url=tool_url,
+            workflow_kind=workflow_kind,
+            runtime_input_name=runtime_input_name,
             prompt_selector=prompt_selector,
             submit_selector=submit_selector,
             result_selector=result_selector,
+            wait_selector=wait_selector,
+            title_selector=title_selector,
+            dismiss_selectors=dismiss_selectors,
             output_dir=output_dir,
         )
         failure_goals = self._normalize_string_list(payload.get("failing_step_goals"))
@@ -423,14 +450,20 @@ class BrowserActToolAdapter:
         purpose: str,
         login_url: str,
         tool_url: str,
+        workflow_kind: str,
+        runtime_input_name: str,
         prompt_selector: str,
         submit_selector: str,
         result_selector: str,
+        wait_selector: str,
+        title_selector: str,
+        dismiss_selectors: list[str],
         output_dir: str,
     ) -> dict[str, object]:
         slug = self._slugify(workflow_name)
         nodes: list[dict[str, object]] = []
         edges: list[list[str]] = []
+        inputs: list[dict[str, str]] = []
         if login_url.lower() not in {"", "none", "public", "noauth"}:
             nodes.extend(
                 [
@@ -450,32 +483,74 @@ class BrowserActToolAdapter:
                     ["wait_dashboard", "open_tool"],
                 ]
             )
-        nodes.extend(
-            [
-                {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
-                {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": prompt_selector, "value_from_input": "prompt"}},
-                {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": submit_selector}},
-                {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}},
-            ]
-        )
-        edges.extend(
-            [
-                ["open_tool", "input_prompt"],
-                ["input_prompt", "generate"],
-                ["generate", "extract_result"],
-            ]
-        )
+        if workflow_kind == "page_extract":
+            visit_config: dict[str, str] = {"url": tool_url}
+            if runtime_input_name:
+                visit_config = {"value_from_input": runtime_input_name}
+                inputs.append(
+                    {
+                        "name": runtime_input_name,
+                        "description": f"Target page URL for {workflow_name}.",
+                    }
+                )
+            nodes.append({"id": "open_tool", "type": "visit_page", "label": "Open Target Page", "config": visit_config})
+            last_node = "open_tool"
+            for index, selector in enumerate(dismiss_selectors, start=1):
+                node_id = f"dismiss_{index:02d}"
+                nodes.append(
+                    {
+                        "id": node_id,
+                        "type": "click",
+                        "label": f"Dismiss Overlay {index}",
+                        "config": {"selector": selector},
+                    }
+                )
+                edges.append([last_node, node_id])
+                last_node = node_id
+            nodes.append({"id": "wait_content", "type": "wait", "label": "Wait Content", "config": {"selector": wait_selector}})
+            edges.append([last_node, "wait_content"])
+            last_node = "wait_content"
+            if title_selector:
+                nodes.append({"id": "extract_title", "type": "extract", "label": "Extract Title", "config": {"selector": title_selector}})
+                edges.append([last_node, "extract_title"])
+                last_node = "extract_title"
+            nodes.append({"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}})
+            edges.append([last_node, "extract_result"])
+        else:
+            inputs.append(
+                {
+                    "name": "prompt",
+                    "description": f"Primary runtime prompt for {workflow_name}.",
+                }
+            )
+            nodes.extend(
+                [
+                    {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
+                    {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": prompt_selector, "value_from_input": "prompt"}},
+                    {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": submit_selector}},
+                    {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}},
+                ]
+            )
+            edges.extend(
+                [
+                    ["open_tool", "input_prompt"],
+                    ["input_prompt", "generate"],
+                    ["generate", "extract_result"],
+                ]
+            )
         return {
             "workflow_name": workflow_name,
             "description": purpose,
             "publish": True,
             "mcp_ready": False,
+            "inputs": inputs,
             "nodes": nodes,
             "edges": edges,
             "meta": {
                 "slug": slug,
                 "output_dir": output_dir,
                 "status": "pending_browseract_seed",
+                "workflow_kind": workflow_kind,
             },
         }
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -44,8 +43,8 @@ def upsert_skill(body: dict[str, object]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def build_skill_payload() -> dict[str, object]:
-    return {
+def main() -> int:
+    skill = {
         "skill_key": "browseract_bootstrap_manager",
         "task_key": "browseract_bootstrap_manager",
         "name": "BrowserAct Bootstrap Manager",
@@ -81,75 +80,16 @@ def build_skill_payload() -> dict[str, object]:
             },
         },
     }
-
-
-def apply_skill_payload(skills, body: dict[str, object]) -> dict[str, object]:
-    row = skills.upsert_skill(
-        skill_key=str(body.get("skill_key") or ""),
-        task_key=str(body.get("task_key") or ""),
-        name=str(body.get("name") or ""),
-        description=str(body.get("description") or ""),
-        deliverable_type=str(body.get("deliverable_type") or ""),
-        default_risk_class=str(body.get("default_risk_class") or "low"),
-        default_approval_class=str(body.get("default_approval_class") or "none"),
-        workflow_template=str(body.get("workflow_template") or "rewrite"),
-        allowed_tools=tuple(str(value) for value in (body.get("allowed_tools") or []) if str(value or "").strip()),
-        evidence_requirements=tuple(str(value) for value in (body.get("evidence_requirements") or []) if str(value or "").strip()),
-        memory_write_policy=str(body.get("memory_write_policy") or "none"),
-        memory_reads=tuple(str(value) for value in (body.get("memory_reads") or []) if str(value or "").strip()),
-        memory_writes=tuple(str(value) for value in (body.get("memory_writes") or []) if str(value or "").strip()),
-        tags=tuple(str(value) for value in (body.get("tags") or []) if str(value or "").strip()),
-        input_schema_json=dict(body.get("input_schema_json") or {}),
-        output_schema_json=dict(body.get("output_schema_json") or {}),
-        authority_profile_json=dict(body.get("authority_profile_json") or {}),
-        model_policy_json=dict(body.get("model_policy_json") or {}),
-        provider_hints_json=dict(body.get("provider_hints_json") or {}),
-        tool_policy_json=dict(body.get("tool_policy_json") or {}),
-        human_policy_json=dict(body.get("human_policy_json") or {}),
-        evaluation_cases_json=tuple(dict(value) for value in (body.get("evaluation_cases_json") or [])),
-        budget_policy_json=dict(body.get("budget_policy_json") or {}),
-    )
-    return {
-        "skill_key": row.skill_key,
-        "task_key": row.task_key,
-        "workflow_template": row.workflow_template,
-        "provider_hints_json": dict(row.provider_hints_json or {}),
-    }
-
-
-def upsert_skill_local(body: dict[str, object]) -> dict[str, object]:
-    app_root = str(EA_ROOT / "ea")
-    if app_root not in sys.path:
-        sys.path.insert(0, app_root)
-    from app.services.skills import SkillCatalogService
-    from app.services.task_contracts import build_task_contract_service
-
-    skills = SkillCatalogService(build_task_contract_service())
-    return apply_skill_payload(skills, body)
-
-
-def main() -> int:
-    skill = build_skill_payload()
     try:
         result = upsert_skill(skill)
     except urllib.error.URLError as exc:
-        try:
-            result = upsert_skill_local(skill)
-            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"api_unavailable:{exc.reason}"}))
-            return 0
-        except Exception as local_exc:
-            print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}", "local_error": str(local_exc)[:240]}))
-            return 0
+        print(json.dumps({"status": "skipped", "reason": f"api_unavailable:{exc.reason}"}))
+        return 0
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace").strip()
-        try:
-            result = upsert_skill_local(skill)
-            print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "local", "reason": f"http_{exc.code}", "body": body[:240]}))
-            return 0
-        except Exception as local_exc:
-            print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240], "local_error": str(local_exc)[:240]}))
-            return 0
-    print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", ""), "path": "api"}))
+        print(json.dumps({"status": "skipped", "reason": f"http_{exc.code}", "body": body[:240]}))
+        return 0
+    print(json.dumps({"status": "ok", "skill_key": result.get("skill_key", "")}))
     return 0
 
 

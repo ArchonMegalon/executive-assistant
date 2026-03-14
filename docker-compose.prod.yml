@@ -1,0 +1,21 @@
+services:
+  ea-api:
+    environment:
+      EA_RUNTIME_MODE: prod
+      EA_STORAGE_BACKEND: postgres
+      EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
+
+  ea-worker:
+    environment:
+      EA_RUNTIME_MODE: prod
+      EA_STORAGE_BACKEND: postgres
+      EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
+
+  ea-scheduler:
+    environment:
+      EA_RUNTIME_MODE: prod
+      EA_STORAGE_BACKEND: postgres
+      EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}

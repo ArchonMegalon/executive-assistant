@@ -13,6 +13,12 @@ This repository now treats executive capabilities as first-class skills layered 
 
 The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET /v1/skills/{skill_key}`. Skills persist through the existing task-contract store, so the runtime stays schema-light while the product layer becomes explicit. The same API now also carries `provider_hints_json`, so the LTD-backed service stack is projected into the product skill layer instead of living only in markdown notes. `GET /v1/skills?provider_hint=BrowserAct` (or another provider name) filters the catalog against those hints.
 
+Under the runtime surface, EA now also projects typed read records instead of making every caller re-interpret storage blobs:
+
+- `TaskContractPolicyRecord` for compiled contract policy
+- `SkillCatalogRecord` for product-facing skill metadata
+- `ProviderBindingState` for provider auth/config/executable posture
+
 ## Initial Catalog
 
 | Skill | Backing Task | Deliverable | Workflow | Memory Reads | Memory Writes | Human / Approval Notes | Suggested Providers |
@@ -21,7 +27,7 @@ The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET 
 | `stakeholder_briefing` | `stakeholder_briefing` | `stakeholder_briefing` | `artifact_then_memory_candidate` | `stakeholders`, `relationships`, `commitments`, `decision_windows` | `stakeholder_briefing_fact` | Operator review for high-sensitivity stakeholders | `BrowserAct`, `PeekShot`, `Paperguide`, `MarkupGo` |
 | `meeting_prep` | `meeting_prep` | `meeting_pack` | `artifact_then_memory_candidate` | `stakeholders`, `commitments`, `deadline_windows`, `decision_windows` | `meeting_pack_fact` | Human review for executive-facing packs | `BrowserAct`, `Paperguide`, `MarkupGo` |
 | `ltd_inventory_refresh` | `ltd_inventory_refresh` | `ltd_inventory_profile` | `tool_then_artifact` | `account_inventory` |  | BrowserAct-backed observation only; no approval required for discovery-only refresh | `BrowserAct`, `Teable`, `MarkupGo` |
-| `browseract_bootstrap_manager` | `browseract_bootstrap_manager` | `browseract_workflow_spec_packet` | `tool_then_artifact` | `entities`, `relationships` |  | Draft-only BrowserAct workflow-spec builder; operator review stays available for architect packets | `BrowserAct` |
+| `browseract_bootstrap_manager` | `browseract_bootstrap_manager` | `browseract_workflow_spec_packet` | `tool_then_artifact` | `entities`, `relationships` |  | Draft-only BrowserAct workflow-spec builder for prompt-tool and page-extract templates; operator review stays available for architect packets | `BrowserAct` |
 | `browseract_workflow_repair_manager` | `browseract_workflow_repair_manager` | `browseract_workflow_repair_packet` | `tool_then_artifact` | `entities`, `relationships` |  | Draft-only BrowserAct workflow repair lane; Gemini Vortex patches broken spec packets without sending them through Codex | `BrowserAct`, `Gemini Vortex` |
 | `external_send` | `external_send` | `draft_message` | `artifact_then_dispatch` | `communication_policies`, `delivery_preferences`, `authority_bindings` | `stakeholder_follow_up_fact` | Approval-backed send; optional human review before dispatch | `ApproveThis`, `ApiX-Drive`, `MarkupGo` |
 | `follow_up_enforcement` | `follow_up_enforcement` | `follow_up_bundle` | `artifact_then_dispatch_then_memory_candidate` | `commitments`, `follow_ups`, `follow_up_rules`, `deadline_windows` | `follow_up_fact` | Human escalation when SLA or authority rules require it | `Teable`, `ApiX-Drive`, `ApproveThis` |
@@ -38,3 +44,4 @@ The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET 
 - `ChatPlayground AI` and `Prompting Systems` are evaluation and prompt-authoring tools, not the live planner brain; `Gemini Vortex` now owns the primary structured-generation lane for `chummer6_visual_director`, while downstream helpers stay bounded to refinement/render work.
 - `browseract_bootstrap_manager` is now a real first-class skill, not just a helper script with stage fright.
 - `browseract_workflow_repair_manager` is the companion self-heal lane for when a BrowserAct workflow decides that typing `/text` literally is somehow a personality.
+- `python3 scripts/generate_browseract_content_templates.py` uses the BrowserAct bootstrap skill to emit ready-to-edit packet and workflow JSON for Economist, Atlantic, NYTimes, ApproveThis, and MetaSurvey reader templates in `/mnt/pcloud/EA/browseract_templates`.

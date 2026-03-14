@@ -18,6 +18,12 @@ bash scripts/deploy.sh
 bash scripts/db_bootstrap.sh
 ```
 
+For an explicit durable deployment profile, layer the prod override on top of the base compose:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
 Worker topology is explicit in [docker-compose.yml](/docker/EA/docker-compose.yml):
 
 - `ea-api`: HTTP API and inline queue drain for request-scoped work
@@ -37,6 +43,7 @@ Then open `http://localhost:8090/health`.
 - Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json)
 - Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
 - Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
+- BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py`
 - Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags.
 - Release preflight checklist includes milestone release-tag parity verification in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
@@ -67,10 +74,11 @@ Then open `http://localhost:8090/health`.
 - `/v1/tools/execute` runs built-in tool handlers through the shared execution plane, including `browseract.extract_account_facts` and `browseract.extract_account_inventory` for BrowserAct-backed LTD discovery plus `connector.dispatch` for queued sends
 - `/v1/connectors/bindings*` manages external connector bindings and status transitions
 - `/v1/tasks/contracts*` manages typed task contracts used by intent compilation
-- `/v1/skills*` promotes those task contracts into product-facing executive skills with explicit workflow, memory, authority, provider-hint, human-policy, and evaluation metadata, including the Gemini Vortex-backed `chummer6_visual_director` lane for Chummer6 guide planning, the BrowserAct-backed `browseract_bootstrap_manager` lane for on-demand workflow-spec generation, and the Gemini-assisted `browseract_workflow_repair_manager` lane for self-healing broken BrowserAct specs
+- `/v1/skills*` promotes those task contracts into product-facing executive skills with explicit workflow, memory, authority, provider-hint, human-policy, and evaluation metadata, including the Gemini Vortex-backed `chummer6_visual_director` lane for Chummer6 guide planning, the BrowserAct-backed `browseract_bootstrap_manager` lane for on-demand workflow-spec generation across prompt-tool and page-extract templates, and the Gemini-assisted `browseract_workflow_repair_manager` lane for self-healing broken BrowserAct specs
 - `/v1/plans/compile` emits a typed plan DSL projection from task contracts, projects the resolved `skill_key`, and now accepts either `task_key` or `skill_key` as the entrypoint selector
 - `/v1/plans/execute` runs task-contract keys through the same queue-backed graph runtime used by rewrite execution, returns the resolved `skill_key` alongside `task_key`, and now accepts either `task_key` or `skill_key`
 - direct rewrite/session artifact, receipt, and run-cost projections now carry the resolved `skill_key` too, so the main runtime inspection surfaces stay product-facing once a task contract is promoted into a first-class skill
+- the runtime now also keeps typed read projections for task-contract policy (`TaskContractPolicyRecord`), product-facing skills (`SkillCatalogRecord`), and provider posture (`ProviderBindingState`) so planner/catalog/provider code reads structured records instead of re-parsing raw JSON blobs at every call site
 - `/v1/evidence/objects*` exposes principal-scoped evidence-pack projections with stable `citation_handle` values and filters for `artifact_id`, `session_id`, or `evidence_ref`
 - `/v1/evidence/merge` combines selected evidence rows back into a reusable evidence pack so downstream workflows can merge cited facts without reparsing artifact JSON
 - `/v1/memory/candidates*` stages reviewable memory candidates from runtime signals

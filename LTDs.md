@@ -29,14 +29,14 @@ Updated: 2026-03-13
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 3` | None | All codes redeemed and activated; local runtime integration is still optional. |
+| `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for approval-queue reading plus skill-catalog references in external-send flows | Ready for BrowserAct-backed queue reading and approval-lane observation without treating ApproveThis as the internal policy engine. |
+| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, but the workflow-spec skill now emits real renderer scaffolds. |
 | `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
-| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; reserved for structured feedback collection. |
-| `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD with activation confirmed; email/account details pending. |
+| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection now has a staged BrowserAct extraction template instead of only a wishlist note. |
+| `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |

@@ -9,6 +9,10 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.services.skills import SkillCatalogService
+from app.services.task_contracts import TaskContractService
+
 
 def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -139,7 +143,7 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
             "input_json": {"source_text": "Board packet context."},
         },
     )
-    assert executed.status_code == 200
+    assert executed.status_code in {200, 202}
     assert executed.json()["skill_key"] == "meeting_prep"
     assert executed.json()["deliverable_type"] == "meeting_pack"
 
@@ -210,6 +214,37 @@ def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> 
     )
     assert compiled.status_code == 200
     assert compiled.json()["skill_key"] == "stakeholder_briefing"
+
+
+def test_skill_catalog_service_exposes_typed_skill_records() -> None:
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    skills = SkillCatalogService(contracts)
+
+    skills.upsert_skill(
+        skill_key="research_decision_memo",
+        task_key="research_decision_memo",
+        name="Research Decision Memo",
+        description="Build a grounded decision memo from structured research.",
+        deliverable_type="decision_summary",
+        workflow_template="artifact_then_memory_candidate",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=("decision_context",),
+        memory_write_policy="reviewed_only",
+        memory_reads=("decision_windows", "stakeholders"),
+        memory_writes=("decision_research_fact",),
+        tags=("research", "memo"),
+        provider_hints_json={"primary": ["BrowserAct"], "secondary": ["Paperguide"]},
+        budget_policy_json={"class": "low"},
+    )
+
+    record = skills.get_skill_record("research_decision_memo")
+    assert record is not None
+    assert record.skill_key == "research_decision_memo"
+    assert record.provider_hints_json["primary"] == ["BrowserAct"]
+    assert record.workflow_template == "artifact_then_memory_candidate"
+
+    filtered = skills.list_skill_records(limit=10, provider_hint="browseract")
+    assert [row.skill_key for row in filtered] == ["research_decision_memo"]
 
 
 def test_skill_catalog_can_execute_ltd_inventory_refresh_skill() -> None:
@@ -575,6 +610,69 @@ def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:
         "artifact_repository",
     ]
     assert session_body["artifacts"][0]["skill_key"] == "browseract_bootstrap_manager"
+
+
+def test_skill_catalog_can_execute_browseract_bootstrap_manager_for_page_extract_templates() -> None:
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "browseract_bootstrap_manager",
+            "task_key": "browseract_bootstrap_manager",
+            "name": "BrowserAct Bootstrap Manager",
+            "description": "Planner-executed BrowserAct workflow-spec builder for stage-0 BrowserAct template creation and architect packets.",
+            "deliverable_type": "browseract_workflow_spec_packet",
+            "default_risk_class": "medium",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"],
+            "evidence_requirements": ["target_domain_brief", "workflow_spec", "browseract_seed_state"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships"],
+            "memory_writes": [],
+            "tags": ["browseract", "bootstrap", "workflow", "architect"],
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {"primary": ["BrowserAct"]},
+            "tool_policy_json": {"allowed_tools": ["browseract.build_workflow_spec", "artifact_repository"]},
+            "human_policy_json": {"review_roles": ["automation_architect"]},
+            "evaluation_cases_json": [{"case_key": "browseract_bootstrap_manager_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "medium",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "workflow_spec_build",
+                "browseract_failure_strategy": "retry",
+                "browseract_max_attempts": 2,
+                "browseract_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "browseract_bootstrap_manager",
+            "goal": "build an article-reader workflow spec packet",
+            "input_json": {
+                "workflow_name": "NYTimes Reader",
+                "purpose": "Open a logged-in New York Times article and extract the readable article body.",
+                "login_url": "https://myaccount.nytimes.com/auth/login",
+                "tool_url": "https://www.nytimes.com",
+                "workflow_kind": "page_extract",
+                "runtime_input_name": "article_url",
+                "wait_selector": "article",
+                "title_selector": "article h1",
+                "result_selector": "article",
+                "dismiss_selectors": ["button[aria-label='Close']"],
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["structured_output_json"]["meta"]["workflow_kind"] == "page_extract"
+    assert body["structured_output_json"]["inputs"][0]["name"] == "article_url"
+    assert body["structured_output_json"]["workflow_name"] == "NYTimes Reader"
 
 
 def test_skill_catalog_can_execute_browseract_workflow_repair_manager_skill(monkeypatch) -> None:

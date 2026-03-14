@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.models import (
+    SkillCatalogRecord,
     SkillContract,
     TaskContract,
+    TaskContractPolicyRecord,
     TaskContractRuntimePolicy,
     TaskContractSkillCatalogPolicy,
     parse_task_contract_runtime_policy,
@@ -40,14 +42,19 @@ class SkillCatalogService:
     def __init__(self, task_contracts: TaskContractService) -> None:
         self._task_contracts = task_contracts
 
-    def _skill_meta(self, contract: TaskContract) -> TaskContractSkillCatalogPolicy:
-        return contract.runtime_policy().skill_catalog
+    def _runtime_policy(self, contract: TaskContract | TaskContractPolicyRecord) -> TaskContractRuntimePolicy:
+        if isinstance(contract, TaskContractPolicyRecord):
+            return contract.runtime_policy
+        return contract.runtime_policy()
 
-    def _workflow_template(self, contract: TaskContract) -> str:
-        return str(contract.runtime_policy().workflow_template or "rewrite").strip() or "rewrite"
+    def _skill_meta(self, contract: TaskContract | TaskContractPolicyRecord) -> TaskContractSkillCatalogPolicy:
+        return self._runtime_policy(contract).skill_catalog
 
-    def _derive_input_schema(self, contract: TaskContract) -> dict[str, Any]:
-        policy = contract.runtime_policy()
+    def _workflow_template(self, contract: TaskContract | TaskContractPolicyRecord) -> str:
+        return str(self._runtime_policy(contract).workflow_template or "rewrite").strip() or "rewrite"
+
+    def _derive_input_schema(self, contract: TaskContract | TaskContractPolicyRecord) -> dict[str, Any]:
+        policy = self._runtime_policy(contract)
         workflow_template = self._workflow_template(contract)
         pre_artifact_tool_name = str(policy.pre_artifact_tool_name or "").strip()
         if workflow_template == "browseract_extract_then_artifact" or (
@@ -78,26 +85,27 @@ class SkillCatalogService:
             "required": ["source_text"],
         }
 
-    def _derive_output_schema(self, contract: TaskContract) -> dict[str, Any]:
+    def _derive_output_schema(self, contract: TaskContract | TaskContractPolicyRecord) -> dict[str, Any]:
+        deliverable_type = contract.deliverable_type
         return {
             "type": "object",
             "properties": {
-                "deliverable_type": {"const": contract.deliverable_type},
+                "deliverable_type": {"const": deliverable_type},
                 "artifact_kind": {"type": "string"},
             },
             "required": ["deliverable_type"],
         }
 
-    def _derive_memory_writes(self, contract: TaskContract) -> tuple[str, ...]:
+    def _derive_memory_writes(self, contract: TaskContract | TaskContractPolicyRecord) -> tuple[str, ...]:
         if str(contract.memory_write_policy or "none").strip() == "none":
             return ()
-        category = str(contract.runtime_policy().memory_candidate.category or "").strip()
+        category = str(self._runtime_policy(contract).memory_candidate.category or "").strip()
         if category:
             return (category,)
         return (contract.memory_write_policy,)
 
-    def _derive_human_policy(self, contract: TaskContract) -> dict[str, Any]:
-        human_review = contract.runtime_policy().human_review
+    def _derive_human_policy(self, contract: TaskContract | TaskContractPolicyRecord) -> dict[str, Any]:
+        human_review = self._runtime_policy(contract).human_review
         if not str(human_review.role or "").strip():
             return {}
         return {
@@ -108,7 +116,7 @@ class SkillCatalogService:
             "authority_required": str(human_review.authority_required or "").strip(),
         }
 
-    def contract_to_skill(self, contract: TaskContract) -> SkillContract:
+    def policy_record_to_skill_record(self, contract: TaskContractPolicyRecord) -> SkillCatalogRecord:
         meta = self._skill_meta(contract)
         workflow_template = self._workflow_template(contract)
         skill_key = str(meta.skill_key or contract.task_key).strip() or contract.task_key
@@ -123,7 +131,7 @@ class SkillCatalogService:
             "allowed_tools": list(contract.allowed_tools),
         }
         human_policy_json = dict(meta.human_policy_json or {}) or self._derive_human_policy(contract)
-        return SkillContract(
+        return SkillCatalogRecord(
             skill_key=skill_key,
             task_key=contract.task_key,
             name=str(meta.name or _title_from_key(skill_key)).strip() or _title_from_key(skill_key),
@@ -147,6 +155,38 @@ class SkillCatalogService:
             human_policy_json=human_policy_json,
             evaluation_cases_json=tuple(dict(value) for value in meta.evaluation_cases_json),
             updated_at=contract.updated_at,
+        )
+
+    def record_to_skill(self, record: SkillCatalogRecord) -> SkillContract:
+        return SkillContract(
+            skill_key=record.skill_key,
+            task_key=record.task_key,
+            name=record.name,
+            description=record.description,
+            deliverable_type=record.deliverable_type,
+            default_risk_class=record.default_risk_class,
+            default_approval_class=record.default_approval_class,
+            workflow_template=record.workflow_template,
+            allowed_tools=tuple(record.allowed_tools or ()),
+            evidence_requirements=tuple(record.evidence_requirements or ()),
+            memory_write_policy=record.memory_write_policy,
+            memory_reads=tuple(record.memory_reads or ()),
+            memory_writes=tuple(record.memory_writes or ()),
+            tags=tuple(record.tags or ()),
+            input_schema_json=dict(record.input_schema_json or {}),
+            output_schema_json=dict(record.output_schema_json or {}),
+            authority_profile_json=dict(record.authority_profile_json or {}),
+            model_policy_json=dict(record.model_policy_json or {}),
+            provider_hints_json=dict(record.provider_hints_json or {}),
+            tool_policy_json=dict(record.tool_policy_json or {}),
+            human_policy_json=dict(record.human_policy_json or {}),
+            evaluation_cases_json=tuple(dict(value) for value in record.evaluation_cases_json),
+            updated_at=record.updated_at,
+        )
+
+    def contract_to_skill(self, contract: TaskContract) -> SkillContract:
+        return self.record_to_skill(
+            self.policy_record_to_skill_record(self._task_contracts.contract_to_policy_record(contract))
         )
 
     def upsert_skill(
@@ -220,22 +260,32 @@ class SkillCatalogService:
         )
         return self.contract_to_skill(contract)
 
-    def get_skill(self, skill_key: str) -> SkillContract | None:
+    def get_skill_record(self, skill_key: str) -> SkillCatalogRecord | None:
         resolved = str(skill_key or "").strip()
         if not resolved:
             return None
-        direct = self._task_contracts.get_contract(resolved)
+        direct = self._task_contracts.get_policy_record(resolved)
         if direct is not None:
-            return self.contract_to_skill(direct)
-        for contract in self._task_contracts.list_contracts(limit=500):
-            if self.contract_to_skill(contract).skill_key == resolved:
-                return self.contract_to_skill(contract)
+            return self.policy_record_to_skill_record(direct)
+        for contract in self._task_contracts.list_policy_records(limit=500):
+            projected = self.policy_record_to_skill_record(contract)
+            if projected.skill_key == resolved:
+                return projected
         return None
 
-    def list_skills(self, limit: int = 100, provider_hint: str = ""):
+    def get_skill(self, skill_key: str) -> SkillContract | None:
+        record = self.get_skill_record(skill_key)
+        if record is None:
+            return None
+        return self.record_to_skill(record)
+
+    def list_skill_records(self, limit: int = 100, provider_hint: str = "") -> list[SkillCatalogRecord]:
         normalized_provider_hint = str(provider_hint or "").strip().lower()
         fetch_limit = 500 if normalized_provider_hint else limit
-        rows = [self.contract_to_skill(contract) for contract in self._task_contracts.list_contracts(limit=fetch_limit)]
+        rows = [
+            self.policy_record_to_skill_record(contract)
+            for contract in self._task_contracts.list_policy_records(limit=fetch_limit)
+        ]
         if normalized_provider_hint:
             rows = [
                 row
@@ -246,3 +296,6 @@ class SkillCatalogService:
                 )
             ]
         return rows[:limit]
+
+    def list_skills(self, limit: int = 100, provider_hint: str = ""):
+        return [self.record_to_skill(record) for record in self.list_skill_records(limit=limit, provider_hint=provider_hint)]

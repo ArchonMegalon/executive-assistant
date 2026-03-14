@@ -100,6 +100,23 @@ def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> 
         )
 
 
+def test_provider_registry_exposes_binding_states(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERLY_API_KEY", "browserly-test-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+
+    registry = ProviderRegistryService()
+    states = {row.provider_key: row for row in registry.list_binding_states()}
+
+    assert states["artifact_repository"].state == "ready"
+    assert states["artifact_repository"].auth_mode == "internal"
+    assert states["browserly"].auth_mode == "api_key"
+    assert states["browserly"].secret_configured is True
+    assert states["browserly"].state == "configured"
+    assert "browser_capture" in states["browserly"].capabilities
+    assert states["gemini_vortex"].auth_mode == "cli"
+    assert states["gemini_vortex"].state == "ready"
+
+
 def test_tool_execution_service_executes_registered_tool_not_in_provider_catalog() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -1569,6 +1586,49 @@ def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> Non
     assert result.output_json["structured_output_json"]["meta"]["slug"] == "prompt_forge"
     assert result.receipt_json["handler_key"] == "browseract.build_workflow_spec"
     assert tool_runtime.get_tool("browseract.build_workflow_spec") is not None
+
+
+def test_tool_execution_service_builds_page_extract_browseract_packets() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = ToolExecutionService(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-spec-2",
+            step_id="step-browseract-spec-2",
+            tool_name="browseract.build_workflow_spec",
+            action_kind="workflow.spec_build",
+            payload_json={
+                "workflow_name": "Economist Reader",
+                "purpose": "Open a logged-in Economist article and extract the readable title and body.",
+                "login_url": "https://www.economist.com/login",
+                "tool_url": "https://www.economist.com",
+                "workflow_kind": "page_extract",
+                "runtime_input_name": "article_url",
+                "wait_selector": "article",
+                "title_selector": "article h1",
+                "result_selector": "article",
+                "dismiss_selectors": ["button[aria-label='Close']"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    spec = result.output_json["structured_output_json"]
+    assert spec["meta"]["workflow_kind"] == "page_extract"
+    assert spec["inputs"][0]["name"] == "article_url"
+    open_tool = next(node for node in spec["nodes"] if node["id"] == "open_tool")
+    assert open_tool["type"] == "visit_page"
+    assert open_tool["config"]["value_from_input"] == "article_url"
+    assert any(node["id"] == "extract_title" for node in spec["nodes"])
+    assert any(node["id"] == "extract_result" for node in spec["nodes"])
+    assert "Kind: page_extract" in result.output_json["normalized_text"]
 
 
 def test_tool_execution_service_repairs_browseract_workflow_spec_packets(monkeypatch) -> None:

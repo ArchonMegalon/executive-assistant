@@ -712,6 +712,19 @@ class TaskContract:
 
 
 @dataclass(frozen=True)
+class TaskContractPolicyRecord:
+    task_key: str
+    deliverable_type: str
+    default_risk_class: str
+    default_approval_class: str
+    allowed_tools: tuple[str, ...]
+    evidence_requirements: tuple[str, ...]
+    memory_write_policy: str
+    runtime_policy: TaskContractRuntimePolicy
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class SkillContract:
     skill_key: str
     task_key: str
@@ -736,6 +749,49 @@ class SkillContract:
     human_policy_json: dict[str, Any]
     evaluation_cases_json: tuple[dict[str, Any], ...]
     updated_at: str
+
+
+@dataclass(frozen=True)
+class SkillCatalogRecord:
+    skill_key: str
+    task_key: str
+    name: str
+    description: str
+    deliverable_type: str
+    default_risk_class: str
+    default_approval_class: str
+    workflow_template: str
+    allowed_tools: tuple[str, ...]
+    evidence_requirements: tuple[str, ...]
+    memory_write_policy: str
+    memory_reads: tuple[str, ...]
+    memory_writes: tuple[str, ...]
+    tags: tuple[str, ...]
+    input_schema_json: dict[str, Any]
+    output_schema_json: dict[str, Any]
+    authority_profile_json: dict[str, Any]
+    model_policy_json: dict[str, Any]
+    provider_hints_json: dict[str, Any]
+    tool_policy_json: dict[str, Any]
+    human_policy_json: dict[str, Any]
+    evaluation_cases_json: tuple[dict[str, Any], ...]
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class ProviderBindingState:
+    provider_key: str
+    display_name: str
+    executable: bool
+    enabled: bool
+    source: str
+    auth_mode: str
+    secret_env_names: tuple[str, ...]
+    secret_configured: bool
+    capabilities: tuple[str, ...]
+    tool_names: tuple[str, ...]
+    state: str
+    health_state: str = "unknown"
 
 
 @dataclass(frozen=True)

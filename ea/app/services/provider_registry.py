@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import shlex
+import shutil
 from dataclasses import dataclass
 
-from app.domain.models import SkillContract
+from app.domain.models import ProviderBindingState, SkillContract
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -224,6 +227,80 @@ class ProviderRegistryService:
     def list_bindings(self) -> tuple[ProviderBinding, ...]:
         return self._bindings
 
+    def _secret_env_names(self, provider_key: str) -> tuple[str, ...]:
+        mapping = {
+            "browseract": ("BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1"),
+            "browserly": ("BROWSERLY_API_KEY",),
+            "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
+            "magixai": ("AI_MAGICX_API_KEY",),
+            "markupgo": ("MARKUPGO_API_KEY",),
+            "onemin": ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+            "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
+            "teable": ("TEABLE_API_KEY",),
+            "unmixr": ("UNMIXR_API_KEY",),
+        }
+        return mapping.get(str(provider_key or "").strip(), ())
+
+    def _auth_mode(self, binding: ProviderBinding) -> str:
+        if binding.provider_key in {"artifact_repository", "connector_dispatch"}:
+            return "internal"
+        if binding.provider_key == "gemini_vortex":
+            return "cli"
+        if self._secret_env_names(binding.provider_key):
+            return "api_key"
+        return "catalog"
+
+    def _secret_configured(self, binding: ProviderBinding) -> bool:
+        auth_mode = self._auth_mode(binding)
+        if auth_mode == "internal":
+            return True
+        if auth_mode == "cli":
+            command = str(os.environ.get("EA_GEMINI_VORTEX_COMMAND") or "gemini").strip() or "gemini"
+            argv = shlex.split(command)
+            executable = argv[0] if argv else "gemini"
+            return bool(shutil.which(executable))
+        return any(str(os.environ.get(name) or "").strip() for name in self._secret_env_names(binding.provider_key))
+
+    def binding_state(self, provider_key: str) -> ProviderBindingState | None:
+        normalized = self._normalize_provider_key(provider_key)
+        for binding in self._bindings:
+            if binding.provider_key != normalized:
+                continue
+            auth_mode = self._auth_mode(binding)
+            secret_env_names = self._secret_env_names(binding.provider_key)
+            secret_configured = self._secret_configured(binding)
+            if binding.executable and secret_configured:
+                state = "ready"
+            elif secret_configured:
+                state = "configured"
+            elif binding.executable:
+                state = "unconfigured"
+            else:
+                state = "catalog_only"
+            return ProviderBindingState(
+                provider_key=binding.provider_key,
+                display_name=binding.display_name,
+                executable=binding.executable,
+                enabled=secret_configured or binding.executable,
+                source=binding.source,
+                auth_mode=auth_mode,
+                secret_env_names=secret_env_names,
+                secret_configured=secret_configured,
+                capabilities=tuple(capability.capability_key for capability in binding.capabilities),
+                tool_names=tuple(capability.tool_name for capability in binding.capabilities),
+                state=state,
+                health_state="ready" if state == "ready" else "unknown",
+            )
+        return None
+
+    def list_binding_states(self) -> tuple[ProviderBindingState, ...]:
+        states: list[ProviderBindingState] = []
+        for binding in self._bindings:
+            state = self.binding_state(binding.provider_key)
+            if state is not None:
+                states.append(state)
+        return tuple(states)
+
     def knows_tool(self, tool_name: str) -> bool:
         normalized_tool = str(tool_name or "").strip()
         if not normalized_tool:
@@ -247,6 +324,14 @@ class ProviderRegistryService:
             if binding.provider_key in hints or capability_tools.intersection(allowed_tools):
                 matched.append(binding)
         return tuple(matched)
+
+    def binding_states_for_skill(self, skill: SkillContract) -> tuple[ProviderBindingState, ...]:
+        states: list[ProviderBindingState] = []
+        for binding in self.bindings_for_skill(skill):
+            state = self.binding_state(binding.provider_key)
+            if state is not None:
+                states.append(state)
+        return tuple(states)
 
     def route_tool_by_capability(
         self,
