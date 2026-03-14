@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.responses import Response
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.container import AppContainer
@@ -228,8 +229,8 @@ def _tool_generate_text(
     raise RuntimeError("empty_generation_result")
 
 
-@router.get("/v1/models")
-def list_models(request: Request) -> JSONResponse:
+@router.get("/v1/models", response_model=None)
+def list_models(request: Request) -> Response:
     # Minimal compatibility surface; Codex custom providers primarily use /v1/responses.
     return JSONResponse(
         {
@@ -246,13 +247,13 @@ def list_models(request: Request) -> JSONResponse:
     )
 
 
-@router.post("/v1/responses")
+@router.post("/v1/responses", response_model=None)
 def create_response(
     payload: dict[str, object],
     *,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> JSONResponse | StreamingResponse:
+) -> Response:
     prompt = _input_text(payload)
     if not prompt:
         raise HTTPException(status_code=400, detail="input_required")
@@ -407,4 +408,3 @@ def create_response(
         yield _sse_event(event="response.completed", data={"type": "response.completed", "response": completed_obj})
 
     return StreamingResponse(_iter_stream(), media_type="text/event-stream")
-
