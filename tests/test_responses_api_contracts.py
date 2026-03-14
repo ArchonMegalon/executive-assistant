@@ -7,6 +7,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from app.services.responses_upstream import UpstreamResult
+
 
 def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -20,33 +22,23 @@ def _client(*, principal_id: str) -> TestClient:
     return client
 
 
-def test_responses_non_stream_returns_response_object() -> None:
+def test_responses_non_stream_returns_response_object(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
-    container = client.app.state.container
+    from app.api.routes import responses
 
-    tool_name = "provider.gemini_vortex.structured_generate"
-    container.tool_runtime.upsert_tool(tool_name=tool_name, version="v1")
-
-    from app.domain.models import ToolInvocationResult
-
-    def fake_handler(request, definition):
-        return ToolInvocationResult(
-            tool_name=definition.tool_name,
-            action_kind=request.action_kind,
-            target_ref="fake:1",
-            output_json={
-                "structured_output_json": {"text": "hello from ea"},
-                "normalized_text": '{"text":"hello from ea"}',
-                "mime_type": "application/json",
-            },
-            receipt_json={"handler_key": "fake"},
-            model_name="fake",
+    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+        assert prompt == "say hi"
+        assert requested_model == "ea-coder-small"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="hello from ea",
+            provider_key="magixai",
+            model="anthropic/claude-3.5-sonnet",
             tokens_in=11,
             tokens_out=7,
-            cost_usd=0.0,
         )
 
-    container.tool_execution.register_handler(tool_name, fake_handler)
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
 
     resp = client.post("/v1/responses", json={"model": "ea-coder-small", "input": "say hi"})
     assert resp.status_code == 200
@@ -60,35 +52,28 @@ def test_responses_non_stream_returns_response_object() -> None:
     assert body["output"][0]["content"][0]["text"] == "hello from ea"
     assert body["usage"]["input_tokens"] == 11
     assert body["usage"]["output_tokens"] == 7
+    assert body["metadata"]["principal_id"] == "codex-test"
+    assert body["metadata"]["upstream_provider"] == "magixai"
+    assert body["metadata"]["upstream_model"] == "anthropic/claude-3.5-sonnet"
 
 
-def test_responses_stream_emits_sse_events() -> None:
+def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
-    container = client.app.state.container
+    from app.api.routes import responses
 
-    tool_name = "provider.gemini_vortex.structured_generate"
-    container.tool_runtime.upsert_tool(tool_name=tool_name, version="v1")
-
-    from app.domain.models import ToolInvocationResult
-
-    def fake_handler(request, definition):
-        return ToolInvocationResult(
-            tool_name=definition.tool_name,
-            action_kind=request.action_kind,
-            target_ref="fake:1",
-            output_json={
-                "structured_output_json": {"text": "stream me"},
-                "normalized_text": '{"text":"stream me"}',
-                "mime_type": "application/json",
-            },
-            receipt_json={"handler_key": "fake"},
-            model_name="fake",
+    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+        assert prompt == "stream"
+        assert requested_model == "ea-coder-small"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="stream me",
+            provider_key="onemin",
+            model="gpt-5",
             tokens_in=1,
             tokens_out=2,
-            cost_usd=0.0,
         )
 
-    container.tool_execution.register_handler(tool_name, fake_handler)
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
 
     with client.stream("POST", "/v1/responses", json={"model": "ea-coder-small", "input": "stream", "stream": True}) as resp:
         assert resp.status_code == 200
@@ -98,3 +83,42 @@ def test_responses_stream_emits_sse_events() -> None:
     assert "event: response.output_text.delta" in body
     assert "event: response.completed" in body
 
+
+def test_models_list_returns_responses_aliases() -> None:
+    client = _client(principal_id="codex-test")
+
+    resp = client.get("/v1/models")
+    assert resp.status_code == 200
+    body = resp.json()
+    model_ids = {item["id"] for item in body["data"]}
+    assert "ea-coder-best" in model_ids
+    assert "ea-magicx-coder" in model_ids
+    assert "ea-onemin-coder" in model_ids
+
+
+def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+        assert prompt == "cap me"
+        assert requested_model == "ea-coder-small"
+        assert max_output_tokens == 64
+        return UpstreamResult(
+            text="bounded",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=5,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={"model": "ea-coder-small", "input": "cap me", "max_output_tokens": 64},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "bounded"
+    assert body["max_output_tokens"] == 64

@@ -9,10 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
-from app.container import AppContainer
-from app.domain.models import ToolInvocationRequest
-from app.services.tool_execution_common import ToolExecutionError
+from app.api.dependencies import RequestContext, get_request_context
+from app.services.responses_upstream import (
+    DEFAULT_PUBLIC_MODEL,
+    ResponsesUpstreamError,
+    UpstreamResult,
+    generate_text,
+    list_response_models,
+)
 
 
 router = APIRouter(tags=["responses"])
@@ -100,14 +104,17 @@ def _requested_model(payload: dict[str, object]) -> str:
     return ""
 
 
-def _gemini_model_hint(model: str) -> str:
-    lowered = str(model or "").strip().lower()
-    if not lowered:
-        return ""
-    # Treat explicit gemini model names as valid CLI hints; otherwise rely on EA_GEMINI_VORTEX_MODEL.
-    if "gemini" in lowered:
-        return str(model).strip()
-    return ""
+def _requested_max_output_tokens(payload: dict[str, object]) -> int | None:
+    raw = payload.get("max_output_tokens")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except Exception:
+        return None
+    if value <= 0:
+        return None
+    return value
 
 
 def _response_object(
@@ -120,6 +127,7 @@ def _response_object(
     output_text: str = "",
     tokens_in: int = 0,
     tokens_out: int = 0,
+    max_output_tokens: int | None = None,
     metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     completed_at = created_at if status == "completed" else None
@@ -137,7 +145,7 @@ def _response_object(
         "error": None,
         "incomplete_details": None,
         "instructions": None,
-        "max_output_tokens": None,
+        "max_output_tokens": max_output_tokens,
         "model": model or "",
         "output": list(output or []),
         "parallel_tool_calls": False,
@@ -174,75 +182,25 @@ def _message_item(*, item_id: str, text: str, status: str) -> dict[str, object]:
     }
 
 
-def _tool_generate_text(
-    *,
-    container: AppContainer,
-    principal_id: str,
-    prompt: str,
-    model_hint: str,
-    response_id: str,
-) -> tuple[str, int, int]:
-    schema = {
-        "type": "object",
-        "properties": {
-            "text": {"type": "string"},
-        },
-        "required": ["text"],
-    }
-    payload: dict[str, object] = {
-        "source_text": prompt,
-        "goal": "Generate a plain-text assistant reply for a Responses API request.",
-        "response_schema_json": schema,
-        "generation_instruction": (
-            "Return JSON only. Provide the assistant reply in the `text` field."
-        ),
-    }
-    if model_hint:
-        payload["model"] = model_hint
-
+def _generate_upstream_text(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
     try:
-        result = container.tool_execution.execute_invocation(
-            ToolInvocationRequest(
-                session_id=response_id,
-                step_id=f"{response_id}:gemini_vortex",
-                tool_name="provider.gemini_vortex.structured_generate",
-                action_kind="content.generate",
-                payload_json=payload,
-                context_json={"principal_id": principal_id},
-            )
+        return generate_text(
+            prompt=prompt,
+            requested_model=requested_model,
+            max_output_tokens=max_output_tokens,
         )
-    except ToolExecutionError as exc:
-        raise RuntimeError(str(exc)) from exc
+    except ResponsesUpstreamError as exc:
+        raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
     except Exception as exc:
-        raise RuntimeError(f"tool_execution_failed:{exc}") from exc
-
-    output_json = dict(result.output_json or {})
-    structured = output_json.get("structured_output_json")
-    if isinstance(structured, dict):
-        text = str(structured.get("text") or "").strip()
-        if text:
-            return text, int(result.tokens_in or 0), int(result.tokens_out or 0)
-    normalized = str(output_json.get("normalized_text") or "").strip()
-    if normalized:
-        # Best-effort fallback when the structured JSON parse did not produce the expected shape.
-        return normalized, int(result.tokens_in or 0), int(result.tokens_out or 0)
-    raise RuntimeError("empty_generation_result")
+        raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
 
 
 @router.get("/v1/models", response_model=None)
 def list_models(request: Request) -> Response:
-    # Minimal compatibility surface; Codex custom providers primarily use /v1/responses.
     return JSONResponse(
         {
             "object": "list",
-            "data": [
-                {
-                    "id": "ea-gemini-vortex",
-                    "object": "model",
-                    "created": 0,
-                    "owned_by": "executive-assistant",
-                }
-            ],
+            "data": list_response_models(),
         }
     )
 
@@ -251,7 +209,6 @@ def list_models(request: Request) -> Response:
 def create_response(
     payload: dict[str, object],
     *,
-    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
     prompt = _input_text(payload)
@@ -260,8 +217,8 @@ def create_response(
     instructions = _instructions_text(payload)
     if instructions:
         prompt = f"{instructions}\n\n{prompt}".strip()
-    model = _requested_model(payload)
-    model_hint = _gemini_model_hint(model)
+    model = _requested_model(payload) or DEFAULT_PUBLIC_MODEL
+    max_output_tokens = _requested_max_output_tokens(payload)
     metadata = _metadata(payload)
     stream = bool(payload.get("stream"))
 
@@ -270,13 +227,18 @@ def create_response(
     item_id = "msg_" + uuid.uuid4().hex[:24]
 
     if not stream:
-        text, tokens_in, tokens_out = _tool_generate_text(
-            container=container,
-            principal_id=context.principal_id,
+        result = _generate_upstream_text(
             prompt=prompt,
-            model_hint=model_hint,
-            response_id=response_id,
+            requested_model=model,
+            max_output_tokens=max_output_tokens,
         )
+        metadata = {
+            **metadata,
+            "principal_id": context.principal_id,
+            "upstream_provider": result.provider_key,
+            "upstream_model": result.model,
+        }
+        text = result.text
         message = _message_item(item_id=item_id, text=text, status="completed")
         response_obj = _response_object(
             response_id=response_id,
@@ -285,8 +247,9 @@ def create_response(
             status="completed",
             output=[message],
             output_text=text,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            max_output_tokens=max_output_tokens,
             metadata=metadata,
         )
         return JSONResponse(response_obj)
@@ -301,6 +264,7 @@ def create_response(
             output_text="",
             tokens_in=0,
             tokens_out=0,
+            max_output_tokens=max_output_tokens,
             metadata=metadata,
         )
         yield _sse_event(event="response.created", data={"type": "response.created", "response": in_progress_obj})
@@ -328,12 +292,10 @@ def create_response(
         )
 
         try:
-            text, tokens_in, tokens_out = _tool_generate_text(
-                container=container,
-                principal_id=context.principal_id,
+            result = _generate_upstream_text(
                 prompt=prompt,
-                model_hint=model_hint,
-                response_id=response_id,
+                requested_model=model,
+                max_output_tokens=max_output_tokens,
             )
         except Exception as exc:
             message = str(exc)[:500]
@@ -348,6 +310,13 @@ def create_response(
                 },
             )
             return
+        stream_metadata = {
+            **metadata,
+            "principal_id": context.principal_id,
+            "upstream_provider": result.provider_key,
+            "upstream_model": result.model,
+        }
+        text = result.text
 
         chunk_size = 120
         for start in range(0, len(text), chunk_size):
@@ -401,9 +370,10 @@ def create_response(
             status="completed",
             output=[final_item],
             output_text=text,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            metadata=metadata,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            max_output_tokens=max_output_tokens,
+            metadata=stream_metadata,
         )
         yield _sse_event(event="response.completed", data={"type": "response.completed", "response": completed_obj})
 
