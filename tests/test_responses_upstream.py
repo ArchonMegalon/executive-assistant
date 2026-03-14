@@ -80,6 +80,88 @@ def test_call_magicx_uses_bearer_auth_and_url_fallback(monkeypatch: pytest.Monke
     assert calls[0][2]["max_tokens"] == 48
 
 
+def test_call_magicx_preserves_system_and_user_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "openai/gpt-5.1-codex-mini")
+
+    calls: list[dict[str, object]] = []
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        calls.append(payload)
+        return (
+            200,
+            {
+                "model": "openai/gpt-5.1-codex-mini",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "ok",
+                        }
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    upstream.generate_text(
+        requested_model=upstream.MAGICX_PUBLIC_MODEL,
+        messages=[
+            {"role": "system", "content": "follow repo rules"},
+            {"role": "developer", "content": "keep it short"},
+            {"role": "user", "content": "say ok"},
+        ],
+    )
+
+    assert calls[0]["messages"] == [
+        {"role": "system", "content": "follow repo rules\n\nkeep it short"},
+        {"role": "user", "content": "say ok"},
+    ]
+
+
+def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "openai/gpt-5.1-codex-mini")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MAX_TOKENS", "128")
+
+    calls: list[dict[str, object]] = []
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        calls.append(payload)
+        if payload["max_tokens"] == 128:
+            return (
+                500,
+                {
+                    "error": (
+                        "This request requires more credits, or fewer max_tokens. "
+                        "You requested up to 128 tokens, but can only afford 127."
+                    )
+                },
+            )
+        return (
+            200,
+            {
+                "model": "openai/gpt-5.1-codex-mini",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "ok",
+                        }
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(prompt="say ok", requested_model=upstream.MAGICX_PUBLIC_MODEL)
+
+    assert result.text == "ok"
+    assert [payload["max_tokens"] for payload in calls] == [128, 96]
+
+
 def test_call_onemin_retries_keys_and_falls_back_from_code_to_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "inactive-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "active-key")
@@ -145,3 +227,37 @@ def test_call_onemin_retries_keys_and_falls_back_from_code_to_chat(monkeypatch: 
             {"type": "UNIFY_CHAT_WITH_AI", "model": "gpt-5", "promptObject": {"prompt": "write code"}},
         ),
     ]
+
+
+def test_call_onemin_flattens_structured_messages_into_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "active-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+
+    calls: list[dict[str, object]] = []
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        calls.append(payload)
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    upstream.generate_text(
+        requested_model=upstream.ONEMIN_PUBLIC_MODEL,
+        messages=[
+            {"role": "system", "content": "follow repo rules"},
+            {"role": "user", "content": "say ok"},
+        ],
+    )
+
+    assert calls[0]["promptObject"]["prompt"] == "System:\nfollow repo rules\n\nUser:\nsay ok"

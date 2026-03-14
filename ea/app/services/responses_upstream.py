@@ -11,6 +11,7 @@ from typing import Any
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
+ChatMessage = dict[str, str]
 
 
 class ResponsesUpstreamError(RuntimeError):
@@ -107,6 +108,24 @@ def _magicx_max_tokens() -> int:
         return max(16, int(raw))
     except Exception:
         return 128
+
+
+def _magicx_token_limits(max_output_tokens: int | None) -> tuple[int, ...]:
+    requested = int(max_output_tokens or 0) if int(max_output_tokens or 0) > 0 else _magicx_max_tokens()
+    candidates = (
+        requested,
+        min(requested, 96),
+        min(requested, 64),
+        min(requested, 48),
+        min(requested, 32),
+        16,
+    )
+    deduped: list[int] = []
+    for item in candidates:
+        value = max(16, int(item))
+        if value not in deduped:
+            deduped.append(value)
+    return tuple(deduped)
 
 
 def _onemin_chat_url() -> str:
@@ -397,6 +416,55 @@ def _extract_onemin_model(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _normalize_chat_role(value: object) -> str:
+    lowered = str(value or "").strip().lower()
+    if lowered in {"developer", "system"}:
+        return "system"
+    if lowered == "assistant":
+        return "assistant"
+    return "user"
+
+
+def _normalize_messages(*, prompt: str = "", messages: list[dict[str, str]] | None = None) -> list[ChatMessage]:
+    normalized: list[ChatMessage] = []
+
+    def _append(role: object, content: object) -> None:
+        cleaned = str(content or "").strip()
+        if not cleaned:
+            return
+        normalized_role = _normalize_chat_role(role)
+        if normalized and normalized[-1]["role"] == normalized_role:
+            normalized[-1]["content"] = f"{normalized[-1]['content']}\n\n{cleaned}".strip()
+            return
+        normalized.append({"role": normalized_role, "content": cleaned})
+
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        _append(message.get("role"), message.get("content"))
+
+    if not normalized:
+        _append("user", prompt)
+    return normalized
+
+
+def _messages_to_prompt(messages: list[ChatMessage]) -> str:
+    if not messages:
+        return ""
+    if len(messages) == 1 and messages[0]["role"] == "user":
+        return messages[0]["content"]
+    labels = {
+        "system": "System",
+        "assistant": "Assistant",
+        "user": "User",
+    }
+    parts: list[str] = []
+    for message in messages:
+        label = labels.get(message["role"], "User")
+        parts.append(f"{label}:\n{message['content']}")
+    return "\n\n".join(parts).strip()
+
+
 def _provider_candidates(requested_model: str) -> list[tuple[ProviderConfig, str]]:
     requested = str(requested_model or "").strip()
     configs = _provider_configs()
@@ -433,43 +501,55 @@ def _provider_candidates(requested_model: str) -> list[tuple[ProviderConfig, str
     return _with_order(requested)
 
 
-def _call_magicx(config: ProviderConfig, *, prompt: str, model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+def _call_magicx(
+    config: ProviderConfig,
+    *,
+    prompt: str,
+    messages: list[ChatMessage] | None = None,
+    model: str,
+    max_output_tokens: int | None = None,
+) -> UpstreamResult:
     errors: list[str] = []
-    token_limit = int(max_output_tokens or 0) if int(max_output_tokens or 0) > 0 else _magicx_max_tokens()
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    if not normalized_messages:
+        raise ResponsesUpstreamError("magicx_prompt_required")
     for api_key in config.api_keys:
         for url in _magicx_urls():
-            status, payload = _post_json(
-                url=url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                payload={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                    "max_tokens": token_limit,
-                },
-                timeout_seconds=config.timeout_seconds,
-            )
-            if status < 200 or status >= 300:
-                errors.append(f"http_{status}@{url}:{_trim_error_payload(payload)}")
-                if status == 401 and _is_auth_error(payload):
+            for token_limit in _magicx_token_limits(max_output_tokens):
+                status, payload = _post_json(
+                    url=url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    payload={
+                        "model": model,
+                        "messages": normalized_messages,
+                        "stream": False,
+                        "max_tokens": token_limit,
+                    },
+                    timeout_seconds=config.timeout_seconds,
+                )
+                if status < 200 or status >= 300:
+                    errors.append(f"http_{status}@{url}:{_trim_error_payload(payload)}")
+                    if status == 401 and _is_auth_error(payload):
+                        break
+                    if _requires_smaller_max_tokens(payload):
+                        continue
                     break
-                continue
-            if not isinstance(payload, dict):
-                errors.append(f"magicx_invalid_response@{url}")
-                continue
-            text = _extract_openai_text(payload)
-            if not text:
-                errors.append(f"magicx_empty_response@{url}")
-                continue
-            tokens_in, tokens_out = _extract_openai_usage(payload)
-            resolved_model = str(payload.get("model") or model).strip() or model
-            return UpstreamResult(
-                text=text,
-                provider_key=config.provider_key,
-                model=resolved_model,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-            )
+                if not isinstance(payload, dict):
+                    errors.append(f"magicx_invalid_response@{url}")
+                    continue
+                text = _extract_openai_text(payload)
+                if not text:
+                    errors.append(f"magicx_empty_response@{url}")
+                    continue
+                tokens_in, tokens_out = _extract_openai_usage(payload)
+                resolved_model = str(payload.get("model") or model).strip() or model
+                return UpstreamResult(
+                    text=text,
+                    provider_key=config.provider_key,
+                    model=resolved_model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                )
     if not errors:
         raise ResponsesUpstreamError("magicx_unavailable")
     raise ResponsesUpstreamError("; ".join(errors))
@@ -489,7 +569,18 @@ def _onemin_payload_for_mode(mode: str, *, prompt: str, model: str) -> dict[str,
     }
 
 
-def _call_onemin(config: ProviderConfig, *, prompt: str, model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+def _call_onemin(
+    config: ProviderConfig,
+    *,
+    prompt: str,
+    messages: list[ChatMessage] | None = None,
+    model: str,
+    max_output_tokens: int | None = None,
+) -> UpstreamResult:
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    prompt_text = _messages_to_prompt(normalized_messages)
+    if not prompt_text:
+        raise ResponsesUpstreamError("onemin_prompt_required")
     strategies: list[tuple[str, str]] = []
     if _onemin_model_supports_code(model):
         strategies.append(("code", _onemin_code_url()))
@@ -501,7 +592,7 @@ def _call_onemin(config: ProviderConfig, *, prompt: str, model: str, max_output_
             status, payload = _post_json(
                 url=url,
                 headers={"API-KEY": api_key},
-                payload=_onemin_payload_for_mode(mode, prompt=prompt, model=model),
+                payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
                 timeout_seconds=config.timeout_seconds,
             )
             if status < 200 or status >= 300:
@@ -567,9 +658,26 @@ def _is_auth_error(payload: Any) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def generate_text(*, prompt: str, requested_model: str = "", max_output_tokens: int | None = None) -> UpstreamResult:
-    prompt_text = str(prompt or "").strip()
-    if not prompt_text:
+def _requires_smaller_max_tokens(payload: Any) -> bool:
+    lowered = str(payload or "").lower()
+    markers = (
+        "fewer max_tokens",
+        "requires more credits",
+        "can only afford",
+    )
+    return all(marker in lowered for marker in markers)
+
+
+def generate_text(
+    *,
+    prompt: str = "",
+    messages: list[dict[str, str]] | None = None,
+    requested_model: str = "",
+    max_output_tokens: int | None = None,
+) -> UpstreamResult:
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    prompt_text = _messages_to_prompt(normalized_messages)
+    if not prompt_text and not normalized_messages:
         raise ResponsesUpstreamError("prompt_required")
 
     errors: list[str] = []
@@ -582,9 +690,21 @@ def generate_text(*, prompt: str, requested_model: str = "", max_output_tokens: 
             continue
         try:
             if config.provider_key == "magixai":
-                return _call_magicx(config, prompt=prompt_text, model=model_name, max_output_tokens=max_output_tokens)
+                return _call_magicx(
+                    config,
+                    prompt=prompt_text,
+                    messages=normalized_messages,
+                    model=model_name,
+                    max_output_tokens=max_output_tokens,
+                )
             if config.provider_key == "onemin":
-                return _call_onemin(config, prompt=prompt_text, model=model_name, max_output_tokens=max_output_tokens)
+                return _call_onemin(
+                    config,
+                    prompt=prompt_text,
+                    messages=normalized_messages,
+                    model=model_name,
+                    max_output_tokens=max_output_tokens,
+                )
             errors.append(f"{config.provider_key}:unsupported_provider")
         except ResponsesUpstreamError as exc:
             message = str(exc)

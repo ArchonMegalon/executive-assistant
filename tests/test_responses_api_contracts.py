@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 
@@ -26,8 +27,15 @@ def test_responses_non_stream_returns_response_object(monkeypatch: pytest.Monkey
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
-    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
         assert prompt == "say hi"
+        assert messages == [{"role": "user", "content": "say hi"}]
         assert requested_model == "ea-coder-small"
         assert max_output_tokens is None
         return UpstreamResult(
@@ -61,8 +69,15 @@ def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> N
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
-    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
         assert prompt == "stream"
+        assert messages == [{"role": "user", "content": "stream"}]
         assert requested_model == "ea-coder-small"
         assert max_output_tokens is None
         return UpstreamResult(
@@ -82,6 +97,39 @@ def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> N
     assert "event: response.created" in body
     assert "event: response.output_text.delta" in body
     assert "event: response.completed" in body
+    assert "event: response.done" in body
+    assert "data: [DONE]" in body
+
+
+def test_responses_stream_emits_keepalive_while_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        time.sleep(0.03)
+        return UpstreamResult(
+            text="ok",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=2,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream("POST", "/v1/responses", json={"model": "ea-coder-small", "input": "stream", "stream": True}) as resp:
+        assert resp.status_code == 200
+        body = "".join(resp.iter_text())
+
+    assert ": keep-alive" in body
+    assert "event: response.completed" in body
 
 
 def test_models_list_returns_responses_aliases() -> None:
@@ -100,8 +148,15 @@ def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
-    def fake_generate(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
         assert prompt == "cap me"
+        assert messages == [{"role": "user", "content": "cap me"}]
         assert requested_model == "ea-coder-small"
         assert max_output_tokens == 64
         return UpstreamResult(
@@ -122,3 +177,57 @@ def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -
     body = resp.json()
     assert body["output_text"] == "bounded"
     assert body["max_output_tokens"] == 64
+
+
+def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        assert prompt == "stay concise\n\nrepo rules\n\nsay ok"
+        assert messages == [
+            {"role": "system", "content": "base instructions\n\nstay concise"},
+            {"role": "user", "content": "repo rules\n\nsay ok"},
+        ]
+        assert requested_model == "ea-coder-best"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="ok",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=3,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-best",
+            "instructions": "base instructions",
+            "input": [
+                {
+                    "role": "developer",
+                    "content": [{"type": "input_text", "text": "stay concise"}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "repo rules"}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "say ok"}],
+                },
+            ],
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["output_text"] == "ok"

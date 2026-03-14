@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 import time
 import uuid
 from typing import Any, Iterable
@@ -20,6 +22,7 @@ from app.services.responses_upstream import (
 
 
 router = APIRouter(tags=["responses"])
+STREAM_HEARTBEAT_SECONDS = 10.0
 
 
 def _now_unix() -> int:
@@ -35,6 +38,14 @@ def _sse_event(*, event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {_json_dumps(data)}\n\n"
 
 
+def _sse_done() -> str:
+    return "data: [DONE]\n\n"
+
+
+def _sse_comment(comment: str = "keep-alive") -> str:
+    return f": {comment}\n\n"
+
+
 def _extract_text(value: object) -> str:
     if value is None:
         return ""
@@ -43,6 +54,71 @@ def _extract_text(value: object) -> str:
     if isinstance(value, (int, float, bool)):
         return str(value)
     return ""
+
+
+def _normalize_message_role(role: object) -> str:
+    lowered = str(role or "").strip().lower()
+    if lowered in {"developer", "system"}:
+        return "system"
+    if lowered == "assistant":
+        return "assistant"
+    return "user"
+
+
+def _content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for entry in content:
+        if isinstance(entry, str):
+            cleaned = entry.strip()
+            if cleaned:
+                parts.append(cleaned)
+            continue
+        if not isinstance(entry, dict):
+            continue
+        entry_type = str(entry.get("type") or "").strip().lower()
+        if entry_type in {"input_text", "text"}:
+            cleaned = _extract_text(entry.get("text")).strip()
+            if cleaned:
+                parts.append(cleaned)
+    return "\n\n".join(parts).strip()
+
+
+def _append_message(messages: list[dict[str, str]], *, role: object, content: object) -> None:
+    cleaned = str(content or "").strip()
+    if not cleaned:
+        return
+    normalized_role = _normalize_message_role(role)
+    if messages and messages[-1]["role"] == normalized_role:
+        messages[-1]["content"] = f"{messages[-1]['content']}\n\n{cleaned}".strip()
+        return
+    messages.append({"role": normalized_role, "content": cleaned})
+
+
+def _input_messages(payload: dict[str, object]) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    instructions = _instructions_text(payload)
+    if instructions:
+        _append_message(messages, role="system", content=instructions)
+
+    raw = payload.get("input")
+    if isinstance(raw, str):
+        _append_message(messages, role="user", content=raw)
+        return messages
+    if not isinstance(raw, list):
+        return messages
+
+    for item in raw:
+        if isinstance(item, str):
+            _append_message(messages, role="user", content=item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        _append_message(messages, role=item.get("role"), content=_content_text(item.get("content")))
+    return messages
 
 
 def _input_text(payload: dict[str, object]) -> str:
@@ -59,26 +135,9 @@ def _input_text(payload: dict[str, object]) -> str:
                 continue
             if not isinstance(item, dict):
                 continue
-            content = item.get("content")
-            if isinstance(content, str):
-                cleaned = content.strip()
-                if cleaned:
-                    parts.append(cleaned)
-                continue
-            if isinstance(content, list):
-                for entry in content:
-                    if isinstance(entry, str):
-                        cleaned = entry.strip()
-                        if cleaned:
-                            parts.append(cleaned)
-                        continue
-                    if not isinstance(entry, dict):
-                        continue
-                    entry_type = str(entry.get("type") or "").strip().lower()
-                    if entry_type in {"input_text", "text"}:
-                        cleaned = _extract_text(entry.get("text")).strip()
-                        if cleaned:
-                            parts.append(cleaned)
+            cleaned = _content_text(item.get("content"))
+            if cleaned:
+                parts.append(cleaned)
         return "\n\n".join(parts).strip()
     return ""
 
@@ -182,10 +241,17 @@ def _message_item(*, item_id: str, text: str, status: str) -> dict[str, object]:
     }
 
 
-def _generate_upstream_text(*, prompt: str, requested_model: str, max_output_tokens: int | None = None) -> UpstreamResult:
+def _generate_upstream_text(
+    *,
+    prompt: str,
+    messages: list[dict[str, str]] | None = None,
+    requested_model: str,
+    max_output_tokens: int | None = None,
+) -> UpstreamResult:
     try:
         return generate_text(
             prompt=prompt,
+            messages=messages,
             requested_model=requested_model,
             max_output_tokens=max_output_tokens,
         )
@@ -211,12 +277,10 @@ def create_response(
     *,
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
+    messages = _input_messages(payload)
     prompt = _input_text(payload)
-    if not prompt:
+    if not messages and not prompt:
         raise HTTPException(status_code=400, detail="input_required")
-    instructions = _instructions_text(payload)
-    if instructions:
-        prompt = f"{instructions}\n\n{prompt}".strip()
     model = _requested_model(payload) or DEFAULT_PUBLIC_MODEL
     max_output_tokens = _requested_max_output_tokens(payload)
     metadata = _metadata(payload)
@@ -229,6 +293,7 @@ def create_response(
     if not stream:
         result = _generate_upstream_text(
             prompt=prompt,
+            messages=messages,
             requested_model=model,
             max_output_tokens=max_output_tokens,
         )
@@ -291,13 +356,33 @@ def create_response(
             },
         )
 
-        try:
-            result = _generate_upstream_text(
-                prompt=prompt,
-                requested_model=model,
-                max_output_tokens=max_output_tokens,
-            )
-        except Exception as exc:
+        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+        def _run_upstream() -> None:
+            try:
+                result = _generate_upstream_text(
+                    prompt=prompt,
+                    messages=messages,
+                    requested_model=model,
+                    max_output_tokens=max_output_tokens,
+                )
+                result_queue.put(("result", result))
+            except Exception as exc:
+                result_queue.put(("error", exc))
+
+        worker = threading.Thread(target=_run_upstream, daemon=True)
+        worker.start()
+
+        state: tuple[str, object] | None = None
+        while state is None:
+            try:
+                state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
+            except queue.Empty:
+                yield _sse_comment()
+
+        status, payload = state
+        if status != "result":
+            exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
             message = str(exc)[:500]
             yield _sse_event(
                 event="error",
@@ -310,6 +395,9 @@ def create_response(
                 },
             )
             return
+        result = payload
+        if not isinstance(result, UpstreamResult):
+            raise RuntimeError("invalid_upstream_result")
         stream_metadata = {
             **metadata,
             "principal_id": context.principal_id,
@@ -376,5 +464,7 @@ def create_response(
             metadata=stream_metadata,
         )
         yield _sse_event(event="response.completed", data={"type": "response.completed", "response": completed_obj})
+        yield _sse_event(event="response.done", data={"type": "response.done", "response": completed_obj})
+        yield _sse_done()
 
     return StreamingResponse(_iter_stream(), media_type="text/event-stream")
