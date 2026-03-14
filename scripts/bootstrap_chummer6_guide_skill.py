@@ -140,10 +140,99 @@ def build_visual_director_skill_payload() -> dict[str, object]:
     return payload
 
 
+def build_public_auditor_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_public_auditor",
+            "task_key": "chummer6_public_copy_audit",
+            "name": "Chummer6 Public Auditor",
+            "description": "Self-audit lane for Chummer6 public-guide copy: visitor-first voice, correct action routing, jargon cleanup, and bounded revision guidance.",
+            "memory_writes": ["chummer6_public_audit_fact"],
+            "tags": ["chummer6", "guide", "public-audit", "editorial", "qa"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "Prompting Systems"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
+def build_scene_auditor_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_scene_auditor",
+            "task_key": "chummer6_scene_plan_audit",
+            "name": "Chummer6 Scene Auditor",
+            "description": "Audit and repair lane for Chummer6 scene plans before rendering: composition diversity, page-role fit, and table-scene relapse prevention.",
+            "memory_writes": ["chummer6_scene_audit_fact"],
+            "tags": ["chummer6", "guide", "scene-audit", "visual-direction", "qa"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "Prompting Systems"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
+def build_visual_auditor_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_visual_auditor",
+            "task_key": "chummer6_visual_audit",
+            "name": "Chummer6 Visual Auditor",
+            "description": "Post-render visual QA lane for Chummer6 guide assets: reject placeholder vibes, detect repetition, and enforce pack-level premium feel.",
+            "memory_writes": ["chummer6_visual_audit_fact"],
+            "tags": ["chummer6", "guide", "visual-audit", "qa"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems"],
+                "media": ["AI Magicx", "Prompting Systems"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
+def build_pack_auditor_skill_payload() -> dict[str, object]:
+    payload = _common_skill_fields()
+    payload.update(
+        {
+            "skill_key": "chummer6_pack_auditor",
+            "task_key": "chummer6_pack_audit",
+            "name": "Chummer6 Pack Auditor",
+            "description": "Whole-pack audit lane for Chummer6 guide output: editorial drift, scene diversity, style-epoch coherence, and publish readiness checks.",
+            "memory_writes": ["chummer6_pack_audit_fact"],
+            "tags": ["chummer6", "guide", "pack-audit", "qa"],
+            "provider_hints_json": {
+                "primary": ["Gemini Vortex"],
+                "research": ["BrowserAct"],
+                "output": ["Gemini Vortex"],
+                "style": ["Gemini Vortex"],
+            },
+        }
+    )
+    return payload
+
+
 def build_skill_payloads() -> list[dict[str, object]]:
     return [
         build_public_writer_skill_payload(),
+        build_public_auditor_skill_payload(),
         build_visual_director_skill_payload(),
+        build_scene_auditor_skill_payload(),
+        build_visual_auditor_skill_payload(),
+        build_pack_auditor_skill_payload(),
     ]
 
 

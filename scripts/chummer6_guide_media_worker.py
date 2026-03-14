@@ -1900,8 +1900,15 @@ def asset_specs() -> list[dict[str, object]]:
             if str(style_epoch.get(key) or "").strip()
         )
         guardrails = variation_guardrails_for(target=target, rows=recent_rows)
+        normalized_target = target.replace("\\", "/")
+        is_detail_still = "/details/" in normalized_target or normalized_target.endswith("-scene.png")
+        intro_line = (
+            f"Close, prop-led cinematic cyberpunk scene still for the Chummer6 {role}."
+            if is_detail_still
+            else f"Wide cinematic cyberpunk concept art for the Chummer6 {role}."
+        )
         prompt_parts = [
-            f"Wide cinematic cyberpunk concept art for the Chummer6 {role}.",
+            intro_line,
             visual_prompt,
             f"One clear focal subject: {subject}." if subject else "",
             f"Set the scene in {environment}." if environment else "",
@@ -2246,6 +2253,40 @@ def asset_specs() -> list[dict[str, object]]:
                 "width": 960,
                 "height": 540,
                 "media_row": row,
+                "style_epoch": style_epoch,
+                "providers": provider_order(),
+            }
+        )
+        detail_target = f"assets/horizons/details/{slug}-scene.png"
+        detail_row = dict(row)
+        detail_contract = dict(row.get("scene_contract") or {}) if isinstance(row.get("scene_contract"), dict) else {}
+        detail_contract["composition"] = "prop_detail"
+        detail_contract["subject"] = str(
+            detail_contract.get("subject") or "hands and props capturing the horizon promise"
+        ).strip() or "hands and props capturing the horizon promise"
+        detail_contract["action"] = str(
+            detail_contract.get("action") or "captured as a tight scene-detail still with hands, props, and implied dialogue beats"
+        ).strip() or "captured as a tight scene-detail still with hands, props, and implied dialogue beats"
+        detail_row["scene_contract"] = detail_contract
+        detail_nudge = (
+            "Scene-detail still: tighter framing, prop-led, hands and gear carry the moment; "
+            "avoid wide establishing shots or big group huddles."
+        )
+        detail_visual_prompt = str(detail_row.get("visual_prompt") or "").strip()
+        if detail_visual_prompt:
+            if detail_nudge.lower() not in detail_visual_prompt.lower():
+                detail_row["visual_prompt"] = f"{detail_nudge} {detail_visual_prompt}".strip()
+        else:
+            detail_row["visual_prompt"] = detail_nudge
+        detail_row = apply_visual_override(detail_target, detail_row)
+        specs.append(
+            {
+                "target": detail_target,
+                "role": f"{slug} horizon scene detail",
+                "prompt": render_prompt_from_row(detail_row, role=f"{slug} horizon scene detail", target=detail_target),
+                "width": 640,
+                "height": 360,
+                "media_row": detail_row,
                 "style_epoch": style_epoch,
                 "providers": provider_order(),
             }

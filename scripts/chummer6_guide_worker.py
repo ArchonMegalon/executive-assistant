@@ -123,6 +123,8 @@ PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("workbench", "prep surface"),
     ("play shell", "live-play surface"),
 )
+COMPOSITION_SLUG_RE = re.compile(r"^[a-zA-Z0-9_-]{2,80}$")
+TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
 ARCHITECTURE_HEAVY_TERMS: tuple[str, ...] = (
     "architecture",
     "architectural",
@@ -332,6 +334,73 @@ def editorial_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
     if issues:
         scope_list = ", ".join(f"{row['scope']}:{row['reason']}" for row in issues[:8])
         raise RuntimeError(f"editorial_pack_audit_failed:{scope_list}")
+    return summary
+
+
+def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
+    media = overrides.get("media")
+    if not isinstance(media, dict):
+        return {"status": "skipped", "reason": "missing_media", "checked": 0}
+
+    visual_overrides: dict[str, object] = {}
+    overrides_path = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
+    if overrides_path.exists():
+        try:
+            loaded = json.loads(overrides_path.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = {}
+        if isinstance(loaded, dict):
+            visual_overrides = loaded
+
+    checked = 0
+    tableau = 0
+    invalid: list[dict[str, str]] = []
+
+    def audit_row(scope: str, *, target: str, row: object) -> None:
+        nonlocal checked, tableau
+        if not isinstance(row, dict):
+            return
+        contract = row.get("scene_contract")
+        if not isinstance(contract, dict):
+            return
+        composition = str(contract.get("composition") or "").strip()
+        if target:
+            override = visual_overrides.get(target)
+            if isinstance(override, dict):
+                override_contract = override.get("scene_contract")
+                override_comp = ""
+                if isinstance(override_contract, dict):
+                    override_comp = str(override_contract.get("composition") or "").strip()
+                if override_comp:
+                    composition = override_comp
+        if not composition:
+            return
+        checked += 1
+        normalized = composition.lower().replace("-", "_")
+        if normalized in TABLEAU_COMPOSITIONS:
+            tableau += 1
+        if not re.fullmatch(r"[a-z0-9_]{2,80}", normalized):
+            invalid.append({"scope": scope, "composition": composition})
+
+    audit_row("media.hero", target="assets/hero/chummer6-hero.png", row=media.get("hero"))
+    for group in ("parts", "horizons"):
+        mapping = media.get(group)
+        if not isinstance(mapping, dict):
+            continue
+        for key, row in mapping.items():
+            target = f"assets/{group}/{key}.png"
+            audit_row(f"media.{group}.{key}", target=target, row=row)
+
+    summary: dict[str, object] = {
+        "status": "ok",
+        "checked": checked,
+        "tableau_count": tableau,
+        "invalid_compositions": invalid,
+    }
+    if tableau > 2:
+        raise RuntimeError(f"scene_plan_audit_failed:tableau_count:{tableau}")
+    if invalid:
+        raise RuntimeError(f"scene_plan_audit_failed:invalid_compositions:{invalid[:4]}")
     return summary
 
 
@@ -546,7 +615,25 @@ def humanizer_required() -> bool:
 
 
 def humanize_text_local(text: str, *, target: str) -> str:
-    return " ".join(str(text or "").split()).strip()
+    raw = str(text or "")
+    if not raw.strip():
+        return ""
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned_lines: list[str] = []
+    for line in raw.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            if cleaned_lines and cleaned_lines[-1] != "":
+                cleaned_lines.append("")
+            continue
+        # Preserve simple HTML blocks as single lines.
+        if stripped.startswith("<") and stripped.endswith(">"):
+            cleaned_lines.append(stripped)
+            continue
+        cleaned_lines.append(" ".join(stripped.split()))
+    while cleaned_lines and cleaned_lines[-1] == "":
+        cleaned_lines.pop()
+    return "\n".join(cleaned_lines).strip()
 
 
 def humanizer_min_sentences() -> int:
@@ -2022,10 +2109,13 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         if not isinstance(raw, dict):
             return default
         contract: dict[str, object] = dict(default)
-        for key in ("subject", "environment", "action", "metaphor", "composition", "palette", "mood", "humor"):
+        for key in ("subject", "environment", "action", "metaphor", "palette", "mood", "humor"):
             value = str(raw.get(key, "")).strip()
             if value:
                 contract[key] = value
+        composition_raw = str(raw.get("composition", "")).strip()
+        if composition_raw and COMPOSITION_SLUG_RE.fullmatch(composition_raw):
+            contract["composition"] = composition_raw.lower().replace("-", "_")
         for key in ("props", "overlays"):
             value = raw.get(key)
             if isinstance(value, list):
@@ -2505,6 +2595,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             )
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
+    overrides["meta"]["scene_plan_audit"] = scene_plan_pack_audit(overrides)
     overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"
     overrides["meta"]["provider_status"] = "ok"
