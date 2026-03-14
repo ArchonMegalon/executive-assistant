@@ -117,6 +117,18 @@ def test_provider_registry_exposes_binding_states(monkeypatch: pytest.MonkeyPatc
     assert states["gemini_vortex"].state == "ready"
 
 
+def test_provider_registry_cli_state_accepts_command_with_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh -c true")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("gemini_vortex")
+
+    assert state is not None
+    assert state.auth_mode == "cli"
+    assert state.secret_configured is True
+    assert state.state == "ready"
+
+
 def test_tool_execution_service_executes_registered_tool_not_in_provider_catalog() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
