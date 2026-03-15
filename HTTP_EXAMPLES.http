@@ -37,6 +37,41 @@ GET {{host}}/health/ready
 ### Version
 GET {{host}}/version
 
+### Codex-compatible responses facade
+GET {{host}}/v1/models
+X-EA-Principal-ID: {{principal_id}}
+
+POST {{host}}/v1/responses
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "model": "ea-coder-best",
+  "instructions": "Produce concise player-facing updates.",
+  "input": "Summarize three actionable next priorities for the local Chummer session."
+}
+
+POST {{host}}/v1/responses
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "model": "ea-coder-best",
+  "input": "Generate a compact scene-facing caption for the hero asset.",
+  "stream": true
+}
+
+### Response retrieval
+GET {{host}}/v1/responses/replace_with_response_id
+X-EA-Principal-ID: {{principal_id}}
+
+GET {{host}}/v1/responses/replace_with_response_id/input_items
+X-EA-Principal-ID: {{principal_id}}
+
+### Responses provider health debug
+GET {{host}}/v1/responses/_provider_health
+X-EA-Principal-ID: {{principal_id}}
+
 ### Rewrite -> artifact + execution session
 POST {{host}}/v1/rewrite/artifact
 Content-Type: application/json
@@ -624,6 +659,38 @@ Content-Type: application/json
 {
   "status": "disabled"
 }
+
+### Providers -> upsert binding
+POST {{host}}/v1/providers/bindings
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "provider_key": "browseract",
+  "status": "enabled",
+  "priority": 10,
+  "probe_state": "ready",
+  "probe_details_json": {
+    "checked_by": "http-example"
+  },
+  "scope_json": {
+    "allowed_tools": [
+      "browseract.extract_account_inventory"
+    ]
+  }
+}
+
+### Providers -> list bindings
+GET {{host}}/v1/providers/bindings?limit=20
+X-EA-Principal-ID: {{principal_id}}
+
+### Providers -> list states
+GET {{host}}/v1/providers/states
+X-EA-Principal-ID: {{principal_id}}
+
+### Providers -> get one state
+GET {{host}}/v1/providers/states/browseract
+X-EA-Principal-ID: {{principal_id}}
 
 ### Task Contracts -> upsert
 POST {{host}}/v1/tasks/contracts
