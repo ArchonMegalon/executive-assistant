@@ -7,6 +7,7 @@ from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_browseract_registry import (
     register_builtin_browseract_extract,
     register_builtin_browseract_inventory,
+    register_builtin_browseract_chatplayground_audit,
     register_builtin_browseract_workflow_repair,
     register_builtin_browseract_workflow_spec,
 )
@@ -36,6 +37,14 @@ class BrowserActToolExecutionModule:
     def live_extract(self, handler) -> None:
         self._adapter._live_extract = handler
 
+    @property
+    def chatplayground_audit(self):
+        return self._adapter._chatplayground_audit
+
+    @chatplayground_audit.setter
+    def chatplayground_audit(self, handler) -> None:
+        self._adapter._chatplayground_audit = handler
+
     def register_extract(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_extract(
             tool_runtime=self._tool_runtime,
@@ -59,6 +68,13 @@ class BrowserActToolExecutionModule:
 
     def register_workflow_repair(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_workflow_repair(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_chatplayground_audit(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_browseract_chatplayground_audit(
             tool_runtime=self._tool_runtime,
             register_handler=register_handler,
             browseract_adapter=self._adapter,

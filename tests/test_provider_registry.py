@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.models import PlanValidationError, SkillContract
+from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.planner import PlannerService
 from app.services.provider_registry import ProviderRegistryService
@@ -93,6 +94,72 @@ def test_provider_registry_routes_browseract_workflow_spec_repair_with_alias_hin
     assert route.capability_key == "workflow_spec_repair"
     assert route.tool_name == "browseract.repair_workflow_spec"
     assert route.executable is True
+
+
+def test_provider_registry_routes_chatplayground_audit_with_aliases() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="chatplayground_audit",
+        provider_hints=("chatplayground",),
+        allowed_tools=("browseract.chatplayground_audit", "artifact_repository"),
+    )
+    assert route.provider_key == "browseract"
+    assert route.capability_key == "chatplayground_audit"
+    assert route.tool_name == "browseract.chatplayground_audit"
+    assert route.executable is True
+
+
+def test_provider_registry_onemin_secret_rotation_includes_fallback_2() -> None:
+    registry = ProviderRegistryService()
+    state = registry.binding_state("onemin")
+    assert state is not None
+    assert "ONEMIN_AI_API_KEY_FALLBACK_2" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_3" in state.secret_env_names
+
+
+def test_provider_registry_normalizes_chatplayground_aliases() -> None:
+    registry = ProviderRegistryService()
+
+    state = registry.binding_state("chatplayground")
+    assert state is not None
+    assert state.provider_key == "browseract"
+
+    state = registry.binding_state("chat_playground")
+    assert state is not None
+    assert state.provider_key == "browseract"
+
+
+def test_provider_registry_normalizes_magicx_aliases() -> None:
+    registry = ProviderRegistryService()
+
+    state = registry.binding_state("magicxai")
+    assert state is not None
+    assert state.provider_key == "magixai"
+
+    state = registry.binding_state("aimagicx")
+    assert state is not None
+    assert state.provider_key == "magixai"
+
+    state = registry.binding_state("ai_magicx")
+    assert state is not None
+    assert state.provider_key == "magixai"
+
+
+def test_provider_registry_route_tool_respects_principal_binding_state() -> None:
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(
+        principal_id="exec-1",
+        provider_key="browseract",
+        status="disabled",
+        priority=10,
+    )
+    registry = ProviderRegistryService(provider_binding_repo=repo)
+    with pytest.raises(ToolExecutionError, match="provider_tool_unavailable:browseract.extract_account_inventory"):
+        registry.route_tool_with_context("browseract.extract_account_inventory", principal_id="exec-1")
+
+    route = registry.route_tool_with_context("browseract.extract_account_inventory", principal_id="exec-2")
+    assert route.provider_key == "browseract"
+    assert route.tool_name == "browseract.extract_account_inventory"
 
 
 def test_provider_registry_rejects_non_executable_capability_route() -> None:

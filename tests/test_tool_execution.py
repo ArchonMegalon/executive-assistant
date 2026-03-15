@@ -26,13 +26,18 @@ from app.services.tool_execution import (
 from app.services.tool_runtime import ToolRuntimeService
 
 
+def _tool_execution_service(*args, **kwargs) -> ToolExecutionService:
+    kwargs.setdefault("provider_registry", ProviderRegistryService())
+    return ToolExecutionService(*args, **kwargs)
+
+
 def test_tool_execution_service_executes_builtin_artifact_repository_handler() -> None:
     artifacts = InMemoryArtifactRepository()
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(tool_runtime=tool_runtime, artifacts=artifacts)
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
 
     result = service.execute_invocation(
         ToolInvocationRequest(
@@ -79,7 +84,7 @@ def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> 
             ),
         ),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=ToolRuntimeService(
             tool_registry=InMemoryToolRegistryRepository(),
             connector_bindings=InMemoryConnectorBindingRepository(),
@@ -134,7 +139,7 @@ def test_tool_execution_service_executes_registered_tool_not_in_provider_catalog
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -180,7 +185,7 @@ def test_tool_execution_service_re_registers_builtin_handlers_via_provider_regis
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -225,7 +230,7 @@ def test_tool_execution_service_materializes_evidence_objects_for_evidence_pack_
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=artifacts,
         evidence_runtime=evidence_runtime,
@@ -319,7 +324,7 @@ def test_tool_execution_service_rejects_disabled_tools() -> None:
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -343,7 +348,7 @@ def test_tool_execution_service_rejects_disabled_tools() -> None:
 
 
 def test_tool_execution_service_requires_principal_for_artifact_repository_handler() -> None:
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=ToolRuntimeService(
             tool_registry=InMemoryToolRegistryRepository(),
             connector_bindings=InMemoryConnectorBindingRepository(),
@@ -373,7 +378,7 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -421,7 +426,7 @@ def test_connector_dispatch_builtin_schema_matches_executor_contract() -> None:
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=ChannelRuntimeService(
@@ -458,7 +463,7 @@ def test_connector_dispatch_executor_required_fields_match_declared_schema(
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -506,7 +511,7 @@ def test_connector_dispatch_executor_allows_missing_optional_idempotency_key() -
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -555,7 +560,7 @@ def test_connector_dispatch_executor_accepts_request_principal_when_payload_prin
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -596,7 +601,7 @@ def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_t
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -667,7 +672,7 @@ def test_connector_dispatch_executor_rejects_missing_principal_id() -> None:
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -708,7 +713,7 @@ def test_connector_dispatch_executor_rejects_context_principal_id_missing_even_i
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -750,7 +755,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -795,7 +800,7 @@ def test_connector_dispatch_executor_prefers_allowed_channel_validation_before_s
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -840,7 +845,7 @@ def test_connector_dispatch_executor_rejects_principal_scope_mismatch() -> None:
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -882,7 +887,7 @@ def test_connector_dispatch_executor_normalizes_channel_for_allowed_channels() -
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -927,7 +932,7 @@ def test_connector_dispatch_executor_enforces_sorted_allowed_channels_determinis
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -999,7 +1004,7 @@ def test_connector_dispatch_executor_rejects_request_principal_mismatch_even_whe
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -1037,7 +1042,7 @@ def test_browseract_tool_dispatch_requires_request_principal_id_even_if_payload_
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1072,7 +1077,7 @@ def test_browseract_tool_dispatch_accepts_request_principal_when_payload_princip
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1106,7 +1111,7 @@ def test_browseract_tool_dispatch_rejects_request_principal_scope_mismatch() -> 
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1141,7 +1146,7 @@ def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1168,8 +1173,163 @@ def test_browseract_tool_dispatch_rejects_service_scope_mismatch() -> None:
                 },
                 context_json={"principal_id": "exec-1"},
             )
-        )
+    )
     assert str(exc.value) == f"connector_binding_scope_mismatch:{binding.binding_id}:teable"
+
+
+def test_tool_execution_service_rejects_browseract_inventory_scope_mismatch_for_explicit_services_without_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError) as exc:
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-inventory-scope-only-services-1",
+                step_id="step-browseract-inventory-scope-only-services-1",
+                tool_name="browseract.extract_account_inventory",
+                action_kind="account.extract_inventory",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                    "service_names": ["BrowserAct", "Teable"],
+                    "requested_fields": ["tier", "account_email", "status"],
+                    "instructions": "use scope-only binding without services metadata",
+                    "run_url": "https://browseract.example/run",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+    assert str(exc.value) == f"connector_binding_scope_mismatch:{binding.binding_id}:browseract,teable"
+
+
+def test_tool_execution_service_executes_browseract_inventory_with_scope_authorization_for_explicit_services_without_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-scope-only-services-1",
+            step_id="step-browseract-inventory-scope-only-services-1",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_names": ["BrowserAct"],
+                "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "use scope-only binding without services metadata",
+                "run_url": "https://browseract.example/run",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.action_kind == "account.extract_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert result.output_json["missing_services"] == ["BrowserAct"]
+    assert result.output_json["instructions"] == "use scope-only binding without services metadata"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
+def test_tool_execution_service_executes_browseract_extract_with_scope_authorization_without_services_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-extract-scope-only-services-1",
+            step_id="step-browseract-extract-scope-only-services-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_name": "BrowserAct",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert result.output_json["service_name"] == "BrowserAct"
+
+
+def test_tool_execution_service_executes_browseract_extract_with_scope_authorization_from_string_scope_json_without_services_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": "BrowserAct"},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-extract-scope-only-string-1",
+            step_id="step-browseract-extract-scope-only-string-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_name": "BrowserAct",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert result.output_json["service_name"] == "BrowserAct"
 
 
 def test_tool_execution_service_executes_builtin_browseract_extract_handler() -> None:
@@ -1177,7 +1337,7 @@ def test_tool_execution_service_executes_builtin_browseract_extract_handler() ->
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1238,7 +1398,7 @@ def test_tool_execution_service_executes_builtin_browseract_inventory_handler() 
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1304,6 +1464,331 @@ def test_tool_execution_service_executes_builtin_browseract_inventory_handler() 
     assert result.receipt_json["requested_run_url"] == "https://browseract.example/run"
 
 
+def test_tool_execution_service_executes_browseract_inventory_with_scope_authorization_without_services_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-scope-only-1",
+            step_id="step-browseract-inventory-scope-only-1",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "use scope-only binding",
+                "run_url": "https://browseract.example/run",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert result.output_json["missing_services"] == ["BrowserAct"]
+    assert result.output_json["services_json"][0]["discovery_status"] == "missing"
+    assert result.output_json["instructions"] == "use scope-only binding"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
+def test_tool_execution_service_executes_browseract_inventory_with_services_authorization_without_service_accounts_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-services-only-1",
+            step_id="step-browseract-inventory-services-only-1",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "use services-only binding",
+                "run_url": "https://browseract.example/run",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert result.output_json["missing_services"] == ["BrowserAct"]
+    assert result.output_json["services_json"][0]["discovery_status"] == "missing"
+    assert result.output_json["instructions"] == "use services-only binding"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
+def test_tool_execution_service_executes_browseract_inventory_with_service_list_authorization_for_services_scope_without_metadata() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-services-only-services-2",
+            step_id="step-browseract-inventory-services-only-services-2",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_names": ["BrowserAct"],
+                "requested_fields": ["tier", "account_email", "status"],
+                "instructions": "use services-only scope with explicit service_names",
+                "run_url": "https://browseract.example/run",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert result.output_json["missing_services"] == ["BrowserAct"]
+    assert result.output_json["instructions"] == "use services-only scope with explicit service_names"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_inventory"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
+def test_tool_execution_service_executes_browseract_inventory_fallback_dedupes_overlapping_metadata_and_scope_services() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"], "scopes": ["BrowserAct"]},
+        auth_metadata_json={
+            "service_accounts_json": [
+                {"service_name": "BrowserAct", "account_email": "ops@browseract.example"},
+            ]
+        },
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-fallback-dedupe-1",
+            step_id="step-browseract-inventory-fallback-dedupe-1",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "requested_fields": ["tier", "account_email"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert len(result.output_json["services_json"]) == 1
+    assert result.output_json["services_json"][0]["service_name"] == "BrowserAct"
+
+
+def test_tool_execution_service_executes_browseract_inventory_fallback_dedupes_mixed_case_services_preserving_first_seen_casing() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["browseract"], "scopes": ["BROWSERACT"]},
+        auth_metadata_json={
+            "service_accounts_json": [
+                {"service_name": "BrowserAct", "account_email": "ops@browseract.example"},
+            ]
+        },
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-inventory-fallback-dedupe-mixed-case-1",
+            step_id="step-browseract-inventory-fallback-dedupe-mixed-case-1",
+            tool_name="browseract.extract_account_inventory",
+            action_kind="account.extract_inventory",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "requested_fields": ["tier", "account_email"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_inventory"
+    assert result.output_json["service_names"] == ["BrowserAct"]
+    assert len(result.output_json["services_json"]) == 1
+    assert result.output_json["services_json"][0]["service_name"] == "BrowserAct"
+
+
+def test_tool_execution_service_executes_browseract_facts_with_scope_authorization_without_service_accounts_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"scopes": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_browseract_live_extract",
+        lambda **_: {
+            "tier": "Tier 3",
+            "account_email": "ops@example.com",
+            "status": "activated",
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-facts-scope-only-1",
+            step_id="step-browseract-facts-scope-only-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert result.action_kind == "account.extract"
+    assert result.output_json["service_name"] == "BrowserAct"
+    assert result.output_json["facts_json"]["tier"] == "Tier 3"
+    assert result.output_json["facts_json"]["account_email"] == "ops@example.com"
+    assert result.output_json["facts_json"]["status"] == "activated"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_facts"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
+def test_tool_execution_service_executes_browseract_facts_with_services_authorization_without_service_accounts_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={"services": ["BrowserAct"]},
+        status="enabled",
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_browseract_live_extract",
+        lambda **_: {
+            "tier": "Tier 3",
+            "account_email": "ops@example.com",
+            "status": "activated",
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-facts-services-only-1",
+            step_id="step-browseract-facts-services-only-1",
+            tool_name="browseract.extract_account_facts",
+            action_kind="account.extract",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "service_name": "BrowserAct",
+                "requested_fields": ["tier", "account_email", "status"],
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.extract_account_facts"
+    assert result.action_kind == "account.extract"
+    assert result.output_json["service_name"] == "BrowserAct"
+    assert result.output_json["facts_json"]["tier"] == "Tier 3"
+    assert result.output_json["facts_json"]["account_email"] == "ops@example.com"
+    assert result.output_json["facts_json"]["status"] == "activated"
+    assert result.receipt_json["handler_key"] == "browseract.extract_account_facts"
+    assert result.receipt_json["invocation_contract"] == "tool.v1"
+
+
 def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1311,7 +1796,7 @@ def test_tool_execution_service_tolerates_live_browseract_inventory_fallback_err
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1372,7 +1857,7 @@ def test_tool_execution_service_rejects_foreign_connector_binding_scope() -> Non
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -1417,7 +1902,7 @@ def test_tool_execution_service_rejects_foreign_browseract_binding_scope() -> No
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1454,7 +1939,7 @@ def test_tool_execution_service_self_heals_missing_builtin_artifact_definition()
         tool_registry=registry,
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(tool_runtime=tool_runtime, artifacts=artifacts)
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
 
     registry._rows.clear()  # type: ignore[attr-defined]
     registry._order.clear()  # type: ignore[attr-defined]
@@ -1487,7 +1972,7 @@ def test_tool_execution_service_self_heals_missing_builtin_connector_dispatch_de
         observations=InMemoryObservationEventRepository(),
         outbox=InMemoryDeliveryOutboxRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         channel_runtime=channel_runtime,
@@ -1531,7 +2016,7 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_definition
         tool_registry=registry,
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1566,12 +2051,160 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_definition
     assert tool_runtime.get_tool("browseract.extract_account_facts") is not None
 
 
+def test_tool_execution_service_self_heals_missing_builtin_browseract_chatplayground_audit_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_audit(**_: object) -> dict[str, object]:
+        return {
+            "consensus": "default consensus",
+            "summary": "default summary",
+            "recommendation": "default recommendation",
+            "roles": ["factuality", "adversarial", "completeness", "risk"],
+            "disagreements": [],
+            "risks": ["none"],
+            "model_deltas": ["delta"],
+            "instruction_trace": ["trace"],
+            "raw_response": {"ok": True},
+        }
+
+    monkeypatch.setattr(service, "_browseract_chatplayground_audit", _fake_audit)
+    registry._rows.pop("browseract.chatplayground_audit", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.chatplayground_audit"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-1",
+            step_id="step-browseract-audit-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "prompt": "Review the proposed patch for edge cases.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.chatplayground_audit"
+    assert result.action_kind == "audit.jury"
+    assert result.output_json["roles"] == ["factuality", "adversarial", "completeness", "risk"]
+    assert result.receipt_json["handler_key"] == "browseract.chatplayground_audit"
+    assert tool_runtime.get_tool("browseract.chatplayground_audit") is not None
+
+
+def test_tool_execution_service_rejects_chatplayground_audit_without_prompt() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    with pytest.raises(ToolExecutionError, match="prompt_required:browseract.chatplayground_audit"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-audit-no-prompt-1",
+                step_id="step-browseract-audit-no-prompt-1",
+                tool_name="browseract.chatplayground_audit",
+                action_kind="audit.jury",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
+def test_tool_execution_service_uses_default_chatplayground_audit_roles_and_default_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_audit(*, run_url: str, request_payload: dict[str, object]) -> dict[str, object]:
+        assert run_url == "https://web.chatplayground.ai/"
+        assert request_payload["roles"] == ["factuality", "adversarial", "completeness", "risk"]
+        assert request_payload["audit_scope"] == "jury"
+        return {
+            "consensus": "consistent result",
+            "recommendation": "apply suggestion",
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+            "instruction_trace": [],
+            "roles": [],
+            "raw_response": {},
+        }
+
+    monkeypatch.setattr(service, "_browseract_chatplayground_audit", _fake_audit)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-2",
+            step_id="step-browseract-audit-2",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "prompt": "Validate migration plan for concurrency safety.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["requested_url"] == "https://web.chatplayground.ai/"
+    assert result.output_json["requested_roles"] == ["factuality", "adversarial", "completeness", "risk"]
+    assert result.output_json["audit_scope"] == "jury"
+    assert result.receipt_json["requested_url"] == "https://web.chatplayground.ai/"
+
+
 def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1605,7 +2238,7 @@ def test_tool_execution_service_builds_page_extract_browseract_packets() -> None
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1697,7 +2330,7 @@ def test_tool_execution_service_repairs_browseract_workflow_spec_packets(monkeyp
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    service = ToolExecutionService(
+    service = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
     )
@@ -1753,7 +2386,7 @@ def test_build_default_orchestrator_uses_explicit_tool_execution_for_tool_execut
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
-    tool_execution = ToolExecutionService(
+    tool_execution = _tool_execution_service(
         tool_runtime=tool_runtime,
         artifacts=InMemoryArtifactRepository(),
         evidence_runtime=EvidenceRuntimeService(InMemoryEvidenceObjectRepository()),

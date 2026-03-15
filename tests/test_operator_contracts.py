@@ -63,10 +63,18 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert ".env.*" in gitignore
     assert "BROWSERACT_API_KEY" in env_example
     assert "BROWSERACT_API_KEY_FALLBACK_1" in env_example
+    assert "BROWSERACT_API_KEY_FALLBACK_2" in env_example
+    assert "BROWSERACT_API_KEY_FALLBACK_3" in env_example
     assert "BROWSERACT_API_KEY" in env_local_example
     assert "BROWSERACT_API_KEY_FALLBACK_1" in env_local_example
+    assert "BROWSERACT_API_KEY_FALLBACK_2" in env_local_example
+    assert "BROWSERACT_API_KEY_FALLBACK_3" in env_local_example
+    assert "BROWSERACT_CHATPLAYGROUND_URL" in env_example
+    assert "BROWSERACT_CHATPLAYGROUND_URL" in env_local_example
     assert "ONEMIN_AI_API_KEY" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_3" in env_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
 

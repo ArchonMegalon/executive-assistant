@@ -30,10 +30,10 @@ class ToolExecutionService:
         artifacts: ArtifactRepository,
         channel_runtime: ChannelRuntimeService | None = None,
         evidence_runtime: EvidenceRuntimeService | None = None,
-        provider_registry: ProviderRegistryService | None = None,
+        provider_registry: ProviderRegistryService,
     ) -> None:
         self._tool_runtime = tool_runtime
-        self._provider_registry = provider_registry or ProviderRegistryService()
+        self._provider_registry = provider_registry
         self._handlers: dict[str, ToolExecutionHandler] = {}
         self._connector_dispatch_module = ConnectorDispatchToolExecutionModule(
             tool_runtime=tool_runtime,
@@ -57,6 +57,7 @@ class ToolExecutionService:
             ("browseract", "account_inventory"): self._register_builtin_browseract_inventory,
             ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
             ("browseract", "workflow_spec_repair"): self._register_builtin_browseract_workflow_repair,
+            ("browseract", "chatplayground_audit"): self._register_builtin_browseract_chatplayground_audit,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
         }
@@ -71,8 +72,10 @@ class ToolExecutionService:
     def execute_invocation(self, request: ToolInvocationRequest) -> ToolInvocationResult:
         requested_tool_name = str(request.tool_name or "").strip()
         tool_name = requested_tool_name
+        context_json = dict(request.context_json or {})
+        requested_principal_id = str(context_json.get("principal_id") or "").strip() or None
         try:
-            route = self._provider_registry.route_tool(requested_tool_name)
+            route = self._provider_registry.route_tool_with_context(requested_tool_name, principal_id=requested_principal_id)
         except ToolExecutionError as exc:
             if (
                 str(exc or "") != f"provider_tool_unavailable:{requested_tool_name}"
@@ -85,7 +88,7 @@ class ToolExecutionService:
             raise ToolExecutionError("tool_name_required")
         definition = self._tool_runtime.get_tool(tool_name)
         if definition is None:
-            self._ensure_builtin_tool_registered(tool_name)
+            self._ensure_builtin_tool_registered(tool_name, principal_id=requested_principal_id)
             definition = self._tool_runtime.get_tool(tool_name)
         if definition is None:
             raise ToolExecutionError(f"tool_not_registered:{tool_name}")
@@ -101,16 +104,16 @@ class ToolExecutionService:
                 tool_name=tool_name,
                 action_kind=request.action_kind,
                 payload_json=dict(request.payload_json or {}),
-                context_json=dict(request.context_json or {}),
+                context_json=context_json,
             )
         return handler(request, definition)
 
-    def _ensure_builtin_tool_registered(self, tool_name: str) -> None:
+    def _ensure_builtin_tool_registered(self, tool_name: str, *, principal_id: str | None = None) -> None:
         key = str(tool_name or "").strip()
         if not key:
             return
         try:
-            route = self._provider_registry.route_tool(key)
+            route = self._provider_registry.route_tool_with_context(key, principal_id=principal_id)
         except ToolExecutionError:
             return
         registrar = self._builtin_capability_registrars.get((route.provider_key, route.capability_key))
@@ -143,6 +146,9 @@ class ToolExecutionService:
     def _register_builtin_browseract_workflow_repair(self) -> None:
         self._browseract_module.register_workflow_repair(self.register_handler)
 
+    def _register_builtin_browseract_chatplayground_audit(self) -> None:
+        self._browseract_module.register_chatplayground_audit(self.register_handler)
+
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
 
@@ -156,3 +162,11 @@ class ToolExecutionService:
     @_browseract_live_extract.setter
     def _browseract_live_extract(self, handler) -> None:
         self._browseract_module.live_extract = handler
+
+    @property
+    def _browseract_chatplayground_audit(self):
+        return self._browseract_module.chatplayground_audit
+
+    @_browseract_chatplayground_audit.setter
+    def _browseract_chatplayground_audit(self, handler) -> None:
+        self._browseract_module.chatplayground_audit = handler
