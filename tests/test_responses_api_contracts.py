@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -33,6 +34,7 @@ def test_responses_non_stream_returns_response_object(monkeypatch: pytest.Monkey
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         assert prompt == "say hi"
         assert messages == [{"role": "user", "content": "say hi"}]
@@ -80,6 +82,7 @@ def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> N
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         assert prompt == "stream"
         assert messages == [{"role": "user", "content": "stream"}]
@@ -116,6 +119,7 @@ def test_responses_stream_emits_keepalive_while_waiting(monkeypatch: pytest.Monk
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         time.sleep(0.03)
         return UpstreamResult(
@@ -193,6 +197,7 @@ def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         assert prompt == "cap me"
         assert messages == [{"role": "user", "content": "cap me"}]
@@ -228,6 +233,7 @@ def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatc
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         assert prompt == "stay concise\n\nrepo rules\n\nsay ok"
         assert messages == [
@@ -340,6 +346,7 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         return UpstreamResult(
             text="stored output",
@@ -389,6 +396,7 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         calls.append(requested_model)
         assert messages == [{"role": "user", "content": "lane-check"}]
@@ -443,6 +451,39 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
+
+
+def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-audit-fallback")
+    from app.api.routes import responses
+    from app.services import responses_upstream as upstream
+
+    class _NoToolContainer:
+        tool_execution = None
+
+    def fail_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> tuple[int, dict[str, object]]:
+        raise AssertionError("http path should not be used for callback-only audit lane")
+
+    monkeypatch.setattr(upstream, "_post_json", fail_post_json)
+    monkeypatch.setattr(responses, "get_container", lambda: _NoToolContainer())
+
+    response = client.post("/v1/codex/audit", json={"input": "review this change"})
+    assert response.status_code == 200
+
+    body = response.json()
+    output_text = body["output"][0]["content"][0]["text"]
+    payload = json.loads(output_text)
+    assert payload["provider"] == "chatplayground"
+    assert payload["consensus"] == "unavailable"
+    assert body["metadata"]["codex_profile"] == "audit"
+    assert body["metadata"]["codex_review_required"] is True
+    assert body["metadata"]["provider_account_name"].startswith("chatplayground_")
 
 
 def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -565,6 +606,7 @@ def test_end_to_end_responses_contract(monkeypatch: pytest.MonkeyPatch) -> None:
         messages: list[dict[str, str]] | None = None,
         requested_model: str,
         max_output_tokens: int | None = None,
+        **_: object,
     ) -> UpstreamResult:
         if prompt == "sync check":
             assert messages == [{"role": "system", "content": "audit first"}, {"role": "user", "content": "sync check"}]

@@ -6,14 +6,16 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response
 
-from app.api.dependencies import RequestContext, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.domain.models import ToolInvocationRequest
+from app.services.tool_execution_common import ToolExecutionError
 from app.services.responses_upstream import (
     DEFAULT_PUBLIC_MODEL,
     ResponsesUpstreamError,
@@ -485,6 +487,9 @@ def _generate_upstream_text(
     messages: list[dict[str, str]] | None = None,
     requested_model: str,
     max_output_tokens: int | None = None,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
 ) -> UpstreamResult:
     try:
         return generate_text(
@@ -492,6 +497,9 @@ def _generate_upstream_text(
             messages=messages,
             requested_model=requested_model,
             max_output_tokens=max_output_tokens,
+            chatplayground_audit_callback=chatplayground_audit_callback,
+            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+            chatplayground_audit_principal_id=chatplayground_audit_principal_id,
         )
     except ResponsesUpstreamError as exc:
         raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
@@ -542,6 +550,7 @@ def _run_response(
     request_payload: dict[str, object],
     *,
     context: RequestContext,
+    container: object | None = None,
     codex_profile: str | None = None,
 ) -> Response:
     request, parsed_input = _parse_create_request(request_payload)
@@ -552,6 +561,37 @@ def _run_response(
         codex_model = profile_config.get("model")
         if isinstance(codex_model, str) and codex_model:
             model = codex_model
+
+    requested_model = _requested_model(request)
+    is_audit_profile = codex_profile == "audit"
+    is_audit_model = requested_model in {"ea-audit", "ea-audit-jury"}
+    audit_profile_or_model = is_audit_profile or is_audit_model
+    chatplayground_audit_callback = None
+    if audit_profile_or_model:
+        def _chatplayground_audit_callback(**kwargs: Any) -> Any:
+            prompt = str(kwargs.get("prompt") or "").strip()
+            if not prompt:
+                raise RuntimeError("chatplayground_audit_prompt_required")
+            tool_execution = getattr(container, "tool_execution", None)
+            if tool_execution is None:
+                raise RuntimeError("chatplayground_tool_execution_unavailable")
+            invocation = ToolInvocationRequest(
+                session_id=f"codex-audit:{uuid.uuid4().hex}",
+                step_id=f"codex-audit-step:{uuid.uuid4().hex}",
+                tool_name="browseract.chatplayground_audit",
+                action_kind="chatplayground_audit",
+                payload_json=dict(kwargs),
+                context_json={"principal_id": context.principal_id},
+            )
+            try:
+                result = tool_execution.execute_invocation(invocation)
+            except ToolExecutionError as exc:
+                raise RuntimeError(str(exc)) from exc
+            return result.output_json
+
+        chatplayground_audit_callback = _chatplayground_audit_callback
+        if container is None:
+            chatplayground_audit_callback = None
 
     max_output_tokens = _requested_max_output_tokens(request)
     metadata = _metadata(request)
@@ -593,6 +633,9 @@ def _run_response(
             messages=messages,
             requested_model=model,
             max_output_tokens=max_output_tokens,
+            chatplayground_audit_callback=chatplayground_audit_callback,
+            chatplayground_audit_callback_only=audit_profile_or_model,
+            chatplayground_audit_principal_id=context.principal_id,
         )
         final_metadata = {
             **response_metadata,
@@ -690,6 +733,9 @@ def _run_response(
                     messages=messages,
                     requested_model=model,
                     max_output_tokens=max_output_tokens,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=audit_profile_or_model,
+                    chatplayground_audit_principal_id=context.principal_id,
                 )
                 result_queue.put(("result", result))
             except Exception as exc:
@@ -1060,9 +1106,10 @@ def create_codex_audit(
     payload: dict[str, object],
     *,
     context: RequestContext = Depends(get_request_context),
+    container: AppContainer = Depends(get_container),
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="audit")
-    return _run_response(normalized, context=context, codex_profile="audit")
+    return _run_response(normalized, context=context, container=container, codex_profile="audit")
 
 
 @codex_router.get("/profiles")

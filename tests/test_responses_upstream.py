@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pytest
 
 from app.services import responses_upstream as upstream
@@ -645,6 +646,69 @@ def test_generate_text_routes_audit_lane_to_chatplayground(monkeypatch: pytest.M
     assert "consensus" in result.text
     assert calls[0][0] == "https://web.chatplayground.ai/api/chat/lmsys"
     assert calls[0][1]["Authorization"] == "Bearer judge-key"
+
+
+def test_chatplayground_audit_callback_only_falls_back_without_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_URLS", "https://web.chatplayground.ai/api/chat/lmsys")
+
+    def fail_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> tuple[int, dict[str, object]]:
+        raise AssertionError("http path should not be used when callback-only mode is enabled")
+
+    monkeypatch.setattr(upstream, "_post_json", fail_post_json)
+
+    result = upstream.generate_text(
+        requested_model=upstream.AUDIT_PUBLIC_MODEL,
+        prompt="should use callback",
+        chatplayground_audit_callback_only=True,
+    )
+
+    payload = json.loads(result.text)
+    assert result.provider_key == "chatplayground"
+    assert result.provider_backend == "browseract"
+    assert result.provider_key_slot == "unavailable"
+    assert payload["consensus"] == "unavailable"
+    assert "audit_callback_missing" in payload["risks"]
+
+
+def test_chatplayground_audit_callback_errors_return_unavailable_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_URLS", "https://web.chatplayground.ai/api/chat/lmsys")
+
+    def bad_callback(**kwargs: object) -> object:
+        raise RuntimeError("tool-unavailable")
+
+    def fail_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> tuple[int, dict[str, object]]:
+        raise AssertionError("http path should be skipped when callback raises in audit-only mode")
+
+    monkeypatch.setattr(upstream, "_post_json", fail_post_json)
+
+    result = upstream.generate_text(
+        requested_model=upstream.AUDIT_PUBLIC_MODEL,
+        prompt="audit now",
+        chatplayground_audit_callback=bad_callback,
+        chatplayground_audit_callback_only=True,
+    )
+
+    payload = json.loads(result.text)
+    assert result.provider_key == "chatplayground"
+    assert result.provider_key_slot == "callback_error"
+    assert payload["consensus"] == "unavailable"
+    assert "tool-unavailable" in payload["risks"]
 
 
 def test_chatplayground_request_urls_prefers_web_with_app_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
