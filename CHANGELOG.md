@@ -2,6 +2,12 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-15
+
+### Changed
+- The Responses and Codex façade now returns dynamic upstream model IDs alongside the public EA aliases, exposes account-name-only provider health with observed `remaining_credits` / `required_credits`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, and marks deleted 1min.AI keys with a dedicated quarantine state so operator diagnostics stay truthful without leaking raw secrets.
+- `make test-api` and `make ci-local` now prefer `.venv/bin/python` and fall back to `python3`, so local validation no longer depends on `/usr/bin/python` being present.
+
 ## 2026-03-13
 
 ### Changed

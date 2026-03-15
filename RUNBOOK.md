@@ -116,6 +116,9 @@ Auth:
 - Use `Authorization: Bearer <token>` or `X-API-Token: <token>`.
 - Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
+- `GET /v1/models` returns both the public EA aliases and the currently configured upstream model IDs, so Codex can target concrete provider models when needed.
+- `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name-only provider attribution plus 1min.AI depletion and deleted-key telemetry (`remaining_credits`, `required_credits`, `estimated_remaining_credits_total`, `remaining_percent_of_max`) without leaking raw API keys.
+- `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`, and `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS` tune those credit and deleted-key projections.
 - After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](/docker/EA/LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
 - When the local API is already running, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the BrowserAct-backed `ltd_inventory_refresh` skill via `/v1/plans/execute`, save the raw inventory payload if requested, and update [LTDs.md](/docker/EA/LTDs.md) in one pass.
 

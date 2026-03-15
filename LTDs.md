@@ -15,7 +15,7 @@ Updated: 2026-03-15
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `3 licenses / 3 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. |
+| `1min.AI` | `Advanced Business Plan` | `9 licenses / 9 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Chummer6 guide prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for the Chummer6 guide pipeline; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
@@ -49,7 +49,7 @@ Updated: 2026-03-15
 
 - `24` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
-- Multiple-account holding: `1min.AI` (`3 licenses / 3 accounts`)
+- Multiple-account holding: `1min.AI` (`9 licenses / 9 accounts`)
 
 ## Discovery Tracking
 

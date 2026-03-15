@@ -37,7 +37,7 @@ GET {{host}}/health/ready
 ### Version
 GET {{host}}/version
 
-### Codex-compatible responses facade
+### Codex-compatible responses facade (EA aliases plus configured upstream model ids)
 GET {{host}}/v1/models
 X-EA-Principal-ID: {{principal_id}}
 
@@ -68,11 +68,11 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/responses/replace_with_response_id/input_items
 X-EA-Principal-ID: {{principal_id}}
 
-### Responses provider health debug
+### Responses provider health debug (account-attributed credit estimates, no secret keys)
 GET {{host}}/v1/responses/_provider_health
 X-EA-Principal-ID: {{principal_id}}
 
-### Codex three-layer profiles and lanes
+### Codex three-layer profiles and lanes (same provider health surface plus lane defaults)
 GET {{host}}/v1/codex/profiles
 X-EA-Principal-ID: {{principal_id}}
 

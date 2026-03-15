@@ -65,11 +65,11 @@ def test_responses_non_stream_returns_response_object(monkeypatch: pytest.Monkey
     assert body["metadata"]["principal_id"] == "codex-test"
     assert body["metadata"]["upstream_provider"] == "magixai"
     assert body["metadata"]["upstream_model"] == "anthropic/claude-3.5-sonnet"
-    assert "store" not in body
-    assert "parallel_tool_calls" not in body
-    assert "tool_choice" not in body
-    assert "tools" not in body
-    assert "previous_response_id" not in body
+    assert body["store"] is True
+    assert body["parallel_tool_calls"] is None
+    assert body["tool_choice"] is None
+    assert body["tools"] is None
+    assert body["previous_response_id"] is None
 
 
 def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,6 +153,8 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
     assert "ea-onemin-coder" in model_ids
+    assert "gpt-5" in model_ids
+    assert "x-ai/grok-code-fast-1" in model_ids
 
 
 def test_responses_openapi_publishes_explicit_request_and_response_schema() -> None:
@@ -181,17 +183,18 @@ def test_responses_openapi_publishes_explicit_request_and_response_schema() -> N
         "include",
         "service_tier",
         "prompt_cache_key",
+        "previous_response_id",
     }
 
     json_response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
     assert "$ref" in json_response_schema
     response_schema_name = json_response_schema["$ref"].split("/")[-1]
     response_props = body["components"]["schemas"][response_schema_name]["properties"]
-    assert "store" not in response_props
-    assert "parallel_tool_calls" not in response_props
-    assert "tool_choice" not in response_props
-    assert "tools" not in response_props
-    assert "previous_response_id" not in response_props
+    assert "store" in response_props
+    assert "parallel_tool_calls" in response_props
+    assert "tool_choice" in response_props
+    assert "tools" in response_props
+    assert "previous_response_id" in response_props
     assert "text/event-stream" in post_op["responses"]["200"]["content"]
 
 
@@ -387,6 +390,11 @@ def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.Monkey
         "service_tier",
         "prompt_cache_key",
     ]
+    assert body["store"] is True
+    assert body["tool_choice"] == "auto"
+    assert body["parallel_tool_calls"] is False
+    assert body["tools"] == []
+    assert body["reasoning"] == {"effort": "medium"}
 
 
 def test_responses_rejects_unsupported_top_level_fields() -> None:
@@ -407,7 +415,6 @@ def test_responses_rejects_more_unsupported_top_level_fields() -> None:
         "/v1/responses",
         json={
             "input": "say hi",
-            "previous_response_id": "resp_prev",
             "background": True,
         },
     )
@@ -443,6 +450,212 @@ def test_responses_store_false_skips_retrieval_state(monkeypatch: pytest.MonkeyP
 
     fetched = client.get(f"/v1/responses/{response_id}")
     assert fetched.status_code == 404
+
+
+def test_responses_non_stream_can_return_function_call_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-tools")
+    from app.api.routes import responses
+
+    def fake_tool_decision(**kwargs: object) -> object:
+        tools = kwargs["tools"]
+        assert isinstance(tools, list)
+        assert tools[0]["name"] == "exec_command"
+        return responses._ToolShimDecision(
+            kind="function_call",
+            tool_name="exec_command",
+            arguments={"cmd": "pwd", "workdir": "/docker/fleet"},
+            upstream_result=UpstreamResult(
+                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd","workdir":"/docker/fleet"}}',
+                provider_key="onemin",
+                model="gpt-5",
+                tokens_in=12,
+                tokens_out=8,
+            ),
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
+
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5",
+            "input": "Inspect the repo",
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "Run a shell command",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_text"] == ""
+    assert body["output"][0]["type"] == "function_call"
+    assert body["output"][0]["name"] == "exec_command"
+    assert json.loads(body["output"][0]["arguments"]) == {"cmd": "pwd", "workdir": "/docker/fleet"}
+    assert body["tool_choice"] == "auto"
+    assert body["parallel_tool_calls"] is False
+
+
+def test_responses_stream_can_emit_function_call_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-tools")
+    from app.api.routes import responses
+
+    def fake_tool_decision(**_: object) -> object:
+        return responses._ToolShimDecision(
+            kind="function_call",
+            tool_name="exec_command",
+            arguments={"cmd": "pwd"},
+            upstream_result=UpstreamResult(
+                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
+                provider_key="onemin",
+                model="gpt-5",
+                tokens_in=9,
+                tokens_out=6,
+            ),
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "gpt-5",
+            "input": "Inspect the repo",
+            "stream": True,
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "Run a shell command",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: response.output_item.added" in body
+    assert "event: response.function_call_arguments.delta" in body
+    assert "event: response.function_call_arguments.done" in body
+    assert "event: response.completed" in body
+
+
+def test_responses_previous_response_id_chains_function_call_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-tools")
+    from app.api.routes import responses
+
+    calls: list[list[dict[str, object]]] = []
+
+    def fake_tool_decision(**kwargs: object) -> object:
+        history_items = kwargs["history_items"]
+        assert isinstance(history_items, list)
+        calls.append(history_items)
+        if len(calls) == 1:
+            return responses._ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": "pwd"},
+                upstream_result=UpstreamResult(
+                    text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
+                    provider_key="onemin",
+                    model="gpt-5",
+                    tokens_in=9,
+                    tokens_out=6,
+                ),
+            )
+        assert any(item.get("type") == "function_call" for item in history_items)
+        assert any(item.get("type") == "function_call_output" for item in history_items)
+        return responses._ToolShimDecision(
+            kind="final",
+            text="done",
+            upstream_result=UpstreamResult(
+                text='{"decision":"final","text":"done"}',
+                provider_key="onemin",
+                model="gpt-5",
+                tokens_in=7,
+                tokens_out=3,
+            ),
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
+
+    created = client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5",
+            "input": "Inspect the repo",
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "Run a shell command",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    created_body = created.json()
+    call_id = created_body["output"][0]["call_id"]
+
+    followup = client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5",
+            "previous_response_id": created_body["id"],
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": "{\"stdout\":\"/docker/fleet\\n\",\"exit_code\":0}",
+                }
+            ],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "Run a shell command",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+        },
+    )
+    assert followup.status_code == 200
+    assert followup.json()["output_text"] == "done"
 
 
 def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -494,8 +707,8 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     fetched_body = fetched.json()
     assert fetched_body["id"] == response_id
     assert fetched_body["instructions"] == "keep concise"
-    assert "store" not in fetched_body
-    assert "parallel_tool_calls" not in fetched_body
+    assert fetched_body["store"] is True
+    assert fetched_body["parallel_tool_calls"] is None
 
     items = client.get(f"/v1/responses/{response_id}/input_items")
     assert items.status_code == 200
@@ -626,6 +839,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == "ONEMIN_AI_API_KEY"
     assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == "BROWSERACT_API_KEY"
+    assert body["provider_health"]["provider_config"]["onemin_accounts"] == ["ONEMIN_AI_API_KEY"]
+    assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == ["BROWSERACT_API_KEY"]
 
 
 def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -638,6 +853,12 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "health-key-a")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "health-key-b")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "health-key-c")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "health-key-d")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_4", "health-key-e")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_5", "health-key-f")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "health-key-g")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "health-key-h")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "health-key-i")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
     monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
@@ -648,12 +869,18 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 3
-    assert len(providers["onemin"]["slots"]) == 3
+    assert providers["onemin"]["configured_slots"] == 9
+    assert len(providers["onemin"]["slots"]) == 9
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
         "fallback_1",
         "fallback_2",
+        "fallback_3",
+        "fallback_4",
+        "fallback_5",
+        "fallback_6",
+        "fallback_7",
+        "fallback_8",
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -668,6 +895,92 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     ]
     assert providers["magixai"]["configured_slots"] == 1
     assert providers["magixai"]["state"] in {"ready", "unknown", "degraded"}
+    assert body["provider_config"]["onemin_accounts"] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+        "ONEMIN_AI_API_KEY_FALLBACK_7",
+        "ONEMIN_AI_API_KEY_FALLBACK_8",
+    ]
+    assert body["provider_config"]["chatplayground_accounts"] == [
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
+    ]
+    assert providers["onemin"]["slots"][0]["next_retry_at"] is None
+    assert providers["onemin"]["slots"][0]["upstream_reset_unknown"] is False
+
+
+def test_responses_provider_health_reports_observed_credit_balance_without_leaking_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "secret-primary-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {
+                        "resultObject": {
+                            "code": "INSUFFICIENT_CREDITS",
+                            "message": "The feature requires 35194 credits, but the Example Team only has 0 credits",
+                        }
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    with pytest.raises(upstream.ResponsesUpstreamError):
+        upstream.generate_text(prompt="check credits", requested_model="gpt-4.1")
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+    assert slot["account_name"] == "ONEMIN_AI_API_KEY"
+    assert slot["remaining_credits"] == 0
+    assert slot["required_credits"] == 35194
+    assert slot["credit_subject"] == "Example Team"
+    assert slot["estimated_remaining_credits"] == 0
+    assert slot["next_retry_at"] is not None
+    assert slot["upstream_reset_unknown"] is True
+    assert health["providers"]["onemin"]["remaining_percent_of_max"] == 0.0
+    assert "secret-primary-key" not in json.dumps(health)
+
+
+def test_responses_provider_health_aggregates_onemin_remaining_percent_of_max(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "empty-a")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "empty-b")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "4000000")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "450000")
+
+    upstream._mark_onemin_failure(
+        "empty-a",
+        "INSUFFICIENT_CREDITS:The feature requires 35194 credits, but the A team only has 0 credits",
+    )
+    upstream._mark_onemin_failure(
+        "empty-b",
+        "INSUFFICIENT_CREDITS:The feature requires 35194 credits, but the B team only has 0 credits",
+    )
+
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+
+    assert onemin["max_credits_total"] == 13350000
+    assert onemin["estimated_remaining_credits_total"] == 4450000
+    assert onemin["remaining_percent_of_max"] == 33.33
 
 
 def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:

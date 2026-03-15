@@ -1,5 +1,7 @@
 .PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
 
+PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+
 deploy:
 	bash scripts/deploy.sh
 
@@ -45,7 +47,7 @@ release-docs:
 	$(MAKE) operator-help
 
 test-api:
-	PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q tests
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests
 
 test-postgres-contracts:
 	bash scripts/test_postgres_contracts.sh
@@ -88,8 +90,8 @@ tasks-archive-dry-run:
 	bash scripts/archive_tasks.sh --dry-run
 
 ci-local:
-	python3 -m compileall -q ea/app
-	python3 -m compileall -q tests
+	$(PYTHON_BIN) -m compileall -q ea/app
+	$(PYTHON_BIN) -m compileall -q tests
 	bash scripts/smoke_help.sh
 
 # Mirror the smoke-runtime CI gate order locally from one entrypoint.

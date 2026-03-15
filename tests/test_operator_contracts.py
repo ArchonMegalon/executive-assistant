@@ -75,8 +75,58 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_3" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_4" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_5" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_6" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_example
+    assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_example
+    assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_example
+    assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_example
+    assert "ONEMIN_AI_API_KEY" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_3" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_4" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_5" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_6" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_local_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
+
+
+def test_responses_provider_health_credit_debug_contract_is_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    env_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
+    http_examples = (ROOT / "HTTP_EXAMPLES.http").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    tasks_work_log = (ROOT / "TASKS_WORK_LOG.md").read_text(encoding="utf-8")
+
+    assert "estimated_remaining_credits_total" in readme
+    assert "remaining_percent_of_max" in readme
+    assert "/v1/responses/_provider_health" in runbook
+    assert "/v1/codex/profiles" in runbook
+    assert "estimated_remaining_credits_total" in runbook
+    assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_matrix
+    assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_matrix
+    assert "account-attributed credit estimates" in http_examples
+    assert "estimated_remaining_credits_total" in changelog
+    assert "remaining_percent_of_max" in changelog
+    assert "D-513" in tasks_work_log
+
+
+def test_makefile_prefers_repo_python_for_local_api_tests() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)" in makefile
+    assert "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests" in makefile
+    assert "$(PYTHON_BIN) -m compileall -q ea/app" in makefile
+    assert "$(PYTHON_BIN) -m compileall -q tests" in makefile
 
 
 def test_env_templates_use_only_valid_dotenv_lines() -> None:
