@@ -1,17 +1,105 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import threading
+import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
+AUDIT_PUBLIC_MODEL = "ea-audit-jury"
+AUDIT_PUBLIC_MODEL_ALIAS = "ea-audit"
 ChatMessage = dict[str, str]
+
+_LOG = logging.getLogger("ea.responses.upstream")
+
+_ONEMIN_KEY_CONFIG_HASH = ""
+_ONEMIN_KEY_CURSOR = 0
+_ONEMIN_KEY_CURSOR_LOCK = threading.Lock()
+_ONEMIN_KEY_STATES: dict[str, OneminKeyState] = {}
+
+_HARD_CONCURRENCY_LOCK = threading.Condition(threading.Lock())
+_HARD_ACTIVE_REQUESTS = 0
+_HARD_WAITING_REQUESTS = 0
+
+_MAGIX_HEALTH_STATE: dict[str, object] = {
+    "state": "unknown",
+    "checked_at": 0.0,
+    "detail": "",
+    "provider_key": "magixai",
+}
+_MAGIX_HEALTH_LOCK = threading.Lock()
+
+_LANE_HARD = "hard"
+_LANE_REVIEW = "review"
+_LANE_FAST = "fast"
+_LANE_OVERFLOW = "overflow"
+_LANE_DEFAULT = "default"
+_LANE_AUDIT = "audit"
+
+_AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
+
+_HARD_MAX_ACTIVE_REQUESTS = 2
+_HARD_QUEUE_TIMEOUT_SECONDS = 1.0
+_HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
+_ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
+_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+_ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
+_ONEMIN_MAX_KEY_SLOTS = 4
+_MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
+
+
+def _to_float(
+    value: object,
+    default: float,
+    minimum: float = 0.0,
+    maximum: float | None = None,
+) -> float:
+    try:
+        parsed = float(str(value))
+    except Exception:
+        return default
+    if parsed < minimum:
+        return minimum
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+    return parsed
+
+
+def _to_int(value: object, default: int, minimum: int = 0, maximum: int | None = None) -> int:
+    try:
+        parsed = int(float(str(value)))
+    except Exception:
+        return default
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+    return parsed
+
+
+def _normalize_text_list(raw: object) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        cleaned = raw.strip()
+        return [cleaned] if cleaned else []
+    if not isinstance(raw, (list, tuple, set)):
+        return []
+    values: list[str] = []
+    for value in raw:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        values.append(cleaned)
+    return values
 
 
 class ResponsesUpstreamError(RuntimeError):
@@ -23,8 +111,26 @@ class UpstreamResult:
     text: str
     provider_key: str
     model: str
+    provider_key_slot: str | None = None
+    provider_backend: str | None = None
+    provider_account_name: str | None = None
     tokens_in: int = 0
     tokens_out: int = 0
+    upstream_model: str | None = None
+    latency_ms: int = 0
+    fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class OneminKeyState:
+    key: str
+    last_used_at: float = 0.0
+    last_success_at: float = 0.0
+    last_failure_at: float = 0.0
+    failure_count: int = 0
+    cooldown_until: float = 0.0
+    quarantine_until: float = 0.0
+    last_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -74,6 +180,67 @@ def _non_empty_values(*values: str) -> tuple[str, ...]:
     return tuple(items)
 
 
+def _browserplayground_url() -> str:
+    return _env(
+        "BROWSERACT_CHATPLAYGROUND_URL",
+        "https://web.chatplayground.ai/",
+    )
+
+
+def _browserplayground_api_keys() -> tuple[str, ...]:
+    return _non_empty_values(
+        _env("BROWSERACT_API_KEY"),
+        _env("BROWSERACT_API_KEY_FALLBACK_1"),
+        _env("BROWSERACT_API_KEY_FALLBACK_2"),
+        _env("BROWSERACT_API_KEY_FALLBACK_3"),
+    )
+
+
+def _browserplayground_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_CHATPLAYGROUND_MODELS"))
+    if configured:
+        return configured
+    return ("gpt-5", "gpt-4.1")
+
+
+def _browserplayground_roles() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_CHATPLAYGROUND_ROLES"))
+    if configured:
+        return configured
+    return ("factuality", "adversarial", "completeness", "risk")
+
+
+def _browserplayground_auth_names() -> tuple[str, ...]:
+    return (
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
+        "BROWSERACT_API_KEY_FALLBACK_2",
+        "BROWSERACT_API_KEY_FALLBACK_3",
+    )
+
+
+def _provider_account_name(provider_key: str, key_names: tuple[str, ...], key: str) -> str:
+    providers_env = _provider_account_names(provider_key)
+    for index, candidate in enumerate(key_names):
+        if candidate != key:
+            continue
+        if index < len(providers_env):
+            return providers_env[index]
+        return f"{provider_key}_slot_{index}"
+    return f"{provider_key}_unknown"
+
+
+def _provider_account_names(provider_key: str) -> tuple[str, ...]:
+    normalized = str(provider_key or "").strip().lower()
+    if normalized == "onemin":
+        return ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1", "ONEMIN_AI_API_KEY_FALLBACK_2", "ONEMIN_AI_API_KEY_FALLBACK_3")
+    if normalized in {"magixai", "magicxai", "aimagicx"}:
+        return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
+    if normalized == "chatplayground":
+        return _browserplayground_auth_names()
+    return tuple()
+
+
 def _magicx_urls() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_MAGICX_URLS"))
     legacy = _csv_values(_env("EA_RESPONSES_MAGICX_URL"))
@@ -103,21 +270,52 @@ def _magicx_models() -> tuple[str, ...]:
 
 
 def _magicx_max_tokens() -> int:
-    raw = _env("EA_RESPONSES_MAGICX_MAX_TOKENS", "128")
-    try:
-        return max(16, int(raw))
-    except Exception:
-        return 128
+    legacy = _env("EA_RESPONSES_MAGICX_MAX_TOKENS")
+    if legacy:
+        try:
+            return max(16, int(legacy))
+        except Exception:
+            return 2048
+    return 2048
 
 
-def _magicx_token_limits(max_output_tokens: int | None) -> tuple[int, ...]:
-    requested = int(max_output_tokens or 0) if int(max_output_tokens or 0) > 0 else _magicx_max_tokens()
+def _magicx_lane_default_max_tokens(lane: str) -> int:
+    lane = (lane or _LANE_DEFAULT).lower()
+    defaults = {
+        _LANE_FAST: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_FAST", "2048"),
+        _LANE_REVIEW: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"),
+        _LANE_HARD: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"),
+        _LANE_OVERFLOW: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_OVERFLOW", "1536"),
+        _LANE_DEFAULT: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"),
+    }
+    return _to_int(defaults.get(lane) or defaults[_LANE_DEFAULT], 2048, minimum=16)
+
+
+def _magicx_max_tokens_for_lane(lane: str, requested_max_output_tokens: int | None) -> int:
+    lane = (lane or _LANE_DEFAULT).lower()
+    legacy_max_tokens = _magicx_max_tokens()
+    base = _magicx_lane_default_max_tokens(lane)
+    if requested_max_output_tokens is None and legacy_max_tokens > 0:
+        requested = min(legacy_max_tokens, base)
+    else:
+        requested = _to_int(requested_max_output_tokens, base, minimum=16)
+    return min(10000, requested, _magicx_lane_default_max_tokens(lane))
+
+
+def _magicx_token_limits(lane: str, requested_max_output_tokens: int | None) -> tuple[int, ...]:
+    requested = int(requested_max_output_tokens or 0)
+    if requested > 0:
+        requested_tokens = max(16, requested)
+    else:
+        requested_tokens = _magicx_max_tokens_for_lane(lane, requested_max_output_tokens)
+    if requested_tokens > 10000:
+        requested_tokens = 10000
     candidates = (
-        requested,
-        min(requested, 96),
-        min(requested, 64),
-        min(requested, 48),
-        min(requested, 32),
+        requested_tokens,
+        min(requested_tokens, 1536),
+        min(requested_tokens, 1024),
+        min(requested_tokens, 768),
+        min(requested_tokens, 512),
         16,
     )
     deduped: list[int] = []
@@ -126,6 +324,162 @@ def _magicx_token_limits(max_output_tokens: int | None) -> tuple[int, ...]:
         if value not in deduped:
             deduped.append(value)
     return tuple(deduped)
+
+
+def _onemin_key_names() -> tuple[str, ...]:
+    return _merge_unique(
+        _non_empty_values(
+            _env("EA_RESPONSES_ONEMIN_API_KEY"),
+            _env("ONEMIN_AI_API_KEY"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_1"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_2"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_3"),
+        )
+    )
+
+
+def _ordered_onemin_keys() -> tuple[str, ...]:
+    keys = _onemin_key_names()
+    if not keys:
+        return ()
+
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        cursor = _ONEMIN_KEY_CURSOR % len(keys)
+
+    return keys[cursor:] + keys[:cursor]
+
+
+def _rotate_onemin_cursor_after_key_usage(api_key: str) -> None:
+    global _ONEMIN_KEY_CURSOR
+    keys = _onemin_key_names()
+    if not keys:
+        return
+    try:
+        index = list(keys).index(api_key)
+    except ValueError:
+        return
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        if len(keys) <= 1:
+            _ONEMIN_KEY_CURSOR = 0
+        else:
+            _ONEMIN_KEY_CURSOR = (index + 1) % len(keys)
+
+
+def _is_onemin_key_depleted(message: str) -> bool:
+    lowered = str(message or "").lower()
+    depletion_markers = (
+        "insufficient_credits",
+        "credit",
+        "quota",
+        "too many credits",
+        "no credits",
+    )
+    return any(marker in lowered for marker in depletion_markers)
+
+
+def _is_retryable_onemin_error(message: str) -> bool:
+    lowered = str(message or "").lower()
+    retry_markers = (
+        "http_429",
+        "http_500",
+        "http_502",
+        "http_503",
+        "http_504",
+        "too_many_requests",
+        "insufficient_credits",
+        "quota",
+        "rate limit",
+        "requires more credits",
+    )
+    return any(marker in lowered for marker in retry_markers)
+
+
+def _clean_onemin_states(keys: tuple[str, ...]) -> None:
+    key_set = set(keys)
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        for key in list(_ONEMIN_KEY_STATES.keys()):
+            if key not in key_set:
+                _ONEMIN_KEY_STATES.pop(key, None)
+
+
+def _pick_onemin_key() -> tuple[str, float, float] | None:
+    key_names = _ordered_onemin_keys()
+    if not key_names:
+        return None
+    _clean_onemin_states(key_names)
+    states = _onemin_states_snapshot(key_names)
+    now = _now_epoch()
+    candidates: list[tuple[str, float, float]] = []
+    blocked: list[tuple[str, float, float]] = []
+    for index, api_key in enumerate(key_names):
+        state = states.get(api_key) or OneminKeyState(key=api_key)
+        if now < state.quarantine_until:
+            blocked.append((api_key, state.quarantine_until, index))
+            continue
+        if now < state.cooldown_until:
+            blocked.append((api_key, state.cooldown_until, index))
+            continue
+        candidates.append((api_key, state.last_used_at, index))
+    if candidates:
+        candidates.sort(key=lambda item: (item[1], item[2]))
+        return candidates[0][0], 0.0, float(candidates[0][2])
+    if not blocked:
+        return key_names[0], 0.0, 0.0
+    blocked.sort(key=lambda item: (item[1], item[2]))
+    return blocked[0][0], blocked[0][1], max(0.0, blocked[0][1] - now)
+
+
+def _mark_onemin_success(api_key: str) -> None:
+    now = _now_epoch()
+    _set_onemin_state(
+        api_key,
+        {
+            "last_used_at": now,
+            "last_success_at": now,
+            "last_failure_at": 0.0,
+            "failure_count": 0,
+            "cooldown_until": 0.0,
+            "quarantine_until": 0.0,
+            "last_error": "",
+        },
+    )
+
+
+def _mark_onemin_failure(api_key: str, message: str, *, temporary_quarantine: bool = False) -> None:
+    now = _now_epoch()
+    rate_cooldown_seconds, failure_cooldown_seconds, auth_quarantine_seconds = _resolve_onemin_cooldowns()
+    state = _onemin_states_snapshot(_onemin_key_names()).get(api_key, OneminKeyState(key=api_key))
+    failure_count = int(state.failure_count or 0) + 1
+    cooldown = now + (
+        auth_quarantine_seconds if temporary_quarantine else
+        (rate_cooldown_seconds if _is_onemin_key_depleted(message) else failure_cooldown_seconds)
+    )
+    quarantine = 0.0
+    if temporary_quarantine:
+        quarantine = now + auth_quarantine_seconds
+    _set_onemin_state(
+        api_key,
+        {
+            "last_used_at": now,
+            "last_failure_at": now,
+            "failure_count": failure_count,
+            "cooldown_until": cooldown,
+            "quarantine_until": quarantine,
+            "last_error": str(message or ""),
+        },
+    )
+    _rotate_onemin_cursor_after_key_usage(api_key)
+
+
+def _mark_onemin_request_start(api_key: str) -> None:
+    now = _now_epoch()
+    _set_onemin_state(api_key, {"last_used_at": now})
+
+
+def _test_reset_onemin_key_cursor() -> None:
+    global _ONEMIN_KEY_CURSOR
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        _ONEMIN_KEY_CURSOR = 0
 
 
 def _onemin_chat_url() -> str:
@@ -167,6 +521,68 @@ def _onemin_model_supports_code(model: str) -> bool:
     return wanted in {item.lower() for item in _onemin_code_models()}
 
 
+def _magicx_lane_models() -> tuple[str, ...]:
+    configured = _magicx_models()
+    desired = (
+        "x-ai/grok-code-fast-1",
+        "mistralai/codestral-2508",
+        "openai/gpt-5.1-codex-mini",
+        "inception/mercury-coder",
+    )
+    if configured:
+        return _merge_unique(configured, desired)
+    return desired
+
+
+def _onemin_hard_models() -> tuple[str, ...]:
+    return ("gpt-5", "gpt-4o")
+
+
+def _onemin_review_models() -> tuple[str, ...]:
+    return ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
+
+
+def _lane_max_output_tokens(lane: str) -> int | None:
+    if lane == _LANE_HARD:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"), 8192, minimum=16)
+    if lane == _LANE_REVIEW:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"), 2048, minimum=16)
+    if lane == _LANE_AUDIT:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"), 2048, minimum=16)
+    if lane == _LANE_FAST:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_FAST", "2048"), 2048, minimum=16)
+    if lane == _LANE_OVERFLOW:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_OVERFLOW", "1536"), 1536, minimum=16)
+    return None
+
+
+def _resolve_hard_defaults() -> tuple[float, float, int]:
+    max_active = _to_int(_env("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", str(_HARD_MAX_ACTIVE_REQUESTS)), 1, minimum=1, maximum=8)
+    queue_timeout = _to_float(
+        _env("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS", str(_HARD_QUEUE_TIMEOUT_SECONDS)),
+        0.0,
+        minimum=0.0,
+        maximum=120.0,
+    )
+    return max_active, queue_timeout, _to_int(
+        _env(
+            "EA_RESPONSES_HARD_DOWNSCALE_OUTPUT_TOKENS",
+            str(_HARD_DOWNSCALE_MAX_OUTPUT_TOKENS),
+        ),
+        256,
+        minimum=16,
+        maximum=4096,
+    )
+
+
+def _resolve_onemin_cooldowns() -> tuple[float, float, float]:
+    return (
+        _to_float(_env("EA_RESPONSES_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS", str(_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
+        _to_float(_env("EA_RESPONSES_ONEMIN_FAILURE_COOLDOWN_SECONDS", str(_ONEMIN_FAILURE_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
+        _to_float(_env("EA_RESPONSES_ONEMIN_AUTH_QUARANTINE_SECONDS", str(_ONEMIN_AUTH_QUARANTINE_SECONDS)), 1.0, minimum=1.0),
+    )
+
+
 def _timeout_seconds() -> int:
     raw = _env("EA_RESPONSES_TIMEOUT_SECONDS", "180")
     try:
@@ -199,7 +615,7 @@ def _normalize_provider(value: str) -> str:
 
 
 def _provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "magicxai,onemin")
+    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,magixai")
     ordered: list[str] = []
     seen: set[str] = set()
     for item in raw.split(","):
@@ -208,7 +624,64 @@ def _provider_order() -> tuple[str, ...]:
             continue
         seen.add(provider_key)
         ordered.append(provider_key)
-    return tuple(ordered or ("magixai", "onemin"))
+    return tuple(ordered or ("onemin", "magixai"))
+
+
+def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
+    normalized = str(requested_model or "").strip().lower()
+    if normalized == "":
+        return _LANE_DEFAULT
+    if normalized in {"ea-review", "ea-critic"}:
+        return _LANE_REVIEW
+    if normalized == "ea-coder-hard":
+        return _LANE_HARD
+    if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
+        return _LANE_AUDIT
+    if normalized == "ea-coder-fast":
+        return _LANE_FAST
+    if normalized == "ea-overflow":
+        return _LANE_OVERFLOW
+    if normalized == DEFAULT_PUBLIC_MODEL:
+        return _LANE_DEFAULT
+    return _LANE_DEFAULT
+
+
+def _provider_model_order_for_lane(
+    provider_key: str,
+    lane: str,
+    requested_model: str,
+) -> tuple[str, ...]:
+    requested = str(requested_model or "").strip()
+    normalized = requested.lower()
+
+    if provider_key == "magixai":
+        return _magicx_lane_models()
+
+    if provider_key == "chatplayground":
+        return _browserplayground_models()
+
+    if provider_key != "onemin":
+        return ()
+
+    requested = str(requested_model or "").strip()
+    normalized = requested.lower()
+    if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
+        return _audit_lane_models()
+    if normalized in {"ea-review", "ea-critic"}:
+        return _onemin_review_models()
+    if normalized == "ea-coder-hard":
+        return _onemin_hard_models()
+    if lane == _LANE_HARD:
+        return _onemin_hard_models()
+    if lane == _LANE_REVIEW:
+        return _onemin_review_models()
+    if normalized in {ONEMIN_PUBLIC_MODEL, DEFAULT_PUBLIC_MODEL} or not normalized:
+        return _onemin_models()
+    return _onemin_models()
+
+
+def _audit_lane_models() -> tuple[str, ...]:
+    return _browserplayground_models()
 
 
 def _magicx_config() -> ProviderConfig:
@@ -228,14 +701,19 @@ def _onemin_config() -> ProviderConfig:
     return ProviderConfig(
         provider_key="onemin",
         display_name="1min.AI",
-        api_keys=_non_empty_values(
-            _env("EA_RESPONSES_ONEMIN_API_KEY"),
-            _env("ONEMIN_AI_API_KEY"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_1"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_2"),
-        ),
+        api_keys=_ordered_onemin_keys(),
         default_models=_onemin_models(),
         timeout_seconds=_timeout_seconds(),
+    )
+
+
+def _chatplayground_config() -> ProviderConfig:
+    return ProviderConfig(
+        provider_key="chatplayground",
+        display_name="BrowserAct ChatPlayground",
+        api_keys=_browserplayground_api_keys(),
+        default_models=_browserplayground_models(),
+        timeout_seconds=_to_int(_env("EA_RESPONSES_CHATPLAYGROUND_TIMEOUT_SECONDS", "180"), 180, minimum=1, maximum=600),
     )
 
 
@@ -243,7 +721,94 @@ def _provider_configs() -> dict[str, ProviderConfig]:
     return {
         "magixai": _magicx_config(),
         "onemin": _onemin_config(),
+        "chatplayground": _chatplayground_config(),
     }
+
+
+def _acquire_hard_slot() -> bool:
+    max_active, queue_timeout, _ = _resolve_hard_defaults()
+    if max_active <= 1:
+        return True
+    deadline = _now_epoch() + queue_timeout
+    with _HARD_CONCURRENCY_LOCK:
+        while _HARD_ACTIVE_REQUESTS >= max_active:
+            _HARD_WAITING_REQUESTS += 1
+            try:
+                wait = max(0.0, deadline - _now_epoch())
+                if wait <= 0.0:
+                    return False
+                _HARD_CONCURRENCY_LOCK.wait(wait)
+                if _now_epoch() >= deadline:
+                    return False
+            finally:
+                _HARD_WAITING_REQUESTS = max(0, _HARD_WAITING_REQUESTS - 1)
+        _HARD_ACTIVE_REQUESTS += 1
+        return True
+
+
+def _release_hard_slot() -> None:
+    with _HARD_CONCURRENCY_LOCK:
+        if _HARD_ACTIVE_REQUESTS > 0:
+            _HARD_ACTIVE_REQUESTS -= 1
+        _HARD_CONCURRENCY_LOCK.notify_all()
+
+
+def _now_epoch() -> float:
+    return time.time()
+
+
+def _now_ms() -> int:
+    return int(time.perf_counter() * 1000.0)
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_now_epoch()))
+
+
+def _onemin_states_snapshot(keys: tuple[str, ...]) -> dict[str, OneminKeyState]:
+    states: dict[str, OneminKeyState] = {}
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        for key in keys:
+            state = _ONEMIN_KEY_STATES.get(key)
+            if state is None:
+                state = OneminKeyState(key=key)
+                _ONEMIN_KEY_STATES[key] = state
+            if state.key != key:
+                state = replace(state, key=key)
+                _ONEMIN_KEY_STATES[key] = state
+            states[key] = state
+    return states
+
+
+def _set_onemin_state(key: str, update: dict[str, object]) -> None:
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        current = _ONEMIN_KEY_STATES.get(key, OneminKeyState(key=key))
+        if current.key != key:
+            current = replace(current, key=key)
+        _ONEMIN_KEY_STATES[key] = replace(current, **update)
+
+
+def _onemin_key_slot(api_key: str, *, key_names: tuple[str, ...]) -> str:
+    for index, candidate in enumerate(key_names, start=1):
+        if candidate == api_key:
+            if index == 1:
+                return "primary"
+            return f"fallback_{index - 1}"
+    return "unknown"
+
+
+def _onemin_key_slot_from_snapshot(api_key: str, *, key_names: tuple[str, ...]) -> str:
+    return _onemin_key_slot(api_key, key_names=key_names)
+
+
+def _onemin_key_state_label(state: OneminKeyState, *, now: float) -> str:
+    if now < state.quarantine_until:
+        return "quarantine"
+    if now < state.cooldown_until:
+        return "cooldown"
+    if state.last_error:
+        return "degraded"
+    return "ready"
 
 
 def list_response_models() -> list[dict[str, object]]:
@@ -256,6 +821,18 @@ def list_response_models() -> list[dict[str, object]]:
         },
         {
             "id": MAGICX_PUBLIC_MODEL,
+            "object": "model",
+            "created": 0,
+            "owned_by": "executive-assistant",
+        },
+        {
+            "id": AUDIT_PUBLIC_MODEL,
+            "object": "model",
+            "created": 0,
+            "owned_by": "executive-assistant",
+        },
+        {
+            "id": AUDIT_PUBLIC_MODEL_ALIAS,
             "object": "model",
             "created": 0,
             "owned_by": "executive-assistant",
@@ -465,40 +1042,206 @@ def _messages_to_prompt(messages: list[ChatMessage]) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _provider_candidates(requested_model: str) -> list[tuple[ProviderConfig, str]]:
+def _provider_candidates(
+    requested_model: str,
+    *,
+    lane: str = _LANE_DEFAULT,
+) -> list[tuple[ProviderConfig, str]]:
     requested = str(requested_model or "").strip()
+    normalized = requested.lower()
     configs = _provider_configs()
 
-    def _with_order(model_override: str = "") -> list[tuple[ProviderConfig, str]]:
-        candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _provider_order():
-            config = configs.get(provider_key)
-            if config is None:
-                continue
-            model_names = (model_override,) if model_override else config.default_models
-            for model_name in model_names:
-                cleaned_model = str(model_name or "").strip()
-                if not cleaned_model:
-                    continue
-                candidates.append((config, cleaned_model))
-        return candidates
-
-    if not requested or requested == DEFAULT_PUBLIC_MODEL or requested.startswith("ea-"):
-        if requested == MAGICX_PUBLIC_MODEL:
-            return [(configs["magixai"], model_name) for model_name in configs["magixai"].default_models]
-        if requested == ONEMIN_PUBLIC_MODEL:
-            return [(configs["onemin"], model_name) for model_name in configs["onemin"].default_models]
-        return _with_order()
+    if lane == _LANE_DEFAULT:
+        lane = _effective_request_lane(requested_model=requested, max_output_tokens=None)
 
     if ":" in requested:
         provider_hint, model_name = requested.split(":", 1)
-        normalized = _normalize_provider(provider_hint)
-        config = configs.get(normalized)
-        if config is not None:
-            explicit_model = str(model_name or "").strip() or next(iter(config.default_models), "")
-            return [(config, explicit_model)]
+        normalized_hint = _normalize_provider(provider_hint)
+        config = configs.get(normalized_hint)
+        if config is None:
+            return []
+        explicit = str(model_name or "").strip() or next(iter(config.default_models), "")
+        return [(config, explicit)] if explicit else []
 
-    return _with_order(requested)
+    provider_keys_by_lane: tuple[str, ...]
+    if lane in {_LANE_FAST, _LANE_OVERFLOW}:
+        provider_keys_by_lane = ("magixai",)
+    elif lane == _LANE_AUDIT:
+        provider_keys_by_lane = ("chatplayground",)
+    else:
+        provider_keys_by_lane = _provider_order()
+
+    if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in provider_keys_by_lane:
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = (
+                _provider_model_order_for_lane(provider_key, lane, requested)
+                or config.default_models
+            )
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
+
+    if normalized == MAGICX_PUBLIC_MODEL:
+        return [
+            (configs["magixai"], model_name)
+            for model_name in _magicx_lane_models()
+        ]
+
+    if normalized == ONEMIN_PUBLIC_MODEL:
+        model_names = _provider_model_order_for_lane("onemin", lane, requested) or _onemin_models()
+        return [(configs["onemin"], model_name) for model_name in model_names]
+
+    if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
+        return [
+            (configs["chatplayground"], model_name)
+            for model_name in _provider_model_order_for_lane("chatplayground", lane, requested)
+            or _audit_lane_models()
+        ]
+
+    if normalized in {"ea-review", "ea-critic"}:
+        return [
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_review_models()
+        ]
+
+    if normalized == "ea-coder-hard":
+        return [
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_hard_models()
+        ]
+
+    if normalized in {"ea-coder-fast", "ea-overflow"}:
+        return [(configs["magixai"], model_name) for model_name in _magicx_lane_models()]
+
+    if normalized in {"chatplayground", "browseract", AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
+        return [
+            (configs["chatplayground"], model_name)
+            for model_name in _provider_model_order_for_lane("chatplayground", lane, requested)
+            or _audit_lane_models()
+        ]
+
+    candidates = [
+        (configs[provider_key], requested)
+        for provider_key in provider_keys_by_lane
+        if provider_key in configs
+    ]
+    if not candidates and requested in {MAGICX_PUBLIC_MODEL, ONEMIN_PUBLIC_MODEL}:
+        candidates = [
+            (configs[provider_key], requested)
+            for provider_key in provider_keys_by_lane
+            if provider_key in configs
+        ]
+    return candidates
+
+
+def _magix_health_probe_interval_seconds() -> float:
+    return _to_float(
+        _env("EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS", "300"),
+        300.0,
+        minimum=30.0,
+        maximum=1800.0,
+    )
+
+
+def _magix_health_probe_enabled() -> bool:
+    return _to_int(_env("EA_RESPONSES_MAGICX_HEALTH_CHECK", "0"), 0, minimum=0, maximum=1) == 1
+
+
+def _magicx_model_for_probe() -> str:
+    models = _magicx_lane_models()
+    if models:
+        return models[0]
+    return "openai/gpt-5.1-codex-mini"
+
+
+def _set_magix_health_state(*, state: str, detail: str) -> None:
+    with _MAGIX_HEALTH_LOCK:
+        _MAGIX_HEALTH_STATE.update(
+            state=state,
+            detail=str(detail or ""),
+            checked_at=_now_epoch(),
+        )
+
+
+def _mark_magix_unavailable(detail: str) -> None:
+    _set_magix_health_state(state="degraded", detail=detail)
+
+
+def _mark_magix_ready() -> None:
+    _set_magix_health_state(state="ready", detail="")
+
+
+def _magix_health_state() -> tuple[str, str]:
+    with _MAGIX_HEALTH_LOCK:
+        return (str(_MAGIX_HEALTH_STATE.get("state") or ""), str(_MAGIX_HEALTH_STATE.get("detail") or ""))
+
+
+def _magix_health_state_snapshot() -> tuple[str, str, float]:
+    with _MAGIX_HEALTH_LOCK:
+        return (
+            str(_MAGIX_HEALTH_STATE.get("state") or ""),
+            str(_MAGIX_HEALTH_STATE.get("detail") or ""),
+            float(_MAGIX_HEALTH_STATE.get("checked_at") or 0.0),
+        )
+
+
+def _magix_is_ready() -> bool:
+    if not _magicx_config().api_keys:
+        _set_magix_health_state(state="missing", detail="missing_api_key")
+        return False
+
+    if not _magix_health_probe_enabled():
+        return True
+
+    state, _ = _magix_health_state()
+    with _MAGIX_HEALTH_LOCK:
+        checked_at = float(_MAGIX_HEALTH_STATE.get("checked_at") or 0.0)
+        now = _now_epoch()
+        if checked_at > 0 and state == "ready" and (now - checked_at) < _magix_health_probe_interval_seconds():
+            return True
+        if checked_at > 0 and state == "degraded" and (now - checked_at) < _magix_health_probe_interval_seconds():
+            return False
+
+    return _probe_magicx_health()
+
+
+def _probe_magicx_health() -> bool:
+    probe_payload = _trim_error_payload(_magicx_model_for_probe())
+    for api_key in _magicx_config().api_keys:
+        for url in _magicx_urls():
+            status, payload = _post_json(
+                url=url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                payload={
+                    "model": _magicx_model_for_probe(),
+                    "messages": [{"role": "user", "content": "probe"}],
+                    "stream": False,
+                    "max_tokens": 16,
+                },
+                timeout_seconds=_to_int(
+                    _env("EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS", str(_MAGIX_VERIFICATION_TIMEOUT_SECONDS)),
+                    5,
+                    minimum=1,
+                    maximum=30,
+                ),
+            )
+            if status >= 200 and status < 300 and isinstance(payload, dict):
+                _mark_magix_ready()
+                return True
+            if _is_auth_error(payload):
+                _mark_magix_unavailable(f"auth_error:{_trim_error_payload(payload)}")
+                return False
+            if status >= 500:
+                _mark_magix_unavailable(f"probe_failed_http_{status}:{_trim_error_payload(payload)}")
+                return False
+    _mark_magix_unavailable(f"probe_failed:{probe_payload}")
+    return False
 
 
 def _call_magicx(
@@ -508,14 +1251,31 @@ def _call_magicx(
     messages: list[ChatMessage] | None = None,
     model: str,
     max_output_tokens: int | None = None,
+    lane: str = _LANE_DEFAULT,
 ) -> UpstreamResult:
+    if not _magix_is_ready():
+        raise ResponsesUpstreamError("magicx_unavailable")
+
+    key_names = tuple(config.api_keys)
+    if not key_names:
+        raise ResponsesUpstreamError("magicx_missing_api_key")
+
+    urls = _magicx_urls()
+    if not urls:
+        raise ResponsesUpstreamError("magicx_no_url")
+
     errors: list[str] = []
+    failures: list[str] = []
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     if not normalized_messages:
         raise ResponsesUpstreamError("magicx_prompt_required")
-    for api_key in config.api_keys:
-        for url in _magicx_urls():
-            for token_limit in _magicx_token_limits(max_output_tokens):
+    for index, api_key in enumerate(key_names, start=1):
+        if not api_key:
+            continue
+        key_slot = _onemin_key_slot(api_key, key_names=key_names)
+        for url in urls:
+            for token_limit in _magicx_token_limits(lane, max_output_tokens):
+                started_at = _now_ms()
                 status, payload = _post_json(
                     url=url,
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -527,32 +1287,488 @@ def _call_magicx(
                     },
                     timeout_seconds=config.timeout_seconds,
                 )
+                latency_ms = _now_ms() - started_at
                 if status < 200 or status >= 300:
-                    errors.append(f"http_{status}@{url}:{_trim_error_payload(payload)}")
-                    if status == 401 and _is_auth_error(payload):
+                    detail = _trim_error_payload(payload)
+                    candidate_error = f"{key_slot}:{index}@{url}:http_{status}:{detail}"
+                    errors.append(candidate_error)
+                    if _is_auth_error(payload):
+                        failures.append(candidate_error)
+                        _mark_magix_unavailable(f"auth_error:{detail}")
+                        _log_provider_selection(
+                            provider="magixai",
+                            event="auth_error",
+                            key_slot=key_slot,
+                            model=model,
+                            latency_ms=latency_ms,
+                            reason=detail,
+                        )
                         break
                     if _requires_smaller_max_tokens(payload):
+                        failures.append(candidate_error)
                         continue
                     break
                 if not isinstance(payload, dict):
-                    errors.append(f"magicx_invalid_response@{url}")
+                    candidate_error = f"{key_slot}:{index}@{url}:invalid_payload"
+                    errors.append(candidate_error)
+                    failures.append(candidate_error)
                     continue
                 text = _extract_openai_text(payload)
                 if not text:
-                    errors.append(f"magicx_empty_response@{url}")
+                    candidate_error = f"{key_slot}:{index}@{url}:empty_text"
+                    errors.append(candidate_error)
+                    failures.append(candidate_error)
                     continue
                 tokens_in, tokens_out = _extract_openai_usage(payload)
                 resolved_model = str(payload.get("model") or model).strip() or model
+                _mark_magix_ready()
+                fallback_reason = "; ".join(
+                    {str(item) for item in failures}
+                )
+                _log_provider_selection(
+                    provider="magixai",
+                    event="success",
+                    key_slot=key_slot,
+                    model=resolved_model,
+                    latency_ms=latency_ms,
+                    reason=fallback_reason or None,
+                )
                 return UpstreamResult(
                     text=text,
                     provider_key=config.provider_key,
                     model=resolved_model,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
+                    provider_key_slot=key_slot,
+                    upstream_model=model,
+                    latency_ms=max(0, latency_ms),
+                    fallback_reason=fallback_reason or None,
                 )
     if not errors:
         raise ResponsesUpstreamError("magicx_unavailable")
+    _mark_magix_unavailable("; ".join(errors))
+    _log_provider_selection(
+        provider="magixai",
+        event="failure",
+        key_slot="unavailable",
+        model=model,
+        latency_ms=0,
+        reason="; ".join(errors),
+    )
     raise ResponsesUpstreamError("; ".join(errors))
+
+
+def _chatplayground_roles(normalized_roles: object) -> list[str]:
+    roles = _normalize_text_list(normalized_roles)
+    if not roles:
+        return list(_browserplayground_roles())
+    return [role.strip().lower() for role in roles if role.strip()]
+
+
+def _normalize_chatplayground_audit_payload(payload: dict[str, Any] | None) -> tuple[str, str, list[str], list[str], list[str], list[str], dict[str, object]]:
+    root = dict(payload or {})
+    body = root.get("data") if isinstance(root.get("data"), dict) else root
+    if not isinstance(body, dict):
+        body = {}
+    normalized = dict(body)
+    consensus = str(
+        normalized.get("consensus")
+        or normalized.get("recommendation")
+        or normalized.get("summary")
+        or ""
+    ).strip()
+    recommendation = str(normalized.get("recommendation") or consensus or "").strip()
+    disagreements = [str(item) for item in _normalize_text_list(normalized.get("disagreements")) if str(item).strip()]
+    risks = [str(item) for item in _normalize_text_list(normalized.get("risks")) if str(item).strip()]
+    model_deltas = [str(item) for item in _normalize_text_list(normalized.get("model_deltas")) if str(item).strip()]
+    instruction_trace = [str(item) for item in _normalize_text_list(normalized.get("instruction_trace")) if str(item).strip()]
+    roles = _chatplayground_roles(normalized.get("roles"))
+    return (
+        consensus,
+        recommendation,
+        roles,
+        disagreements,
+        risks,
+        model_deltas,
+        {
+            "consensus": consensus,
+            "recommendation": recommendation,
+            "disagreements": disagreements,
+            "risks": risks,
+            "model_deltas": model_deltas,
+            "instruction_trace": instruction_trace,
+            "roles": roles,
+            "audit_scope": str(normalized.get("audit_scope") or "jury").strip() or "jury",
+            "requested_models": _normalize_text_list(normalized.get("requested_models")),
+            "requested_at": str(normalized.get("requested_at") or "").strip() or _now_iso(),
+            "raw_response": root,
+            "parsed_at": _now_iso(),
+        },
+    )
+
+
+def _chatplayground_audit_text_payload(
+    *,
+    prompt: str,
+    roles: list[str],
+    model: str,
+    audit_scope: str,
+    requested_models: tuple[str, ...],
+) -> dict[str, object]:
+    requested_models_payload = [model]
+    if model:
+        requested_models_payload = [model]
+    elif requested_models:
+        requested_models_payload = list(requested_models)
+    return {
+        "prompt": prompt,
+        "roles": roles,
+        "audit_scope": audit_scope,
+        "requested_models": requested_models_payload,
+        "requested_at": _now_iso(),
+    }
+
+
+def _call_chatplayground_audit(
+    config: ProviderConfig,
+    *,
+    prompt: str,
+    messages: list[ChatMessage] | None = None,
+    model: str,
+    max_output_tokens: int | None = None,
+    lane: str = _LANE_DEFAULT,
+) -> UpstreamResult:
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    prompt_text = _messages_to_prompt(normalized_messages)
+    if not prompt_text:
+        raise ResponsesUpstreamError("chatplayground_prompt_required")
+
+    key_names = tuple(config.api_keys)
+    if not key_names:
+        raise ResponsesUpstreamError("chatplayground_missing_api_key")
+
+    run_url = _browserplayground_url()
+    if not run_url:
+        raise ResponsesUpstreamError("chatplayground_run_url_missing")
+
+    model_candidates = tuple(config.default_models) or _browserplayground_models()
+    if max_output_tokens is not None:
+        model_candidates = model_candidates or _browserplayground_models()
+
+    audit_scopes = ("jury",)
+    base_roles = list(_browserplayground_roles())
+    errors: list[str] = []
+    tested: set[str] = set()
+    for model_name in model_candidates:
+        for api_key in key_names:
+            if not api_key or api_key in tested:
+                continue
+            tested.add(api_key)
+            key_slot = _onemin_key_slot(api_key, key_names=key_names)
+            account_name = _provider_account_name("chatplayground", key_names=key_names, key=api_key)
+            for audit_scope in audit_scopes:
+                started_at = _now_ms()
+                payload = _chatplayground_audit_text_payload(
+                    prompt=prompt_text,
+                    roles=base_roles,
+                    model=model_name,
+                    audit_scope=audit_scope,
+                    requested_models=tuple(config.default_models),
+                )
+                status, api_response = _post_json(
+                    url=run_url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    payload=payload,
+                    timeout_seconds=config.timeout_seconds,
+                )
+                latency_ms = _now_ms() - started_at
+                if status < 200 or status >= 300:
+                    detail = _trim_error_payload(api_response)
+                    failures = f"{account_name}:{key_slot}:{audit_scope}:http_{status}:{detail}"
+                    errors.append(failures)
+                    _log_provider_selection(
+                        provider="chatplayground",
+                        event="failure",
+                        key_slot=key_slot,
+                        model=model_name,
+                        latency_ms=latency_ms,
+                        reason=failures,
+                    )
+                    continue
+                if not isinstance(api_response, dict):
+                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:invalid_payload")
+                    _log_provider_selection(
+                        provider="chatplayground",
+                        event="invalid_payload",
+                        key_slot=key_slot,
+                        model=model_name,
+                        latency_ms=latency_ms,
+                        reason="invalid_payload",
+                    )
+                    continue
+
+                (
+                    consensus,
+                    recommendation,
+                    roles,
+                    disagreements,
+                    risks,
+                    model_deltas,
+                    details,
+                ) = _normalize_chatplayground_audit_payload(api_response)
+                if not consensus and not recommendation:
+                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
+                    continue
+
+                text_payload = {
+                    "provider": "chatplayground",
+                    "scope": audit_scope,
+                    "roles": roles,
+                    "model": model_name,
+                    "consensus": consensus,
+                    "recommendation": recommendation,
+                    "disagreements": disagreements,
+                    "risks": risks,
+                    "model_deltas": model_deltas,
+                    "requested_at": details.get("requested_at"),
+                }
+                output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
+                _log_provider_selection(
+                    provider="chatplayground",
+                    event="success",
+                    key_slot=key_slot,
+                    model=model_name,
+                    latency_ms=latency_ms,
+                    reason=None,
+                )
+                return UpstreamResult(
+                    text=output_text,
+                    provider_key=config.provider_key,
+                    model=model_name,
+                    tokens_in=0,
+                    tokens_out=0,
+                    provider_key_slot=key_slot,
+                    provider_backend="browseract",
+                    provider_account_name=account_name,
+                    upstream_model=model,
+                    latency_ms=max(0, latency_ms),
+                )
+    if not errors:
+        raise ResponsesUpstreamError("chatplayground_unavailable")
+    _log_provider_selection(
+        provider="chatplayground",
+        event="failure",
+        key_slot="unavailable",
+        model=model,
+        latency_ms=0,
+        reason="; ".join(errors),
+    )
+    raise ResponsesUpstreamError("; ".join(errors))
+
+
+def _call_onemin(
+    config: ProviderConfig,
+    *,
+    prompt: str,
+    messages: list[ChatMessage] | None = None,
+    model: str,
+    max_output_tokens: int | None = None,
+    lane: str = _LANE_DEFAULT,
+) -> UpstreamResult:
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    prompt_text = _messages_to_prompt(normalized_messages)
+    if not prompt_text:
+        raise ResponsesUpstreamError("onemin_prompt_required")
+
+    key_names = tuple(config.api_keys)
+    if not key_names:
+        raise ResponsesUpstreamError("onemin_missing_api_key")
+
+    urls = [
+        (_onemin_code_url(), "code"),
+        (_onemin_chat_url(), "chat"),
+    ]
+    if not _onemin_model_supports_code(model):
+        urls = [
+            (url, "chat")
+            for url, mode in urls
+            if mode == "chat" and url == _onemin_chat_url()
+        ]
+
+    errors: list[str] = []
+    failures: list[str] = []
+    tested: set[str] = set()
+    while len(tested) < len(key_names):
+        key_pick = _pick_onemin_key()
+        if key_pick is None:
+            break
+        api_key, wait_until, _ = key_pick
+        if api_key in tested:
+            _rotate_onemin_cursor_after_key_usage(api_key)
+            continue
+        tested.add(api_key)
+
+        if wait_until > 0:
+            failures.append(f"{api_key}:cooldown_until_{int(wait_until)}")
+            _rotate_onemin_cursor_after_key_usage(api_key)
+            continue
+
+        _mark_onemin_request_start(api_key)
+        key_slot = _onemin_key_slot(api_key, key_names=key_names)
+        key_fallback_reason: list[str] = []
+        key_depleted = False
+        key_auth_failed = False
+
+        for index, (url, mode) in enumerate(urls):
+            started_at = _now_ms()
+            status, payload = _post_json(
+                url=url,
+                headers={"API-KEY": api_key},
+                payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
+                timeout_seconds=config.timeout_seconds,
+            )
+            latency_ms = _now_ms() - started_at
+            if status < 200 or status >= 300:
+                error_detail = _trim_error_payload(payload)
+                reason = f"{key_slot}:{mode}:http_{status}:{error_detail}"
+                errors.append(reason)
+                key_fallback_reason.append(reason)
+                if _is_auth_error(error_detail):
+                    key_auth_failed = True
+                    _mark_onemin_failure(
+                        api_key,
+                        error_detail,
+                        temporary_quarantine=True,
+                    )
+                    break
+                if _is_retryable_onemin_error(error_detail):
+                    _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                    if _is_onemin_key_depleted(error_detail):
+                        key_depleted = True
+                    if mode == "code" and index == 0:
+                        continue
+                    break
+                _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                break
+
+            if not isinstance(payload, dict):
+                reason = f"{key_slot}:{mode}:invalid_payload"
+                errors.append(reason)
+                key_fallback_reason.append(reason)
+                _mark_onemin_failure(api_key, reason)
+                break
+
+            onemin_error = _extract_onemin_error(payload)
+            if onemin_error:
+                reason = f"{key_slot}:{mode}:{onemin_error}"
+                errors.append(reason)
+                key_fallback_reason.append(reason)
+                if _is_auth_error(onemin_error):
+                    key_auth_failed = True
+                    _mark_onemin_failure(
+                        api_key,
+                        onemin_error,
+                        temporary_quarantine=True,
+                    )
+                    break
+                if _is_retryable_onemin_error(onemin_error):
+                    _mark_onemin_failure(api_key, onemin_error, temporary_quarantine=False)
+                    if _is_onemin_key_depleted(onemin_error):
+                        key_depleted = True
+                    if mode == "code" and index == 0:
+                        continue
+                    break
+                _mark_onemin_failure(api_key, onemin_error)
+                break
+
+            text = _extract_onemin_text(payload)
+            if not text:
+                reason = f"{key_slot}:{mode}:empty_response"
+                errors.append(reason)
+                key_fallback_reason.append(reason)
+                _mark_onemin_failure(api_key, reason)
+                break
+
+            resolved_model = _extract_onemin_model(payload) or model
+            tokens_in, tokens_out = (0, 0)
+            usage = payload.get("usage") if isinstance(payload, dict) else {}
+            if isinstance(usage, dict):
+                tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+                tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            _mark_onemin_success(api_key)
+            fallback_reason = None
+            if failures or key_fallback_reason:
+                fallback_reason = "; ".join(failures + key_fallback_reason)
+            _log_provider_selection(
+                provider="onemin",
+                event="success",
+                key_slot=key_slot,
+                model=resolved_model,
+                latency_ms=latency_ms,
+                reason=fallback_reason,
+            )
+            return UpstreamResult(
+                text=text,
+                provider_key=config.provider_key,
+                model=resolved_model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                provider_key_slot=key_slot,
+                upstream_model=model,
+                latency_ms=max(0, latency_ms),
+                fallback_reason=fallback_reason,
+            )
+
+        if key_depleted:
+            _rotate_onemin_cursor_after_key_usage(api_key)
+            _log_provider_selection(
+                provider="onemin",
+                event="depletion",
+                key_slot=key_slot,
+                model=model,
+                latency_ms=0,
+                reason="; ".join(failures + key_fallback_reason),
+            )
+        elif key_auth_failed:
+            _rotate_onemin_cursor_after_key_usage(api_key)
+        elif failures or key_fallback_reason:
+            _rotate_onemin_cursor_after_key_usage(api_key)
+    if not errors:
+        raise ResponsesUpstreamError("onemin_unavailable")
+    _log_provider_selection(
+        provider="onemin",
+        event="failure",
+        key_slot="unavailable",
+        model=model,
+        latency_ms=0,
+        reason="; ".join(errors),
+    )
+    raise ResponsesUpstreamError("; ".join(errors))
+
+
+def _log_provider_selection(
+    *,
+    provider: str,
+    event: str,
+    key_slot: str,
+    model: str,
+    latency_ms: int,
+    reason: str | None = None,
+) -> None:
+    _LOG.info(
+        "responses_provider",
+        extra={
+            "provider": provider,
+            "event": event,
+            "provider_key_slot": key_slot,
+            "upstream_model": model,
+            "latency_ms": latency_ms,
+            "fallback_reason": reason,
+        },
+    )
 
 
 def _onemin_payload_for_mode(mode: str, *, prompt: str, model: str) -> dict[str, object]:
@@ -567,63 +1783,6 @@ def _onemin_payload_for_mode(mode: str, *, prompt: str, model: str) -> dict[str,
         "model": model,
         "promptObject": {"prompt": prompt},
     }
-
-
-def _call_onemin(
-    config: ProviderConfig,
-    *,
-    prompt: str,
-    messages: list[ChatMessage] | None = None,
-    model: str,
-    max_output_tokens: int | None = None,
-) -> UpstreamResult:
-    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
-    prompt_text = _messages_to_prompt(normalized_messages)
-    if not prompt_text:
-        raise ResponsesUpstreamError("onemin_prompt_required")
-    strategies: list[tuple[str, str]] = []
-    if _onemin_model_supports_code(model):
-        strategies.append(("code", _onemin_code_url()))
-    strategies.append(("chat", _onemin_chat_url()))
-
-    errors: list[str] = []
-    for api_key in config.api_keys:
-        for mode, url in strategies:
-            status, payload = _post_json(
-                url=url,
-                headers={"API-KEY": api_key},
-                payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
-                timeout_seconds=config.timeout_seconds,
-            )
-            if status < 200 or status >= 300:
-                errors.append(f"http_{status}@{mode}:{_trim_error_payload(payload)}")
-                if status == 401 and _is_auth_error(payload):
-                    break
-                continue
-            if not isinstance(payload, dict):
-                errors.append(f"onemin_invalid_response@{mode}")
-                continue
-            onemin_error = _extract_onemin_error(payload)
-            if onemin_error:
-                errors.append(f"{mode}:{onemin_error}")
-                if _is_auth_error(onemin_error):
-                    break
-                continue
-            text = _extract_onemin_text(payload)
-            if not text:
-                errors.append(f"onemin_empty_response@{mode}")
-                continue
-            resolved_model = _extract_onemin_model(payload) or model
-            return UpstreamResult(
-                text=text,
-                provider_key=config.provider_key,
-                model=resolved_model,
-                tokens_in=0,
-                tokens_out=0,
-            )
-    if not errors:
-        raise ResponsesUpstreamError("onemin_unavailable")
-    raise ResponsesUpstreamError("; ".join(errors))
 
 
 def _is_provider_fatal_error(message: str) -> bool:
@@ -680,38 +1839,177 @@ def generate_text(
     if not prompt_text and not normalized_messages:
         raise ResponsesUpstreamError("prompt_required")
 
+    lane = _effective_request_lane(requested_model=requested_model, max_output_tokens=max_output_tokens)
+    lane_cap = _lane_max_output_tokens(lane)
+    resolved_max_output_tokens = (
+        lane_cap
+        if lane_cap is not None and max_output_tokens is None
+        else max_output_tokens
+    )
+    if lane_cap is not None and resolved_max_output_tokens is not None:
+        resolved_max_output_tokens = _to_int(
+            resolved_max_output_tokens,
+            lane_cap,
+            minimum=16,
+            maximum=100000,
+        )
+    elif lane_cap is not None and resolved_max_output_tokens is None:
+        resolved_max_output_tokens = lane_cap
+    hold_hard_slot = False
+    _, _, hard_downscale = _resolve_hard_defaults()
+    if lane == _LANE_HARD:
+        hold_hard_slot = _acquire_hard_slot()
+        if not hold_hard_slot:
+            resolved_max_output_tokens = _to_int(
+                resolved_max_output_tokens,
+                hard_downscale,
+                minimum=16,
+                maximum=100000,
+            )
+            _LOG.warning(
+                "responses_hard_lane_throttled",
+                extra={"requested_model": requested_model, "event": "hard_slot_wait_timeout"},
+            )
+
     errors: list[str] = []
     blocked_providers: set[str] = set()
-    for config, model_name in _provider_candidates(requested_model):
-        if config.provider_key in blocked_providers:
-            continue
-        if not config.api_keys:
-            errors.append(f"{config.provider_key}:missing_api_key")
-            continue
-        try:
-            if config.provider_key == "magixai":
-                return _call_magicx(
-                    config,
-                    prompt=prompt_text,
-                    messages=normalized_messages,
-                    model=model_name,
-                    max_output_tokens=max_output_tokens,
-                )
-            if config.provider_key == "onemin":
-                return _call_onemin(
-                    config,
-                    prompt=prompt_text,
-                    messages=normalized_messages,
-                    model=model_name,
-                    max_output_tokens=max_output_tokens,
-                )
-            errors.append(f"{config.provider_key}:unsupported_provider")
-        except ResponsesUpstreamError as exc:
-            message = str(exc)
-            errors.append(f"{config.provider_key}/{model_name}:{message}")
-            if _is_provider_fatal_error(message):
-                blocked_providers.add(config.provider_key)
+    try:
+        for config, model_name in _provider_candidates(requested_model, lane=lane):
+            if config.provider_key in blocked_providers:
+                continue
+            if not config.api_keys:
+                errors.append(f"{config.provider_key}:missing_api_key")
+                continue
+            try:
+                if config.provider_key == "magixai":
+                    return _call_magicx(
+                        config,
+                        prompt=prompt_text,
+                        messages=normalized_messages,
+                        model=model_name,
+                        max_output_tokens=resolved_max_output_tokens,
+                        lane=lane,
+                    )
+                if config.provider_key == "onemin":
+                    return _call_onemin(
+                        config,
+                        prompt=prompt_text,
+                        messages=normalized_messages,
+                        model=model_name,
+                        max_output_tokens=resolved_max_output_tokens,
+                        lane=lane,
+                    )
+                if config.provider_key == "chatplayground":
+                    return _call_chatplayground_audit(
+                        config,
+                        prompt=prompt_text,
+                        messages=normalized_messages,
+                        model=model_name,
+                        max_output_tokens=resolved_max_output_tokens,
+                        lane=lane,
+                    )
+                errors.append(f"{config.provider_key}:unsupported_provider")
+            except ResponsesUpstreamError as exc:
+                message = str(exc)
+                errors.append(f"{config.provider_key}/{model_name}:{message}")
+                if _is_provider_fatal_error(message):
+                    blocked_providers.add(config.provider_key)
+    finally:
+        if hold_hard_slot:
+            _release_hard_slot()
 
     if not errors:
         raise ResponsesUpstreamError("no_upstream_responses_provider")
     raise ResponsesUpstreamError("; ".join(errors))
+
+
+def _test_reset_onemin_states() -> None:
+    global _ONEMIN_KEY_CURSOR
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        _ONEMIN_KEY_STATES.clear()
+        _ONEMIN_KEY_CURSOR = 0
+    with _MAGIX_HEALTH_LOCK:
+        _MAGIX_HEALTH_STATE.update(state="unknown", checked_at=0.0, detail="", provider_key="magixai")
+
+
+def _provider_health_report() -> dict[str, object]:
+    now = _now_epoch()
+    onemin_key_names = _ordered_onemin_keys()
+    onemin_key_states = _onemin_states_snapshot(onemin_key_names)
+    onemin_slots: list[dict[str, object]] = []
+    if _magix_health_probe_enabled():
+        _magix_is_ready()
+
+    for key in onemin_key_names:
+        slot_state = _onemin_key_state_label(onemin_key_states.get(key, OneminKeyState(key=key)), now=now)
+        onemin_slots.append(
+            {
+                "slot": _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names),
+                "configured": bool(key),
+                "account_name": _provider_account_name("onemin", key_names=onemin_key_names, key=key),
+                "state": slot_state,
+                "last_used_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_used_at),
+                "last_success_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_success_at),
+                "last_failure_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_failure_at),
+                "cooldown_until": float(onemin_key_states.get(key, OneminKeyState(key=key)).cooldown_until),
+                "quarantine_until": float(onemin_key_states.get(key, OneminKeyState(key=key)).quarantine_until),
+                "failure_count": int(onemin_key_states.get(key, OneminKeyState(key=key)).failure_count),
+                "last_error": str(onemin_key_states.get(key, OneminKeyState(key=key)).last_error),
+            }
+        )
+
+    magix_state, magix_detail, magix_checked_at = _magix_health_state_snapshot()
+    chatplayground_key_names = _browserplayground_api_keys()
+    chatplayground_slots = [
+        {
+            "slot": _onemin_key_slot(api_key, key_names=chatplayground_key_names),
+            "configured": bool(api_key),
+            "account_name": _provider_account_name("chatplayground", key_names=chatplayground_key_names, key=api_key),
+            "state": "ready" if api_key else "missing",
+        }
+        for api_key in chatplayground_key_names
+    ]
+    return {
+        "providers": {
+            "onemin": {
+                "provider_key": "onemin",
+                "configured_slots": len(onemin_slots),
+                "slots": onemin_slots,
+                "health_check_enabled": False,
+                "provider_order": list(_provider_order()),
+            },
+            "magixai": {
+                "provider_key": "magixai",
+                "configured_slots": 1 if _magicx_config().api_keys else 0,
+                "state": magix_state,
+                "detail": magix_detail,
+                "checked_at": magix_checked_at,
+                "health_check_enabled": bool(_magix_health_probe_enabled()),
+            },
+            "chatplayground": {
+                "provider_key": "chatplayground",
+                "backend": "browseract",
+                "provider_url": _browserplayground_url(),
+                "configured_slots": len(chatplayground_slots),
+                "slots": chatplayground_slots,
+            },
+        },
+        "provider_config": {
+            "onemin_keys": list(onemin_key_names),
+            "onemin_max_slots": _ONEMIN_MAX_KEY_SLOTS,
+            "chatplayground_keys": list(chatplayground_key_names),
+            "chatplayground_url": _browserplayground_url(),
+            "lane_caps": {
+                _LANE_FAST: _lane_max_output_tokens(_LANE_FAST),
+                _LANE_REVIEW: _lane_max_output_tokens(_LANE_REVIEW),
+                _LANE_HARD: _lane_max_output_tokens(_LANE_HARD),
+                _LANE_OVERFLOW: _lane_max_output_tokens(_LANE_OVERFLOW),
+                "default": _lane_max_output_tokens(_LANE_DEFAULT),
+            },
+        },
+        "magicx": {
+            "urls": list(_magicx_urls()),
+            "models": list(_magicx_models()),
+            "health": magix_state,
+        },
+    }

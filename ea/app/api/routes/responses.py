@@ -591,6 +591,9 @@ def create_response(
             **metadata,
             "upstream_provider": result.provider_key,
             "upstream_model": result.model,
+            "provider_backend": result.provider_backend,
+            "provider_account_name": result.provider_account_name,
+            "provider_key_slot": result.provider_key_slot,
         }
         text = result.text
         message = _message_item(item_id=item_id, text=text, status="completed")
@@ -771,6 +774,10 @@ def create_response(
             **metadata,
             "upstream_provider": result.provider_key,
             "upstream_model": result.model,
+            "provider_backend": result.provider_backend,
+            "provider_account_name": result.provider_account_name,
+            "provider_key_slot": result.provider_key_slot,
+            "upstream_fallback_reason": result.fallback_reason,
         }
         text = result.text
 
