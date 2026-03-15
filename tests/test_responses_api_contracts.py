@@ -286,6 +286,54 @@ def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatc
     assert resp.json()["output_text"] == "ok"
 
 
+def test_responses_accepts_prior_assistant_output_text_parts(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "system rules\n\nuser asks\n\nassistant answers\n\nfollow up"
+        assert messages == [
+            {"role": "system", "content": "system rules"},
+            {"role": "user", "content": "user asks"},
+            {"role": "assistant", "content": "assistant answers"},
+            {"role": "user", "content": "follow up"},
+        ]
+        assert requested_model == "ea-coder-best"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="continued",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=4,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-best",
+            "input": [
+                {"role": "developer", "content": [{"type": "input_text", "text": "system rules"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "user asks"}]},
+                {"role": "assistant", "content": [{"type": "output_text", "text": "assistant answers"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "follow up"}]},
+            ],
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["output_text"] == "continued"
+
+
 def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
