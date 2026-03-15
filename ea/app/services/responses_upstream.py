@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import inspect
 import os
 import threading
 import time
@@ -9,7 +10,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Callable
 
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
@@ -84,6 +85,19 @@ def _to_int(value: object, default: int, minimum: int = 0, maximum: int | None =
     if maximum is not None:
         parsed = min(parsed, maximum)
     return parsed
+
+
+def _to_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "on", "y"}:
+        return True
+    if normalized in {"0", "false", "off", "no", "n"}:
+        return False
+    return default
 
 
 def _normalize_text_list(raw: object) -> list[str]:
@@ -1507,6 +1521,161 @@ def _normalize_chatplayground_audit_payload(payload: dict[str, Any] | None) -> t
     )
 
 
+def _normalize_chatplayground_audit_callback_payload(payload: Any) -> dict[str, Any] | None:
+    if isinstance(payload, dict):
+        return dict(payload)
+    if payload is None:
+        return None
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text:
+            return None
+        return {
+            "raw_response_text": text,
+            "recommendation": text,
+            "consensus": text,
+            "roles": [],
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+            "raw_output_json": payload,
+        }
+    payload_json = getattr(payload, "output_json", None)
+    if isinstance(payload_json, dict):
+        if not payload_json:
+            payload_json = {}
+        normalized = dict(payload_json)
+        if "structured_output_json" in payload_json and isinstance(payload_json.get("structured_output_json"), dict):
+            normalized = dict(payload_json.get("structured_output_json"))
+        structured_output_json = getattr(payload, "structured_output_json", None)
+        if isinstance(structured_output_json, dict):
+            structured = dict(structured_output_json)
+            structured.update(normalized)
+            normalized = structured
+        return normalized
+    payload_output = getattr(payload, "output", None)
+    if isinstance(payload_output, dict):
+        return dict(payload_output)
+    return None
+
+
+def _chatplayground_audit_disabled_payload(
+    *,
+    prompt: str,
+    model: str,
+    roles: list[str],
+    audit_scope: str,
+    requested_models: tuple[str, ...],
+    reason: str,
+) -> dict[str, object]:
+    return {
+        "provider": "chatplayground",
+        "scope": audit_scope,
+        "roles": roles,
+        "requested_roles": roles,
+        "model": model,
+        "consensus": "unavailable",
+        "recommendation": "audit unavailable in this environment",
+        "disagreements": [],
+        "risks": ["chatplayground_unavailable", reason],
+        "model_deltas": [],
+        "requested_models": list(requested_models),
+        "requested_at": _now_iso(),
+        "raw_output": {"prompt": prompt, "reason": reason},
+    }
+
+
+def _chatplayground_audit_disabled_result(
+    *,
+    config: ProviderConfig,
+    prompt: str,
+    model: str,
+    roles: list[str],
+    audit_scope: str,
+    requested_models: tuple[str, ...],
+    reason: str,
+    key_slot: str = "unavailable",
+) -> UpstreamResult:
+    account_name = _provider_account_name("chatplayground", key_names=tuple(config.api_keys), key="")
+    payload = _chatplayground_audit_disabled_payload(
+        prompt=prompt,
+        model=model,
+        roles=roles,
+        audit_scope=audit_scope,
+        requested_models=requested_models,
+        reason=reason,
+    )
+    output_text = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    return UpstreamResult(
+        text=output_text,
+        provider_key=config.provider_key,
+        model=model,
+        tokens_in=0,
+        tokens_out=0,
+        provider_key_slot=key_slot,
+        provider_backend="browseract",
+        provider_account_name=account_name,
+        upstream_model=model,
+        latency_ms=0,
+        fallback_reason=reason,
+    )
+
+
+def _chatplayground_audit_callback_candidates(
+    *,
+    callback: Callable[..., Any],
+    prompt: str,
+    roles: list[str],
+    model: str,
+    audit_scope: str,
+    run_url: str,
+    principal_id: str,
+    requested_models: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    request_payload = {
+        "prompt": prompt,
+        "roles": roles,
+        "requested_roles": roles,
+        "audit_scope": audit_scope,
+        "model": model,
+        "run_url": run_url,
+        "requested_models": list(requested_models),
+        "principal_id": principal_id,
+    }
+    candidates = [
+        {"prompt": prompt, "roles": roles, "audit_scope": audit_scope, "model": model, "requested_models": list(requested_models), "run_url": run_url, "principal_id": principal_id},
+        {"request_payload": request_payload},
+        {"payload": request_payload},
+        {"run_url": run_url, "request_payload": request_payload},
+        {"run_url": run_url, "prompt": prompt, "roles": roles},
+        {"prompt": prompt, "roles": roles, "requested_roles": roles, "model": model, "audit_scope": audit_scope, "run_url": run_url},
+        {"run_url": run_url, "scope": audit_scope, "prompt": prompt, "roles": roles},
+        {},
+    ]
+
+    try:
+        signatures = inspect.signature(callback)
+    except Exception:
+        signatures = tuple()
+    else:
+        accepts_var_kw = any(
+            getattr(parameter, "kind", None) == inspect.Parameter.VAR_KEYWORD
+            for parameter in signatures.parameters.values()
+        )
+        if accepts_var_kw:
+            return candidates
+        allowed = set(signatures.parameters.keys())
+        normalized: list[dict[str, Any]] = []
+        for candidate in candidates:
+            normalized_candidate = {
+                key: value for key, value in candidate.items() if key in allowed
+            }
+            if normalized_candidate:
+                normalized.append(normalized_candidate)
+        return normalized
+    return candidates
+
+
 def _chatplayground_audit_text_payload(
     *,
     prompt: str,
@@ -1537,6 +1706,9 @@ def _call_chatplayground_audit(
     model: str,
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -1544,128 +1716,278 @@ def _call_chatplayground_audit(
         raise ResponsesUpstreamError("chatplayground_prompt_required")
 
     key_names = tuple(config.api_keys)
-    if not key_names:
-        raise ResponsesUpstreamError("chatplayground_missing_api_key")
-
     run_url_candidates = _chatplayground_request_urls()
-    if not run_url_candidates:
-        raise ResponsesUpstreamError("chatplayground_run_url_missing")
 
     model_candidates = tuple(config.default_models) or _browserplayground_models()
     if not model_candidates:
         model_candidates = _browserplayground_models()
 
-    audit_scopes = ("jury",)
+    audit_scope = "jury"
     base_roles = list(_browserplayground_roles())
+    if chatplayground_audit_callback_only and chatplayground_audit_callback is None:
+        _log_provider_selection(
+            provider="chatplayground",
+            event="callback_unavailable",
+            key_slot="unavailable",
+            model=model_candidates[0] if model_candidates else model,
+            latency_ms=0,
+            reason="audit_callback_missing",
+        )
+        return _chatplayground_audit_disabled_result(
+            config=config,
+            prompt=prompt_text,
+            model=model_candidates[0] if model_candidates else model,
+            roles=base_roles,
+            audit_scope=audit_scope,
+            requested_models=tuple(config.default_models),
+            reason="audit_callback_missing",
+            key_slot="unavailable",
+        )
+
+    if not chatplayground_audit_callback_only and not key_names:
+        raise ResponsesUpstreamError("chatplayground_missing_api_key")
+
+    if not run_url_candidates and not (chatplayground_audit_callback_only and chatplayground_audit_callback is not None):
+        raise ResponsesUpstreamError("chatplayground_run_url_missing")
+
     errors: list[str] = []
     tested: set[str] = set()
     for model_name in model_candidates:
+        if chatplayground_audit_callback is not None:
+            for candidate in _chatplayground_audit_callback_candidates(
+                callback=chatplayground_audit_callback,
+                prompt=prompt_text,
+                roles=base_roles,
+                model=model_name,
+                audit_scope=audit_scope,
+                run_url=run_url_candidates[0] if run_url_candidates else "",
+                principal_id=chatplayground_audit_principal_id,
+                requested_models=tuple(config.default_models),
+            ):
+                callback_started_at = _now_ms()
+                try:
+                    callback_response = chatplayground_audit_callback(**candidate)
+                except TypeError:
+                    continue
+                except Exception as exc:
+                    _log_provider_selection(
+                        provider="chatplayground",
+                        event="callback_error",
+                        key_slot="callback",
+                        model=model_name,
+                        latency_ms=0,
+                        reason=str(exc),
+                    )
+                    if not chatplayground_audit_callback_only:
+                        continue
+                    return _chatplayground_audit_disabled_result(
+                        config=config,
+                        prompt=prompt_text,
+                        model=model_name,
+                        roles=base_roles,
+                        audit_scope=audit_scope,
+                        requested_models=tuple(config.default_models),
+                        reason=str(exc),
+                        key_slot="callback_error",
+                    )
+
+                callback_payload = _normalize_chatplayground_audit_callback_payload(callback_response)
+                if not callback_payload:
+                    continue
+
+                binding_id = str(callback_payload.get("binding_id") or "").strip()
+                external_account_ref = str(callback_payload.get("external_account_ref") or "").strip()
+                callback_key_name = str(callback_payload.get("chatplayground_key") or "").strip()
+                if not callback_key_name and binding_id:
+                    callback_key_name = binding_id
+
+                (
+                    consensus,
+                    recommendation,
+                    roles,
+                    disagreements,
+                    risks,
+                    model_deltas,
+                    details,
+                ) = _normalize_chatplayground_audit_payload(callback_payload)
+                if not consensus and not recommendation:
+                    if chatplayground_audit_callback_only:
+                        return _chatplayground_audit_disabled_result(
+                            config=config,
+                            prompt=prompt_text,
+                            model=model_name,
+                            roles=base_roles,
+                            audit_scope=audit_scope,
+                            requested_models=tuple(config.default_models),
+                            reason="chatplayground_callback_no_result",
+                            key_slot="callback_empty",
+                        )
+                    continue
+                callback_latency = _now_ms() - callback_started_at
+                account_name = external_account_ref
+                key_slot = "callback"
+                if binding_id:
+                    key_slot = f"binding_{binding_id}"
+                if not account_name and callback_key_name:
+                    if key_names:
+                        key_slot = callback_key_name if callback_key_name in key_names else "callback"
+                    account_name = _provider_account_name("chatplayground", key_names=key_names, key=callback_key_name)
+                elif not account_name:
+                    account_name = _provider_account_name("chatplayground", key_names=key_names, key="")
+                _log_provider_selection(
+                    provider="chatplayground",
+                    event="callback_success",
+                    key_slot=key_slot,
+                    model=model_name,
+                    latency_ms=max(0, callback_latency),
+                    reason=None,
+                )
+                text_payload = {
+                    "provider": "chatplayground",
+                    "scope": audit_scope,
+                    "roles": roles,
+                    "model": model_name,
+                    "consensus": consensus,
+                    "recommendation": recommendation,
+                    "disagreements": disagreements,
+                    "risks": risks,
+                    "model_deltas": model_deltas,
+                    "binding_id": binding_id,
+                    "external_account_ref": external_account_ref,
+                    "requested_at": details.get("requested_at"),
+                    "callback_payload": callback_payload,
+                    "raw_output": details,
+                }
+                output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
+                return UpstreamResult(
+                    text=output_text,
+                    provider_key=config.provider_key,
+                    model=model_name,
+                    tokens_in=0,
+                    tokens_out=0,
+                    provider_key_slot=key_slot,
+                    provider_backend="browseract",
+                    provider_account_name=account_name,
+                    upstream_model=model,
+                    latency_ms=max(0, callback_latency),
+                    fallback_reason=f"callback_success:{_format_error_payload(details)}",
+                )
+        if chatplayground_audit_callback_only:
+            return _chatplayground_audit_disabled_result(
+                config=config,
+                prompt=prompt_text,
+                model=model_name,
+                roles=base_roles,
+                audit_scope=audit_scope,
+                requested_models=tuple(config.default_models),
+                reason="chatplayground_callback_unavailable",
+                key_slot="callback_missing",
+            )
+
         for api_key in key_names:
             if not api_key or api_key in tested:
                 continue
             tested.add(api_key)
             key_slot = _onemin_key_slot(api_key, key_names=key_names)
             account_name = _provider_account_name("chatplayground", key_names=key_names, key=api_key)
-            for audit_scope in audit_scopes:
+            payload = _chatplayground_audit_text_payload(
+                prompt=prompt_text,
+                roles=base_roles,
+                model=model_name,
+                audit_scope=audit_scope,
+                requested_models=tuple(config.default_models),
+            )
+            for run_url in run_url_candidates:
+                endpoint_reason_prefix = f"{account_name}:{key_slot}:{audit_scope}:{run_url}:"
                 started_at = _now_ms()
-                payload = _chatplayground_audit_text_payload(
-                    prompt=prompt_text,
-                    roles=base_roles,
-                    model=model_name,
-                    audit_scope=audit_scope,
-                    requested_models=tuple(config.default_models),
+                status, api_response = _post_json(
+                    url=run_url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    payload=payload,
+                    timeout_seconds=config.timeout_seconds,
                 )
-                for run_url in run_url_candidates:
-                    endpoint_reason_prefix = f"{account_name}:{key_slot}:{audit_scope}:{run_url}:"
-                    started_at = _now_ms()
-                    status, api_response = _post_json(
-                        url=run_url,
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        payload=payload,
-                        timeout_seconds=config.timeout_seconds,
-                    )
-                    latency_ms = _now_ms() - started_at
-                    if status < 200 or status >= 300:
-                        detail = _trim_error_payload(api_response)
-                        failures = f"{endpoint_reason_prefix}http_{status}:{detail}"
-                        errors.append(failures)
-                        _log_provider_selection(
-                            provider="chatplayground",
-                            event="failure",
-                            key_slot=key_slot,
-                            model=model_name,
-                            latency_ms=latency_ms,
-                            reason=failures,
-                        )
-                        if status in {401, 403}:
-                            continue
-                        if status in {405, 408, 429, 500, 502, 503, 504}:
-                            continue
-                        if status >= 500:
-                            continue
-                        break
-
-                    if not isinstance(api_response, dict):
-                        errors.append(f"{account_name}:{key_slot}:{audit_scope}:invalid_payload")
-                        _log_provider_selection(
-                            provider="chatplayground",
-                            event="invalid_payload",
-                            key_slot=key_slot,
-                            model=model_name,
-                            latency_ms=latency_ms,
-                            reason="invalid_payload",
-                        )
-                        continue
-
-                    (
-                        consensus,
-                        recommendation,
-                        roles,
-                        disagreements,
-                        risks,
-                        model_deltas,
-                        details,
-                    ) = _normalize_chatplayground_audit_payload(api_response)
-                    if not consensus and not recommendation:
-                        errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
-                        continue
-
-                    text_payload = {
-                        "provider": "chatplayground",
-                        "scope": audit_scope,
-                        "roles": roles,
-                        "model": model_name,
-                        "consensus": consensus,
-                        "recommendation": recommendation,
-                        "disagreements": disagreements,
-                        "risks": risks,
-                        "model_deltas": model_deltas,
-                        "requested_at": details.get("requested_at"),
-                    }
-                    output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
+                latency_ms = _now_ms() - started_at
+                if status < 200 or status >= 300:
+                    detail = _trim_error_payload(api_response)
+                    failures = f"{endpoint_reason_prefix}http_{status}:{detail}"
+                    errors.append(failures)
                     _log_provider_selection(
                         provider="chatplayground",
-                        event="success",
+                        event="failure",
                         key_slot=key_slot,
                         model=model_name,
                         latency_ms=latency_ms,
-                        reason=None,
+                        reason=failures,
                     )
-                    return UpstreamResult(
-                        text=output_text,
-                        provider_key=config.provider_key,
+                    if status in {401, 403}:
+                        continue
+                    if status in {405, 408, 429, 500, 502, 503, 504}:
+                        continue
+                    if status >= 500:
+                        continue
+                    break
+
+                if not isinstance(api_response, dict):
+                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:invalid_payload")
+                    _log_provider_selection(
+                        provider="chatplayground",
+                        event="invalid_payload",
+                        key_slot=key_slot,
                         model=model_name,
-                        tokens_in=0,
-                        tokens_out=0,
-                        provider_key_slot=key_slot,
-                        provider_backend="browseract",
-                        provider_account_name=account_name,
-                        upstream_model=model,
-                        latency_ms=max(0, latency_ms),
+                        latency_ms=latency_ms,
+                        reason="invalid_payload",
                     )
+                    continue
+
+                (
+                    consensus,
+                    recommendation,
+                    roles,
+                    disagreements,
+                    risks,
+                    model_deltas,
+                    details,
+                ) = _normalize_chatplayground_audit_payload(api_response)
+                if not consensus and not recommendation:
+                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
+                    continue
+
+                text_payload = {
+                    "provider": "chatplayground",
+                    "scope": audit_scope,
+                    "roles": roles,
+                    "model": model_name,
+                    "consensus": consensus,
+                    "recommendation": recommendation,
+                    "disagreements": disagreements,
+                    "risks": risks,
+                    "model_deltas": model_deltas,
+                    "requested_at": details.get("requested_at"),
+                }
+                output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
+                _log_provider_selection(
+                    provider="chatplayground",
+                    event="success",
+                    key_slot=key_slot,
+                    model=model_name,
+                    latency_ms=latency_ms,
+                    reason=None,
+                )
+                return UpstreamResult(
+                    text=output_text,
+                    provider_key=config.provider_key,
+                    model=model_name,
+                    tokens_in=0,
+                    tokens_out=0,
+                    provider_key_slot=key_slot,
+                    provider_backend="browseract",
+                    provider_account_name=account_name,
+                    upstream_model=model,
+                    latency_ms=max(0, latency_ms),
+                )
     if not errors:
         raise ResponsesUpstreamError("chatplayground_unavailable")
     _log_provider_selection(
@@ -1946,6 +2268,9 @@ def generate_text(
     messages: list[dict[str, str]] | None = None,
     requested_model: str = "",
     max_output_tokens: int | None = None,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -1991,8 +2316,13 @@ def generate_text(
             if config.provider_key in blocked_providers:
                 continue
             if not config.api_keys:
-                errors.append(f"{config.provider_key}:missing_api_key")
-                continue
+                # Chatplayground can run in callback-only mode without environment
+                # API key storage when audit execution is delegated to local tool calls.
+                if config.provider_key == "chatplayground" and chatplayground_audit_callback_only:
+                    pass
+                else:
+                    errors.append(f"{config.provider_key}:missing_api_key")
+                    continue
             try:
                 if config.provider_key == "magixai":
                     return _call_magicx(
@@ -2020,6 +2350,9 @@ def generate_text(
                         model=model_name,
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
                     )
                 errors.append(f"{config.provider_key}:unsupported_provider")
             except ResponsesUpstreamError as exc:
