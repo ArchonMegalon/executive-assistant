@@ -80,6 +80,10 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_6" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_9" in env_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS" in env_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS" in env_example
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_example
     assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_example
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_example
@@ -92,6 +96,10 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_6" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_9" in env_local_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_local_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS" in env_local_example
+    assert "EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS" in env_local_example
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_local_example
     assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_local_example
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_local_example
@@ -109,14 +117,22 @@ def test_responses_provider_health_credit_debug_contract_is_documented() -> None
 
     assert "estimated_remaining_credits_total" in readme
     assert "remaining_percent_of_max" in readme
+    assert "estimated_burn_credits_per_hour" in readme
+    assert "observed_consumed_credits" in readme
     assert "/v1/responses/_provider_health" in runbook
     assert "/v1/codex/profiles" in runbook
     assert "estimated_remaining_credits_total" in runbook
+    assert "estimated_hours_remaining_at_current_pace" in runbook
+    assert "observed_consumed_credits" in runbook
+    assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in runbook
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_matrix
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_matrix
+    assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_matrix
     assert "account-attributed credit estimates" in http_examples
     assert "estimated_remaining_credits_total" in changelog
     assert "remaining_percent_of_max" in changelog
+    assert "estimated_burn_credits_per_hour" in changelog
+    assert "observed_consumed_credits" in changelog
     assert "D-513" in tasks_work_log
 
 

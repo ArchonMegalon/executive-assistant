@@ -6,6 +6,8 @@ All notable changes to the rewrite-kernel baseline are documented here.
 
 ### Changed
 - The Responses and Codex façade now returns dynamic upstream model IDs alongside the public EA aliases, exposes account-name-only provider health with observed `remaining_credits` / `required_credits`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, and marks deleted 1min.AI keys with a dedicated quarantine state so operator diagnostics stay truthful without leaking raw secrets.
+- The 1min.AI provider-health surface now also reports rolling `estimated_burn_credits_per_hour`, `estimated_requests_per_hour`, and `estimated_hours_remaining_at_current_pace`, and `codexea-status` renders those pace estimates directly from EA’s live health report.
+- Provider health now subtracts observed per-key 1min usage before falling back to assumed-full estimates, exposes per-slot `observed_consumed_credits` / `observed_success_count`, and ships live Magicx probe controls so fallback readiness is based on a real upstream check.
 - `make test-api` and `make ci-local` now prefer `.venv/bin/python` and fall back to `python3`, so local validation no longer depends on `/usr/bin/python` being present.
 
 ## 2026-03-13

@@ -65,7 +65,7 @@ Then open `http://localhost:8090/health`.
   - `POST /v1/codex/audit` (jury lane, forced `ea-audit-jury`)
   - stream mode via `Accept: text/event-stream`
   - `GET /v1/models` returns the public EA aliases plus the currently configured upstream model IDs so Codex can target concrete provider backends when needed.
-  - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, observed `remaining_credits` / `required_credits`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, and deleted-key quarantine state without returning raw API secrets.
+  - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
 
 ### Codex Configuration Example
 

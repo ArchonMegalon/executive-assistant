@@ -63,6 +63,7 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
@@ -84,6 +85,7 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
@@ -623,6 +625,71 @@ def test_call_magicx_probe_marks_degraded_when_api_not_available(monkeypatch: py
     assert calls == [("https://api.1min.ai/api/chat-with-ai", "unused-key")]
 
 
+def test_provider_health_estimates_onemin_remaining_from_observed_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "observed-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "100")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "0")
+
+    upstream._record_onemin_usage_event(
+        api_key="observed-key",
+        model="gpt-4.1",
+        tokens_in=20,
+        tokens_out=10,
+    )
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+
+    assert slot["estimated_remaining_credits"] == 70
+    assert slot["estimated_credit_basis"] == "max_minus_observed_usage"
+    assert slot["observed_consumed_credits"] == 30
+    assert slot["observed_success_count"] == 1
+
+
+def test_magicx_probe_marks_ready_when_probe_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_CHECK", "1")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "good-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "openai/gpt-5.1-codex-mini")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "model": "openai/gpt-5.1-codex-mini",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    assert upstream._magix_is_ready() is True
+    state, detail, checked_at = upstream._magix_health_state_snapshot()
+    assert state == "ready"
+    assert detail == ""
+    assert checked_at > 0
+
+
+def test_magicx_probe_timeout_degrades_without_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_CHECK", "1")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "slow-key")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        raise upstream.ResponsesUpstreamError("request_failed:timeout")
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    assert upstream._magix_is_ready() is False
+    state, detail, checked_at = upstream._magix_health_state_snapshot()
+    assert state == "degraded"
+    assert "request_failed:timeout" in detail
+    assert checked_at > 0
+
+
 def test_call_onemin_uses_fourth_key_when_first_three_429(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_key_cursor()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "key-1")
@@ -690,6 +757,52 @@ def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.Mon
     deleted_slot = next(slot for slot in health["providers"]["onemin"]["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
     assert deleted_slot["state"] == "deleted"
     assert deleted_slot["quarantine_until"] > deleted_slot["last_failure_at"] + 86000
+
+
+def test_onemin_provider_health_reports_burn_rate_from_recent_successes(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "healthy")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BURN_WINDOW_SECONDS", "3600")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BURN_MIN_OBSERVATION_SECONDS", "60")
+
+    now = {"value": 1000.0}
+
+    def fake_now() -> float:
+        return float(now["value"])
+
+    monkeypatch.setattr(upstream, "_now_epoch", fake_now)
+
+    upstream._mark_onemin_failure(
+        "primary",
+        "INSUFFICIENT_CREDITS:The feature requires 30000 credits, but the Team only has 0 credits",
+    )
+
+    now["value"] = 1060.0
+    upstream._record_onemin_usage_event(
+        api_key="primary",
+        model="gpt-5",
+        tokens_in=100,
+        tokens_out=50,
+    )
+
+    now["value"] = 1120.0
+    upstream._record_onemin_usage_event(
+        api_key="primary",
+        model="gpt-5",
+        tokens_in=120,
+        tokens_out=55,
+    )
+
+    now["value"] = 1180.0
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+
+    assert onemin["estimated_burn_credits_per_hour"] == 1800000.0
+    assert onemin["estimated_requests_per_hour"] == 60.0
+    assert onemin["estimated_hours_remaining_at_current_pace"] == 2.47
+    assert onemin["burn_event_count"] == 2
+    assert onemin["burn_estimate_basis"] == "recent_required_credit_median"
 
 
 def test_generate_text_routes_audit_lane_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:

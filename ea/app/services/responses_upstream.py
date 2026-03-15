@@ -60,7 +60,7 @@ _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_MAX_KEY_SLOTS = 9
+_ONEMIN_MAX_KEY_SLOTS = 10
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 
@@ -366,6 +366,7 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
             "ONEMIN_AI_API_KEY_FALLBACK_6",
             "ONEMIN_AI_API_KEY_FALLBACK_7",
             "ONEMIN_AI_API_KEY_FALLBACK_8",
+            "ONEMIN_AI_API_KEY_FALLBACK_9",
         )
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
@@ -472,6 +473,7 @@ def _onemin_key_names() -> tuple[str, ...]:
             _env("ONEMIN_AI_API_KEY_FALLBACK_6"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_7"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_8"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_9"),
         )
     )
 
@@ -816,6 +818,9 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
         return 0, "inactive_key"
     if _is_onemin_key_depleted(state.last_error):
         return 0, "depleted_error"
+    observed_spend = _observed_onemin_spend(api_key=state.key)
+    if observed_spend > 0:
+        return max(0, _onemin_max_credits_per_key() - observed_spend), "max_minus_observed_usage"
     if state_label in {"ready", "cooldown"}:
         return _onemin_max_credits_per_key(), "assumed_full_unobserved"
     return 0, "unknown_unobserved"
@@ -834,6 +839,20 @@ def _record_onemin_required_credit_observation(*, api_key: str, message: str, ha
     )
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_REQUIRED_CREDIT_EVENTS.append(event)
+
+
+def _observed_onemin_spend(*, api_key: str) -> int:
+    with _ONEMIN_USAGE_LOCK:
+        return sum(
+            max(0, int(item.estimated_credits))
+            for item in _ONEMIN_USAGE_EVENTS
+            if item.api_key == api_key
+        )
+
+
+def _observed_onemin_request_count(*, api_key: str) -> int:
+    with _ONEMIN_USAGE_LOCK:
+        return sum(1 for item in _ONEMIN_USAGE_EVENTS if item.api_key == api_key)
 
 
 def _recent_onemin_required_credit_observations(*, now: float, horizon_seconds: float) -> list[OneminRequiredCreditObservation]:
@@ -1612,24 +1631,29 @@ def _magix_is_ready() -> bool:
 
 def _probe_magicx_health() -> bool:
     probe_payload = _trim_error_payload(_magicx_model_for_probe())
+    errors: list[str] = []
     for api_key in _magicx_config().api_keys:
         for url in _magicx_urls():
-            status, payload = _post_json(
-                url=url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                payload={
-                    "model": _magicx_model_for_probe(),
-                    "messages": [{"role": "user", "content": "probe"}],
-                    "stream": False,
-                    "max_tokens": 16,
-                },
-                timeout_seconds=_to_int(
-                    _env("EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS", str(_MAGIX_VERIFICATION_TIMEOUT_SECONDS)),
-                    5,
-                    minimum=1,
-                    maximum=30,
-                ),
-            )
+            try:
+                status, payload = _post_json(
+                    url=url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    payload={
+                        "model": _magicx_model_for_probe(),
+                        "messages": [{"role": "user", "content": "probe"}],
+                        "stream": False,
+                        "max_tokens": 16,
+                    },
+                    timeout_seconds=_to_int(
+                        _env("EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS", str(_MAGIX_VERIFICATION_TIMEOUT_SECONDS)),
+                        5,
+                        minimum=1,
+                        maximum=30,
+                    ),
+                )
+            except ResponsesUpstreamError as exc:
+                errors.append(f"{url}:{_trim_error_payload(exc)}")
+                continue
             if status >= 200 and status < 300 and isinstance(payload, dict):
                 _mark_magix_ready()
                 return True
@@ -1637,9 +1661,10 @@ def _probe_magicx_health() -> bool:
                 _mark_magix_unavailable(f"auth_error:{_trim_error_payload(payload)}")
                 return False
             if status >= 500:
-                _mark_magix_unavailable(f"probe_failed_http_{status}:{_trim_error_payload(payload)}")
-                return False
-    _mark_magix_unavailable(f"probe_failed:{probe_payload}")
+                errors.append(f"{url}:http_{status}:{_trim_error_payload(payload)}")
+                continue
+            errors.append(f"{url}:http_{status}:{_trim_error_payload(payload)}")
+    _mark_magix_unavailable(f"probe_failed:{'; '.join(errors) or probe_payload}")
     return False
 
 
@@ -2711,6 +2736,8 @@ def _provider_health_report() -> dict[str, object]:
             state_label=slot_state,
             state=key_state,
         )
+        observed_spend = _observed_onemin_spend(api_key=key)
+        observed_success_count = _observed_onemin_request_count(api_key=key)
         next_retry_at = 0.0
         if key_state.quarantine_until > now:
             next_retry_at = float(key_state.quarantine_until)
@@ -2734,6 +2761,8 @@ def _provider_health_report() -> dict[str, object]:
                 "credit_subject": credit_state.get("credit_subject") if credit_state else None,
                 "estimated_remaining_credits": estimated_remaining_credits,
                 "estimated_credit_basis": estimated_credit_basis,
+                "observed_consumed_credits": observed_spend,
+                "observed_success_count": observed_success_count,
                 "next_retry_at": next_retry_at or None,
                 "upstream_reset_unknown": bool(credit_state and credit_state.get("remaining_credits") == 0),
             }
@@ -2791,7 +2820,7 @@ def _provider_health_report() -> dict[str, object]:
                 "estimated_remaining_credits_total": onemin_estimated_remaining_total,
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
-                "credit_estimation_mode": "observed_error_or_ready_assumed_full",
+                "credit_estimation_mode": "observed_error_or_observed_usage_or_ready_assumed_full",
                 **onemin_burn_summary,
             },
             "magixai": {
