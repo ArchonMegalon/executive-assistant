@@ -166,6 +166,60 @@ def test_call_magicx_preserves_system_and_user_messages(monkeypatch: pytest.Monk
     ]
 
 
+def test_call_magicx_populates_provider_account_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-primary")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "openai/gpt-5.1-codex-mini")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "model": "openai/gpt-5.1-codex-mini",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "ok",
+                        }
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(requested_model=upstream.MAGICX_PUBLIC_MODEL, prompt="ping")
+    assert result.provider_backend == "aimagicx"
+    assert result.provider_account_name == "EA_RESPONSES_MAGICX_API_KEY"
+
+
+def test_call_onemin_populates_provider_account_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-secondary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        assert headers["API-KEY"] == "onemin-primary"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(requested_model=upstream.ONEMIN_PUBLIC_MODEL, prompt="ping")
+    assert result.provider_backend == "1min"
+    assert result.provider_account_name == "ONEMIN_AI_API_KEY"
+
+
 def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")

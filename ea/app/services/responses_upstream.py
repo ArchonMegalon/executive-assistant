@@ -1273,6 +1273,7 @@ def _call_magicx(
         if not api_key:
             continue
         key_slot = _onemin_key_slot(api_key, key_names=key_names)
+        account_name = _provider_account_name("magixai", key_names=key_names, key=api_key)
         for url in urls:
             for token_limit in _magicx_token_limits(lane, max_output_tokens):
                 started_at = _now_ms()
@@ -1340,6 +1341,8 @@ def _call_magicx(
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     provider_key_slot=key_slot,
+                    provider_backend="aimagicx",
+                    provider_account_name=account_name,
                     upstream_model=model,
                     latency_ms=max(0, latency_ms),
                     fallback_reason=fallback_reason or None,
@@ -1618,6 +1621,7 @@ def _call_onemin(
 
         _mark_onemin_request_start(api_key)
         key_slot = _onemin_key_slot(api_key, key_names=key_names)
+        account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
         key_fallback_reason: list[str] = []
         key_depleted = False
         key_auth_failed = False
@@ -1717,6 +1721,8 @@ def _call_onemin(
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 provider_key_slot=key_slot,
+                provider_backend="1min",
+                provider_account_name=account_name,
                 upstream_model=model,
                 latency_ms=max(0, latency_ms),
                 fallback_reason=fallback_reason,
@@ -1959,6 +1965,16 @@ def _provider_health_report() -> dict[str, object]:
         )
 
     magix_state, magix_detail, magix_checked_at = _magix_health_state_snapshot()
+    magix_key_names = tuple(_magicx_config().api_keys)
+    magix_slots = [
+        {
+            "slot": _onemin_key_slot(api_key, key_names=magix_key_names),
+            "configured": bool(api_key),
+            "account_name": _provider_account_name("magixai", key_names=magix_key_names, key=api_key),
+            "state": "ready" if api_key and magix_state == "ready" else ("degraded" if api_key else "missing"),
+        }
+        for api_key in magix_key_names
+    ]
     chatplayground_key_names = _browserplayground_api_keys()
     chatplayground_slots = [
         {
@@ -1974,13 +1990,16 @@ def _provider_health_report() -> dict[str, object]:
             "onemin": {
                 "provider_key": "onemin",
                 "configured_slots": len(onemin_slots),
+                "backend": "1min",
                 "slots": onemin_slots,
                 "health_check_enabled": False,
                 "provider_order": list(_provider_order()),
             },
             "magixai": {
                 "provider_key": "magixai",
-                "configured_slots": 1 if _magicx_config().api_keys else 0,
+                "configured_slots": len(magix_slots),
+                "backend": "aimagicx",
+                "slots": magix_slots,
                 "state": magix_state,
                 "detail": magix_detail,
                 "checked_at": magix_checked_at,

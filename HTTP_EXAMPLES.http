@@ -72,6 +72,34 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/responses/_provider_health
 X-EA-Principal-ID: {{principal_id}}
 
+### Codex three-layer profiles and lanes
+GET {{host}}/v1/codex/profiles
+X-EA-Principal-ID: {{principal_id}}
+
+POST {{host}}/v1/codex/core
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Run this change through the hard lane."
+}
+
+POST {{host}}/v1/codex/easy
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Write a short, mechanical docs cleanup patch."
+}
+
+POST {{host}}/v1/codex/audit
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Review the prior payload for factuality, completeness, and risk."
+}
+
 ### Rewrite -> artifact + execution session
 POST {{host}}/v1/rewrite/artifact
 Content-Type: application/json

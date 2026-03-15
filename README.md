@@ -59,6 +59,10 @@ Then open `http://localhost:8090/health`.
   - `GET /v1/responses/{response_id}`
   - `GET /v1/responses/{response_id}/input_items`
   - `GET /v1/responses/_provider_health`
+  - `GET /v1/codex/profiles` for lane/provider health and account attribution
+  - `POST /v1/codex/core` (hard lane, forced `ea-coder-hard`)
+  - `POST /v1/codex/easy` (fast lane, forced `ea-coder-fast`)
+  - `POST /v1/codex/audit` (jury lane, forced `ea-audit-jury`)
   - stream mode via `Accept: text/event-stream`
 
 ### Codex Configuration Example

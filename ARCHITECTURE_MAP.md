@@ -30,6 +30,7 @@
 - Task contracts: `/v1/tasks/contracts/*`
 - Tools: `/v1/tools/*`
 - Codex-compatible façade: `/v1/models`, `/v1/responses`, `/v1/responses/{response_id}`, `/v1/responses/{response_id}/input_items`
+- Codex lane endpoints: `/v1/codex/profiles`, `/v1/codex/core`, `/v1/codex/easy`, `/v1/codex/audit`
 - Route roots: `ea/app/api/routes/`
 
 ## Core Domain Models
