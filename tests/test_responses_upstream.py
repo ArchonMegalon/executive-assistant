@@ -58,6 +58,11 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_4", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_5", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
@@ -74,6 +79,11 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_4", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_5", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
@@ -108,6 +118,40 @@ def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
 
     assert upstream._provider_order() == ("onemin", "magixai")
+
+
+def test_plain_onemin_model_routes_onemin_first_with_magicx_fallback_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-5,gpt-4.1")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("gpt-5")
+    ]
+
+    assert candidates == [
+        ("onemin", "gpt-5"),
+        ("magixai", "mx-best"),
+        ("magixai", "mx-fallback"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+        ("magixai", "mistralai/codestral-2508"),
+        ("magixai", "openai/gpt-5.1-codex-mini"),
+        ("magixai", "inception/mercury-coder"),
+    ]
+
+
+def test_plain_magicx_model_skips_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "x-ai/grok-code-fast-1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-5")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("x-ai/grok-code-fast-1")
+    ]
+
+    assert candidates == [("magixai", "x-ai/grok-code-fast-1")]
 
 
 def test_call_magicx_uses_bearer_auth_and_url_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -609,6 +653,43 @@ def test_call_onemin_uses_fourth_key_when_first_three_429(monkeypatch: pytest.Mo
     result = upstream.generate_text(prompt="rotating", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
     assert result.text == "fourth-key-success"
     assert [item[1] for item in calls] == ["key-1", "key-2", "key-3", "key-4"]
+
+
+def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "deleted-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS", "86400")
+
+    calls: list[str] = []
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        api_key = headers["API-KEY"]
+        calls.append(api_key)
+        if api_key == "deleted-key":
+            return (401, {"errorCode": "HTTP_EXCEPTION", "message": "API Key has been deleted"})
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {"resultObject": ["healthy answer"]},
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(prompt="rotate after delete", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
+    assert result.text == "healthy answer"
+    assert calls == ["deleted-key", "healthy-key"]
+
+    health = upstream._provider_health_report()
+    deleted_slot = next(slot for slot in health["providers"]["onemin"]["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    assert deleted_slot["state"] == "deleted"
+    assert deleted_slot["quarantine_until"] > deleted_slot["last_failure_at"] + 86000
 
 
 def test_generate_text_routes_audit_lane_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:

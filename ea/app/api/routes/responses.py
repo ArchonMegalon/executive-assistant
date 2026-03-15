@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -46,6 +48,7 @@ class _ParsedResponseInput:
 class _StoredResponse:
     response: dict[str, object]
     input_items: list[dict[str, object]]
+    history_items: list[dict[str, object]]
     principal_id: str
 
 
@@ -101,6 +104,7 @@ class _ResponsesCreateRequest(BaseModel):
     include: list[str] | None = None
     service_tier: str | None = None
     prompt_cache_key: str | None = None
+    previous_response_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -141,6 +145,15 @@ class _ResponseOutputMessage(BaseModel):
     content: list[_ResponseOutputTextPart]
 
 
+class _ResponseOutputFunctionCall(BaseModel):
+    id: str
+    type: str = "function_call"
+    status: str
+    call_id: str
+    name: str
+    arguments: str
+
+
 class _ResponseObject(BaseModel):
     id: str
     object: str = "response"
@@ -153,10 +166,17 @@ class _ResponseObject(BaseModel):
     input: list[dict[str, object]]
     max_output_tokens: int | None = None
     model: str
-    output: list[_ResponseOutputMessage]
+    output: list[dict[str, object]]
     usage: _ResponseUsage
     metadata: dict[str, object]
     output_text: str = ""
+    store: bool | None = None
+    previous_response_id: str | None = None
+    parallel_tool_calls: bool | None = None
+    tool_choice: Any | None = None
+    tools: list[dict[str, object]] | None = None
+    reasoning: Any | None = None
+    truncation: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -170,6 +190,32 @@ class _ResponseInputItemsListObject(BaseModel):
 
 
 _RESPONSES_CREATE_REQUEST_SCHEMA = _ResponsesCreateRequest.model_json_schema()
+
+
+def _responses_debug_capture_dir() -> Path | None:
+    raw = str(os.environ.get("EA_RESPONSES_DEBUG_CAPTURE_DIR") or "").strip()
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception:
+        return None
+
+
+def _capture_responses_debug(*, name: str, payload: object) -> None:
+    target_dir = _responses_debug_capture_dir()
+    if target_dir is None:
+        return
+    try:
+        stamp = int(time.time() * 1000)
+        target = target_dir / f"{stamp}_{name}.json"
+        target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+        latest = target_dir / f"latest_{name}.json"
+        latest.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    except Exception:
+        return
 
 
 def _now_unix() -> int:
@@ -202,6 +248,34 @@ def _extract_text(value: object) -> str:
     if isinstance(value, (int, float, bool)):
         return str(value)
     return ""
+
+
+def _extract_textish(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, list):
+        parts = [_extract_textish(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    if isinstance(value, dict):
+        preferred_keys = ("text", "content", "output", "result", "message", "answer")
+        for key in preferred_keys:
+            text = _extract_textish(value.get(key))
+            if text:
+                return text
+        try:
+            return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        except Exception:
+            return ""
+    return ""
+
+
+def _json_compact(value: object) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+    except Exception:
+        return str(value)
 
 
 def _normalize_message_role(role: object) -> str:
@@ -300,7 +374,43 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
         if not isinstance(item, dict):
             raise HTTPException(status_code=400, detail=f"unsupported_input_item:{item_key}")
 
-        if item.get("type") == "message":
+        item_type = str(item.get("type") or "").strip().lower()
+
+        if item_type == "function_call_output":
+            call_id = str(item.get("call_id") or "").strip()
+            output_text = _extract_textish(item.get("output"))
+            if not call_id:
+                raise HTTPException(status_code=400, detail=f"invalid_function_call_output:{item_key}")
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output_text,
+                }
+            )
+            continue
+
+        if item_type == "function_call":
+            call_id = str(item.get("call_id") or "").strip()
+            name = str(item.get("name") or "").strip()
+            arguments = item.get("arguments")
+            if not call_id or not name:
+                raise HTTPException(status_code=400, detail=f"invalid_function_call:{item_key}")
+            if isinstance(arguments, str):
+                rendered_arguments = arguments
+            else:
+                rendered_arguments = _json_compact(arguments)
+            input_items.append(
+                {
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": rendered_arguments,
+                }
+            )
+            continue
+
+        if item_type == "message":
             role = _normalize_message_role(item.get("role"))
             parts = _parse_input_parts(item.get("content"), item_context=f"message[{item_key}].content")
             if not parts:
@@ -311,7 +421,7 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
             prompt_parts.append(text)
             continue
 
-        if "type" in item and str(item.get("type") or "").strip().lower() in {"input_text", "text"}:
+        if item_type in {"input_text", "text"}:
             text = _extract_text(item.get("text"))
             cleaned = text.strip()
             if not cleaned:
@@ -356,7 +466,7 @@ def _parse_create_request(payload: dict[str, object]) -> tuple[_ResponsesCreateR
 
     parsed_input = _parse_input_payload(request.input)
 
-    if not parsed_input.messages and not parsed_input.prompt:
+    if not parsed_input.input_items:
         raise HTTPException(status_code=400, detail="input_required")
 
     return request, parsed_input
@@ -424,6 +534,11 @@ def _requested_model(payload: _ResponsesCreateRequest) -> str:
     return ""
 
 
+def _requested_previous_response_id(payload: _ResponsesCreateRequest) -> str | None:
+    value = str(payload.previous_response_id or "").strip()
+    return value or None
+
+
 def _requested_max_output_tokens(payload: _ResponsesCreateRequest) -> int | None:
     raw = payload.max_output_tokens
     if raw is None:
@@ -443,7 +558,7 @@ def _response_object(
     model: str,
     created_at: int,
     status: str,
-    output: list[_ResponseOutputMessage] | None = None,
+    output: list[dict[str, object]] | None = None,
     output_text: str = "",
     tokens_in: int = 0,
     tokens_out: int = 0,
@@ -453,6 +568,12 @@ def _response_object(
     error: dict[str, object] | None = None,
     incomplete_details: dict[str, object] | None = None,
     input_items: list[dict[str, object]] | None = None,
+    store: bool | None = None,
+    previous_response_id: str | None = None,
+    parallel_tool_calls: bool | None = None,
+    tool_choice: Any | None = None,
+    tools: list[dict[str, object]] | None = None,
+    reasoning: Any | None = None,
 ) -> dict[str, object]:
     completed_at = created_at if status == "completed" else None
     usage = _ResponseUsage(
@@ -475,16 +596,40 @@ def _response_object(
         usage=usage,
         metadata=dict(metadata or {}),
         output_text=output_text,
+        store=store,
+        previous_response_id=previous_response_id,
+        parallel_tool_calls=parallel_tool_calls,
+        tool_choice=tool_choice,
+        tools=list(tools or []) if tools is not None else None,
+        reasoning=reasoning,
+        truncation="disabled",
     )
     return response_obj.model_dump(mode="json")
 
 
-def _message_item(*, item_id: str, text: str, status: str) -> _ResponseOutputMessage:
+def _message_item(*, item_id: str, text: str, status: str) -> dict[str, object]:
     return _ResponseOutputMessage(
         id=item_id,
         status=status,
         content=[_ResponseOutputTextPart(text=text)],
-    )
+    ).model_dump(mode="json")
+
+
+def _function_call_item(
+    *,
+    item_id: str,
+    call_id: str,
+    name: str,
+    arguments: str,
+    status: str,
+) -> dict[str, object]:
+    return _ResponseOutputFunctionCall(
+        id=item_id,
+        call_id=call_id,
+        name=name,
+        arguments=arguments,
+        status=status,
+    ).model_dump(mode="json")
 
 
 def _store_response(
@@ -492,12 +637,14 @@ def _store_response(
     response_id: str,
     response_obj: dict[str, object],
     input_items: list[dict[str, object]],
+    history_items: list[dict[str, object]],
     principal_id: str,
 ) -> None:
     with _RESPONSE_STORE_LOCK:
         _RESPONSE_STORE[response_id] = _StoredResponse(
             response=dict(response_obj),
             input_items=[dict(item) for item in input_items],
+            history_items=[dict(item) for item in history_items],
             principal_id=principal_id,
         )
 
@@ -540,6 +687,324 @@ def _generate_upstream_text(
         raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
+
+
+@dataclass(frozen=True)
+class _ToolShimDecision:
+    kind: str
+    text: str = ""
+    tool_name: str = ""
+    arguments: dict[str, object] | None = None
+    upstream_result: UpstreamResult | None = None
+
+
+def _response_tools(payload: _ResponsesCreateRequest) -> list[dict[str, object]]:
+    raw_tools = payload.tools
+    if not isinstance(raw_tools, list):
+        return []
+    tools: list[dict[str, object]] = []
+    for entry in raw_tools:
+        if isinstance(entry, dict):
+            tools.append(dict(entry))
+    return tools
+
+
+def _tool_shim_supported_tools(raw_tools: list[dict[str, object]]) -> list[dict[str, object]]:
+    supported: list[dict[str, object]] = []
+    for tool in raw_tools:
+        tool_type = str(tool.get("type") or "").strip().lower()
+        if tool_type != "function":
+            continue
+        name = str(tool.get("name") or "").strip()
+        parameters = tool.get("parameters")
+        if not name or not isinstance(parameters, dict):
+            continue
+        supported.append(
+            {
+                "name": name,
+                "description": str(tool.get("description") or "").strip(),
+                "parameters": parameters,
+            }
+        )
+    return supported
+
+
+def _history_items_for_request(
+    *,
+    previous_response_id: str | None,
+    parsed_input: _ParsedResponseInput,
+    principal_id: str,
+) -> list[dict[str, object]]:
+    history: list[dict[str, object]] = []
+    if previous_response_id:
+        stored = _load_response(response_id=previous_response_id, principal_id=principal_id)
+        history.extend(dict(item) for item in stored.history_items)
+    history.extend(dict(item) for item in parsed_input.input_items)
+    return history
+
+
+def _history_item_to_transcript(item: dict[str, object]) -> str:
+    item_type = str(item.get("type") or "").strip().lower()
+    if item_type == "message":
+        role = _normalize_message_role(item.get("role"))
+        content = item.get("content")
+        text = ""
+        if isinstance(content, list):
+            text = "\n\n".join(
+                _extract_textish(part.get("text"))
+                for part in content
+                if isinstance(part, dict) and _extract_textish(part.get("text"))
+            ).strip()
+        else:
+            text = _extract_textish(content)
+        if not text:
+            return ""
+        return f"{role.capitalize()}:\n{text}"
+    if item_type == "input_text":
+        text = _extract_textish(item.get("text"))
+        return f"User:\n{text}" if text else ""
+    if item_type == "function_call":
+        name = str(item.get("name") or "").strip()
+        call_id = str(item.get("call_id") or "").strip()
+        arguments = str(item.get("arguments") or "").strip()
+        if not name:
+            return ""
+        return (
+            f"Assistant tool call ({call_id or 'no-call-id'})\n"
+            f"Tool: {name}\n"
+            f"Arguments: {arguments}"
+        ).strip()
+    if item_type == "function_call_output":
+        call_id = str(item.get("call_id") or "").strip()
+        output_text = _extract_textish(item.get("output"))
+        return (
+            f"Tool output ({call_id or 'no-call-id'}):\n{output_text}"
+        ).strip()
+    return ""
+
+
+def _tool_shim_messages(
+    *,
+    instructions: str | None,
+    tools: list[dict[str, object]],
+    history_items: list[dict[str, object]],
+) -> list[dict[str, str]]:
+    tool_catalog = []
+    for tool in tools:
+        tool_catalog.append(
+            {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            }
+        )
+    transcript_parts = [
+        part
+        for part in (_history_item_to_transcript(item) for item in history_items)
+        if part
+    ]
+    transcript = "\n\n".join(transcript_parts).strip()
+    system_parts = [
+        "You are the planning/model layer behind an OpenAI Responses tool-calling shim used by Codex CLI.",
+        "Decide the single next assistant action and return JSON only.",
+        "Valid JSON responses:",
+        '{"decision":"final","text":"..."}',
+        '{"decision":"function_call","name":"TOOL_NAME","arguments":{...}}',
+        "Rules:",
+        "- Use at most one tool call.",
+        "- Prefer a real tool call over describing future intent when inspection or execution is needed.",
+        "- For coding or backlog tasks, inspect files and run commands before claiming conclusions.",
+        "- Prefer the smallest single-purpose command that advances the work.",
+        "- Do not emit multiline shell scripts, here-docs, or long quoted bash programs when a simple command sequence would do.",
+        "- Prefer commands like pwd, ls, rg, sed -n, cat, git status, pytest <target>, or a small focused shell command.",
+        "- If a command session is already running, prefer write_stdin with the existing session_id.",
+        "- Do not repeat a tool call whose output is already present in the conversation; build on that output instead.",
+        "- If a prior tool output already answers the question, return a final answer instead of rereading the same context.",
+        "- Keep trace-style progress concise and textual; do not dump raw scripts into user-facing text.",
+        "- Do not invent tool names or arguments outside the provided schemas.",
+        "- Do not wrap the JSON in markdown fences.",
+        "- If the work is complete, return a final answer.",
+        "Available function tools:",
+        _json_compact(tool_catalog),
+    ]
+    if instructions:
+        system_parts.extend(
+            [
+                "Original Codex instructions:",
+                instructions,
+            ]
+        )
+    user_prompt = transcript or "No prior conversation context."
+    return [
+        {"role": "system", "content": "\n".join(system_parts).strip()},
+        {"role": "user", "content": f"Conversation so far:\n\n{user_prompt}\n\nReturn the next action as JSON only."},
+    ]
+
+
+def _completed_tool_call_signatures(history_items: list[dict[str, object]]) -> set[tuple[str, str]]:
+    calls_by_id: dict[str, tuple[str, str]] = {}
+    completed: set[tuple[str, str]] = set()
+    for item in history_items:
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type == "function_call":
+            call_id = str(item.get("call_id") or "").strip()
+            name = str(item.get("name") or "").strip()
+            arguments = str(item.get("arguments") or "").strip()
+            if call_id and name:
+                calls_by_id[call_id] = (name, arguments)
+            continue
+        if item_type == "function_call_output":
+            call_id = str(item.get("call_id") or "").strip()
+            if call_id and call_id in calls_by_id:
+                completed.add(calls_by_id[call_id])
+    return completed
+
+
+def _extract_json_object(text: str) -> dict[str, object] | None:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return None
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if len(lines) >= 3:
+            stripped = "\n".join(lines[1:-1]).strip()
+    candidates: list[str] = []
+    candidates.append(stripped)
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidates.append(stripped[first : last + 1])
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _tool_call_rejection_reason(
+    *,
+    tool_name: str,
+    arguments: dict[str, object],
+    history_items: list[dict[str, object]],
+) -> str | None:
+    signature = (tool_name, _json_compact(arguments))
+    if signature in _completed_tool_call_signatures(history_items):
+        return (
+            "That exact tool call already ran and its output is already present. "
+            "Use the existing output and choose a different next action or return a final answer."
+        )
+    if tool_name == "exec_command":
+        raw_cmd = arguments.get("cmd")
+        if isinstance(raw_cmd, str):
+            cmd = raw_cmd.strip()
+            if "\n" in cmd or len(cmd) > 280:
+                return (
+                    "The exec_command payload is too large. Use a shorter, single-purpose command "
+                    "instead of a multiline or oversized shell script."
+                )
+    return None
+
+
+def _tool_shim_retry_payload(
+    *,
+    model: str,
+    max_output_tokens: int | None,
+    shim_messages: list[dict[str, str]],
+    prior_payload: dict[str, object],
+    retry_reason: str,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
+) -> tuple[dict[str, object] | None, UpstreamResult]:
+    retry_messages = list(shim_messages)
+    retry_messages.append({"role": "assistant", "content": _json_compact(prior_payload)})
+    retry_messages.append(
+        {
+            "role": "user",
+            "content": f"{retry_reason}\nReturn a corrected next action as JSON only.",
+        }
+    )
+    retry_result = _generate_upstream_text(
+        prompt=retry_messages[-1]["content"],
+        messages=retry_messages,
+        requested_model=model,
+        max_output_tokens=max_output_tokens,
+        chatplayground_audit_callback=chatplayground_audit_callback,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+    )
+    return _extract_json_object(retry_result.text), retry_result
+
+
+def _tool_shim_decision(
+    *,
+    model: str,
+    max_output_tokens: int | None,
+    instructions: str | None,
+    tools: list[dict[str, object]],
+    history_items: list[dict[str, object]],
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
+) -> _ToolShimDecision:
+    shim_messages = _tool_shim_messages(
+        instructions=instructions,
+        tools=tools,
+        history_items=history_items,
+    )
+    shim_prompt = shim_messages[-1]["content"]
+    result = _generate_upstream_text(
+        prompt=shim_prompt,
+        messages=shim_messages,
+        requested_model=model,
+        max_output_tokens=max_output_tokens,
+        chatplayground_audit_callback=chatplayground_audit_callback,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+    )
+    payload = _extract_json_object(result.text)
+    if not isinstance(payload, dict):
+        return _ToolShimDecision(kind="final", text=result.text, upstream_result=result)
+    decision = str(payload.get("decision") or "").strip().lower()
+    if decision == "function_call":
+        tool_name = str(payload.get("name") or "").strip()
+        arguments = payload.get("arguments")
+        if tool_name and isinstance(arguments, dict):
+            retry_reason = _tool_call_rejection_reason(
+                tool_name=tool_name,
+                arguments=arguments,
+                history_items=history_items,
+            )
+            if retry_reason:
+                retry_payload, retry_result = _tool_shim_retry_payload(
+                    model=model,
+                    max_output_tokens=max_output_tokens,
+                    shim_messages=shim_messages,
+                    prior_payload=payload,
+                    retry_reason=retry_reason,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                )
+                if isinstance(retry_payload, dict):
+                    payload = retry_payload
+                    result = retry_result
+                    decision = str(payload.get("decision") or "").strip().lower()
+    if decision == "function_call":
+        tool_name = str(payload.get("name") or "").strip()
+        arguments = payload.get("arguments")
+        if tool_name and isinstance(arguments, dict) and any(tool["name"] == tool_name for tool in tools):
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name=tool_name,
+                arguments=arguments,
+                upstream_result=result,
+            )
+    final_text = _extract_textish(payload.get("text")) or result.text
+    return _ToolShimDecision(kind="final", text=final_text, upstream_result=result)
 
 
 def _build_failed_response(
@@ -588,6 +1053,14 @@ def _run_response(
     container: object | None = None,
     codex_profile: str | None = None,
 ) -> Response:
+    _capture_responses_debug(
+        name="request",
+        payload={
+            "principal_id": context.principal_id,
+            "codex_profile": codex_profile,
+            "payload": request_payload,
+        },
+    )
     request, parsed_input = _parse_create_request(request_payload)
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
     profile_config: dict[str, object] | None = None
@@ -633,6 +1106,14 @@ def _run_response(
     stream = bool(request.stream)
     instructions = request.instructions.strip() if isinstance(request.instructions, str) else None
     accepted_client_fields = _accepted_client_fields(request)
+    previous_response_id = _requested_previous_response_id(request)
+    raw_tools = _response_tools(request)
+    supported_tools = _tool_shim_supported_tools(raw_tools)
+    history_items = _history_items_for_request(
+        previous_response_id=previous_response_id,
+        parsed_input=parsed_input,
+        principal_id=context.principal_id,
+    )
 
     messages: list[dict[str, str]] = []
     if instructions:
@@ -650,6 +1131,9 @@ def _run_response(
     }
     if accepted_client_fields:
         response_metadata["accepted_client_fields"] = accepted_client_fields
+    if supported_tools:
+        response_metadata["tool_shim"] = True
+        response_metadata["tool_shim_tools"] = [tool["name"] for tool in supported_tools]
     if codex_profile:
         response_metadata.update(
             {
@@ -666,15 +1150,31 @@ def _run_response(
         )
 
     if not stream:
-        result = _generate_upstream_text(
-            prompt=parsed_input.prompt,
-            messages=messages,
-            requested_model=model,
-            max_output_tokens=max_output_tokens,
-            chatplayground_audit_callback=chatplayground_audit_callback,
-            chatplayground_audit_callback_only=audit_profile_or_model,
-            chatplayground_audit_principal_id=context.principal_id,
-        )
+        tool_decision: _ToolShimDecision | None = None
+        if supported_tools:
+            tool_decision = _tool_shim_decision(
+                model=model,
+                max_output_tokens=max_output_tokens,
+                instructions=instructions,
+                tools=supported_tools,
+                history_items=history_items,
+                chatplayground_audit_callback=chatplayground_audit_callback,
+                chatplayground_audit_callback_only=audit_profile_or_model,
+                chatplayground_audit_principal_id=context.principal_id,
+            )
+            result = tool_decision.upstream_result
+        else:
+            result = _generate_upstream_text(
+                prompt=parsed_input.prompt,
+                messages=messages,
+                requested_model=model,
+                max_output_tokens=max_output_tokens,
+                chatplayground_audit_callback=chatplayground_audit_callback,
+                chatplayground_audit_callback_only=audit_profile_or_model,
+                chatplayground_audit_principal_id=context.principal_id,
+            )
+        if not isinstance(result, UpstreamResult):
+            raise HTTPException(status_code=502, detail="upstream_unavailable:invalid_upstream_result")
         final_metadata = {
             **response_metadata,
             "upstream_provider": result.provider_key,
@@ -683,29 +1183,62 @@ def _run_response(
             "provider_account_name": result.provider_account_name,
             "provider_key_slot": result.provider_key_slot,
         }
-        text = result.text
-        message = _message_item(item_id=item_id, text=text, status="completed")
+        output_items: list[dict[str, object]]
+        output_text = ""
+        history_items_to_store = list(history_items)
+        if tool_decision and tool_decision.kind == "function_call":
+            call_id = "call_" + uuid.uuid4().hex[:24]
+            arguments_json = _json_compact(tool_decision.arguments or {})
+            function_item = _function_call_item(
+                item_id="fc_" + uuid.uuid4().hex[:24],
+                call_id=call_id,
+                name=tool_decision.tool_name,
+                arguments=arguments_json,
+                status="completed",
+            )
+            output_items = [function_item]
+            history_items_to_store.append(function_item)
+        else:
+            output_text = tool_decision.text if tool_decision else result.text
+            message = _message_item(item_id=item_id, text=output_text, status="completed")
+            output_items = [message]
+            history_items_to_store.append(message)
         response_obj = _response_object(
             response_id=response_id,
             model=model,
             created_at=created_at,
             status="completed",
-            output=[message],
-            output_text=text,
+            output=output_items,
+            output_text=output_text,
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
             max_output_tokens=max_output_tokens,
             metadata=final_metadata,
             instructions=instructions,
             input_items=parsed_input.input_items,
+            store=_should_store_response(request),
+            previous_response_id=previous_response_id,
+            parallel_tool_calls=request.parallel_tool_calls,
+            tool_choice=request.tool_choice,
+            tools=request.tools if request.tools is not None else None,
+            reasoning=request.reasoning,
         )
         if _should_store_response(request):
             _store_response(
                 response_id=response_id,
                 response_obj=response_obj,
                 input_items=parsed_input.input_items,
+                history_items=history_items_to_store,
                 principal_id=context.principal_id,
             )
+        _capture_responses_debug(
+            name="response",
+            payload={
+                "principal_id": context.principal_id,
+                "codex_profile": codex_profile,
+                "response": response_obj,
+            },
+        )
         return JSONResponse(response_obj)
 
     def _iter_stream() -> Iterable[str]:
@@ -729,6 +1262,12 @@ def _run_response(
             metadata=response_metadata,
             instructions=instructions,
             input_items=parsed_input.input_items,
+            store=_should_store_response(request),
+            previous_response_id=previous_response_id,
+            parallel_tool_calls=request.parallel_tool_calls,
+            tool_choice=request.tool_choice,
+            tools=request.tools if request.tools is not None else None,
+            reasoning=request.reasoning,
         )
         yield _sse_event(
             event="response.created",
@@ -741,32 +1280,23 @@ def _run_response(
             data={"type": "response.in_progress", "response": in_progress_obj},
         )
 
-        empty_item = _message_item(item_id=item_id, text="", status="in_progress")
-        yield _sse_event(
-            event="response.output_item.added",
-            sequence=_next_sequence(),
-            data={
-                "type": "response.output_item.added",
-                "output_index": 0,
-                "item": empty_item.model_dump(mode="json"),
-            },
-        )
-        yield _sse_event(
-            event="response.content_part.added",
-            sequence=_next_sequence(),
-            data={
-                "type": "response.content_part.added",
-                "output_index": 0,
-                "item_id": item_id,
-                "content_index": 0,
-                "part": {"type": "output_text", "text": "", "annotations": []},
-            },
-        )
-
         result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
 
         def _run_upstream() -> None:
             try:
+                if supported_tools:
+                    decision = _tool_shim_decision(
+                        model=model,
+                        max_output_tokens=max_output_tokens,
+                        instructions=instructions,
+                        tools=supported_tools,
+                        history_items=history_items,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_principal_id=context.principal_id,
+                    )
+                    result_queue.put(("decision", decision))
+                    return
                 result = _generate_upstream_text(
                     prompt=parsed_input.prompt,
                     messages=messages,
@@ -791,7 +1321,7 @@ def _run_response(
                 yield _sse_comment()
 
         status, result_payload = state
-        if status != "result":
+        if status == "error":
             failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
             failure_message = str(failure)[:500]
             failed_obj = _build_failed_response(
@@ -809,6 +1339,7 @@ def _run_response(
                     response_id=response_id,
                     response_obj=failed_obj,
                     input_items=parsed_input.input_items,
+                    history_items=history_items,
                     principal_id=context.principal_id,
                 )
             yield _sse_event(
@@ -827,7 +1358,46 @@ def _run_response(
             yield _sse_done()
             return
 
-        if not isinstance(result_payload, UpstreamResult):
+        tool_decision: _ToolShimDecision | None = None
+        if status == "decision":
+            if not isinstance(result_payload, _ToolShimDecision) or not isinstance(result_payload.upstream_result, UpstreamResult):
+                failure_message = "invalid_upstream_result"
+                failed_obj = _build_failed_response(
+                    response_id=response_id,
+                    created_at=created_at,
+                    model=model,
+                    requested_max_output_tokens=max_output_tokens,
+                    metadata=response_metadata,
+                    instructions=instructions,
+                    input_items=parsed_input.input_items,
+                    failure_message=failure_message,
+                )
+                if _should_store_response(request):
+                    _store_response(
+                        response_id=response_id,
+                        response_obj=failed_obj,
+                        input_items=parsed_input.input_items,
+                        history_items=history_items,
+                        principal_id=context.principal_id,
+                    )
+                yield _sse_event(
+                    event="response.failed",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.failed",
+                        "response": failed_obj,
+                    },
+                )
+                yield _sse_event(
+                    event="error",
+                    sequence=_next_sequence(),
+                    data=_error_event_payload(failure_message),
+                )
+                yield _sse_done()
+                return
+            tool_decision = result_payload
+            result = result_payload.upstream_result
+        elif not isinstance(result_payload, UpstreamResult):
             failure_message = "invalid_upstream_result"
             failed_obj = _build_failed_response(
                 response_id=response_id,
@@ -862,7 +1432,8 @@ def _run_response(
             yield _sse_done()
             return
 
-        result = result_payload
+        else:
+            result = result_payload
         stream_metadata = {
             **response_metadata,
             "upstream_provider": result.provider_key,
@@ -872,78 +1443,192 @@ def _run_response(
             "provider_key_slot": result.provider_key_slot,
             "upstream_fallback_reason": result.fallback_reason,
         }
-        text = result.text
-
-        chunk_size = 120
-        for start in range(0, len(text), chunk_size):
-            delta = text[start : start + chunk_size]
+        history_items_to_store = list(history_items)
+        if tool_decision and tool_decision.kind == "function_call":
+            call_id = "call_" + uuid.uuid4().hex[:24]
+            function_item_id = "fc_" + uuid.uuid4().hex[:24]
+            arguments_json = _json_compact(tool_decision.arguments or {})
+            in_progress_item = _function_call_item(
+                item_id=function_item_id,
+                call_id=call_id,
+                name=tool_decision.tool_name,
+                arguments="",
+                status="in_progress",
+            )
             yield _sse_event(
-                event="response.output_text.delta",
+                event="response.output_item.added",
                 sequence=_next_sequence(),
                 data={
-                    "type": "response.output_text.delta",
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": in_progress_item,
+                },
+            )
+            yield _sse_event(
+                event="response.function_call_arguments.delta",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.function_call_arguments.delta",
+                    "output_index": 0,
+                    "item_id": function_item_id,
+                    "delta": arguments_json,
+                },
+            )
+            yield _sse_event(
+                event="response.function_call_arguments.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.function_call_arguments.done",
+                    "output_index": 0,
+                    "item_id": function_item_id,
+                    "arguments": arguments_json,
+                },
+            )
+            final_item = _function_call_item(
+                item_id=function_item_id,
+                call_id=call_id,
+                name=tool_decision.tool_name,
+                arguments=arguments_json,
+                status="completed",
+            )
+            yield _sse_event(
+                event="response.output_item.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "item": final_item,
+                },
+            )
+            history_items_to_store.append(final_item)
+            completed_obj = _response_object(
+                response_id=response_id,
+                model=model,
+                created_at=created_at,
+                status="completed",
+                output=[final_item],
+                output_text="",
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                max_output_tokens=max_output_tokens,
+                metadata=stream_metadata,
+                instructions=instructions,
+                input_items=parsed_input.input_items,
+                store=_should_store_response(request),
+                previous_response_id=previous_response_id,
+                parallel_tool_calls=request.parallel_tool_calls,
+                tool_choice=request.tool_choice,
+                tools=request.tools if request.tools is not None else None,
+                reasoning=request.reasoning,
+            )
+        else:
+            text = tool_decision.text if tool_decision else result.text
+            empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+            yield _sse_event(
+                event="response.output_item.added",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": empty_item,
+                },
+            )
+            yield _sse_event(
+                event="response.content_part.added",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.content_part.added",
                     "output_index": 0,
                     "item_id": item_id,
                     "content_index": 0,
-                    "delta": delta,
+                    "part": {"type": "output_text", "text": "", "annotations": []},
+                },
+            )
+            chunk_size = 120
+            for start in range(0, len(text), chunk_size):
+                delta = text[start : start + chunk_size]
+                yield _sse_event(
+                    event="response.output_text.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": delta,
+                    },
+                )
+
+            yield _sse_event(
+                event="response.output_text.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_text.done",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "text": text,
+                },
+            )
+            yield _sse_event(
+                event="response.content_part.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.content_part.done",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": text, "annotations": []},
                 },
             )
 
-        yield _sse_event(
-            event="response.output_text.done",
-            sequence=_next_sequence(),
-            data={
-                "type": "response.output_text.done",
-                "output_index": 0,
-                "item_id": item_id,
-                "content_index": 0,
-                "text": text,
-            },
-        )
-        yield _sse_event(
-            event="response.content_part.done",
-            sequence=_next_sequence(),
-            data={
-                "type": "response.content_part.done",
-                "output_index": 0,
-                "item_id": item_id,
-                "content_index": 0,
-                "part": {"type": "output_text", "text": text, "annotations": []},
-            },
-        )
-
-        final_item = _message_item(item_id=item_id, text=text, status="completed")
-        yield _sse_event(
-            event="response.output_item.done",
-            sequence=_next_sequence(),
-            data={
-                "type": "response.output_item.done",
-                "output_index": 0,
-                "item": final_item.model_dump(mode="json"),
-            },
-        )
-
-        completed_obj = _response_object(
-            response_id=response_id,
-            model=model,
-            created_at=created_at,
-            status="completed",
-            output=[final_item],
-            output_text=text,
-            tokens_in=result.tokens_in,
-            tokens_out=result.tokens_out,
-            max_output_tokens=max_output_tokens,
-            metadata=stream_metadata,
-            instructions=instructions,
-            input_items=parsed_input.input_items,
-        )
+            final_item = _message_item(item_id=item_id, text=text, status="completed")
+            yield _sse_event(
+                event="response.output_item.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "item": final_item,
+                },
+            )
+            history_items_to_store.append(final_item)
+            completed_obj = _response_object(
+                response_id=response_id,
+                model=model,
+                created_at=created_at,
+                status="completed",
+                output=[final_item],
+                output_text=text,
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                max_output_tokens=max_output_tokens,
+                metadata=stream_metadata,
+                instructions=instructions,
+                input_items=parsed_input.input_items,
+                store=_should_store_response(request),
+                previous_response_id=previous_response_id,
+                parallel_tool_calls=request.parallel_tool_calls,
+                tool_choice=request.tool_choice,
+                tools=request.tools if request.tools is not None else None,
+                reasoning=request.reasoning,
+            )
         if _should_store_response(request):
             _store_response(
                 response_id=response_id,
                 response_obj=completed_obj,
                 input_items=parsed_input.input_items,
+                history_items=history_items_to_store,
                 principal_id=context.principal_id,
             )
+        _capture_responses_debug(
+            name="response",
+            payload={
+                "principal_id": context.principal_id,
+                "codex_profile": codex_profile,
+                "response": completed_obj,
+            },
+        )
 
         yield _sse_event(
             event="response.completed",

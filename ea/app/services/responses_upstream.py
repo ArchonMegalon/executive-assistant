@@ -4,6 +4,7 @@ import json
 import logging
 import inspect
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -52,9 +53,10 @@ _HARD_MAX_ACTIVE_REQUESTS = 2
 _HARD_QUEUE_TIMEOUT_SECONDS = 1.0
 _HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
 _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
+_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_MAX_KEY_SLOTS = 4
+_ONEMIN_MAX_KEY_SLOTS = 9
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 
@@ -330,7 +332,17 @@ def _provider_account_name(provider_key: str, key_names: tuple[str, ...], key: s
 def _provider_account_names(provider_key: str) -> tuple[str, ...]:
     normalized = str(provider_key or "").strip().lower()
     if normalized == "onemin":
-        return ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1", "ONEMIN_AI_API_KEY_FALLBACK_2", "ONEMIN_AI_API_KEY_FALLBACK_3")
+        return (
+            "ONEMIN_AI_API_KEY",
+            "ONEMIN_AI_API_KEY_FALLBACK_1",
+            "ONEMIN_AI_API_KEY_FALLBACK_2",
+            "ONEMIN_AI_API_KEY_FALLBACK_3",
+            "ONEMIN_AI_API_KEY_FALLBACK_4",
+            "ONEMIN_AI_API_KEY_FALLBACK_5",
+            "ONEMIN_AI_API_KEY_FALLBACK_6",
+            "ONEMIN_AI_API_KEY_FALLBACK_7",
+            "ONEMIN_AI_API_KEY_FALLBACK_8",
+        )
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
     if normalized == "chatplayground":
@@ -431,6 +443,11 @@ def _onemin_key_names() -> tuple[str, ...]:
             _env("ONEMIN_AI_API_KEY_FALLBACK_1"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_2"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_3"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_4"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_5"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_6"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_7"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_8"),
         )
     )
 
@@ -474,6 +491,24 @@ def _is_onemin_key_depleted(message: str) -> bool:
     return any(marker in lowered for marker in depletion_markers)
 
 
+def _parse_credit_state(message: object) -> dict[str, object] | None:
+    raw = str(message or "").strip()
+    if not raw:
+        return None
+    match = re.search(
+        r"requires\s+(?P<required>\d+)\s+credits,\s+but the\s+(?P<subject>.+?)\s+only has\s+(?P<remaining>\d+)\s+credits",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return {
+        "required_credits": int(match.group("required")),
+        "remaining_credits": int(match.group("remaining")),
+        "credit_subject": str(match.group("subject") or "").strip(),
+    }
+
+
 def _is_retryable_onemin_error(message: str) -> bool:
     lowered = str(message or "").lower()
     retry_markers = (
@@ -489,6 +524,22 @@ def _is_retryable_onemin_error(message: str) -> bool:
         "requires more credits",
     )
     return any(marker in lowered for marker in retry_markers)
+
+
+def _is_deleted_onemin_key_error(payload: Any) -> bool:
+    lowered = str(payload or "").lower()
+    markers = (
+        "api key is not active",
+        "api key has been deleted",
+        "key has been deleted",
+        "api key deleted",
+        "revoked api key",
+        "api key revoked",
+        "deactivated api key",
+        "api key disabled",
+        "api key expired",
+    )
+    return any(marker in lowered for marker in markers)
 
 
 def _clean_onemin_states(keys: tuple[str, ...]) -> None:
@@ -542,18 +593,25 @@ def _mark_onemin_success(api_key: str) -> None:
     )
 
 
-def _mark_onemin_failure(api_key: str, message: str, *, temporary_quarantine: bool = False) -> None:
+def _mark_onemin_failure(
+    api_key: str,
+    message: str,
+    *,
+    temporary_quarantine: bool = False,
+    quarantine_seconds: float | None = None,
+) -> None:
     now = _now_epoch()
     rate_cooldown_seconds, failure_cooldown_seconds, auth_quarantine_seconds = _resolve_onemin_cooldowns()
     state = _onemin_states_snapshot(_onemin_key_names()).get(api_key, OneminKeyState(key=api_key))
     failure_count = int(state.failure_count or 0) + 1
+    effective_quarantine_seconds = auth_quarantine_seconds if quarantine_seconds is None else max(1.0, float(quarantine_seconds))
     cooldown = now + (
-        auth_quarantine_seconds if temporary_quarantine else
+        effective_quarantine_seconds if temporary_quarantine else
         (rate_cooldown_seconds if _is_onemin_key_depleted(message) else failure_cooldown_seconds)
     )
     quarantine = 0.0
     if temporary_quarantine:
-        quarantine = now + auth_quarantine_seconds
+        quarantine = now + effective_quarantine_seconds
     _set_onemin_state(
         api_key,
         {
@@ -611,6 +669,10 @@ def _onemin_code_models() -> tuple[str, ...]:
         "gpt-4o",
     )
     return _merge_unique(configured, defaults)
+
+
+def _onemin_supported_models() -> tuple[str, ...]:
+    return _merge_unique(_onemin_models(), _onemin_code_models())
 
 
 def _onemin_model_supports_code(model: str) -> bool:
@@ -678,6 +740,60 @@ def _resolve_onemin_cooldowns() -> tuple[float, float, float]:
         _to_float(_env("EA_RESPONSES_ONEMIN_FAILURE_COOLDOWN_SECONDS", str(_ONEMIN_FAILURE_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
         _to_float(_env("EA_RESPONSES_ONEMIN_AUTH_QUARANTINE_SECONDS", str(_ONEMIN_AUTH_QUARANTINE_SECONDS)), 1.0, minimum=1.0),
     )
+
+
+def _deleted_onemin_key_quarantine_seconds() -> float:
+    return _to_float(
+        _env(
+            "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS",
+            str(_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS),
+        ),
+        _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS,
+        minimum=60.0,
+        maximum=2592000.0,
+    )
+
+
+def _onemin_included_credits_per_key() -> int:
+    return _to_int(
+        _env("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "4000000"),
+        4000000,
+        minimum=0,
+        maximum=100000000,
+    )
+
+
+def _onemin_bonus_credits_per_key() -> int:
+    return _to_int(
+        _env("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "450000"),
+        450000,
+        minimum=0,
+        maximum=100000000,
+    )
+
+
+def _onemin_max_credits_per_key() -> int:
+    return _onemin_included_credits_per_key() + _onemin_bonus_credits_per_key()
+
+
+def _onemin_max_credits_total(configured_slots: int) -> int:
+    explicit_total = _env("EA_RESPONSES_ONEMIN_MAX_CREDITS_TOTAL")
+    if explicit_total:
+        return _to_int(explicit_total, max(0, configured_slots) * _onemin_max_credits_per_key(), minimum=0, maximum=1000000000)
+    return max(0, configured_slots) * _onemin_max_credits_per_key()
+
+
+def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeyState) -> tuple[int | None, str]:
+    credit_state = _parse_credit_state(state.last_error)
+    if credit_state is not None:
+        return int(credit_state["remaining_credits"]), "observed_error"
+    if _is_deleted_onemin_key_error(state.last_error):
+        return 0, "inactive_key"
+    if _is_onemin_key_depleted(state.last_error):
+        return 0, "depleted_error"
+    if state_label in {"ready", "cooldown"}:
+        return _onemin_max_credits_per_key(), "assumed_full_unobserved"
+    return 0, "unknown_unobserved"
 
 
 def _timeout_seconds() -> int:
@@ -752,6 +868,10 @@ def _provider_model_order_for_lane(
     normalized = requested.lower()
 
     if provider_key == "magixai":
+        if normalized in {item.lower() for item in _magicx_lane_models()}:
+            return (requested,)
+        if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
+            return ()
         return _magicx_lane_models()
 
     if provider_key == "chatplayground":
@@ -762,6 +882,10 @@ def _provider_model_order_for_lane(
 
     requested = str(requested_model or "").strip()
     normalized = requested.lower()
+    if normalized in {item.lower() for item in _onemin_supported_models()}:
+        return (requested,)
+    if normalized in {item.lower() for item in _magicx_lane_models()}:
+        return ()
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
         return _onemin_review_models()
     if normalized in {"ea-review", "ea-critic"}:
@@ -902,6 +1026,8 @@ def _onemin_key_slot_from_snapshot(api_key: str, *, key_names: tuple[str, ...]) 
 
 
 def _onemin_key_state_label(state: OneminKeyState, *, now: float) -> str:
+    if state.last_error and _is_deleted_onemin_key_error(state.last_error):
+        return "deleted"
     if now < state.quarantine_until:
         return "quarantine"
     if now < state.cooldown_until:
@@ -912,37 +1038,32 @@ def _onemin_key_state_label(state: OneminKeyState, *, now: float) -> str:
 
 
 def list_response_models() -> list[dict[str, object]]:
+    catalog = (
+        DEFAULT_PUBLIC_MODEL,
+        MAGICX_PUBLIC_MODEL,
+        AUDIT_PUBLIC_MODEL,
+        AUDIT_PUBLIC_MODEL_ALIAS,
+        ONEMIN_PUBLIC_MODEL,
+        "ea-coder-hard",
+        "ea-review",
+        "ea-critic",
+        "ea-coder-fast",
+        "ea-overflow",
+    )
+    dynamic = _merge_unique(
+        _onemin_models(),
+        _onemin_code_models(),
+        _magicx_lane_models(),
+        _browserplayground_models(),
+    )
     return [
         {
-            "id": DEFAULT_PUBLIC_MODEL,
+            "id": model_id,
             "object": "model",
             "created": 0,
             "owned_by": "executive-assistant",
-        },
-        {
-            "id": MAGICX_PUBLIC_MODEL,
-            "object": "model",
-            "created": 0,
-            "owned_by": "executive-assistant",
-        },
-        {
-            "id": AUDIT_PUBLIC_MODEL,
-            "object": "model",
-            "created": 0,
-            "owned_by": "executive-assistant",
-        },
-        {
-            "id": AUDIT_PUBLIC_MODEL_ALIAS,
-            "object": "model",
-            "created": 0,
-            "owned_by": "executive-assistant",
-        },
-        {
-            "id": ONEMIN_PUBLIC_MODEL,
-            "object": "model",
-            "created": 0,
-            "owned_by": "executive-assistant",
-        },
+        }
+        for model_id in _merge_unique(catalog, dynamic)
     ]
 
 
@@ -1237,11 +1358,14 @@ def _provider_candidates(
             or _audit_lane_models()
         ]
 
-    candidates = [
-        (configs[provider_key], requested)
-        for provider_key in provider_keys_by_lane
-        if provider_key in configs
-    ]
+    candidates: list[tuple[ProviderConfig, str]] = []
+    for provider_key in provider_keys_by_lane:
+        config = configs.get(provider_key)
+        if config is None:
+            continue
+        model_names = _provider_model_order_for_lane(provider_key, lane, requested)
+        for model_name in model_names:
+            candidates.append((config, model_name))
     if not candidates and requested in {MAGICX_PUBLIC_MODEL, ONEMIN_PUBLIC_MODEL}:
         candidates = [
             (configs[provider_key], requested)
@@ -2071,10 +2195,16 @@ def _call_onemin(
                 key_fallback_reason.append(reason)
                 if _is_auth_error(error_detail):
                     key_auth_failed = True
+                    quarantine_seconds = (
+                        _deleted_onemin_key_quarantine_seconds()
+                        if _is_deleted_onemin_key_error(error_detail)
+                        else None
+                    )
                     _mark_onemin_failure(
                         api_key,
                         error_detail,
                         temporary_quarantine=True,
+                        quarantine_seconds=quarantine_seconds,
                     )
                     break
                 if _is_retryable_onemin_error(error_detail):
@@ -2101,10 +2231,16 @@ def _call_onemin(
                 key_fallback_reason.append(reason)
                 if _is_auth_error(onemin_error):
                     key_auth_failed = True
+                    quarantine_seconds = (
+                        _deleted_onemin_key_quarantine_seconds()
+                        if _is_deleted_onemin_key_error(onemin_error)
+                        else None
+                    )
                     _mark_onemin_failure(
                         api_key,
                         onemin_error,
                         temporary_quarantine=True,
+                        quarantine_seconds=quarantine_seconds,
                     )
                     break
                 if _is_retryable_onemin_error(onemin_error):
@@ -2248,6 +2384,14 @@ def _is_auth_error(payload: Any) -> bool:
         "invalid api key",
         "missing or invalid authorization header",
         "api key is not active",
+        "api key has been deleted",
+        "key has been deleted",
+        "api key deleted",
+        "api key revoked",
+        "revoked api key",
+        "deactivated api key",
+        "api key disabled",
+        "api key expired",
     )
     return any(marker in lowered for marker in markers)
 
@@ -2380,29 +2524,56 @@ def _test_reset_onemin_states() -> None:
 
 def _provider_health_report() -> dict[str, object]:
     now = _now_epoch()
-    onemin_key_names = _ordered_onemin_keys()
+    onemin_key_names = _onemin_key_names()
     onemin_key_states = _onemin_states_snapshot(onemin_key_names)
     onemin_slots: list[dict[str, object]] = []
     if _magix_health_probe_enabled():
         _magix_is_ready()
 
     for key in onemin_key_names:
-        slot_state = _onemin_key_state_label(onemin_key_states.get(key, OneminKeyState(key=key)), now=now)
+        key_state = onemin_key_states.get(key, OneminKeyState(key=key))
+        slot_state = _onemin_key_state_label(key_state, now=now)
+        credit_state = _parse_credit_state(key_state.last_error)
+        estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
+            state_label=slot_state,
+            state=key_state,
+        )
+        next_retry_at = 0.0
+        if key_state.quarantine_until > now:
+            next_retry_at = float(key_state.quarantine_until)
+        elif key_state.cooldown_until > now:
+            next_retry_at = float(key_state.cooldown_until)
         onemin_slots.append(
             {
                 "slot": _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names),
                 "configured": bool(key),
                 "account_name": _provider_account_name("onemin", key_names=onemin_key_names, key=key),
                 "state": slot_state,
-                "last_used_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_used_at),
-                "last_success_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_success_at),
-                "last_failure_at": float(onemin_key_states.get(key, OneminKeyState(key=key)).last_failure_at),
-                "cooldown_until": float(onemin_key_states.get(key, OneminKeyState(key=key)).cooldown_until),
-                "quarantine_until": float(onemin_key_states.get(key, OneminKeyState(key=key)).quarantine_until),
-                "failure_count": int(onemin_key_states.get(key, OneminKeyState(key=key)).failure_count),
-                "last_error": str(onemin_key_states.get(key, OneminKeyState(key=key)).last_error),
+                "last_used_at": float(key_state.last_used_at),
+                "last_success_at": float(key_state.last_success_at),
+                "last_failure_at": float(key_state.last_failure_at),
+                "cooldown_until": float(key_state.cooldown_until),
+                "quarantine_until": float(key_state.quarantine_until),
+                "failure_count": int(key_state.failure_count),
+                "last_error": str(key_state.last_error),
+                "remaining_credits": credit_state.get("remaining_credits") if credit_state else None,
+                "required_credits": credit_state.get("required_credits") if credit_state else None,
+                "credit_subject": credit_state.get("credit_subject") if credit_state else None,
+                "estimated_remaining_credits": estimated_remaining_credits,
+                "estimated_credit_basis": estimated_credit_basis,
+                "next_retry_at": next_retry_at or None,
+                "upstream_reset_unknown": bool(credit_state and credit_state.get("remaining_credits") == 0),
             }
         )
+
+    onemin_max_total = _onemin_max_credits_total(len(onemin_slots))
+    onemin_estimated_remaining_total = sum(
+        int(slot.get("estimated_remaining_credits") or 0)
+        for slot in onemin_slots
+    )
+    onemin_remaining_percent = None
+    if onemin_max_total > 0:
+        onemin_remaining_percent = round((onemin_estimated_remaining_total / onemin_max_total) * 100.0, 2)
 
     magix_state, magix_detail, magix_checked_at = _magix_health_state_snapshot()
     magix_key_names = tuple(_magicx_config().api_keys)
@@ -2434,6 +2605,16 @@ def _provider_health_report() -> dict[str, object]:
                 "slots": onemin_slots,
                 "health_check_enabled": False,
                 "provider_order": list(_provider_order()),
+                "observed_remaining_credits": {
+                    slot["account_name"]: slot["remaining_credits"]
+                    for slot in onemin_slots
+                    if slot.get("remaining_credits") is not None
+                },
+                "remaining_percent_of_max": onemin_remaining_percent,
+                "estimated_remaining_credits_total": onemin_estimated_remaining_total,
+                "max_credits_total": onemin_max_total,
+                "max_credits_per_key": _onemin_max_credits_per_key(),
+                "credit_estimation_mode": "observed_error_or_ready_assumed_full",
             },
             "magixai": {
                 "provider_key": "magixai",
@@ -2454,9 +2635,17 @@ def _provider_health_report() -> dict[str, object]:
             },
         },
         "provider_config": {
-            "onemin_keys": list(onemin_key_names),
+            "onemin_accounts": [
+                _provider_account_name("onemin", key_names=onemin_key_names, key=key)
+                for key in onemin_key_names
+            ],
             "onemin_max_slots": _ONEMIN_MAX_KEY_SLOTS,
-            "chatplayground_keys": list(chatplayground_key_names),
+            "onemin_included_credits_per_key": _onemin_included_credits_per_key(),
+            "onemin_bonus_credits_per_key": _onemin_bonus_credits_per_key(),
+            "chatplayground_accounts": [
+                _provider_account_name("chatplayground", key_names=chatplayground_key_names, key=key)
+                for key in chatplayground_key_names
+            ],
             "chatplayground_url": _browserplayground_url(),
             "lane_caps": {
                 _LANE_FAST: _lane_max_output_tokens(_LANE_FAST),
