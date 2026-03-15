@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import json
 import logging
 import inspect
@@ -27,6 +28,9 @@ _ONEMIN_KEY_CONFIG_HASH = ""
 _ONEMIN_KEY_CURSOR = 0
 _ONEMIN_KEY_CURSOR_LOCK = threading.Lock()
 _ONEMIN_KEY_STATES: dict[str, OneminKeyState] = {}
+_ONEMIN_USAGE_EVENTS: deque[OneminUsageEvent] = deque(maxlen=512)
+_ONEMIN_REQUIRED_CREDIT_EVENTS: deque[OneminRequiredCreditObservation] = deque(maxlen=128)
+_ONEMIN_USAGE_LOCK = threading.Lock()
 
 _HARD_CONCURRENCY_LOCK = threading.Condition(threading.Lock())
 _HARD_ACTIVE_REQUESTS = 0
@@ -148,6 +152,26 @@ class OneminKeyState:
     cooldown_until: float = 0.0
     quarantine_until: float = 0.0
     last_error: str = ""
+
+
+@dataclass(frozen=True)
+class OneminUsageEvent:
+    happened_at: float
+    api_key: str
+    model: str
+    estimated_credits: int
+    basis: str
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+@dataclass(frozen=True)
+class OneminRequiredCreditObservation:
+    happened_at: float
+    api_key: str
+    required_credits: int
+    remaining_credits: int
+    credit_subject: str
 
 
 @dataclass(frozen=True)
@@ -623,6 +647,7 @@ def _mark_onemin_failure(
             "last_error": str(message or ""),
         },
     )
+    _record_onemin_required_credit_observation(api_key=api_key, message=message, happened_at=now)
     _rotate_onemin_cursor_after_key_usage(api_key)
 
 
@@ -794,6 +819,145 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     if state_label in {"ready", "cooldown"}:
         return _onemin_max_credits_per_key(), "assumed_full_unobserved"
     return 0, "unknown_unobserved"
+
+
+def _record_onemin_required_credit_observation(*, api_key: str, message: str, happened_at: float | None = None) -> None:
+    credit_state = _parse_credit_state(message)
+    if credit_state is None:
+        return
+    event = OneminRequiredCreditObservation(
+        happened_at=float(happened_at if happened_at is not None else _now_epoch()),
+        api_key=api_key,
+        required_credits=int(credit_state["required_credits"]),
+        remaining_credits=int(credit_state["remaining_credits"]),
+        credit_subject=str(credit_state["credit_subject"] or ""),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _ONEMIN_REQUIRED_CREDIT_EVENTS.append(event)
+
+
+def _recent_onemin_required_credit_observations(*, now: float, horizon_seconds: float) -> list[OneminRequiredCreditObservation]:
+    with _ONEMIN_USAGE_LOCK:
+        items = list(_ONEMIN_REQUIRED_CREDIT_EVENTS)
+    return [item for item in items if now - item.happened_at <= horizon_seconds]
+
+
+def _median_int(values: list[int]) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(int(value) for value in values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[midpoint]
+    return int(round((ordered[midpoint - 1] + ordered[midpoint]) / 2))
+
+
+def _estimate_onemin_request_credits(
+    *,
+    now: float,
+    tokens_in: int,
+    tokens_out: int,
+) -> tuple[int, str]:
+    recent_required = _recent_onemin_required_credit_observations(now=now, horizon_seconds=21600.0)
+    observed_required = [item.required_credits for item in recent_required if item.required_credits > 0]
+    median_required = _median_int(observed_required)
+    if median_required is not None and median_required > 0:
+        return int(median_required), "recent_required_credit_median"
+    token_total = max(0, int(tokens_in or 0) + int(tokens_out or 0))
+    if token_total > 0:
+        return token_total, "token_usage_fallback"
+    return 0, "unknown"
+
+
+def _record_onemin_usage_event(
+    *,
+    api_key: str,
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    happened_at: float | None = None,
+) -> tuple[int, str]:
+    now = float(happened_at if happened_at is not None else _now_epoch())
+    estimated_credits, basis = _estimate_onemin_request_credits(
+        now=now,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+    )
+    if estimated_credits <= 0:
+        return 0, basis
+    event = OneminUsageEvent(
+        happened_at=now,
+        api_key=api_key,
+        model=str(model or ""),
+        estimated_credits=int(estimated_credits),
+        basis=basis,
+        tokens_in=int(tokens_in or 0),
+        tokens_out=int(tokens_out or 0),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _ONEMIN_USAGE_EVENTS.append(event)
+    return int(estimated_credits), basis
+
+
+def _onemin_burn_window_seconds() -> float:
+    return _to_float(
+        _env("EA_RESPONSES_ONEMIN_BURN_WINDOW_SECONDS", "3600"),
+        3600.0,
+        minimum=300.0,
+        maximum=86400.0,
+    )
+
+
+def _onemin_burn_min_observation_seconds() -> float:
+    return _to_float(
+        _env("EA_RESPONSES_ONEMIN_BURN_MIN_OBSERVATION_SECONDS", "900"),
+        900.0,
+        minimum=60.0,
+        maximum=14400.0,
+    )
+
+
+def _onemin_burn_summary(*, now: float, estimated_remaining_credits_total: int) -> dict[str, object]:
+    horizon_seconds = _onemin_burn_window_seconds()
+    min_observation_seconds = _onemin_burn_min_observation_seconds()
+    with _ONEMIN_USAGE_LOCK:
+        usage_events = [item for item in _ONEMIN_USAGE_EVENTS if now - item.happened_at <= horizon_seconds]
+    if not usage_events:
+        return {
+            "estimated_burn_credits_per_hour": None,
+            "estimated_requests_per_hour": None,
+            "estimated_hours_remaining_at_current_pace": None,
+            "burn_observation_window_seconds": horizon_seconds,
+            "burn_observation_span_seconds": 0.0,
+            "burn_event_count": 0,
+            "burn_estimate_basis": "insufficient_observations",
+        }
+
+    total_credits = sum(max(0, int(item.estimated_credits)) for item in usage_events)
+    earliest = min(item.happened_at for item in usage_events)
+    span_seconds = max(min_observation_seconds, now - earliest)
+    estimated_burn_credits_per_hour = round((total_credits * 3600.0) / span_seconds, 2) if total_credits > 0 else 0.0
+    estimated_requests_per_hour = round((len(usage_events) * 3600.0) / span_seconds, 2)
+    estimated_hours_remaining = None
+    if estimated_burn_credits_per_hour > 0:
+        estimated_hours_remaining = round(float(estimated_remaining_credits_total) / float(estimated_burn_credits_per_hour), 2)
+
+    basis_counts: dict[str, int] = {}
+    for item in usage_events:
+        basis_counts[item.basis] = basis_counts.get(item.basis, 0) + 1
+    basis = max(basis_counts.items(), key=lambda item: item[1])[0] if basis_counts else "unknown"
+    if len(basis_counts) > 1:
+        basis = ",".join(sorted(basis_counts.keys()))
+
+    return {
+        "estimated_burn_credits_per_hour": estimated_burn_credits_per_hour,
+        "estimated_requests_per_hour": estimated_requests_per_hour,
+        "estimated_hours_remaining_at_current_pace": estimated_hours_remaining,
+        "burn_observation_window_seconds": horizon_seconds,
+        "burn_observation_span_seconds": round(span_seconds, 2),
+        "burn_event_count": len(usage_events),
+        "burn_estimate_basis": basis,
+    }
 
 
 def _timeout_seconds() -> int:
@@ -2267,6 +2431,12 @@ def _call_onemin(
             if isinstance(usage, dict):
                 tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
                 tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            _record_onemin_usage_event(
+                api_key=api_key,
+                model=resolved_model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+            )
             _mark_onemin_success(api_key)
             fallback_reason = None
             if failures or key_fallback_reason:
@@ -2518,6 +2688,9 @@ def _test_reset_onemin_states() -> None:
     with _ONEMIN_KEY_CURSOR_LOCK:
         _ONEMIN_KEY_STATES.clear()
         _ONEMIN_KEY_CURSOR = 0
+    with _ONEMIN_USAGE_LOCK:
+        _ONEMIN_USAGE_EVENTS.clear()
+        _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
     with _MAGIX_HEALTH_LOCK:
         _MAGIX_HEALTH_STATE.update(state="unknown", checked_at=0.0, detail="", provider_key="magixai")
 
@@ -2571,6 +2744,10 @@ def _provider_health_report() -> dict[str, object]:
         int(slot.get("estimated_remaining_credits") or 0)
         for slot in onemin_slots
     )
+    onemin_burn_summary = _onemin_burn_summary(
+        now=now,
+        estimated_remaining_credits_total=onemin_estimated_remaining_total,
+    )
     onemin_remaining_percent = None
     if onemin_max_total > 0:
         onemin_remaining_percent = round((onemin_estimated_remaining_total / onemin_max_total) * 100.0, 2)
@@ -2615,6 +2792,7 @@ def _provider_health_report() -> dict[str, object]:
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
                 "credit_estimation_mode": "observed_error_or_ready_assumed_full",
+                **onemin_burn_summary,
             },
             "magixai": {
                 "provider_key": "magixai",
