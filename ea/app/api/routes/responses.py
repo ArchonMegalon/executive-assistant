@@ -32,7 +32,7 @@ models_router = APIRouter(prefix="/v1/models", tags=["responses"])
 responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
 codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
-_SUPPORTED_INPUT_PART_TYPES = {"input_text", "text"}
+_SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
 
 
 @dataclass(frozen=True)
@@ -251,7 +251,7 @@ def _parse_input_parts(content: object, *, item_context: str) -> list[dict[str, 
             )
 
         part_type = str(entry.get("type") or "").strip().lower()
-        if part_type == "text":
+        if part_type in {"text", "output_text"}:
             part_type = "input_text"
         if part_type not in _SUPPORTED_INPUT_PART_TYPES:
             raise HTTPException(
