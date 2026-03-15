@@ -859,6 +859,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "health-key-g")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "health-key-h")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "health-key-i")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "health-key-j")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
     monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
@@ -869,8 +870,8 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 9
-    assert len(providers["onemin"]["slots"]) == 9
+    assert providers["onemin"]["configured_slots"] == 10
+    assert len(providers["onemin"]["slots"]) == 10
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
         "fallback_1",
@@ -881,6 +882,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "fallback_6",
         "fallback_7",
         "fallback_8",
+        "fallback_9",
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -905,6 +907,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "ONEMIN_AI_API_KEY_FALLBACK_6",
         "ONEMIN_AI_API_KEY_FALLBACK_7",
         "ONEMIN_AI_API_KEY_FALLBACK_8",
+        "ONEMIN_AI_API_KEY_FALLBACK_9",
     ]
     assert body["provider_config"]["chatplayground_accounts"] == [
         "BROWSERACT_API_KEY",
@@ -912,6 +915,11 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     ]
     assert providers["onemin"]["slots"][0]["next_retry_at"] is None
     assert providers["onemin"]["slots"][0]["upstream_reset_unknown"] is False
+    assert providers["onemin"]["slots"][0]["observed_consumed_credits"] == 0
+    assert providers["onemin"]["slots"][0]["observed_success_count"] == 0
+    assert "estimated_burn_credits_per_hour" in providers["onemin"]
+    assert "estimated_hours_remaining_at_current_pace" in providers["onemin"]
+    assert "burn_estimate_basis" in providers["onemin"]
 
 
 def test_responses_provider_health_reports_observed_credit_balance_without_leaking_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1011,6 +1019,37 @@ def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch
     assert health.status_code == 200
     body = health.json()
     assert body["providers"]["magixai"]["state"] == "degraded"
+
+
+def test_responses_provider_health_reflects_magicx_probe_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_CHECK", "1")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "healthy-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "model": payload["model"],
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    health = client.get("/v1/responses/_provider_health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["providers"]["magixai"]["state"] == "ready"
+    assert body["providers"]["magixai"]["health_check_enabled"] is True
 
 
 def test_stream_events_include_sequence_number_and_failed_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
