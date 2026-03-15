@@ -96,6 +96,11 @@ class ProviderRegistryService:
                         capability_key="workflow_spec_repair",
                         tool_name="browseract.repair_workflow_spec",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="chatplayground_audit",
+                        tool_name="browseract.chatplayground_audit",
+                    ),
                 ),
             ),
             ProviderBinding(
@@ -695,6 +700,9 @@ class ProviderRegistryService:
             "ai_magicx": "magixai",
             "magicxai": "magixai",
             "aimagicx": "magixai",
+            "chatplayground": "browseract",
+            "chat_playground": "browseract",
+            "chatplay": "browseract",
             "browserly.ai": "browserly",
             "browsely": "browserly",
             "prompting.systems": "prompting_systems",

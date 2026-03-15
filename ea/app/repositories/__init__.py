@@ -34,6 +34,10 @@ from app.repositories.memory_items import InMemoryMemoryItemRepository, MemoryIt
 from app.repositories.memory_items_postgres import PostgresMemoryItemRepository
 from app.repositories.observation import ObservationEventRepository, InMemoryObservationEventRepository
 from app.repositories.observation_postgres import PostgresObservationEventRepository
+from app.repositories.provider_bindings import (
+    InMemoryProviderBindingRepository,
+    ProviderBindingRepository,
+)
 from app.repositories.policy_decisions import PolicyDecisionRepository, InMemoryPolicyDecisionRepository
 from app.repositories.policy_decisions_postgres import PostgresPolicyDecisionRepository
 from app.repositories.relationships import InMemoryRelationshipRepository, RelationshipRepository
@@ -103,6 +107,8 @@ __all__ = [
     "PostgresInterruptionBudgetRepository",
     "PostgresObservationEventRepository",
     "PostgresPolicyDecisionRepository",
+    "InMemoryProviderBindingRepository",
+    "ProviderBindingRepository",
     "PostgresEntityRepository",
     "PostgresMemoryCandidateRepository",
     "PostgresMemoryItemRepository",

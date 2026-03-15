@@ -149,5 +149,38 @@ def register_builtin_browseract_workflow_repair(
             policy_json={"builtin": True, "action_kind": "workflow.spec_repair"},
             approval_default="none",
             enabled=True,
-        )
+    )
     register_handler("browseract.repair_workflow_spec", browseract_adapter.execute_repair_workflow_spec)
+
+
+def register_builtin_browseract_chatplayground_audit(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.chatplayground_audit") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.chatplayground_audit",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["roles", "prompt", "run_url"],
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "roles": {"type": "array", "items": {"type": "string"}},
+                    "focus": {"type": "string"},
+                    "max_chars": {"type": "integer"},
+                    "scope_json": {"type": "object"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": ["tool_name", "action_kind", "normalized_text", "preview_text", "mime_type", "structured_output_json"],
+            },
+            policy_json={"builtin": True, "action_kind": "chatplayground.audit"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("browseract.chatplayground_audit", browseract_adapter.execute_chatplayground_audit)
