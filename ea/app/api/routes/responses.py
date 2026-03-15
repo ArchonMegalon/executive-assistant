@@ -60,6 +60,22 @@ class _ResponsesCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class _ModelObject(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _ModelListObject(BaseModel):
+    object: str = "list"
+    data: list[_ModelObject]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class _ResponseUsage(BaseModel):
     input_tokens: int
     output_tokens: int
@@ -98,6 +114,17 @@ class _ResponseObject(BaseModel):
     output_text: str = ""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class _ResponseInputItemsListObject(BaseModel):
+    object: str = "list"
+    response_id: str
+    data: list[dict[str, object]]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+_RESPONSES_CREATE_REQUEST_SCHEMA = _ResponsesCreateRequest.model_json_schema()
 
 
 def _now_unix() -> int:
@@ -455,7 +482,7 @@ def _error_event_payload(message: str) -> dict[str, object]:
     }
 
 
-@models_router.get("", response_model=None)
+@models_router.get("", response_model=_ModelListObject)
 def list_models(request: Request) -> Response:
     return JSONResponse(
         {
@@ -473,7 +500,7 @@ def get_provider_health(
     return JSONResponse(_provider_health_report())
 
 
-@responses_item_router.get("/{response_id}", response_model=None)
+@responses_item_router.get("/{response_id}", response_model=_ResponseObject)
 def get_response(
     response_id: str,
     *,
@@ -483,7 +510,7 @@ def get_response(
     return JSONResponse(stored.response)
 
 
-@responses_item_router.get("/{response_id}/input_items", response_model=None)
+@responses_item_router.get("/{response_id}/input_items", response_model=_ResponseInputItemsListObject)
 def get_response_input_items(
     response_id: str,
     *,
@@ -499,7 +526,33 @@ def get_response_input_items(
     )
 
 
-@responses_item_router.post("", response_model=None)
+@responses_item_router.post(
+    "",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
 def create_response(
     payload: dict[str, object],
     *,

@@ -149,6 +149,38 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-onemin-coder" in model_ids
 
 
+def test_responses_openapi_publishes_explicit_request_and_response_schema() -> None:
+    client = _client(principal_id="codex-test")
+
+    openapi = client.get("/openapi.json")
+    assert openapi.status_code == 200
+    body = openapi.json()
+    post_op = body["paths"]["/v1/responses"]["post"]
+
+    request_schema = post_op["requestBody"]["content"]["application/json"]["schema"]
+    assert request_schema["type"] == "object"
+    assert request_schema["additionalProperties"] is False
+    assert set(request_schema["properties"].keys()) == {
+        "model",
+        "input",
+        "instructions",
+        "metadata",
+        "max_output_tokens",
+        "stream",
+    }
+
+    json_response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "$ref" in json_response_schema
+    response_schema_name = json_response_schema["$ref"].split("/")[-1]
+    response_props = body["components"]["schemas"][response_schema_name]["properties"]
+    assert "store" not in response_props
+    assert "parallel_tool_calls" not in response_props
+    assert "tool_choice" not in response_props
+    assert "tools" not in response_props
+    assert "previous_response_id" not in response_props
+    assert "text/event-stream" in post_op["responses"]["200"]["content"]
+
+
 def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
