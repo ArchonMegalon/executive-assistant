@@ -238,7 +238,8 @@ def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatc
     assert resp.json()["output_text"] == "ok"
 
 
-def test_responses_rejects_store_true(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("store_value", [True, False])
+def test_responses_rejects_store_field(store_value: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
@@ -247,8 +248,9 @@ def test_responses_rejects_store_true(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
 
-    resp = client.post("/v1/responses", json={"input": "say hi", "store": True})
+    resp = client.post("/v1/responses", json={"input": "say hi", "store": store_value})
     assert resp.status_code == 400
+    assert "unsupported_fields:store" in resp.text
 
 
 def test_responses_rejects_unsupported_top_level_fields() -> None:
