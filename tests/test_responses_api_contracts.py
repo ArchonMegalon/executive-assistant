@@ -146,6 +146,8 @@ def test_models_list_returns_responses_aliases() -> None:
     model_ids = {item["id"] for item in body["data"]}
     assert "ea-coder-best" in model_ids
     assert "ea-magicx-coder" in model_ids
+    assert "ea-audit-jury" in model_ids
+    assert "ea-audit" in model_ids
     assert "ea-onemin-coder" in model_ids
 
 
@@ -386,6 +388,8 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "health-key-a")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "health-key-b")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "health-key-c")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
+    monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
     monkeypatch.setattr(responses, "_generate_upstream_text", lambda **_: None)
 
@@ -400,6 +404,17 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "primary",
         "fallback_1",
         "fallback_2",
+    ]
+    assert providers["chatplayground"]["provider_key"] == "chatplayground"
+    assert providers["chatplayground"]["backend"] == "browseract"
+    assert providers["chatplayground"]["configured_slots"] == 2
+    assert [slot["slot"] for slot in providers["chatplayground"]["slots"]] == [
+        "primary",
+        "fallback_1",
+    ]
+    assert [slot["account_name"] for slot in providers["chatplayground"]["slots"]] == [
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
     ]
     assert providers["magixai"]["configured_slots"] == 1
     assert providers["magixai"]["state"] in {"ready", "unknown", "degraded"}
