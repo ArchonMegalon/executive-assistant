@@ -56,7 +56,6 @@ class _ResponsesCreateRequest(BaseModel):
     metadata: dict[str, object] | None = None
     max_output_tokens: int | None = None
     stream: bool = False
-    store: bool | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -282,9 +281,6 @@ def _parse_create_request(payload: dict[str, object]) -> tuple[_ResponsesCreateR
         if extra_fields:
             raise HTTPException(status_code=400, detail=f"unsupported_fields:{','.join(extra_fields)}") from exc
         raise HTTPException(status_code=400, detail="invalid_request") from exc
-
-    if request.store is True:
-        raise HTTPException(status_code=400, detail="store_not_supported")
 
     parsed_input = _parse_input_payload(request.input)
 
