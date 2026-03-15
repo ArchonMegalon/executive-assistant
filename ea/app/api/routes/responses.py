@@ -789,6 +789,9 @@ def _tool_shim_messages(
     tools: list[dict[str, object]],
     history_items: list[dict[str, object]],
 ) -> list[dict[str, str]]:
+    tool_names = {str(tool.get("name") or "").strip() for tool in tools}
+    has_apply_patch = "apply_patch" in tool_names
+    has_exec_command = "exec_command" in tool_names
     tool_catalog = []
     for tool in tools:
         tool_catalog.append(
@@ -827,6 +830,16 @@ def _tool_shim_messages(
         "Available function tools:",
         _json_compact(tool_catalog),
     ]
+    if has_exec_command and not has_apply_patch:
+        system_parts.extend(
+            [
+                "Session constraint:",
+                "- The apply_patch tool is not available in this session.",
+                "- If a file edit is required, use exec_command with a short focused edit command.",
+                "- Prefer one-line edits with sed -i, perl -0pi, or python3 -c for targeted replacements.",
+                "- Use a short python heredoc only when no simpler edit command is practical.",
+            ]
+        )
     if instructions:
         system_parts.extend(
             [
@@ -889,6 +902,7 @@ def _tool_call_rejection_reason(
     tool_name: str,
     arguments: dict[str, object],
     history_items: list[dict[str, object]],
+    available_tools: list[dict[str, object]],
 ) -> str | None:
     signature = (tool_name, _json_compact(arguments))
     if signature in _completed_tool_call_signatures(history_items):
@@ -900,6 +914,24 @@ def _tool_call_rejection_reason(
         raw_cmd = arguments.get("cmd")
         if isinstance(raw_cmd, str):
             cmd = raw_cmd.strip()
+            tool_names = {str(tool.get("name") or "").strip() for tool in available_tools}
+            has_apply_patch = "apply_patch" in tool_names
+            edit_markers = (
+                "sed -i",
+                "perl -0pi",
+                "python3 -c",
+                "python -c",
+                "python3 - <<'PY'",
+                "python - <<'PY'",
+            )
+            is_edit_command = any(marker in cmd for marker in edit_markers)
+            if not has_apply_patch and is_edit_command:
+                if len(cmd) > 1400 or cmd.count("\n") > 24:
+                    return (
+                        "The edit command is too large. Use a shorter focused edit command "
+                        "that changes only the needed lines."
+                    )
+                return None
             if "\n" in cmd or len(cmd) > 280:
                 return (
                     "The exec_command payload is too large. Use a shorter, single-purpose command "
@@ -977,6 +1009,7 @@ def _tool_shim_decision(
                 tool_name=tool_name,
                 arguments=arguments,
                 history_items=history_items,
+                available_tools=tools,
             )
             if retry_reason:
                 retry_payload, retry_result = _tool_shim_retry_payload(
