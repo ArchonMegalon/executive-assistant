@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -185,6 +186,84 @@ def _browserplayground_url() -> str:
         "BROWSERACT_CHATPLAYGROUND_URL",
         "https://web.chatplayground.ai/",
     )
+
+
+def _chatplayground_request_urls() -> tuple[str, ...]:
+    base_url = _browserplayground_url()
+    custom_urls = _csv_values(_env("EA_RESPONSES_CHATPLAYGROUND_URLS"))
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def _add_url(raw: str) -> None:
+        url = str(raw or "").strip()
+        if not url:
+            return
+        parsed = urlparse(url)
+        scheme = str(parsed.scheme or "https").lower()
+        netloc = parsed.netloc
+        path = parsed.path or "/"
+        if path != "/" and path:
+            path = path.rstrip("/")
+        query = parsed.query or ""
+        fragment = parsed.fragment or ""
+        if not netloc and "://" in url:
+            return
+        if not scheme:
+            url = f"https://{url}"
+            parsed = urlparse(url)
+            scheme = "https"
+            netloc = parsed.netloc
+            path = parsed.path or ""
+            query = parsed.query or ""
+            fragment = parsed.fragment or ""
+        if not netloc:
+            return
+        normalized = urlunparse((scheme, netloc, path, "", query, fragment))
+        normalized = normalized or url
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        candidates.append(normalized)
+
+    for url in custom_urls:
+        _add_url(url)
+
+    if base_url:
+        _add_url(base_url)
+        parsed = urlparse(base_url)
+        if parsed.netloc:
+            parsed_path = (parsed.path or "").rstrip("/")
+            api_prefixes = (
+                "/api/chat/lmsys",
+                "/api/chat",
+                "/api/chat/completions",
+                "/api/v1/chat/lmsys",
+                "/api/v1/chat/completions",
+            )
+            for suffix in api_prefixes:
+                candidate = urlunparse(
+                    (
+                        parsed.scheme or "https",
+                        parsed.netloc,
+                        f"{parsed_path}{suffix}",
+                        "",
+                        "",
+                        "",
+                    )
+                )
+                _add_url(candidate)
+
+            if "web.chatplayground.ai" in parsed.netloc.lower() and "app." not in parsed.netloc.lower():
+                _add_url("https://app.chatplayground.ai/api/chat/lmsys")
+                _add_url("https://app.chatplayground.ai/api/v1/chat/lmsys")
+
+    if not custom_urls and not base_url:
+        _add_url("https://app.chatplayground.ai/api/chat/lmsys")
+        _add_url("https://app.chatplayground.ai/api/v1/chat/lmsys")
+
+    if not candidates:
+        return ()
+    return tuple(candidates)
 
 
 def _browserplayground_api_keys() -> tuple[str, ...]:
@@ -666,7 +745,7 @@ def _provider_model_order_for_lane(
     requested = str(requested_model or "").strip()
     normalized = requested.lower()
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
-        return _audit_lane_models()
+        return _onemin_review_models()
     if normalized in {"ea-review", "ea-critic"}:
         return _onemin_review_models()
     if normalized == "ea-coder-hard":
@@ -726,6 +805,8 @@ def _provider_configs() -> dict[str, ProviderConfig]:
 
 
 def _acquire_hard_slot() -> bool:
+    global _HARD_ACTIVE_REQUESTS
+    global _HARD_WAITING_REQUESTS
     max_active, queue_timeout, _ = _resolve_hard_defaults()
     if max_active <= 1:
         return True
@@ -747,6 +828,7 @@ def _acquire_hard_slot() -> bool:
 
 
 def _release_hard_slot() -> None:
+    global _HARD_ACTIVE_REQUESTS
     with _HARD_CONCURRENCY_LOCK:
         if _HARD_ACTIVE_REQUESTS > 0:
             _HARD_ACTIVE_REQUESTS -= 1
@@ -1096,11 +1178,22 @@ def _provider_candidates(
         return [(configs["onemin"], model_name) for model_name in model_names]
 
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
-        return [
+        candidates: list[tuple[ProviderConfig, str]] = [
             (configs["chatplayground"], model_name)
             for model_name in _provider_model_order_for_lane("chatplayground", lane, requested)
             or _audit_lane_models()
         ]
+        onemin_config = configs.get("onemin")
+        if onemin_config and onemin_config.api_keys:
+            candidates.extend(
+                (
+                    onemin_config,
+                    model_name,
+                )
+                for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+                or _onemin_models()
+            )
+        return candidates
 
     if normalized in {"ea-review", "ea-critic"}:
         return [
@@ -1450,13 +1543,13 @@ def _call_chatplayground_audit(
     if not key_names:
         raise ResponsesUpstreamError("chatplayground_missing_api_key")
 
-    run_url = _browserplayground_url()
-    if not run_url:
+    run_url_candidates = _chatplayground_request_urls()
+    if not run_url_candidates:
         raise ResponsesUpstreamError("chatplayground_run_url_missing")
 
     model_candidates = tuple(config.default_models) or _browserplayground_models()
-    if max_output_tokens is not None:
-        model_candidates = model_candidates or _browserplayground_models()
+    if not model_candidates:
+        model_candidates = _browserplayground_models()
 
     audit_scopes = ("jury",)
     base_roles = list(_browserplayground_roles())
@@ -1478,87 +1571,97 @@ def _call_chatplayground_audit(
                     audit_scope=audit_scope,
                     requested_models=tuple(config.default_models),
                 )
-                status, api_response = _post_json(
-                    url=run_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    payload=payload,
-                    timeout_seconds=config.timeout_seconds,
-                )
-                latency_ms = _now_ms() - started_at
-                if status < 200 or status >= 300:
-                    detail = _trim_error_payload(api_response)
-                    failures = f"{account_name}:{key_slot}:{audit_scope}:http_{status}:{detail}"
-                    errors.append(failures)
+                for run_url in run_url_candidates:
+                    endpoint_reason_prefix = f"{account_name}:{key_slot}:{audit_scope}:{run_url}:"
+                    started_at = _now_ms()
+                    status, api_response = _post_json(
+                        url=run_url,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        payload=payload,
+                        timeout_seconds=config.timeout_seconds,
+                    )
+                    latency_ms = _now_ms() - started_at
+                    if status < 200 or status >= 300:
+                        detail = _trim_error_payload(api_response)
+                        failures = f"{endpoint_reason_prefix}http_{status}:{detail}"
+                        errors.append(failures)
+                        _log_provider_selection(
+                            provider="chatplayground",
+                            event="failure",
+                            key_slot=key_slot,
+                            model=model_name,
+                            latency_ms=latency_ms,
+                            reason=failures,
+                        )
+                        if status in {401, 403}:
+                            continue
+                        if status in {405, 408, 429, 500, 502, 503, 504}:
+                            continue
+                        if status >= 500:
+                            continue
+                        break
+
+                    if not isinstance(api_response, dict):
+                        errors.append(f"{account_name}:{key_slot}:{audit_scope}:invalid_payload")
+                        _log_provider_selection(
+                            provider="chatplayground",
+                            event="invalid_payload",
+                            key_slot=key_slot,
+                            model=model_name,
+                            latency_ms=latency_ms,
+                            reason="invalid_payload",
+                        )
+                        continue
+
+                    (
+                        consensus,
+                        recommendation,
+                        roles,
+                        disagreements,
+                        risks,
+                        model_deltas,
+                        details,
+                    ) = _normalize_chatplayground_audit_payload(api_response)
+                    if not consensus and not recommendation:
+                        errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
+                        continue
+
+                    text_payload = {
+                        "provider": "chatplayground",
+                        "scope": audit_scope,
+                        "roles": roles,
+                        "model": model_name,
+                        "consensus": consensus,
+                        "recommendation": recommendation,
+                        "disagreements": disagreements,
+                        "risks": risks,
+                        "model_deltas": model_deltas,
+                        "requested_at": details.get("requested_at"),
+                    }
+                    output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
                     _log_provider_selection(
                         provider="chatplayground",
-                        event="failure",
+                        event="success",
                         key_slot=key_slot,
                         model=model_name,
                         latency_ms=latency_ms,
-                        reason=failures,
+                        reason=None,
                     )
-                    continue
-                if not isinstance(api_response, dict):
-                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:invalid_payload")
-                    _log_provider_selection(
-                        provider="chatplayground",
-                        event="invalid_payload",
-                        key_slot=key_slot,
+                    return UpstreamResult(
+                        text=output_text,
+                        provider_key=config.provider_key,
                         model=model_name,
-                        latency_ms=latency_ms,
-                        reason="invalid_payload",
+                        tokens_in=0,
+                        tokens_out=0,
+                        provider_key_slot=key_slot,
+                        provider_backend="browseract",
+                        provider_account_name=account_name,
+                        upstream_model=model,
+                        latency_ms=max(0, latency_ms),
                     )
-                    continue
-
-                (
-                    consensus,
-                    recommendation,
-                    roles,
-                    disagreements,
-                    risks,
-                    model_deltas,
-                    details,
-                ) = _normalize_chatplayground_audit_payload(api_response)
-                if not consensus and not recommendation:
-                    errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
-                    continue
-
-                text_payload = {
-                    "provider": "chatplayground",
-                    "scope": audit_scope,
-                    "roles": roles,
-                    "model": model_name,
-                    "consensus": consensus,
-                    "recommendation": recommendation,
-                    "disagreements": disagreements,
-                    "risks": risks,
-                    "model_deltas": model_deltas,
-                    "requested_at": details.get("requested_at"),
-                }
-                output_text = json.dumps(text_payload, ensure_ascii=True, separators=(",", ":"))
-                _log_provider_selection(
-                    provider="chatplayground",
-                    event="success",
-                    key_slot=key_slot,
-                    model=model_name,
-                    latency_ms=latency_ms,
-                    reason=None,
-                )
-                return UpstreamResult(
-                    text=output_text,
-                    provider_key=config.provider_key,
-                    model=model_name,
-                    tokens_in=0,
-                    tokens_out=0,
-                    provider_key_slot=key_slot,
-                    provider_backend="browseract",
-                    provider_account_name=account_name,
-                    upstream_model=model,
-                    latency_ms=max(0, latency_ms),
-                )
     if not errors:
         raise ResponsesUpstreamError("chatplayground_unavailable")
     _log_provider_selection(

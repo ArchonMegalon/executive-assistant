@@ -58,6 +58,8 @@ _CODEx_PROFILES = (
         "provider_hint_order": ("onemin",),
         "review_required": True,
         "needs_review": True,
+        "risk_labels": ["high_impact", "code_change"],
+        "merge_policy": "require_review",
     },
     {
         "profile": "easy",
@@ -66,6 +68,8 @@ _CODEx_PROFILES = (
         "provider_hint_order": ("magixai",),
         "review_required": False,
         "needs_review": False,
+        "risk_labels": ["low_impact", "assist"],
+        "merge_policy": "auto",
     },
     {
         "profile": "audit",
@@ -74,6 +78,8 @@ _CODEx_PROFILES = (
         "provider_hint_order": ("chatplayground",),
         "review_required": True,
         "needs_review": True,
+        "risk_labels": ["publish", "high_risk", "multi_view"],
+        "merge_policy": "require_review",
     },
 )
 
@@ -540,8 +546,10 @@ def _run_response(
 ) -> Response:
     request, parsed_input = _parse_create_request(request_payload)
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
+    profile_config: dict[str, object] | None = None
     if codex_profile:
-        codex_model = _codex_profile(codex_profile).get("model")
+        profile_config = _codex_profile(codex_profile)
+        codex_model = profile_config.get("model")
         if isinstance(codex_model, str) and codex_model:
             model = codex_model
 
@@ -565,7 +573,19 @@ def _run_response(
         "principal_id": context.principal_id,
     }
     if codex_profile:
-        response_metadata["codex_profile"] = codex_profile
+        response_metadata.update(
+            {
+                "codex_profile": codex_profile,
+                "codex_lane": profile_config.get("lane") if profile_config else None,
+                "codex_review_required": bool(profile_config.get("review_required")) if isinstance(profile_config, dict) else None,
+                "codex_needs_review": bool(profile_config.get("needs_review")) if isinstance(profile_config, dict) else None,
+                "codex_risk_labels": list(profile_config.get("risk_labels", [])) if isinstance(profile_config, dict) else None,
+                "codex_merge_policy": profile_config.get("merge_policy") if isinstance(profile_config, dict) else None,
+                "codex_provider_hint_order": list(profile_config.get("provider_hint_order", []))
+                if isinstance(profile_config, dict)
+                else None,
+            }
+        )
 
     if not stream:
         result = _generate_upstream_text(

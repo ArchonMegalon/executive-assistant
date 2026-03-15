@@ -383,7 +383,6 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
     from app.api.routes import responses
 
     calls: list[str] = []
-
     def fake_generate(
         *,
         prompt: str,
@@ -394,16 +393,29 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
         calls.append(requested_model)
         assert messages == [{"role": "user", "content": "lane-check"}]
         assert max_output_tokens is None
+        if requested_model == "ea-coder-hard":
+            provider_account = "ONEMIN_AI_API_KEY"
+            provider_key = "onemin"
+            provider_model = "gpt-5"
+        elif requested_model == "ea-coder-fast":
+            provider_account = "EA_RESPONSES_MAGICX_API_KEY"
+            provider_key = "magixai"
+            provider_model = "openai/gpt-5.1-codex-mini"
+        else:
+            provider_account = "BROWSERACT_API_KEY"
+            provider_key = "chatplayground"
+            provider_model = "judge-model"
         return UpstreamResult(
             text=f"handled-{requested_model}",
-            provider_key="onemin" if "ea-coder" in requested_model else "chatplayground",
-            model="gpt-5",
+            provider_key=provider_key,
+            model=provider_model,
             tokens_in=2,
             tokens_out=3,
-            provider_account_name="ONEMIN_AI_API_KEY" if "ea-coder" in requested_model else "BROWSERACT_API_KEY",
+            provider_account_name=provider_account,
         )
 
     monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
 
     core = client.post("/v1/codex/core", json={"input": "lane-check"})
     easy = client.post("/v1/codex/easy", json={"input": "lane-check"})
@@ -419,8 +431,17 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
     assert core.json()["metadata"]["codex_profile"] == "core"
     assert easy.json()["metadata"]["codex_profile"] == "easy"
     assert audit.json()["metadata"]["codex_profile"] == "audit"
+    assert core.json()["metadata"]["codex_lane"] == "hard"
+    assert easy.json()["metadata"]["codex_lane"] == "fast"
+    assert audit.json()["metadata"]["codex_lane"] == "audit"
+    assert core.json()["metadata"]["codex_review_required"] is True
+    assert easy.json()["metadata"]["codex_review_required"] is False
+    assert audit.json()["metadata"]["codex_review_required"] is True
+    assert core.json()["metadata"]["codex_merge_policy"] == "require_review"
+    assert easy.json()["metadata"]["codex_merge_policy"] == "auto"
+    assert audit.json()["metadata"]["codex_merge_policy"] == "require_review"
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
-    assert easy.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+    assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
 

@@ -9,6 +9,7 @@ Updated: 2026-03-15
 - `Tier 1`: actively wired into the local workspace/runtime and ready for operational use
 - `Tier 2`: owned and partially wired, referenced, or intentionally parked in the local workspace
 - `Tier 3`: owned and tracked, but no active local workspace integration yet
+- `Tier 4`: credential captured in local environment, but no active runtime lane or account verification yet
 
 ## Non-AppSumo / Other LTDs
 
@@ -17,6 +18,7 @@ Updated: 2026-03-15
 | `1min.AI` | `Advanced Business Plan` | `3 licenses / 3 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Chummer6 guide prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for the Chummer6 guide pipeline; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 1` | `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Routed as a gated secondary lane for short/overflow paths and audit support where 1min capacity is constrained. |
 | `Browserly` | `Plan pending verification` | `1 account` | `Owned` |  | `Tier 2` | EA provider-registry catalog hint, Browserly env placeholders, and media-factory vendor-map reservation | Tracked as a browser-assisted capture/reference vendor; exact deal tier and account facts still need verification before runtime promotion. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
@@ -45,7 +47,7 @@ Updated: 2026-03-15
 
 ## Summary
 
-- `23` total LTD products tracked
+- `24` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`3 licenses / 3 accounts`)
 
@@ -58,6 +60,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `1min.AI` |  | `manual_seeded` | `local_env` |  | API-key rotation slots exist locally; account emails are still not documented here. |
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local Chummer6 prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
 | `AI Magicx` |  | `missing` | `manual_inventory` |  | Local Chummer6 render wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `Browserly` |  | `missing` | `manual_inventory` |  | Deal/account facts still need verification; Browserly is reserved as a browser-assisted capture/reference vendor. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
