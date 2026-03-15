@@ -229,10 +229,14 @@ def _chatplayground_request_urls() -> tuple[str, ...]:
         _add_url(url)
 
     if base_url:
-        _add_url(base_url)
         parsed = urlparse(base_url)
+        if not parsed.scheme:
+            parsed = urlparse(f"https://{base_url}")
         if parsed.netloc:
             parsed_path = (parsed.path or "").rstrip("/")
+            netloc = parsed.netloc
+
+            # Prefer API endpoints first; keep raw page URL as fallback.
             api_prefixes = (
                 "/api/chat/lmsys",
                 "/api/chat",
@@ -241,21 +245,21 @@ def _chatplayground_request_urls() -> tuple[str, ...]:
                 "/api/v1/chat/completions",
             )
             for suffix in api_prefixes:
-                candidate = urlunparse(
-                    (
-                        parsed.scheme or "https",
-                        parsed.netloc,
-                        f"{parsed_path}{suffix}",
-                        "",
-                        "",
-                        "",
-                    )
-                )
-                _add_url(candidate)
+                if not parsed_path or parsed_path == "/":
+                    candidate_path = suffix
+                elif parsed_path.startswith(suffix):
+                    candidate_path = parsed_path
+                else:
+                    candidate_path = f"{parsed_path}{suffix}"
+                _add_url(urlunparse((parsed.scheme or "https", netloc, candidate_path, "", "", "")))
 
-            if "web.chatplayground.ai" in parsed.netloc.lower() and "app." not in parsed.netloc.lower():
+            _add_url(base_url)
+
+            if parsed.netloc.lower() == "web.chatplayground.ai":
                 _add_url("https://app.chatplayground.ai/api/chat/lmsys")
                 _add_url("https://app.chatplayground.ai/api/v1/chat/lmsys")
+        else:
+            _add_url(base_url)
 
     if not custom_urls and not base_url:
         _add_url("https://app.chatplayground.ai/api/chat/lmsys")
