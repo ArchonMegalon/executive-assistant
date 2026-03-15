@@ -93,6 +93,14 @@ class _ResponsesCreateRequest(BaseModel):
     metadata: dict[str, object] | None = None
     max_output_tokens: int | None = None
     stream: bool = False
+    tools: list[dict[str, object]] | None = None
+    tool_choice: Any | None = None
+    parallel_tool_calls: bool | None = None
+    reasoning: Any | None = None
+    store: bool | None = None
+    include: list[str] | None = None
+    service_tier: str | None = None
+    prompt_cache_key: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -361,6 +369,33 @@ def _metadata(payload: _ResponsesCreateRequest) -> dict[str, object]:
     return {}
 
 
+def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
+    accepted: list[str] = []
+    if payload.tools:
+        accepted.append("tools")
+    if payload.tool_choice is not None:
+        accepted.append("tool_choice")
+    if payload.parallel_tool_calls is not None:
+        accepted.append("parallel_tool_calls")
+    if payload.reasoning is not None:
+        accepted.append("reasoning")
+    if payload.store is not None:
+        accepted.append("store")
+    if payload.include:
+        accepted.append("include")
+    if payload.service_tier:
+        accepted.append("service_tier")
+    if payload.prompt_cache_key:
+        accepted.append("prompt_cache_key")
+    return accepted
+
+
+def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
+    # Keep OpenAI-compatible default behavior (`store=true` by default), but
+    # respect explicit opt-out from clients that do not want retrieval state.
+    return payload.store is not False
+
+
 def _codex_profile(profile: str) -> dict[str, object]:
     for item in _CODEx_PROFILES:
         if item["profile"] == profile:
@@ -597,6 +632,7 @@ def _run_response(
     metadata = _metadata(request)
     stream = bool(request.stream)
     instructions = request.instructions.strip() if isinstance(request.instructions, str) else None
+    accepted_client_fields = _accepted_client_fields(request)
 
     messages: list[dict[str, str]] = []
     if instructions:
@@ -612,6 +648,8 @@ def _run_response(
         **metadata,
         "principal_id": context.principal_id,
     }
+    if accepted_client_fields:
+        response_metadata["accepted_client_fields"] = accepted_client_fields
     if codex_profile:
         response_metadata.update(
             {
@@ -661,12 +699,13 @@ def _run_response(
             instructions=instructions,
             input_items=parsed_input.input_items,
         )
-        _store_response(
-            response_id=response_id,
-            response_obj=response_obj,
-            input_items=parsed_input.input_items,
-            principal_id=context.principal_id,
-        )
+        if _should_store_response(request):
+            _store_response(
+                response_id=response_id,
+                response_obj=response_obj,
+                input_items=parsed_input.input_items,
+                principal_id=context.principal_id,
+            )
         return JSONResponse(response_obj)
 
     def _iter_stream() -> Iterable[str]:
@@ -765,12 +804,13 @@ def _run_response(
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
             )
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=parsed_input.input_items,
-                principal_id=context.principal_id,
-            )
+            if _should_store_response(request):
+                _store_response(
+                    response_id=response_id,
+                    response_obj=failed_obj,
+                    input_items=parsed_input.input_items,
+                    principal_id=context.principal_id,
+                )
             yield _sse_event(
                 event="response.failed",
                 sequence=_next_sequence(),
@@ -799,12 +839,13 @@ def _run_response(
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
             )
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=parsed_input.input_items,
-                principal_id=context.principal_id,
-            )
+            if _should_store_response(request):
+                _store_response(
+                    response_id=response_id,
+                    response_obj=failed_obj,
+                    input_items=parsed_input.input_items,
+                    principal_id=context.principal_id,
+                )
             yield _sse_event(
                 event="response.failed",
                 sequence=_next_sequence(),
@@ -896,12 +937,13 @@ def _run_response(
             instructions=instructions,
             input_items=parsed_input.input_items,
         )
-        _store_response(
-            response_id=response_id,
-            response_obj=completed_obj,
-            input_items=parsed_input.input_items,
-            principal_id=context.principal_id,
-        )
+        if _should_store_response(request):
+            _store_response(
+                response_id=response_id,
+                response_obj=completed_obj,
+                input_items=parsed_input.input_items,
+                principal_id=context.principal_id,
+            )
 
         yield _sse_event(
             event="response.completed",
