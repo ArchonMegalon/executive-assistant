@@ -53,6 +53,50 @@ Then open `http://localhost:8090/health`.
 
 - `app.main` exposes a FastAPI app
 - `/health`, `/health/live`, `/health/ready`, `/version` provide liveness/readiness/version probes
+- Codex provider compatibility façade:
+  - `GET /v1/models`
+  - `POST /v1/responses`
+  - `GET /v1/responses/{response_id}`
+  - `GET /v1/responses/{response_id}/input_items`
+  - `GET /v1/responses/_provider_health`
+  - `GET /v1/codex/profiles` for lane/provider health and account attribution
+  - `POST /v1/codex/core` (hard lane, forced `ea-coder-hard`)
+  - `POST /v1/codex/easy` (fast lane, forced `ea-coder-fast`)
+  - `POST /v1/codex/audit` (jury lane, forced `ea-audit-jury`)
+  - stream mode via `Accept: text/event-stream`
+
+### Codex Configuration Example
+
+```toml
+model = "ea-coder-best"
+model_provider = "ea"
+
+[model_providers.ea]
+name = "Executive Assistant"
+base_url = "http://ea-host:8090/v1"
+wire_api = "responses"
+env_key = "EA_API_TOKEN"
+env_http_headers = { "X-EA-Principal-ID" = "EA_PRINCIPAL_ID" }
+stream_idle_timeout_ms = 300000
+stream_max_retries = 5
+```
+
+If your Codex deployment prefers `x-api-token` for auth instead of bearer, add this style:
+
+```toml
+model = "ea-coder-best"
+model_provider = "ea"
+
+[model_providers.ea]
+name = "Executive Assistant"
+base_url = "http://ea-host:8090/v1"
+wire_api = "responses"
+env_key = "EA_API_TOKEN"
+env_http_headers = { "x-api-token" = "EA_API_TOKEN", "X-EA-Principal-ID" = "EA_PRINCIPAL_ID" }
+stream_idle_timeout_ms = 300000
+stream_max_retries = 5
+```
+
 - `/v1/rewrite/artifact` creates an artifact and an execution session
 - `/v1/rewrite/artifacts/{artifact_id}` fetches persisted artifact content directly from the durable artifact store, including explicit `principal_id` ownership plus the originating task key and deliverable type for non-rewrite runs alongside `mime_type`, `preview_text`, a stable `storage_handle`, durable `body_ref`, and structured attachment metadata
 - `/v1/rewrite/receipts/{receipt_id}` and `/v1/rewrite/run-costs/{cost_id}` expose direct execution proof records without requiring full session expansion, including originating task identity for non-rewrite runs
@@ -73,6 +117,8 @@ Then open `http://localhost:8090/health`.
 - `/v1/tools/registry*` manages typed tool contracts (`tool_name`, schemas, policy metadata)
 - `/v1/tools/execute` runs built-in tool handlers through the shared execution plane, including `browseract.extract_account_facts` and `browseract.extract_account_inventory` for BrowserAct-backed LTD discovery plus `connector.dispatch` for queued sends
 - `/v1/connectors/bindings*` manages external connector bindings and status transitions
+- `/v1/providers/bindings*` manages persisted principal-scoped provider bindings, status transitions, and probe evidence updates
+- `/v1/providers/states*` projects effective provider routing posture (catalog defaults + persisted binding/probe health state)
 - `/v1/tasks/contracts*` manages typed task contracts used by intent compilation
 - `/v1/skills*` promotes those task contracts into product-facing executive skills with explicit workflow, memory, authority, provider-hint, human-policy, and evaluation metadata, including the Gemini Vortex-backed `chummer6_public_writer` lane for audience-safe guide copy, the Gemini Vortex-backed `chummer6_visual_director` lane for style-epoch and scene-ledger-driven image direction, the BrowserAct-backed `browseract_bootstrap_manager` lane for on-demand workflow-spec generation across prompt-tool and page-extract templates, and the Gemini-assisted `browseract_workflow_repair_manager` lane for self-healing broken BrowserAct specs
 - `/v1/plans/compile` emits a typed plan DSL projection from task contracts, projects the resolved `skill_key`, and now accepts either `task_key` or `skill_key` as the entrypoint selector

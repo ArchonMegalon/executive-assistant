@@ -63,6 +63,11 @@ def test_responses_non_stream_returns_response_object(monkeypatch: pytest.Monkey
     assert body["metadata"]["principal_id"] == "codex-test"
     assert body["metadata"]["upstream_provider"] == "magixai"
     assert body["metadata"]["upstream_model"] == "anthropic/claude-3.5-sonnet"
+    assert "store" not in body
+    assert "parallel_tool_calls" not in body
+    assert "tool_choice" not in body
+    assert "tools" not in body
+    assert "previous_response_id" not in body
 
 
 def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,7 +146,41 @@ def test_models_list_returns_responses_aliases() -> None:
     model_ids = {item["id"] for item in body["data"]}
     assert "ea-coder-best" in model_ids
     assert "ea-magicx-coder" in model_ids
+    assert "ea-audit-jury" in model_ids
+    assert "ea-audit" in model_ids
     assert "ea-onemin-coder" in model_ids
+
+
+def test_responses_openapi_publishes_explicit_request_and_response_schema() -> None:
+    client = _client(principal_id="codex-test")
+
+    openapi = client.get("/openapi.json")
+    assert openapi.status_code == 200
+    body = openapi.json()
+    post_op = body["paths"]["/v1/responses"]["post"]
+
+    request_schema = post_op["requestBody"]["content"]["application/json"]["schema"]
+    assert request_schema["type"] == "object"
+    assert request_schema["additionalProperties"] is False
+    assert set(request_schema["properties"].keys()) == {
+        "model",
+        "input",
+        "instructions",
+        "metadata",
+        "max_output_tokens",
+        "stream",
+    }
+
+    json_response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "$ref" in json_response_schema
+    response_schema_name = json_response_schema["$ref"].split("/")[-1]
+    response_props = body["components"]["schemas"][response_schema_name]["properties"]
+    assert "store" not in response_props
+    assert "parallel_tool_calls" not in response_props
+    assert "tool_choice" not in response_props
+    assert "tools" not in response_props
+    assert "previous_response_id" not in response_props
+    assert "text/event-stream" in post_op["responses"]["200"]["content"]
 
 
 def test_responses_forwards_max_output_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,3 +270,335 @@ def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatc
 
     assert resp.status_code == 200
     assert resp.json()["output_text"] == "ok"
+
+
+@pytest.mark.parametrize("store_value", [True, False])
+def test_responses_rejects_store_field(store_value: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(*_, **__) -> None:
+        raise RuntimeError("should_not_run")
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post("/v1/responses", json={"input": "say hi", "store": store_value})
+    assert resp.status_code == 400
+    assert "unsupported_fields:store" in resp.text
+
+
+def test_responses_rejects_unsupported_top_level_fields() -> None:
+    client = _client(principal_id="codex-test")
+
+    resp = client.post(
+        "/v1/responses",
+        json={"input": "say hi", "conversation": "ignored", "parallel_tool_calls": False},
+    )
+    assert resp.status_code == 400
+    assert "unsupported_fields" in resp.text
+
+
+def test_responses_rejects_more_unsupported_top_level_fields() -> None:
+    client = _client(principal_id="codex-test")
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "input": "say hi",
+            "previous_response_id": "resp_prev",
+            "tools": [],
+            "tool_choice": "auto",
+            "background": True,
+        },
+    )
+    assert resp.status_code == 400
+    assert "unsupported_fields" in resp.text
+
+
+def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "input": [
+                {"type": "input_image", "url": "https://example.invalid/image.png"},
+            ],
+        },
+    )
+    assert resp.status_code == 400
+    assert "unsupported_input_item" in resp.text or "unsupported_input_part_type" in resp.text
+
+
+def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        return UpstreamResult(
+            text="stored output",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=2,
+            tokens_out=3,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post(
+        "/v1/responses",
+        json={"input": "snapshot", "instructions": "keep concise"},
+    )
+    assert created.status_code == 200
+    response_id = created.json()["id"]
+
+    fetched = client.get(f"/v1/responses/{response_id}")
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["id"] == response_id
+    assert fetched_body["instructions"] == "keep concise"
+    assert "store" not in fetched_body
+    assert "parallel_tool_calls" not in fetched_body
+
+    items = client.get(f"/v1/responses/{response_id}/input_items")
+    assert items.status_code == 200
+    items_body = items.json()
+    assert items_body["object"] == "list"
+    assert items_body["response_id"] == response_id
+    assert items_body["data"] == [{"type": "input_text", "text": "snapshot"}]
+
+    other_client = _client(principal_id="other-principal")
+    forbidden = other_client.get(f"/v1/responses/{response_id}")
+    assert forbidden.status_code == 403
+
+
+def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-profile")
+    from app.api.routes import responses
+
+    calls: list[str] = []
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        calls.append(requested_model)
+        assert messages == [{"role": "user", "content": "lane-check"}]
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text=f"handled-{requested_model}",
+            provider_key="onemin" if "ea-coder" in requested_model else "chatplayground",
+            model="gpt-5",
+            tokens_in=2,
+            tokens_out=3,
+            provider_account_name="ONEMIN_AI_API_KEY" if "ea-coder" in requested_model else "BROWSERACT_API_KEY",
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    core = client.post("/v1/codex/core", json={"input": "lane-check"})
+    easy = client.post("/v1/codex/easy", json={"input": "lane-check"})
+    audit = client.post(
+        "/v1/codex/audit",
+        json={"input": "lane-check"},
+    )
+
+    assert core.status_code == 200
+    assert easy.status_code == 200
+    assert audit.status_code == 200
+    assert calls == ["ea-coder-hard", "ea-coder-fast", "ea-audit-jury"]
+    assert core.json()["metadata"]["codex_profile"] == "core"
+    assert easy.json()["metadata"]["codex_profile"] == "easy"
+    assert audit.json()["metadata"]["codex_profile"] == "audit"
+    assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+    assert easy.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+    assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
+
+
+def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-profile")
+
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    response = client.get("/v1/codex/profiles")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profiles"][0]["lane"] == "hard"
+    assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
+    assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == "ONEMIN_AI_API_KEY"
+    assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == "BROWSERACT_API_KEY"
+
+
+def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health")
+    from app.services import responses_upstream as upstream
+    from app.api.routes import responses
+
+    upstream._test_reset_onemin_states()
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "health-key-a")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "health-key-b")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "health-key-c")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
+    monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
+    monkeypatch.setattr(responses, "_generate_upstream_text", lambda **_: None)
+
+    response = client.get("/v1/responses/_provider_health")
+    assert response.status_code == 200
+    body = response.json()
+
+    providers = body["providers"]
+    assert providers["onemin"]["configured_slots"] == 3
+    assert len(providers["onemin"]["slots"]) == 3
+    assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
+        "primary",
+        "fallback_1",
+        "fallback_2",
+    ]
+    assert providers["chatplayground"]["provider_key"] == "chatplayground"
+    assert providers["chatplayground"]["backend"] == "browseract"
+    assert providers["chatplayground"]["configured_slots"] == 2
+    assert [slot["slot"] for slot in providers["chatplayground"]["slots"]] == [
+        "primary",
+        "fallback_1",
+    ]
+    assert [slot["account_name"] for slot in providers["chatplayground"]["slots"]] == [
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
+    ]
+    assert providers["magixai"]["configured_slots"] == 1
+    assert providers["magixai"]["state"] in {"ready", "unknown", "degraded"}
+
+
+def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_CHECK", "1")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "expired-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        calls.append((url, headers["Authorization"]))
+        return (401, {"error": "invalid api key"})
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    failed = client.post("/v1/responses", json={"model": "ea-magicx-coder", "input": "probe now"})
+    assert failed.status_code == 502
+    assert calls
+
+    health = client.get("/v1/responses/_provider_health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["providers"]["magixai"]["state"] == "degraded"
+
+
+def test_stream_events_include_sequence_number_and_failed_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(*_, **__) -> None:
+        raise RuntimeError("upstream_failure")
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    with client.stream("POST", "/v1/responses", json={"input": "stream", "stream": True}) as resp:
+        assert resp.status_code == 200
+        body = "".join(resp.iter_text())
+
+    assert "event: response.failed" in body
+    assert "event: error" in body
+    assert '\"sequence_number\":1' in body
+    assert '\"sequence_number\":2' in body
+    assert '\"sequence_number\":3' in body
+
+
+def test_end_to_end_responses_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-endpoint")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        if prompt == "sync check":
+            assert messages == [{"role": "system", "content": "audit first"}, {"role": "user", "content": "sync check"}]
+            assert max_output_tokens == 42
+        else:
+            assert prompt == "stream check"
+            assert messages == [{"role": "user", "content": "stream check"}]
+            assert max_output_tokens is None
+        assert requested_model == "ea-coder-best"
+        return UpstreamResult(
+            text="contract-ok",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=3,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    models = client.get("/v1/models")
+    assert models.status_code == 200
+    model_ids = {item["id"] for item in models.json()["data"]}
+    assert "ea-coder-best" in model_ids
+
+    created = client.post(
+        "/v1/responses",
+        json={"model": "ea-coder-best", "instructions": "audit first", "input": "sync check", "max_output_tokens": 42},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "completed"
+    assert body["instructions"] == "audit first"
+    assert body["output_text"] == "contract-ok"
+    response_id = body["id"]
+
+    read = client.get(f"/v1/responses/{response_id}")
+    assert read.status_code == 200
+    assert read.json()["metadata"]["principal_id"] == "codex-endpoint"
+
+    items = client.get(f"/v1/responses/{response_id}/input_items")
+    assert items.status_code == 200
+    assert items.json()["data"] == [{"type": "input_text", "text": "sync check"}]
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "ea-coder-best",
+            "input": "stream check",
+            "stream": True,
+        },
+    ) as streaming:
+        assert streaming.status_code == 200
+        stream_body = "".join(streaming.iter_text())
+
+    assert "event: response.created" in stream_body
+    assert "event: response.completed" in stream_body
+    assert "event: response.failed" not in stream_body
