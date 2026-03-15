@@ -988,6 +988,7 @@ class BrowserActToolAdapter:
             or binding_metadata.get("chatplayground_run_url")
             or binding_metadata.get("browseract_run_url")
             or binding_metadata.get("run_url")
+            or os.environ.get("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/").strip()
             or "https://web.chatplayground.ai/"
         ).strip()
         roles = [str(entry) for entry in (payload.get("roles") or ("factuality", "adversarial", "completeness", "risk")) if str(entry).strip()]

@@ -643,5 +643,21 @@ def test_generate_text_routes_audit_lane_to_chatplayground(monkeypatch: pytest.M
     assert result.provider_account_name == "BROWSERACT_API_KEY"
     assert result.model == "judge-model"
     assert "consensus" in result.text
-    assert calls[0][0] == "https://web.chatplayground.ai/"
+    assert calls[0][0] == "https://web.chatplayground.ai/api/chat/lmsys"
     assert calls[0][1]["Authorization"] == "Bearer judge-key"
+
+
+def test_chatplayground_request_urls_prefers_web_with_app_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/")
+    monkeypatch.delenv("EA_RESPONSES_CHATPLAYGROUND_URLS", raising=False)
+
+    urls = upstream._chatplayground_request_urls()
+
+    assert urls[0] == "https://web.chatplayground.ai/api/chat/lmsys"
+    assert urls[1] == "https://web.chatplayground.ai/api/chat"
+    assert "https://app.chatplayground.ai/api/chat/lmsys" in urls
+    assert "https://app.chatplayground.ai/api/v1/chat/lmsys" in urls
+    assert urls[-1] in {
+        "https://app.chatplayground.ai/api/v1/chat/lmsys",
+        "https://app.chatplayground.ai/",
+    }
