@@ -6,6 +6,7 @@ import shutil
 from dataclasses import dataclass
 
 from app.domain.models import ProviderBindingState, SkillContract
+from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -52,7 +53,11 @@ class CapabilityRoute:
 
 
 class ProviderRegistryService:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        provider_binding_repo: ProviderBindingRepository | None = None,
+    ) -> None:
+        self._provider_binding_repo = provider_binding_repo
         self._bindings = (
             ProviderBinding(
                 provider_key="artifact_repository",
@@ -224,6 +229,191 @@ class ProviderRegistryService:
             ),
         )
 
+    def _normalize_principal_id(self, principal_id: str | None) -> str:
+        return str(principal_id or "").strip()
+
+    def _get_binding_record(
+        self,
+        principal_id: str | None,
+        provider_key: str,
+    ) -> ProviderBindingRecord | None:
+        if self._provider_binding_repo is None:
+            return None
+        normalized_principal = self._normalize_principal_id(principal_id)
+        if not normalized_principal:
+            return None
+        normalized_provider = self._normalize_provider_key(provider_key)
+        if not normalized_provider:
+            return None
+        try:
+            return self._provider_binding_repo.get_for_provider(
+                principal_id=normalized_principal,
+                provider_key=normalized_provider,
+            )
+        except Exception:
+            return None
+
+    def _list_binding_records(
+        self,
+        principal_id: str | None,
+    ) -> tuple[ProviderBindingRecord, ...]:
+        if self._provider_binding_repo is None:
+            return ()
+        normalized_principal = self._normalize_principal_id(principal_id)
+        if not normalized_principal:
+            return ()
+        try:
+            return tuple(self._provider_binding_repo.list_for_principal(normalized_principal))
+        except Exception:
+            return ()
+
+    def supports_persisted_bindings(self) -> bool:
+        return self._provider_binding_repo is not None
+
+    def upsert_binding_record(
+        self,
+        *,
+        principal_id: str,
+        provider_key: str,
+        status: str = "enabled",
+        priority: int = 100,
+        probe_state: str = "unknown",
+        probe_details_json: dict[str, object] | None = None,
+        scope_json: dict[str, object] | None = None,
+        auth_metadata_json: dict[str, object] | None = None,
+    ) -> ProviderBindingRecord:
+        if self._provider_binding_repo is None:
+            raise ToolExecutionError("provider_binding_repo_unavailable")
+        principal = self._normalize_principal_id(principal_id)
+        provider = self._normalize_provider_key(provider_key)
+        if not principal:
+            raise ToolExecutionError("principal_id_required")
+        if not provider:
+            raise ToolExecutionError("provider_key_required")
+        return self._provider_binding_repo.upsert(
+            principal_id=principal,
+            provider_key=provider,
+            status=str(status or "enabled").strip().lower() or "enabled",
+            priority=int(priority or 100),
+            probe_state=str(probe_state or "unknown").strip() or "unknown",
+            probe_details_json=dict(probe_details_json or {}),
+            scope_json=dict(scope_json or {}),
+            auth_metadata_json=dict(auth_metadata_json or {}),
+        )
+
+    def list_persisted_binding_records(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 100,
+    ) -> tuple[ProviderBindingRecord, ...]:
+        if self._provider_binding_repo is None:
+            return ()
+        principal = self._normalize_principal_id(principal_id)
+        if not principal:
+            return ()
+        bounded_limit = max(1, min(500, int(limit or 100)))
+        return tuple(self._provider_binding_repo.list_for_principal(principal, limit=bounded_limit))
+
+    def get_persisted_binding_record(
+        self,
+        *,
+        binding_id: str,
+        principal_id: str | None = None,
+    ) -> ProviderBindingRecord | None:
+        if self._provider_binding_repo is None:
+            return None
+        normalized_binding_id = str(binding_id or "").strip()
+        if not normalized_binding_id:
+            return None
+        record = self._provider_binding_repo.get(normalized_binding_id)
+        if record is None:
+            return None
+        if principal_id and self._normalize_principal_id(principal_id) != record.principal_id:
+            return None
+        return record
+
+    def set_persisted_binding_status(
+        self,
+        *,
+        binding_id: str,
+        status: str,
+        principal_id: str | None = None,
+    ) -> ProviderBindingRecord | None:
+        if self._provider_binding_repo is None:
+            return None
+        existing = self.get_persisted_binding_record(binding_id=binding_id, principal_id=principal_id)
+        if existing is None:
+            return None
+        return self._provider_binding_repo.set_status(
+            existing.binding_id,
+            str(status or existing.status).strip().lower() or existing.status,
+        )
+
+    def set_persisted_binding_probe(
+        self,
+        *,
+        binding_id: str,
+        probe_state: str,
+        probe_details_json: dict[str, object] | None = None,
+        principal_id: str | None = None,
+    ) -> ProviderBindingRecord | None:
+        if self._provider_binding_repo is None:
+            return None
+        existing = self.get_persisted_binding_record(binding_id=binding_id, principal_id=principal_id)
+        if existing is None:
+            return None
+        return self._provider_binding_repo.set_probe(
+            existing.binding_id,
+            str(probe_state or "unknown").strip() or "unknown",
+            dict(probe_details_json or {}),
+        )
+
+    def _provider_state_value(self, binding: ProviderBinding, record: ProviderBindingRecord | None) -> str:
+        auth_mode = self._auth_mode(binding)
+        secret_env_names = self._secret_env_names(binding.provider_key)
+        secret_configured = self._secret_configured(binding)
+        if record is None:
+            if binding.executable and secret_configured:
+                return "ready"
+            if secret_configured:
+                return "configured"
+            if binding.executable:
+                return "unconfigured"
+            return "catalog_only"
+
+        status = str(record.status or "").strip().lower()
+        if status == "disabled":
+            return "disabled"
+        if status == "maintenance":
+            return "maintenance"
+        if status in {"ready", "degraded"}:
+            return status
+
+        if auth_mode == "internal":
+            return "ready" if status != "disabled" else "disabled"
+        if auth_mode == "cli":
+            return "ready" if status == "enabled" else status
+        if status == "enabled":
+            if binding.executable and secret_configured:
+                return "ready"
+            if binding.executable:
+                return "unconfigured"
+            if secret_configured:
+                return "configured"
+            return "catalog_only"
+        if status == "configured":
+            return "configured"
+        if status == "degraded":
+            return "degraded"
+        return "catalog_only" if not binding.executable else "unconfigured"
+
+    @staticmethod
+    def _to_state_bool(record: ProviderBindingRecord | None, *, fallback: bool) -> bool:
+        if record is None:
+            return fallback
+        return str(record.status or "").strip().lower() == "enabled"
+
     def list_bindings(self) -> tuple[ProviderBinding, ...]:
         return self._bindings
 
@@ -234,7 +424,12 @@ class ProviderRegistryService:
             "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
             "magixai": ("AI_MAGICX_API_KEY",),
             "markupgo": ("MARKUPGO_API_KEY",),
-            "onemin": ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+            "onemin": (
+                "ONEMIN_AI_API_KEY",
+                "ONEMIN_AI_API_KEY_FALLBACK_1",
+                "ONEMIN_AI_API_KEY_FALLBACK_2",
+                "ONEMIN_AI_API_KEY_FALLBACK_3",
+            ),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
             "unmixr": ("UNMIXR_API_KEY",),
@@ -261,7 +456,11 @@ class ProviderRegistryService:
             return bool(shutil.which(executable))
         return any(str(os.environ.get(name) or "").strip() for name in self._secret_env_names(binding.provider_key))
 
-    def binding_state(self, provider_key: str) -> ProviderBindingState | None:
+    def binding_state(
+        self,
+        provider_key: str,
+        principal_id: str | None = None,
+    ) -> ProviderBindingState | None:
         normalized = self._normalize_provider_key(provider_key)
         for binding in self._bindings:
             if binding.provider_key != normalized:
@@ -269,19 +468,23 @@ class ProviderRegistryService:
             auth_mode = self._auth_mode(binding)
             secret_env_names = self._secret_env_names(binding.provider_key)
             secret_configured = self._secret_configured(binding)
-            if binding.executable and secret_configured:
-                state = "ready"
-            elif secret_configured:
-                state = "configured"
-            elif binding.executable:
-                state = "unconfigured"
+            record = self._get_binding_record(principal_id=principal_id, provider_key=normalized)
+            if record is not None:
+                status = str(record.status or "disabled").strip().lower()
+                if not status:
+                    status = "disabled"
             else:
-                state = "catalog_only"
+                status = self._provider_state_value(binding, None)
+                if status in {"ready", "configured", "unconfigured", "catalog_only"}:
+                    status = "enabled" if secret_configured or binding.executable else "catalog_only"
+                status = str(status)
+
+            state = self._provider_state_value(binding, record)
             return ProviderBindingState(
                 provider_key=binding.provider_key,
                 display_name=binding.display_name,
                 executable=binding.executable,
-                enabled=secret_configured or binding.executable,
+                enabled=self._to_state_bool(record, fallback=secret_configured or binding.executable),
                 source=binding.source,
                 auth_mode=auth_mode,
                 secret_env_names=secret_env_names,
@@ -289,16 +492,31 @@ class ProviderRegistryService:
                 capabilities=tuple(capability.capability_key for capability in binding.capabilities),
                 tool_names=tuple(capability.tool_name for capability in binding.capabilities),
                 state=state,
-                health_state="ready" if state == "ready" else "unknown",
+                status=status,
+                priority=record.priority if record is not None else 100,
+                binding_id=record.binding_id if record is not None else "",
+                health_state=str(record.probe_state or "unknown") if record is not None else "unknown",
+                health_details_json=dict(record.probe_details_json or {})
+                if record is not None
+                else {},
+                updated_at=record.updated_at if record is not None else "",
             )
         return None
 
-    def list_binding_states(self) -> tuple[ProviderBindingState, ...]:
+    def list_binding_states(self, principal_id: str | None = None) -> tuple[ProviderBindingState, ...]:
         states: list[ProviderBindingState] = []
         for binding in self._bindings:
-            state = self.binding_state(binding.provider_key)
+            state = self.binding_state(binding.provider_key, principal_id=principal_id)
             if state is not None:
                 states.append(state)
+
+        for record in self._list_binding_records(principal_id=principal_id):
+            normalized_provider = self._normalize_provider_key(record.provider_key)
+            if any(state.provider_key == normalized_provider for state in states):
+                continue
+            synthetic = self.binding_state(normalized_provider, principal_id=principal_id)
+            if synthetic is not None:
+                states.append(synthetic)
         return tuple(states)
 
     def knows_tool(self, tool_name: str) -> bool:
@@ -340,6 +558,7 @@ class ProviderRegistryService:
         provider_hints: tuple[str, ...] = (),
         allowed_tools: tuple[str, ...] = (),
         require_executable: bool = True,
+        principal_id: str | None = None,
     ) -> CapabilityRoute:
         normalized_capability = self._normalize_capability_key(capability_key)
         if not normalized_capability:
@@ -359,6 +578,9 @@ class ProviderRegistryService:
         candidate_bindings = sorted(self._bindings, key=_binding_score)
         for binding in candidate_bindings:
             if require_executable and not binding.executable:
+                continue
+            record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
+            if record is not None and str(record.status or "").strip().lower() == "disabled":
                 continue
             for capability in binding.capabilities:
                 if self._normalize_capability_key(capability.capability_key) != normalized_capability:
@@ -386,6 +608,9 @@ class ProviderRegistryService:
                 if not capability.executable:
                     continue
                 if capability.tool_name == normalized_tool:
+                    record = self._get_binding_record(principal_id=None, provider_key=binding.provider_key)
+                    if record is not None and str(record.status or "").strip().lower() == "disabled":
+                        continue
                     return CapabilityRoute(
                         provider_key=binding.provider_key,
                         capability_key=capability.capability_key,
@@ -393,6 +618,51 @@ class ProviderRegistryService:
                         executable=True,
                     )
         raise ToolExecutionError(f"provider_tool_unavailable:{normalized_tool}")
+
+    def route_tool_with_context(
+        self,
+        tool_name: str,
+        *,
+        principal_id: str | None = None,
+    ) -> CapabilityRoute:
+        normalized_tool = str(tool_name or "").strip()
+        if not normalized_tool:
+            raise ToolExecutionError("tool_name_required")
+        for binding in self._bindings:
+            if not binding.executable:
+                continue
+            for capability in binding.capabilities:
+                if not capability.executable:
+                    continue
+                if capability.tool_name != normalized_tool:
+                    continue
+                record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
+                if record is not None and str(record.status or "").strip().lower() == "disabled":
+                    continue
+                return CapabilityRoute(
+                    provider_key=binding.provider_key,
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                    executable=capability.executable,
+                )
+        raise ToolExecutionError(f"provider_tool_unavailable:{normalized_tool}")
+
+    def route_tool_by_capability_with_context(
+        self,
+        *,
+        capability_key: str,
+        principal_id: str | None = None,
+        provider_hints: tuple[str, ...] = (),
+        allowed_tools: tuple[str, ...] = (),
+        require_executable: bool = True,
+    ) -> CapabilityRoute:
+        return self.route_tool_by_capability(
+            capability_key=capability_key,
+            provider_hints=provider_hints,
+            allowed_tools=allowed_tools,
+            require_executable=require_executable,
+            principal_id=principal_id,
+        )
 
     def _normalize_capability_key(self, value: object) -> str:
         normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -423,6 +693,7 @@ class ProviderRegistryService:
             "1min.ai": "onemin",
             "1min_ai": "onemin",
             "ai_magicx": "magixai",
+            "magicxai": "magixai",
             "aimagicx": "magixai",
             "browserly.ai": "browserly",
             "browsely": "browserly",
