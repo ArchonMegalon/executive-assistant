@@ -53,6 +53,11 @@ def test_normalize_provider_aliases_for_magicx_candidates(monkeypatch: pytest.Mo
 def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
         (config.provider_key, model)
@@ -64,12 +69,36 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
 def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL_ALIAS)
     ]
     assert candidates == [("chatplayground", "judge-model")]
+
+
+def test_audit_model_candidates_include_onemin_if_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "deepseek-chat")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-fallback")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
+    ]
+    assert candidates == [
+        ("chatplayground", "judge-model"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
+    ]
 
 
 def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
