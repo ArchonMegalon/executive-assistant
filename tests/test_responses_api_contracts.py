@@ -378,6 +378,70 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     assert forbidden.status_code == 403
 
 
+def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-profile")
+    from app.api.routes import responses
+
+    calls: list[str] = []
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+    ) -> UpstreamResult:
+        calls.append(requested_model)
+        assert messages == [{"role": "user", "content": "lane-check"}]
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text=f"handled-{requested_model}",
+            provider_key="onemin" if "ea-coder" in requested_model else "chatplayground",
+            model="gpt-5",
+            tokens_in=2,
+            tokens_out=3,
+            provider_account_name="ONEMIN_AI_API_KEY" if "ea-coder" in requested_model else "BROWSERACT_API_KEY",
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    core = client.post("/v1/codex/core", json={"input": "lane-check"})
+    easy = client.post("/v1/codex/easy", json={"input": "lane-check"})
+    audit = client.post(
+        "/v1/codex/audit",
+        json={"input": "lane-check"},
+    )
+
+    assert core.status_code == 200
+    assert easy.status_code == 200
+    assert audit.status_code == 200
+    assert calls == ["ea-coder-hard", "ea-coder-fast", "ea-audit-jury"]
+    assert core.json()["metadata"]["codex_profile"] == "core"
+    assert easy.json()["metadata"]["codex_profile"] == "easy"
+    assert audit.json()["metadata"]["codex_profile"] == "audit"
+    assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+    assert easy.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+    assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
+
+
+def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-profile")
+
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    response = client.get("/v1/codex/profiles")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profiles"][0]["lane"] == "hard"
+    assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
+    assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == "ONEMIN_AI_API_KEY"
+    assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == "BROWSERACT_API_KEY"
+
+
 def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-health")
     from app.services import responses_upstream as upstream
