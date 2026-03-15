@@ -64,6 +64,7 @@ from app.services.human_task_routing_runtime_service import HumanTaskRoutingServ
 from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
+from app.services.provider_registry import ProviderRegistryService
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
@@ -146,6 +147,7 @@ class RewriteOrchestrator:
         runtime_tool_execution = tool_execution or ToolExecutionService(
             tool_runtime=tool_runtime or build_tool_runtime(),
             artifacts=self._artifacts,
+            provider_registry=ProviderRegistryService(),
         )
         self._queue_runtime = ExecutionQueueRuntimeService(
             enqueue_step=self._ledger.enqueue_step,

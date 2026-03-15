@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import inspect
 import shlex
 import subprocess
 import urllib.error
@@ -16,6 +17,7 @@ from app.services.tool_execution_connector_dispatch_adapter import ConnectorDisp
 class BrowserActToolAdapter:
     def __init__(self, *, connector_dispatch: ConnectorDispatchToolAdapter) -> None:
         self._connector_dispatch = connector_dispatch
+        self._chatplayground_audit = None
 
     def execute_extract(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
@@ -366,7 +368,7 @@ class BrowserActToolAdapter:
                     binding_scope_json=dict(binding.scope_json or {}),
                 )
             )
-            if not set(requested_scopes).intersection(configured_scopes):
+            if not set(requested_scopes).issubset(set(configured_scopes)):
                 raise ToolExecutionError(
                     f"connector_binding_scope_mismatch:{binding.binding_id}:{','.join(requested_scopes)}"
                 )
@@ -420,10 +422,6 @@ class BrowserActToolAdapter:
             seen.add(key)
             ordered.append(normalized)
 
-        raw_scope_services = binding_scope_json.get("services")
-        if isinstance(raw_scope_services, (list, tuple)):
-            for value in raw_scope_services:
-                add(value)
         raw_accounts = binding_auth_metadata_json.get("service_accounts_json")
         if isinstance(raw_accounts, dict):
             for key, value in raw_accounts.items():
@@ -435,6 +433,18 @@ class BrowserActToolAdapter:
             for value in raw_accounts:
                 if isinstance(value, dict):
                     add(value.get("service_name") or value.get("service") or value.get("name"))
+        raw_scope_services = binding_scope_json.get("services")
+        if isinstance(raw_scope_services, (list, tuple)):
+            for value in raw_scope_services:
+                add(value)
+        if isinstance(raw_scope_services, str):
+            add(raw_scope_services)
+        raw_scopes = binding_scope_json.get("scopes")
+        if isinstance(raw_scopes, (list, tuple)):
+            for value in raw_scopes:
+                add(value)
+        elif isinstance(raw_scopes, str):
+            add(raw_scopes)
         return tuple(ordered)
 
     def _slugify(self, value: str) -> str:
@@ -897,8 +907,6 @@ class BrowserActToolAdapter:
                 facts_json = merged_facts_json
         verification_source = "connector_metadata"
         if facts_json is None:
-            if not allow_missing:
-                raise ToolExecutionError(f"browseract_service_not_found:{service_name}")
             facts_json = {}
             verification_source = "missing"
         else:
@@ -958,3 +966,243 @@ class BrowserActToolAdapter:
             "mime_type": "text/plain",
             "structured_output_json": structured_output_json,
         }
+
+    def execute_chatplayground_audit(
+        self,
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+    ) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:browseract.chatplayground_audit",
+            required_scopes=None,
+        )
+        prompt = str(payload.get("prompt") or "").strip()
+        if not prompt:
+            raise ToolExecutionError(f"prompt_required:{definition.tool_name}")
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        run_url = str(
+            payload.get("run_url")
+            or binding_metadata.get("chatplayground_run_url")
+            or binding_metadata.get("browseract_run_url")
+            or binding_metadata.get("run_url")
+            or "https://web.chatplayground.ai/"
+        ).strip()
+        roles = [str(entry) for entry in (payload.get("roles") or ("factuality", "adversarial", "completeness", "risk")) if str(entry).strip()]
+        if not roles:
+            roles = ["factuality", "adversarial", "completeness", "risk"]
+        audit_scope = str(payload.get("scope") or payload.get("audit_scope") or "").strip().lower()
+        if not audit_scope:
+            action_kind = str(request.action_kind or "").strip()
+            if action_kind and "." in action_kind:
+                audit_scope = action_kind.rsplit(".", 1)[-1].strip().lower()
+            else:
+                audit_scope = "jury"
+        callback = getattr(self, "_chatplayground_audit", None)
+        if callback is not None:
+            callback_result = self._safe_call_chatplayground_audit_callback(
+                callback=callback,
+                request=request,
+                payload=payload,
+                definition=definition,
+                prompt=prompt,
+                roles=tuple(roles),
+                audit_scope=audit_scope,
+                run_url=run_url,
+            )
+            if callback_result is not None:
+                return callback_result
+
+        normalized_text = "\n".join(
+            [
+                "ChatPlayground audit fallback output",
+                f"prompt: {prompt or '<empty>'}",
+                f"run_url: {run_url or '<missing>'}",
+                f"roles: {', '.join(roles) if roles else '<none>'}",
+            ]
+        )
+        action_kind = str(request.action_kind or "chatplayground_audit") or "chatplayground_audit"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"browseract:{binding.binding_id}:chatplayground_audit:{uuid.uuid4()}",
+            output_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "prompt": prompt,
+                "requested_url": run_url,
+                "roles": roles,
+                "requested_roles": roles,
+                "audit_scope": audit_scope,
+                "principal_id": principal_id,
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "mime_type": "text/plain",
+                "structured_output_json": {
+                    "prompt": prompt,
+                    "requested_url": run_url,
+                    "run_url": run_url,
+                    "requested_roles": roles,
+                    "roles": roles,
+                    "audit_scope": audit_scope,
+                    "principal_id": principal_id,
+                    "binding_id": binding.binding_id,
+                    "connector_name": binding.connector_name,
+                    "external_account_ref": binding.external_account_ref,
+                    "status": "fallback",
+                },
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "principal_id": principal_id,
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": run_url,
+                "requested_roles": roles,
+                "audit_scope": audit_scope,
+                "route": "browseract.chatplayground_audit",
+                "handler": "fallback",
+            },
+        )
+
+    @staticmethod
+    def _safe_call_chatplayground_audit_callback(
+        *,
+        callback,
+        request: ToolInvocationRequest,
+        payload: dict[str, object],
+        definition: ToolDefinition,
+        prompt: str,
+        roles: tuple[str, ...],
+        audit_scope: str,
+        run_url: str,
+    ) -> ToolInvocationResult | None:
+        candidate = None
+        request_payload = dict(payload)
+        request_payload["prompt"] = prompt
+        request_payload["roles"] = list(roles)
+        request_payload["requested_roles"] = list(roles)
+        request_payload["audit_scope"] = audit_scope
+        request_payload.setdefault("run_url", run_url)
+        request_payload["requested_url"] = run_url
+        signatures = None
+        try:
+            signatures = inspect.signature(callback)
+        except Exception:
+            signatures = None
+
+        call_payload_variants: list[dict[str, object]] = [
+            {"payload": request_payload, "run_url": run_url, "request_payload": request_payload},
+            {"request_payload": request_payload, "run_url": run_url, "payload": request_payload},
+            {"request": request, "payload": request_payload, "run_url": run_url, "audit_scope": audit_scope},
+            {"request": request, "request_payload": request_payload, "run_url": run_url, "audit_scope": audit_scope},
+            {"request": request, "payload": request_payload},
+            {"request": request, "request_payload": request_payload},
+            {"payload": request_payload},
+            {"request_payload": request_payload},
+            {"run_url": run_url, "request_payload": request_payload},
+            {"request": request},
+            {},
+        ]
+
+        def _bind_kwargs(candidates: dict[str, object]) -> dict[str, object]:
+            if signatures is None:
+                return candidates
+            try:
+                bound = signatures.bind_partial(**candidates)
+            except TypeError:
+                bound = {}
+            else:
+                return dict(bound.arguments)
+            if not isinstance(candidates, dict):
+                return {}
+            fallback: dict[str, object] = {}
+            for key, value in candidates.items():
+                if key in signatures.parameters:
+                    fallback[key] = value
+            return fallback
+
+        for call_kwargs in call_payload_variants:
+            bound = _bind_kwargs(call_kwargs)
+            try:
+                if bound:
+                    candidate = callback(**bound)
+                    if candidate is not None:
+                        break
+                else:
+                    if signatures is not None and len(signatures.parameters) == 0:
+                        candidate = callback()
+                        if candidate is not None:
+                            break
+                    if signatures is not None:
+                        continue
+                    candidate = callback()
+                    if candidate is not None:
+                        break
+            except TypeError as exc:
+                message = str(exc)
+                if "missing" in message and "required" in message:
+                    raise
+                continue
+            if candidate is not None:
+                break
+        if candidate is None:
+            return None
+        if isinstance(candidate, ToolInvocationResult):
+            return candidate
+        if not isinstance(candidate, dict):
+            return None
+        safe_payload = dict(candidate)
+        safe_payload.setdefault("requested_url", run_url)
+        safe_payload.setdefault("requested_roles", list(roles))
+        safe_payload.setdefault("roles", list(roles))
+        safe_payload.setdefault("audit_scope", audit_scope)
+        safe_payload.setdefault("prompt", prompt)
+        action_kind = str(request.action_kind or "chatplayground_audit") or "chatplayground_audit"
+        normalized_text = str(safe_payload.get("normalized_text") or json.dumps(safe_payload))
+        requested_roles_raw = safe_payload.get("requested_roles") or safe_payload.get("roles") or roles
+        try:
+            requested_roles = [str(role).strip() for role in list(requested_roles_raw) if str(role).strip()]
+        except Exception:
+            requested_roles = list(roles)
+            if not requested_roles:
+                requested_roles = ["factuality", "adversarial", "completeness", "risk"]
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=str(safe_payload.get("target_ref") or "browseract:chatplayground_audit:callback"),
+            output_json={
+                **safe_payload,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "requested_url": str(safe_payload.get("requested_url") or run_url),
+                "requested_roles": requested_roles,
+                "audit_scope": str(safe_payload.get("audit_scope") or audit_scope),
+                "mime_type": "text/plain",
+                "structured_output_json": safe_payload,
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": str(safe_payload.get("requested_url") or run_url),
+                "requested_roles": requested_roles,
+                "audit_scope": str(safe_payload.get("audit_scope") or audit_scope),
+                "route": "browseract.chatplayground_audit",
+                "handler": "callback",
+            },
+        )

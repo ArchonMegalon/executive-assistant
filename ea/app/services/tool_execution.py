@@ -30,10 +30,10 @@ class ToolExecutionService:
         artifacts: ArtifactRepository,
         channel_runtime: ChannelRuntimeService | None = None,
         evidence_runtime: EvidenceRuntimeService | None = None,
-        provider_registry: ProviderRegistryService,
+        provider_registry: ProviderRegistryService | None = None,
     ) -> None:
         self._tool_runtime = tool_runtime
-        self._provider_registry = provider_registry
+        self._provider_registry = provider_registry or ProviderRegistryService()
         self._handlers: dict[str, ToolExecutionHandler] = {}
         self._connector_dispatch_module = ConnectorDispatchToolExecutionModule(
             tool_runtime=tool_runtime,

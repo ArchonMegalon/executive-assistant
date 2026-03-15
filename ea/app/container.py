@@ -21,6 +21,7 @@ from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
+from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
@@ -112,7 +113,7 @@ class AppContainer:
 
 
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
-    provider_registry = ProviderRegistryService()
+    provider_registry = ProviderRegistryService(provider_binding_repo=InMemoryProviderBindingRepository())
     artifacts = build_artifact_repo(settings)
     task_contracts = build_task_contract_service(settings=settings)
     planner = PlannerService(task_contracts, provider_registry=provider_registry)

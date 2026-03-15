@@ -19,6 +19,7 @@ from app.services.responses_upstream import (
     ResponsesUpstreamError,
     UpstreamResult,
     _provider_health_report,
+    _provider_order,
     generate_text,
     list_response_models,
 )
@@ -27,6 +28,7 @@ from app.services.responses_upstream import (
 router = APIRouter(tags=["responses"])
 models_router = APIRouter(prefix="/v1/models", tags=["responses"])
 responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
+codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text"}
 
@@ -47,6 +49,33 @@ class _StoredResponse:
 
 _RESPONSE_STORE: dict[str, _StoredResponse] = {}
 _RESPONSE_STORE_LOCK = threading.Lock()
+
+_CODEx_PROFILES = (
+    {
+        "profile": "core",
+        "lane": "hard",
+        "model": "ea-coder-hard",
+        "provider_hint_order": ("onemin",),
+        "review_required": True,
+        "needs_review": True,
+    },
+    {
+        "profile": "easy",
+        "lane": "fast",
+        "model": "ea-coder-fast",
+        "provider_hint_order": ("magixai",),
+        "review_required": False,
+        "needs_review": False,
+    },
+    {
+        "profile": "audit",
+        "lane": "audit",
+        "model": "ea-audit-jury",
+        "provider_hint_order": ("chatplayground",),
+        "review_required": True,
+        "needs_review": True,
+    },
+)
 
 
 class _ResponsesCreateRequest(BaseModel):
@@ -324,6 +353,27 @@ def _metadata(payload: _ResponsesCreateRequest) -> dict[str, object]:
     return {}
 
 
+def _codex_profile(profile: str) -> dict[str, object]:
+    for item in _CODEx_PROFILES:
+        if item["profile"] == profile:
+            return dict(item)
+    return {
+        "profile": profile,
+        "lane": "default",
+        "model": DEFAULT_PUBLIC_MODEL,
+        "provider_hint_order": tuple(_provider_order()) if profile else (),
+        "review_required": False,
+        "needs_review": False,
+    }
+
+
+def _normalize_payload_for_profile(payload: dict[str, object], *, profile: str) -> dict[str, object]:
+    profile_config = _codex_profile(profile)
+    normalized = dict(payload)
+    normalized["model"] = str(profile_config["model"])
+    return normalized
+
+
 def _requested_model(payload: _ResponsesCreateRequest) -> str:
     model = payload.model
     if isinstance(model, str):
@@ -482,84 +532,19 @@ def _error_event_payload(message: str) -> dict[str, object]:
     }
 
 
-@models_router.get("", response_model=_ModelListObject)
-def list_models(request: Request) -> Response:
-    return JSONResponse(
-        {
-            "object": "list",
-            "data": list_response_models(),
-        }
-    )
-
-
-@responses_item_router.get("/_provider_health", response_model=None)
-def get_provider_health(
+def _run_response(
+    request_payload: dict[str, object],
     *,
-    context: RequestContext = Depends(get_request_context),
+    context: RequestContext,
+    codex_profile: str | None = None,
 ) -> Response:
-    return JSONResponse(_provider_health_report())
-
-
-@responses_item_router.get("/{response_id}", response_model=_ResponseObject)
-def get_response(
-    response_id: str,
-    *,
-    context: RequestContext = Depends(get_request_context),
-) -> Response:
-    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
-    return JSONResponse(stored.response)
-
-
-@responses_item_router.get("/{response_id}/input_items", response_model=_ResponseInputItemsListObject)
-def get_response_input_items(
-    response_id: str,
-    *,
-    context: RequestContext = Depends(get_request_context),
-) -> Response:
-    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
-    return JSONResponse(
-        {
-            "object": "list",
-            "response_id": response_id,
-            "data": [dict(item) for item in stored.input_items],
-        }
-    )
-
-
-@responses_item_router.post(
-    "",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
-)
-def create_response(
-    payload: dict[str, object],
-    *,
-    context: RequestContext = Depends(get_request_context),
-) -> Response:
-    request, parsed_input = _parse_create_request(payload)
+    request, parsed_input = _parse_create_request(request_payload)
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
+    if codex_profile:
+        codex_model = _codex_profile(codex_profile).get("model")
+        if isinstance(codex_model, str) and codex_model:
+            model = codex_model
+
     max_output_tokens = _requested_max_output_tokens(request)
     metadata = _metadata(request)
     stream = bool(request.stream)
@@ -575,10 +560,12 @@ def create_response(
     response_id = "resp_" + uuid.uuid4().hex[:24]
     item_id = "msg_" + uuid.uuid4().hex[:24]
 
-    metadata = {
+    response_metadata = {
         **metadata,
         "principal_id": context.principal_id,
     }
+    if codex_profile:
+        response_metadata["codex_profile"] = codex_profile
 
     if not stream:
         result = _generate_upstream_text(
@@ -588,7 +575,7 @@ def create_response(
             max_output_tokens=max_output_tokens,
         )
         final_metadata = {
-            **metadata,
+            **response_metadata,
             "upstream_provider": result.provider_key,
             "upstream_model": result.model,
             "provider_backend": result.provider_backend,
@@ -637,7 +624,7 @@ def create_response(
             tokens_in=0,
             tokens_out=0,
             max_output_tokens=max_output_tokens,
-            metadata=metadata,
+            metadata=response_metadata,
             instructions=instructions,
             input_items=parsed_input.input_items,
         )
@@ -707,7 +694,7 @@ def create_response(
                 created_at=created_at,
                 model=model,
                 requested_max_output_tokens=max_output_tokens,
-                metadata=metadata,
+                metadata=response_metadata,
                 instructions=instructions,
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
@@ -741,7 +728,7 @@ def create_response(
                 created_at=created_at,
                 model=model,
                 requested_max_output_tokens=max_output_tokens,
-                metadata=metadata,
+                metadata=response_metadata,
                 instructions=instructions,
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
@@ -769,9 +756,8 @@ def create_response(
             return
 
         result = result_payload
-
         stream_metadata = {
-            **metadata,
+            **response_metadata,
             "upstream_provider": result.provider_key,
             "upstream_model": result.model,
             "provider_backend": result.provider_backend,
@@ -872,5 +858,206 @@ def create_response(
     return StreamingResponse(_iter_stream(), media_type="text/event-stream")
 
 
+@models_router.get("", response_model=_ModelListObject)
+def list_models(request: Request) -> Response:
+    return JSONResponse(
+        {
+            "object": "list",
+            "data": list_response_models(),
+        }
+    )
+
+
+@responses_item_router.get("/_provider_health", response_model=None)
+def get_provider_health(
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    return JSONResponse(_provider_health_report())
+
+
+@responses_item_router.get("/{response_id}", response_model=_ResponseObject)
+def get_response(
+    response_id: str,
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
+    return JSONResponse(stored.response)
+
+
+@responses_item_router.get("/{response_id}/input_items", response_model=_ResponseInputItemsListObject)
+def get_response_input_items(
+    response_id: str,
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
+    return JSONResponse(
+        {
+            "object": "list",
+            "response_id": response_id,
+            "data": [dict(item) for item in stored.input_items],
+        }
+    )
+
+
+@responses_item_router.post(
+    "",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_response(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    return _run_response(payload, context=context)
+
+
+@codex_router.post(
+    "/core",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_core(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="core")
+    return _run_response(normalized, context=context, codex_profile="core")
+
+
+@codex_router.post(
+    "/easy",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_easy(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="easy")
+    return _run_response(normalized, context=context, codex_profile="easy")
+
+
+@codex_router.post(
+    "/audit",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_audit(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="audit")
+    return _run_response(normalized, context=context, codex_profile="audit")
+
+
+@codex_router.get("/profiles")
+def list_codex_profiles() -> Response:
+    return JSONResponse(
+        {
+            "profiles": [
+                {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
+                for profile in _CODEx_PROFILES
+            ],
+            "provider_health": _provider_health_report(),
+        }
+    )
+
+
 router.include_router(models_router)
 router.include_router(responses_item_router)
+router.include_router(codex_router)

@@ -779,11 +779,29 @@ class SkillCatalogRecord:
 
 
 @dataclass(frozen=True)
+class ProviderBindingRecord:
+    binding_id: str
+    principal_id: str
+    provider_key: str
+    status: str
+    priority: int
+    probe_state: str
+    probe_details_json: dict[str, Any]
+    scope_json: dict[str, Any]
+    auth_metadata_json: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class ProviderBindingState:
     provider_key: str
     display_name: str
     executable: bool
     enabled: bool
+    status: str
+    priority: int
+    binding_id: str
     source: str
     auth_mode: str
     secret_env_names: tuple[str, ...]
@@ -792,6 +810,8 @@ class ProviderBindingState:
     tool_names: tuple[str, ...]
     state: str
     health_state: str = "unknown"
+    health_details_json: dict[str, Any] = field(default_factory=dict)
+    updated_at: str = ""
 
 
 @dataclass(frozen=True)
