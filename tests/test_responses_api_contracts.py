@@ -173,6 +173,14 @@ def test_responses_openapi_publishes_explicit_request_and_response_schema() -> N
         "metadata",
         "max_output_tokens",
         "stream",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "reasoning",
+        "store",
+        "include",
+        "service_tier",
+        "prompt_cache_key",
     }
 
     json_response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
@@ -278,19 +286,59 @@ def test_responses_builds_structured_messages_for_codex_style_payload(monkeypatc
     assert resp.json()["output_text"] == "ok"
 
 
-@pytest.mark.parametrize("store_value", [True, False])
-def test_responses_rejects_store_field(store_value: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
-    def fake_generate(*_, **__) -> None:
-        raise RuntimeError("should_not_run")
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "say hi"
+        assert messages == [{"role": "user", "content": "say hi"}]
+        assert requested_model == "ea-coder-best"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="compat-ok",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=10,
+            tokens_out=5,
+        )
 
     monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
 
-    resp = client.post("/v1/responses", json={"input": "say hi", "store": store_value})
-    assert resp.status_code == 400
-    assert "unsupported_fields:store" in resp.text
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-best",
+            "input": "say hi",
+            "tools": [],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "reasoning": {"effort": "medium"},
+            "store": True,
+            "include": ["reasoning.encrypted_content"],
+            "service_tier": "fast",
+            "prompt_cache_key": "cache-key-1",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "compat-ok"
+    assert body["metadata"]["accepted_client_fields"] == [
+        "tool_choice",
+        "parallel_tool_calls",
+        "reasoning",
+        "store",
+        "include",
+        "service_tier",
+        "prompt_cache_key",
+    ]
 
 
 def test_responses_rejects_unsupported_top_level_fields() -> None:
@@ -298,7 +346,7 @@ def test_responses_rejects_unsupported_top_level_fields() -> None:
 
     resp = client.post(
         "/v1/responses",
-        json={"input": "say hi", "conversation": "ignored", "parallel_tool_calls": False},
+        json={"input": "say hi", "conversation": "ignored"},
     )
     assert resp.status_code == 400
     assert "unsupported_fields" in resp.text
@@ -312,13 +360,41 @@ def test_responses_rejects_more_unsupported_top_level_fields() -> None:
         json={
             "input": "say hi",
             "previous_response_id": "resp_prev",
-            "tools": [],
-            "tool_choice": "auto",
             "background": True,
         },
     )
     assert resp.status_code == 400
     assert "unsupported_fields" in resp.text
+
+
+def test_responses_store_false_skips_retrieval_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        return UpstreamResult(
+            text="no-store",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=1,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post("/v1/responses", json={"input": "ephemeral", "store": False})
+    assert created.status_code == 200
+    response_id = created.json()["id"]
+
+    fetched = client.get(f"/v1/responses/{response_id}")
+    assert fetched.status_code == 404
 
 
 def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:
