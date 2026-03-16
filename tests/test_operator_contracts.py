@@ -81,6 +81,7 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_9" in env_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_10" in env_example
     assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_example
     assert "EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS" in env_example
     assert "EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS" in env_example
@@ -97,6 +98,7 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "ONEMIN_AI_API_KEY_FALLBACK_7" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_8" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_9" in env_local_example
+    assert "ONEMIN_AI_API_KEY_FALLBACK_10" in env_local_example
     assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_local_example
     assert "EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS" in env_local_example
     assert "EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS" in env_local_example

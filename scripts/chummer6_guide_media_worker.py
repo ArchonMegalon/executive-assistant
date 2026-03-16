@@ -704,6 +704,7 @@ def resolve_onemin_image_keys() -> list[str]:
         "ONEMIN_AI_API_KEY_FALLBACK_7",
         "ONEMIN_AI_API_KEY_FALLBACK_8",
         "ONEMIN_AI_API_KEY_FALLBACK_9",
+        "ONEMIN_AI_API_KEY_FALLBACK_10",
     ):
         key = env_value(env_name)
         if key and key not in seen:

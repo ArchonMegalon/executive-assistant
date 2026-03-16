@@ -64,6 +64,7 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [
@@ -86,6 +87,7 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "")
 
     candidates = [

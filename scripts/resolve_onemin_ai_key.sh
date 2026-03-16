@@ -21,6 +21,8 @@ Resolution order:
   8. ONEMIN_AI_API_KEY_FALLBACK_7
   9. ONEMIN_AI_API_KEY_FALLBACK_8
   10. ONEMIN_AI_API_KEY_FALLBACK_9
+  11. ONEMIN_AI_API_KEY_FALLBACK_10
+  12. ONEMIN_AI_API_KEY_FALLBACK_11
 
 The script loads values from the current shell first and then from .env when present.
 Default output is the first non-empty key.
@@ -61,6 +63,8 @@ ordered_keys() {
     "ONEMIN_AI_API_KEY_FALLBACK_7"
     "ONEMIN_AI_API_KEY_FALLBACK_8"
     "ONEMIN_AI_API_KEY_FALLBACK_9"
+    "ONEMIN_AI_API_KEY_FALLBACK_10"
+    "ONEMIN_AI_API_KEY_FALLBACK_11"
   )
   local value
   for key_name in "${key_names[@]}"; do

@@ -137,8 +137,70 @@ def test_responses_stream_emits_keepalive_while_waiting(monkeypatch: pytest.Monk
         assert resp.status_code == 200
         body = "".join(resp.iter_text())
 
-    assert ": keep-alive" in body
+    assert 'event: response.in_progress' in body
+    assert '"heartbeat":true' in body
     assert "event: response.completed" in body
+
+
+def test_responses_stream_emits_heartbeat_events_while_tool_decision_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_tool_decision(
+        *,
+        model: str,
+        max_output_tokens: int | None,
+        instructions: str | None,
+        tools: list[dict[str, object]],
+        history_items: list[dict[str, object]],
+        **_: object,
+    ) -> responses._ToolShimDecision:
+        time.sleep(0.03)
+        return responses._ToolShimDecision(
+            kind="function_call",
+            tool_name="exec_command",
+            arguments={"cmd": "pwd"},
+            upstream_result=UpstreamResult(
+                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
+                provider_key="onemin",
+                model="gpt-5",
+                tokens_in=2,
+                tokens_out=2,
+            ),
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "ea-coder-best",
+            "input": "inspect repo",
+            "stream": True,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "run shell",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"cmd": {"type": "string"}},
+                        "required": ["cmd"],
+                    },
+                }
+            ],
+        },
+    ) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-cache, no-transform"
+        assert resp.headers["x-accel-buffering"] == "no"
+        body = "".join(resp.iter_text())
+
+    assert '"heartbeat":true' in body
+    assert "event: response.function_call_arguments.done" in body
+    assert '"arguments":"{\\"cmd\\":\\"pwd\\"}"' in body
 
 
 def test_models_list_returns_responses_aliases() -> None:
@@ -860,6 +922,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "health-key-h")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "health-key-i")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "health-key-j")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "health-key-k")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
     monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
@@ -870,8 +933,8 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 10
-    assert len(providers["onemin"]["slots"]) == 10
+    assert providers["onemin"]["configured_slots"] == 11
+    assert len(providers["onemin"]["slots"]) == 11
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
         "fallback_1",
@@ -883,6 +946,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "fallback_7",
         "fallback_8",
         "fallback_9",
+        "fallback_10",
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -908,6 +972,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "ONEMIN_AI_API_KEY_FALLBACK_7",
         "ONEMIN_AI_API_KEY_FALLBACK_8",
         "ONEMIN_AI_API_KEY_FALLBACK_9",
+        "ONEMIN_AI_API_KEY_FALLBACK_10",
     ]
     assert body["provider_config"]["chatplayground_accounts"] == [
         "BROWSERACT_API_KEY",
