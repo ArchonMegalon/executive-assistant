@@ -215,8 +215,10 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
     assert "ea-onemin-coder" in model_ids
+    assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
     assert "gpt-5" in model_ids
+    assert "gemini-3-flash-preview" in model_ids
     assert "x-ai/grok-code-fast-1" in model_ids
 
 
@@ -1214,6 +1216,20 @@ def test_responses_provider_health_reflects_magicx_probe_ready(monkeypatch: pyte
     body = health.json()
     assert body["providers"]["magixai"]["state"] == "ready"
     assert body["providers"]["magixai"]["health_check_enabled"] is True
+
+
+def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-gemini-health")
+
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+
+    response = client.get("/v1/responses/_provider_health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["providers"]["gemini_vortex"]["state"] == "ready"
+    assert "gemini-3-flash-preview" in body["providers"]["gemini_vortex"]["models"]
+    assert body["provider_config"]["gemini_vortex_command"] == "sh"
 
 
 def test_stream_events_include_sequence_number_and_failed_terminal(monkeypatch: pytest.MonkeyPatch) -> None:

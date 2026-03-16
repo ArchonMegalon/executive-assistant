@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pytest
 
+from app.domain.models import ToolInvocationResult
 from app.services import responses_upstream as upstream
 
 
@@ -215,6 +216,53 @@ def test_plain_magicx_model_skips_onemin(monkeypatch: pytest.MonkeyPatch) -> Non
     ]
 
     assert candidates == [("magixai", "x-ai/grok-code-fast-1")]
+
+
+def test_gemini_public_model_routes_to_gemini_vortex(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.GEMINI_VORTEX_PUBLIC_MODEL)
+    ]
+
+    assert candidates == [("gemini_vortex", "gemini-3-flash-preview")]
+
+
+def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+
+    def fake_execute(self, request, definition):  # type: ignore[no-untyped-def]
+        assert definition.tool_name == "provider.gemini_vortex.structured_generate"
+        assert request.payload_json["model"] == "gemini-3-flash-preview"
+        assert "say ok" in str(request.payload_json["source_text"])
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=request.action_kind,
+            target_ref="gemini-vortex:test",
+            output_json={
+                "normalized_text": '{\n  "text": "gemini ok"\n}',
+                "structured_output_json": {"text": "gemini ok"},
+                "model": "gemini-3-flash-preview",
+            },
+            receipt_json={},
+            model_name="gemini-3-flash-preview",
+            tokens_in=5,
+            tokens_out=3,
+        )
+
+    monkeypatch.setattr(upstream.GeminiVortexToolAdapter, "execute", fake_execute)
+
+    result = upstream.generate_text(prompt="say ok", requested_model=upstream.GEMINI_VORTEX_PUBLIC_MODEL)
+
+    assert result.provider_key == "gemini_vortex"
+    assert result.provider_backend == "gemini_vortex_cli"
+    assert result.model == "gemini-3-flash-preview"
+    assert result.text == "gemini ok"
+    assert result.tokens_in == 5
+    assert result.tokens_out == 3
 
 
 def test_call_magicx_uses_bearer_auth_and_url_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
