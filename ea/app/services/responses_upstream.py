@@ -2504,7 +2504,7 @@ def _call_chatplayground_audit(
                     provider_account_name=account_name,
                     upstream_model=model,
                     latency_ms=max(0, callback_latency),
-                    fallback_reason=f"callback_success:{_format_error_payload(details)}",
+                    fallback_reason=f"callback_success:{_trim_error_payload(details)}",
                 )
         if chatplayground_audit_callback_only:
             return _chatplayground_audit_disabled_result(

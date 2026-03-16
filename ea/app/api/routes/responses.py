@@ -744,6 +744,27 @@ def _requested_max_output_tokens(payload: _ResponsesCreateRequest) -> int | None
     return value
 
 
+def _browseract_binding_id(*, container: object | None, principal_id: str) -> str:
+    if container is None or not principal_id:
+        return ""
+    tool_runtime = getattr(container, "tool_runtime", None)
+    if tool_runtime is None:
+        return ""
+    try:
+        bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+    except Exception:
+        return ""
+    for binding in bindings:
+        connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+        status = str(getattr(binding, "status", "") or "").strip().lower()
+        if connector_name != "browseract":
+            continue
+        if status and status != "enabled":
+            continue
+        return str(getattr(binding, "binding_id", "") or "").strip()
+    return ""
+
+
 def _response_object(
     *,
     response_id: str,
@@ -1551,6 +1572,8 @@ def _run_response(
     audit_profile_or_model = is_audit_profile or is_audit_model
     chatplayground_audit_callback = None
     if audit_profile_or_model:
+        browseract_binding_id = _browseract_binding_id(container=container, principal_id=context.principal_id)
+
         def _chatplayground_audit_callback(**kwargs: Any) -> Any:
             prompt = str(kwargs.get("prompt") or "").strip()
             if not prompt:
@@ -1563,7 +1586,10 @@ def _run_response(
                 step_id=f"codex-audit-step:{uuid.uuid4().hex}",
                 tool_name="browseract.chatplayground_audit",
                 action_kind="chatplayground_audit",
-                payload_json=dict(kwargs),
+                payload_json={
+                    **dict(kwargs),
+                    "binding_id": str(kwargs.get("binding_id") or browseract_binding_id or "").strip(),
+                },
                 context_json={"principal_id": context.principal_id},
             )
             try:

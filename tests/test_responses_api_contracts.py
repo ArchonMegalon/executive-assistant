@@ -981,6 +981,63 @@ def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.Mo
     assert body["metadata"]["provider_account_name"].startswith("chatplayground_")
 
 
+def test_codex_audit_smoke_uses_chatplayground_callback_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+    os.environ["EA_API_TOKEN"] = ""
+    from app.api.app import create_app
+
+    app = create_app()
+    container = app.state.container
+    binding = container.tool_runtime.upsert_connector_binding(
+        principal_id="codex-audit-smoke",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_audit(*, request_payload: dict[str, object], run_url: str) -> dict[str, object]:
+        assert run_url == "https://web.chatplayground.ai/api/chat/lmsys"
+        assert request_payload["prompt"] == "review the release plan"
+        assert request_payload["audit_scope"] == "jury"
+        assert request_payload["roles"] == ["factuality", "adversarial", "completeness", "risk"]
+        assert request_payload["binding_id"] == binding.binding_id
+        return {
+            "binding_id": binding.binding_id,
+            "external_account_ref": binding.external_account_ref,
+            "requested_url": run_url,
+            "requested_roles": request_payload["roles"],
+            "audit_scope": request_payload["audit_scope"],
+            "consensus": "pass",
+            "recommendation": "ship it",
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+        }
+
+    monkeypatch.setattr(container.tool_execution, "_browseract_chatplayground_audit", _fake_audit)
+
+    client = TestClient(app)
+    client.headers.update({"X-EA-Principal-ID": "codex-audit-smoke"})
+
+    response = client.post("/v1/codex/audit", json={"input": "review the release plan"})
+    assert response.status_code == 200
+
+    body = response.json()
+    payload = json.loads(body["output"][0]["content"][0]["text"])
+    assert body["metadata"]["codex_profile"] == "audit"
+    assert body["metadata"]["codex_lane"] == "audit"
+    assert body["metadata"]["codex_review_required"] is True
+    assert body["metadata"]["provider_backend"] == "browseract"
+    assert body["metadata"]["provider_account_name"] == "browseract-main"
+    assert payload["provider"] == "chatplayground"
+    assert payload["consensus"] == "pass"
+    assert payload["recommendation"] == "ship it"
+    assert payload["external_account_ref"] == "browseract-main"
+
+
 def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-profile")
 
