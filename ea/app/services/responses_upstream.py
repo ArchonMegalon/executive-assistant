@@ -419,6 +419,7 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
             "ONEMIN_AI_API_KEY_FALLBACK_14",
             "ONEMIN_AI_API_KEY_FALLBACK_15",
             "ONEMIN_AI_API_KEY_FALLBACK_16",
+            "ONEMIN_AI_API_KEY_FALLBACK_17",
         )
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
@@ -533,6 +534,7 @@ def _onemin_key_names() -> tuple[str, ...]:
             _env("ONEMIN_AI_API_KEY_FALLBACK_14"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_15"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_16"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_17"),
         )
     )
 
@@ -545,7 +547,7 @@ def _normalize_slot_name(raw: object) -> str:
         value = "primary"
     if value in {"primary", "fallback", "fallback_1", "fallback_1st"}:
         return value if value == "primary" else "fallback_1"
-    if value in {"fallback1", "fallback2", "fallback3", "fallback4", "fallback5", "fallback6", "fallback7", "fallback8", "fallback9", "fallback10", "fallback11", "fallback12", "fallback13", "fallback14", "fallback15", "fallback16"}:
+    if value in {"fallback1", "fallback2", "fallback3", "fallback4", "fallback5", "fallback6", "fallback7", "fallback8", "fallback9", "fallback10", "fallback11", "fallback12", "fallback13", "fallback14", "fallback15", "fallback16", "fallback17"}:
         return value.replace("fallback", "fallback_")
     if value.isdigit():
         return f"fallback_{value}"

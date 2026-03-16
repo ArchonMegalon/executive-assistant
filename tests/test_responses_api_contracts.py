@@ -1024,6 +1024,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_14", "health-key-o")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_15", "health-key-p")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_16", "health-key-q")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_17", "health-key-r")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
     monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
@@ -1034,8 +1035,8 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 17
-    assert len(providers["onemin"]["slots"]) == 17
+    assert providers["onemin"]["configured_slots"] == 18
+    assert len(providers["onemin"]["slots"]) == 18
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
         "fallback_1",
@@ -1054,6 +1055,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "fallback_14",
         "fallback_15",
         "fallback_16",
+        "fallback_17",
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -1086,6 +1088,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "ONEMIN_AI_API_KEY_FALLBACK_14",
         "ONEMIN_AI_API_KEY_FALLBACK_15",
         "ONEMIN_AI_API_KEY_FALLBACK_16",
+        "ONEMIN_AI_API_KEY_FALLBACK_17",
     ]
     assert body["provider_config"]["chatplayground_accounts"] == [
         "BROWSERACT_API_KEY",
