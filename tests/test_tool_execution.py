@@ -2199,6 +2199,50 @@ def test_tool_execution_service_uses_default_chatplayground_audit_roles_and_defa
     assert result.receipt_json["requested_url"] == "https://web.chatplayground.ai/"
 
 
+def test_tool_execution_service_detects_chatplayground_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_audit(**_: object) -> dict[str, object]:
+        return {
+            "page_title": "ChatGPT",
+            "visible_text": "Please verify you are human to continue",
+            "requested_url": "https://web.chatplayground.ai/",
+        }
+
+    monkeypatch.setattr(service, "_browseract_chatplayground_audit", _fake_audit)
+
+    with pytest.raises(ToolExecutionError, match="ui_lane_failure:chatplayground:challenge_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-audit-challenge",
+                step_id="step-browseract-audit-challenge",
+                tool_name="browseract.chatplayground_audit",
+                action_kind="audit.jury",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "principal_id": "exec-1",
+                    "prompt": "Validate migration plan for concurrency safety.",
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
+
+
 def test_tool_execution_service_self_heals_missing_builtin_browseract_gemini_web_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2257,6 +2301,56 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_gemini_web
     assert result.output_json["provider_backend"] == "gemini_web"
     assert result.receipt_json["route"] == "browseract.gemini_web_generate"
     assert tool_runtime.get_tool("browseract.gemini_web_generate") is not None
+
+
+def test_tool_execution_service_detects_gemini_web_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_generate(**_: object) -> dict[str, object]:
+        return {
+            "page_title": "Just a moment...",
+            "visible_text": "Verify you are human",
+            "requested_url": "https://gemini.google.com/app",
+        }
+
+    monkeypatch.setattr(service, "_browseract_gemini_web_generate", _fake_generate)
+
+    with pytest.raises(ToolExecutionError, match="ui_lane_failure:gemini_web:challenge_required"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-browseract-gemini-web-challenge",
+                step_id="step-browseract-gemini-web-challenge",
+                tool_name="browseract.gemini_web_generate",
+                action_kind="content.generate",
+                payload_json={
+                    "binding_id": binding.binding_id,
+                    "packet": {
+                        "objective": "Answer the question",
+                        "instructions": "Be concise",
+                        "condensed_history": "Earlier context",
+                        "current_input": "What is the next step?",
+                        "desired_format": "plain_text",
+                        "fingerprint": "abc123",
+                    },
+                },
+                context_json={"principal_id": "exec-1"},
+            )
+        )
 
 
 def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> None:
