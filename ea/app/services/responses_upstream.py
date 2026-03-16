@@ -63,6 +63,28 @@ _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
 _ONEMIN_MAX_KEY_SLOTS = 11
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
+_ONEMIN_MAX_REQUESTS_PER_HOUR = 0
+_ONEMIN_MAX_CREDITS_PER_HOUR = 0
+_ONEMIN_MAX_CREDITS_PER_DAY = 0
+_DEFAULT_LANE_PROFILE = "easy"
+
+
+def _resolve_default_response_lane() -> str:
+    raw = _env("EA_RESPONSES_DEFAULT_PROFILE", _DEFAULT_LANE_PROFILE).strip().lower()
+    if raw in {"default", "auto"}:
+        raw = _DEFAULT_LANE_PROFILE
+    if raw in {_LANE_FAST, _LANE_REVIEW, _LANE_HARD, _LANE_OVERFLOW, _LANE_AUDIT}:
+        return raw
+    if raw in {"easy"}:
+        return _LANE_FAST
+    if raw in {"hard", "review", "overflow", "audit"}:
+        return raw
+    if raw in {"cheap"}:
+        return _LANE_FAST
+    if raw in {"expensive", "strong", "premium"}:
+        return _LANE_HARD
+    return _DEFAULT_LANE_PROFILE
+
 
 def _to_float(
     value: object,
@@ -140,6 +162,21 @@ class UpstreamResult:
     upstream_model: str | None = None
     latency_ms: int = 0
     fallback_reason: str | None = None
+    model_call_index: int | None = None
+    model_call_total: int | None = None
+
+
+@dataclass(frozen=True)
+class _ModelCallContext:
+    model_call_index: int | None = None
+    model_call_total: int | None = None
+    lane: str | None = None
+    route: str | None = None
+    codex_profile: str | None = None
+    principal_id: str | None = None
+    response_id: str | None = None
+    task_class: str | None = None
+    escalation_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +200,13 @@ class OneminUsageEvent:
     basis: str
     tokens_in: int = 0
     tokens_out: int = 0
+    lane: str | None = None
+    codex_profile: str | None = None
+    route: str | None = None
+    principal_id: str | None = None
+    response_id: str | None = None
+    task_class: str | None = None
+    escalation_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -482,15 +526,151 @@ def _onemin_key_names() -> tuple[str, ...]:
     )
 
 
+def _normalize_slot_name(raw: object) -> str:
+    value = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if value == "0":
+        value = "primary"
+    if value == "1":
+        value = "primary"
+    if value in {"primary", "fallback", "fallback_1", "fallback_1st"}:
+        return value if value == "primary" else "fallback_1"
+    if value in {"fallback1", "fallback2", "fallback3", "fallback4", "fallback5", "fallback6", "fallback7", "fallback8", "fallback9", "fallback10", "fallback11"}:
+        return value.replace("fallback", "fallback_")
+    if value.isdigit():
+        return f"fallback_{value}"
+    return value
+
+
+def _slot_to_key_index(slot_name: str) -> int | None:
+    normalized = _normalize_slot_name(slot_name)
+    if normalized == "primary":
+        return 0
+    match = re.fullmatch(r"fallback_(\d+)", normalized)
+    if not match:
+        return None
+    index = int(match.group(1))
+    if index < 1:
+        return None
+    return index
+
+
+def _default_active_slots() -> tuple[int, ...]:
+    return (0, 1)
+
+
+def _configured_slot_names() -> tuple[str, ...]:
+    configured = _normalize_text_list(_env("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS"))
+    if configured:
+        return _merge_unique(configured)
+    return tuple()
+
+
+def _configured_reserve_slot_names() -> tuple[str, ...]:
+    configured = _normalize_text_list(_env("EA_RESPONSES_ONEMIN_RESERVE_SLOTS"))
+    if configured:
+        return _merge_unique(configured)
+    return tuple()
+
+
+def _onemin_slot_key_names(raw_slot_names: tuple[str, ...], all_keys: tuple[str, ...], *, fallback_default: bool = False) -> tuple[str, ...]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for raw_name in raw_slot_names:
+        index = _slot_to_key_index(raw_name)
+        if index is None:
+            continue
+        if index >= len(all_keys):
+            continue
+        key = all_keys[index]
+        if not key:
+            continue
+        if key in seen:
+            continue
+        keys.append(key)
+        seen.add(key)
+
+    if keys:
+        return tuple(keys)
+    if not fallback_default:
+        return tuple()
+
+    defaults: list[str] = []
+    for index in _default_active_slots():
+        if index < len(all_keys):
+            key = all_keys[index]
+            if key and key not in seen:
+                defaults.append(key)
+                seen.add(key)
+    return tuple(defaults)
+
+
+def _onemin_active_keys() -> tuple[str, ...]:
+    all_keys = _onemin_key_names()
+    return _onemin_slot_key_names(_configured_slot_names(), all_keys, fallback_default=True)
+
+
+def _onemin_reserve_keys() -> tuple[str, ...]:
+    all_keys = _onemin_key_names()
+    configured_reserve = _onemin_slot_key_names(_configured_reserve_slot_names(), all_keys, fallback_default=False)
+    if configured_reserve:
+        return configured_reserve
+    active_keys = set(_onemin_active_keys())
+    return tuple(key for key in all_keys[len(active_keys) :] if key)
+
+
 def _ordered_onemin_keys() -> tuple[str, ...]:
     keys = _onemin_key_names()
     if not keys:
         return ()
 
-    with _ONEMIN_KEY_CURSOR_LOCK:
-        cursor = _ONEMIN_KEY_CURSOR % len(keys)
+    return _ordered_onemin_keys_for_keys(keys, cursor=_onemin_key_cursor(len(keys)))
 
-    return keys[cursor:] + keys[:cursor]
+
+def _onemin_key_cursor(key_count: int) -> int:
+    if key_count <= 0:
+        return 0
+    with _ONEMIN_KEY_CURSOR_LOCK:
+        return _ONEMIN_KEY_CURSOR % key_count
+
+
+def _ordered_onemin_keys_for_keys(keys: tuple[str, ...], *, allow_reserve: bool = False, cursor: int | None = None) -> tuple[str, ...]:
+    if not keys:
+        return ()
+    active_keys = set(_onemin_active_keys())
+    reserve_keys = set(_onemin_reserve_keys()) if allow_reserve else set()
+
+    if not active_keys and not reserve_keys:
+        candidate_keys = tuple(keys)
+    else:
+        ordered_keys = tuple(keys) if cursor is None else _rotate_list(tuple(keys), cursor)
+        if allow_reserve:
+            candidate_keys = ordered_keys
+        else:
+            candidate_keys = tuple(key for key in ordered_keys if key in active_keys)
+            if not candidate_keys and active_keys:
+                candidate_keys = tuple(key for key in ordered_keys if key in active_keys.union(reserve_keys))
+
+        if not candidate_keys:
+            candidate_keys = ordered_keys
+
+    return tuple(candidate_keys)
+
+
+def _rotate_list(values: tuple[str, ...], cursor: int) -> tuple[str, ...]:
+    if not values:
+        return ()
+    count = len(values)
+    if count <= 1:
+        return values
+    start = cursor % count
+    return values[start:] + values[:start]
+
+
+def _ordered_onemin_keys_allow_reserve(allow_reserve: bool) -> tuple[str, ...]:
+    keys = _onemin_key_names()
+    if not keys:
+        return ()
+    return _ordered_onemin_keys_for_keys(keys, allow_reserve=allow_reserve, cursor=_onemin_key_cursor(len(keys)))
 
 
 def _rotate_onemin_cursor_after_key_usage(api_key: str) -> None:
@@ -580,8 +760,8 @@ def _clean_onemin_states(keys: tuple[str, ...]) -> None:
                 _ONEMIN_KEY_STATES.pop(key, None)
 
 
-def _pick_onemin_key() -> tuple[str, float, float] | None:
-    key_names = _ordered_onemin_keys()
+def _pick_onemin_key(*, allow_reserve: bool = False) -> tuple[str, float, float] | None:
+    key_names = _ordered_onemin_keys_allow_reserve(allow_reserve)
     if not key_names:
         return None
     _clean_onemin_states(key_names)
@@ -725,11 +905,31 @@ def _magicx_lane_models() -> tuple[str, ...]:
 
 
 def _onemin_hard_models() -> tuple[str, ...]:
-    return ("gpt-5", "gpt-4o")
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_HARD_MODELS"))
+    defaults = ("gpt-5", "gpt-4o")
+    if configured:
+        return _merge_unique(configured, defaults)
+    return defaults
 
 
 def _onemin_review_models() -> tuple[str, ...]:
-    return ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_REVIEW_MODELS"))
+    defaults = ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
+    if configured:
+        return _merge_unique(configured, defaults)
+    return defaults
+
+
+def _onemin_max_requests_per_hour() -> int:
+    return _to_int(_env("EA_RESPONSES_ONEMIN_MAX_REQUESTS_PER_HOUR", str(_ONEMIN_MAX_REQUESTS_PER_HOUR)), 0, minimum=0)
+
+
+def _onemin_max_credits_per_hour() -> int:
+    return _to_int(_env("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR", str(_ONEMIN_MAX_CREDITS_PER_HOUR)), 0, minimum=0)
+
+
+def _onemin_max_credits_per_day() -> int:
+    return _to_int(_env("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY", str(_ONEMIN_MAX_CREDITS_PER_DAY)), 0, minimum=0)
 
 
 def _lane_max_output_tokens(lane: str) -> int | None:
@@ -1030,7 +1230,7 @@ def _provider_order() -> tuple[str, ...]:
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
     normalized = str(requested_model or "").strip().lower()
     if normalized == "":
-        return _LANE_DEFAULT
+        return _resolve_default_response_lane()
     if normalized in {"ea-review", "ea-critic"}:
         return _LANE_REVIEW
     if normalized == "ea-coder-hard":
@@ -1042,7 +1242,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
     if normalized == "ea-overflow":
         return _LANE_OVERFLOW
     if normalized == DEFAULT_PUBLIC_MODEL:
-        return _LANE_DEFAULT
+        return _resolve_default_response_lane()
     return _LANE_DEFAULT
 
 
@@ -2350,12 +2550,24 @@ def _call_onemin(
     errors: list[str] = []
     failures: list[str] = []
     tested: set[str] = set()
-    while len(tested) < len(key_names):
-        key_pick = _pick_onemin_key()
+    active_key_names = _ordered_onemin_keys_allow_reserve(False)
+    all_key_names = _ordered_onemin_keys_allow_reserve(True)
+    allow_reserve = False
+    while len(tested) < len(all_key_names):
+        key_pick = _pick_onemin_key(allow_reserve=allow_reserve)
         if key_pick is None:
+            if not allow_reserve and len(all_key_names) > len(active_key_names):
+                allow_reserve = True
+                continue
             break
         api_key, wait_until, _ = key_pick
         if api_key in tested:
+            if (
+                not allow_reserve
+                and len(all_key_names) > len(active_key_names)
+                and all(key in tested for key in active_key_names)
+            ):
+                allow_reserve = True
             _rotate_onemin_cursor_after_key_usage(api_key)
             continue
         tested.add(api_key)
@@ -2506,6 +2718,12 @@ def _call_onemin(
             _rotate_onemin_cursor_after_key_usage(api_key)
         elif failures or key_fallback_reason:
             _rotate_onemin_cursor_after_key_usage(api_key)
+        if (
+            not allow_reserve
+            and len(all_key_names) > len(active_key_names)
+            and all(key in tested for key in active_key_names)
+        ):
+            allow_reserve = True
     if not errors:
         raise ResponsesUpstreamError("onemin_unavailable")
     _log_provider_selection(
