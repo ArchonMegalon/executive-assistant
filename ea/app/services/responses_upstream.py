@@ -61,7 +61,7 @@ _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_MAX_KEY_SLOTS = 11
+_ONEMIN_MAX_KEY_SLOTS = 29
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
@@ -134,7 +134,16 @@ def _normalize_text_list(raw: object) -> list[str]:
         return []
     if isinstance(raw, str):
         cleaned = raw.strip()
-        return [cleaned] if cleaned else []
+        if not cleaned:
+            return []
+        if "," not in cleaned:
+            return [cleaned]
+        values: list[str] = []
+        for item in cleaned.split(","):
+            part = str(item or "").strip()
+            if part:
+                values.append(part)
+        return values
     if not isinstance(raw, (list, tuple, set)):
         return []
     values: list[str] = []
@@ -421,6 +430,16 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
             "ONEMIN_AI_API_KEY_FALLBACK_16",
             "ONEMIN_AI_API_KEY_FALLBACK_17",
             "ONEMIN_AI_API_KEY_FALLBACK_18",
+            "ONEMIN_AI_API_KEY_FALLBACK_19",
+            "ONEMIN_AI_API_KEY_FALLBACK_20",
+            "ONEMIN_AI_API_KEY_FALLBACK_21",
+            "ONEMIN_AI_API_KEY_FALLBACK_22",
+            "ONEMIN_AI_API_KEY_FALLBACK_23",
+            "ONEMIN_AI_API_KEY_FALLBACK_24",
+            "ONEMIN_AI_API_KEY_FALLBACK_25",
+            "ONEMIN_AI_API_KEY_FALLBACK_26",
+            "ONEMIN_AI_API_KEY_FALLBACK_27",
+            "ONEMIN_AI_API_KEY_FALLBACK_28",
         )
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
@@ -537,6 +556,16 @@ def _onemin_key_names() -> tuple[str, ...]:
             _env("ONEMIN_AI_API_KEY_FALLBACK_16"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_17"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_18"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_19"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_20"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_21"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_22"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_23"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_24"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_25"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_26"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_27"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_28"),
         )
     )
 
@@ -549,7 +578,36 @@ def _normalize_slot_name(raw: object) -> str:
         value = "primary"
     if value in {"primary", "fallback", "fallback_1", "fallback_1st"}:
         return value if value == "primary" else "fallback_1"
-    if value in {"fallback1", "fallback2", "fallback3", "fallback4", "fallback5", "fallback6", "fallback7", "fallback8", "fallback9", "fallback10", "fallback11", "fallback12", "fallback13", "fallback14", "fallback15", "fallback16", "fallback17", "fallback18"}:
+    if value in {
+        "fallback1",
+        "fallback2",
+        "fallback3",
+        "fallback4",
+        "fallback5",
+        "fallback6",
+        "fallback7",
+        "fallback8",
+        "fallback9",
+        "fallback10",
+        "fallback11",
+        "fallback12",
+        "fallback13",
+        "fallback14",
+        "fallback15",
+        "fallback16",
+        "fallback17",
+        "fallback18",
+        "fallback19",
+        "fallback20",
+        "fallback21",
+        "fallback22",
+        "fallback23",
+        "fallback24",
+        "fallback25",
+        "fallback26",
+        "fallback27",
+        "fallback28",
+    }:
         return value.replace("fallback", "fallback_")
     if value.isdigit():
         return f"fallback_{value}"
@@ -2965,6 +3023,8 @@ def _test_reset_onemin_states() -> None:
 def _provider_health_report() -> dict[str, object]:
     now = _now_epoch()
     onemin_key_names = _onemin_key_names()
+    onemin_active_keys = _onemin_active_keys()
+    onemin_reserve_keys = _onemin_reserve_keys()
     onemin_key_states = _onemin_states_snapshot(onemin_key_names)
     onemin_slots: list[dict[str, object]] = []
     if _magix_health_probe_enabled():
@@ -3044,6 +3104,10 @@ def _provider_health_report() -> dict[str, object]:
         }
         for api_key in chatplayground_key_names
     ]
+    hard_max_active, hard_queue_timeout, _ = _resolve_hard_defaults()
+    onemin_max_requests_per_hour = _onemin_max_requests_per_hour()
+    onemin_max_credits_per_hour = _onemin_max_credits_per_hour()
+    onemin_max_credits_per_day = _onemin_max_credits_per_day()
     return {
         "providers": {
             "onemin": {
@@ -3063,6 +3127,9 @@ def _provider_health_report() -> dict[str, object]:
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
                 "credit_estimation_mode": "observed_error_or_observed_usage_or_ready_assumed_full",
+                "max_requests_per_hour": onemin_max_requests_per_hour,
+                "max_credits_per_hour": onemin_max_credits_per_hour,
+                "max_credits_per_day": onemin_max_credits_per_day,
                 **onemin_burn_summary,
             },
             "magixai": {
@@ -3084,18 +3151,34 @@ def _provider_health_report() -> dict[str, object]:
             },
         },
         "provider_config": {
+            "default_profile": _env("EA_RESPONSES_DEFAULT_PROFILE", _DEFAULT_LANE_PROFILE) or _DEFAULT_LANE_PROFILE,
+            "default_lane": _resolve_default_response_lane(),
+            "provider_order": list(_provider_order()),
             "onemin_accounts": [
                 _provider_account_name("onemin", key_names=onemin_key_names, key=key)
                 for key in onemin_key_names
             ],
+            "onemin_active_accounts": [
+                _provider_account_name("onemin", key_names=onemin_key_names, key=key)
+                for key in onemin_active_keys
+            ],
+            "onemin_reserve_accounts": [
+                _provider_account_name("onemin", key_names=onemin_key_names, key=key)
+                for key in onemin_reserve_keys
+            ],
             "onemin_max_slots": _ONEMIN_MAX_KEY_SLOTS,
             "onemin_included_credits_per_key": _onemin_included_credits_per_key(),
             "onemin_bonus_credits_per_key": _onemin_bonus_credits_per_key(),
+            "onemin_max_requests_per_hour": onemin_max_requests_per_hour,
+            "onemin_max_credits_per_hour": onemin_max_credits_per_hour,
+            "onemin_max_credits_per_day": onemin_max_credits_per_day,
             "chatplayground_accounts": [
                 _provider_account_name("chatplayground", key_names=chatplayground_key_names, key=key)
                 for key in chatplayground_key_names
             ],
             "chatplayground_url": _browserplayground_url(),
+            "hard_max_active_requests": hard_max_active,
+            "hard_queue_timeout_seconds": hard_queue_timeout,
             "lane_caps": {
                 _LANE_FAST: _lane_max_output_tokens(_LANE_FAST),
                 _LANE_REVIEW: _lane_max_output_tokens(_LANE_REVIEW),
