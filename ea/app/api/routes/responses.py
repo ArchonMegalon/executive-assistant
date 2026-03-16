@@ -52,8 +52,175 @@ class _StoredResponse:
     principal_id: str
 
 
-_RESPONSE_STORE: dict[str, _StoredResponse] = {}
-_RESPONSE_STORE_LOCK = threading.Lock()
+class _ResponseRecordRepository:
+    def store(
+        self,
+        *,
+        response_id: str,
+        response_obj: dict[str, object],
+        input_items: list[dict[str, object]],
+        history_items: list[dict[str, object]],
+        principal_id: str,
+    ) -> None:
+        raise NotImplementedError
+
+    def load(
+        self,
+        *,
+        response_id: str,
+        principal_id: str,
+    ) -> _StoredResponse:
+        raise NotImplementedError
+
+
+class _MemoryResponseRecordRepository(_ResponseRecordRepository):
+    def __init__(self) -> None:
+        self._records: dict[str, _StoredResponse] = {}
+        self._lock = threading.Lock()
+
+    def store(
+        self,
+        *,
+        response_id: str,
+        response_obj: dict[str, object],
+        input_items: list[dict[str, object]],
+        history_items: list[dict[str, object]],
+        principal_id: str,
+    ) -> None:
+        with self._lock:
+            self._records[response_id] = _StoredResponse(
+                response=dict(response_obj),
+                input_items=[dict(item) for item in input_items],
+                history_items=[dict(item) for item in history_items],
+                principal_id=principal_id,
+            )
+
+    def load(
+        self,
+        *,
+        response_id: str,
+        principal_id: str,
+    ) -> _StoredResponse:
+        with self._lock:
+            stored = self._records.get(response_id)
+        if stored is None:
+            raise HTTPException(status_code=404, detail="response_not_found")
+        if stored.principal_id != principal_id:
+            raise HTTPException(status_code=403, detail="principal_scope_mismatch")
+        return stored
+
+
+class _PostgresResponseRecordRepository(_ResponseRecordRepository):
+    def __init__(self, database_url: str) -> None:
+        self._database_url = str(database_url or "").strip()
+        if not self._database_url:
+            raise ValueError("database_url is required for Postgres response storage")
+        self._ensure_schema()
+
+    def _connect(self):  # type: ignore[no-untyped-def]
+        try:
+            import psycopg
+        except Exception as exc:  # pragma: no cover - import guard
+            raise RuntimeError("psycopg is required for postgres response storage") from exc
+        return psycopg.connect(self._database_url, autocommit=True)
+
+    def _json_value(self, value: object):  # type: ignore[no-untyped-def]
+        from psycopg.types.json import Json
+
+        return Json(value)
+
+    def _ensure_schema(self) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS response_records (
+                        response_id TEXT PRIMARY KEY,
+                        principal_id TEXT NOT NULL,
+                        response_json JSONB NOT NULL,
+                        input_items_json JSONB NOT NULL,
+                        history_items_json JSONB NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_response_records_principal_created
+                    ON response_records(principal_id, created_at DESC)
+                    """
+                )
+
+    def store(
+        self,
+        *,
+        response_id: str,
+        response_obj: dict[str, object],
+        input_items: list[dict[str, object]],
+        history_items: list[dict[str, object]],
+        principal_id: str,
+    ) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO response_records (
+                        response_id,
+                        principal_id,
+                        response_json,
+                        input_items_json,
+                        history_items_json
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (response_id) DO UPDATE SET
+                        principal_id = EXCLUDED.principal_id,
+                        response_json = EXCLUDED.response_json,
+                        input_items_json = EXCLUDED.input_items_json,
+                        history_items_json = EXCLUDED.history_items_json,
+                        updated_at = NOW()
+                    """,
+                    (
+                        response_id,
+                        principal_id,
+                        self._json_value(response_obj),
+                        self._json_value(input_items),
+                        self._json_value(history_items),
+                    ),
+                )
+
+    def load(
+        self,
+        *,
+        response_id: str,
+        principal_id: str,
+    ) -> _StoredResponse:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT principal_id, response_json, input_items_json, history_items_json
+                    FROM response_records
+                    WHERE response_id = %s
+                    """,
+                    (response_id,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="response_not_found")
+        stored_principal_id, response_json, input_items_json, history_items_json = row
+        if str(stored_principal_id or "") != principal_id:
+            raise HTTPException(status_code=403, detail="principal_scope_mismatch")
+        return _StoredResponse(
+            response=dict(response_json or {}),
+            input_items=[dict(item) for item in list(input_items_json or []) if isinstance(item, dict)],
+            history_items=[dict(item) for item in list(history_items_json or []) if isinstance(item, dict)],
+            principal_id=str(stored_principal_id or ""),
+        )
+
+
+_RESPONSE_REPOSITORY_LOCK = threading.Lock()
+_MEMORY_RESPONSE_REPOSITORY = _MemoryResponseRecordRepository()
+_POSTGRES_RESPONSE_REPOSITORIES: dict[str, _PostgresResponseRecordRepository] = {}
 
 _CODEx_PROFILES = (
     {
@@ -645,6 +812,46 @@ def _function_call_item(
     ).model_dump(mode="json")
 
 
+def _container_database_url(container: object | None) -> str:
+    if container is None:
+        return ""
+    settings = getattr(container, "settings", None)
+    if settings is None:
+        return ""
+    direct = str(getattr(settings, "database_url", "") or "").strip()
+    if direct:
+        return direct
+    storage = getattr(settings, "storage", None)
+    if storage is None:
+        return ""
+    return str(getattr(storage, "database_url", "") or "").strip()
+
+
+def _response_record_repository(container: object | None) -> _ResponseRecordRepository:
+    backend = "memory"
+    database_url = ""
+    if container is not None:
+        runtime_profile = getattr(container, "runtime_profile", None)
+        backend = str(getattr(runtime_profile, "storage_backend", "memory") or "memory").strip().lower() or "memory"
+        database_url = _container_database_url(container)
+    else:
+        backend = str(
+            os.environ.get("EA_STORAGE_BACKEND")
+            or os.environ.get("EA_LEDGER_BACKEND")
+            or "memory"
+        ).strip().lower() or "memory"
+        database_url = str(os.environ.get("DATABASE_URL") or "").strip()
+
+    if backend == "postgres" and database_url:
+        with _RESPONSE_REPOSITORY_LOCK:
+            repository = _POSTGRES_RESPONSE_REPOSITORIES.get(database_url)
+            if repository is None:
+                repository = _PostgresResponseRecordRepository(database_url)
+                _POSTGRES_RESPONSE_REPOSITORIES[database_url] = repository
+        return repository
+    return _MEMORY_RESPONSE_REPOSITORY
+
+
 def _store_response(
     *,
     response_id: str,
@@ -652,28 +859,27 @@ def _store_response(
     input_items: list[dict[str, object]],
     history_items: list[dict[str, object]],
     principal_id: str,
+    container: object | None = None,
 ) -> None:
-    with _RESPONSE_STORE_LOCK:
-        _RESPONSE_STORE[response_id] = _StoredResponse(
-            response=dict(response_obj),
-            input_items=[dict(item) for item in input_items],
-            history_items=[dict(item) for item in history_items],
-            principal_id=principal_id,
-        )
+    _response_record_repository(container).store(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id=principal_id,
+    )
 
 
 def _load_response(
     *,
     response_id: str,
     principal_id: str,
+    container: object | None = None,
 ) -> _StoredResponse:
-    with _RESPONSE_STORE_LOCK:
-        stored = _RESPONSE_STORE.get(response_id)
-    if stored is None:
-        raise HTTPException(status_code=404, detail="response_not_found")
-    if stored.principal_id != principal_id:
-        raise HTTPException(status_code=403, detail="principal_scope_mismatch")
-    return stored
+    return _response_record_repository(container).load(
+        response_id=response_id,
+        principal_id=principal_id,
+    )
 
 
 def _generate_upstream_text(
@@ -747,10 +953,15 @@ def _history_items_for_request(
     previous_response_id: str | None,
     parsed_input: _ParsedResponseInput,
     principal_id: str,
+    container: object | None = None,
 ) -> list[dict[str, object]]:
     history: list[dict[str, object]] = []
     if previous_response_id:
-        stored = _load_response(response_id=previous_response_id, principal_id=principal_id)
+        stored = _load_response(
+            response_id=previous_response_id,
+            principal_id=principal_id,
+            container=container,
+        )
         history.extend(dict(item) for item in stored.history_items)
     history.extend(dict(item) for item in parsed_input.input_items)
     return history
@@ -1159,6 +1370,7 @@ def _run_response(
         previous_response_id=previous_response_id,
         parsed_input=parsed_input,
         principal_id=context.principal_id,
+        container=container,
     )
 
     messages: list[dict[str, str]] = []
@@ -1276,6 +1488,7 @@ def _run_response(
                 input_items=parsed_input.input_items,
                 history_items=history_items_to_store,
                 principal_id=context.principal_id,
+                container=container,
             )
         _capture_responses_debug(
             name="response",
@@ -1387,6 +1600,7 @@ def _run_response(
                     input_items=parsed_input.input_items,
                     history_items=history_items,
                     principal_id=context.principal_id,
+                    container=container,
                 )
             yield _sse_event(
                 event="response.failed",
@@ -1425,6 +1639,7 @@ def _run_response(
                         input_items=parsed_input.input_items,
                         history_items=history_items,
                         principal_id=context.principal_id,
+                        container=container,
                     )
                 yield _sse_event(
                     event="response.failed",
@@ -1460,7 +1675,9 @@ def _run_response(
                     response_id=response_id,
                     response_obj=failed_obj,
                     input_items=parsed_input.input_items,
+                    history_items=history_items,
                     principal_id=context.principal_id,
+                    container=container,
                 )
             yield _sse_event(
                 event="response.failed",
@@ -1666,6 +1883,7 @@ def _run_response(
                 input_items=parsed_input.input_items,
                 history_items=history_items_to_store,
                 principal_id=context.principal_id,
+                container=container,
             )
         _capture_responses_debug(
             name="response",
@@ -1727,8 +1945,13 @@ def get_response(
     response_id: str,
     *,
     context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
 ) -> Response:
-    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
+    stored = _load_response(
+        response_id=response_id,
+        principal_id=context.principal_id,
+        container=container,
+    )
     return JSONResponse(stored.response)
 
 
@@ -1737,8 +1960,13 @@ def get_response_input_items(
     response_id: str,
     *,
     context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
 ) -> Response:
-    stored = _load_response(response_id=response_id, principal_id=context.principal_id)
+    stored = _load_response(
+        response_id=response_id,
+        principal_id=context.principal_id,
+        container=container,
+    )
     return JSONResponse(
         {
             "object": "list",
@@ -1779,8 +2007,9 @@ def create_response(
     payload: dict[str, object],
     *,
     context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
 ) -> Response:
-    return _run_response(payload, context=context)
+    return _run_response(payload, context=context, container=container)
 
 
 @codex_router.post(
@@ -1814,9 +2043,10 @@ def create_codex_core(
     payload: dict[str, object],
     *,
     context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="core")
-    return _run_response(normalized, context=context, codex_profile="core")
+    return _run_response(normalized, context=context, container=container, codex_profile="core")
 
 
 @codex_router.post(
@@ -1850,9 +2080,10 @@ def create_codex_easy(
     payload: dict[str, object],
     *,
     context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="easy")
-    return _run_response(normalized, context=context, codex_profile="easy")
+    return _run_response(normalized, context=context, container=container, codex_profile="easy")
 
 
 @codex_router.post(

@@ -6,7 +6,7 @@ import pytest
 from app.services import responses_upstream as upstream
 
 
-def test_provider_candidates_expand_coding_model_chains(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magicxai,onemin")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best,om-fallback")
@@ -23,8 +23,25 @@ def test_provider_candidates_expand_coding_model_chains(monkeypatch: pytest.Monk
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
-        ("onemin", "om-best"),
-        ("onemin", "om-fallback"),
+    ]
+
+
+def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("")
+    ]
+
+    assert candidates == [
+        ("magixai", "mx-best"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+        ("magixai", "mistralai/codestral-2508"),
+        ("magixai", "openai/gpt-5.1-codex-mini"),
+        ("magixai", "inception/mercury-coder"),
     ]
 
 
