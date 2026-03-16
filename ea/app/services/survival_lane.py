@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from enum import Enum
 
 from app.domain.models import ToolInvocationRequest
 from app.services.responses_upstream import UpstreamResult
@@ -17,6 +18,8 @@ _SURVIVAL_CACHE_LOCK = threading.Lock()
 _SURVIVAL_CACHE: dict[str, tuple[float, "SurvivalResult"]] = {}
 _SURVIVAL_QUEUE_LOCK = threading.Condition(threading.Lock())
 _SURVIVAL_ACTIVE_REQUESTS = 0
+_SURVIVAL_BACKEND_STATE_LOCK = threading.Lock()
+_SURVIVAL_BACKEND_STATE: dict[str, "_BackendFailureState"] = {}
 
 
 def _env(name: str, default: str = "") -> str:
@@ -166,6 +169,14 @@ def _survival_chatplayground_role() -> str:
     return str(_env("EA_SURVIVAL_CHATPLAYGROUND_SINGLE_ROLE", "factuality") or "factuality").strip() or "factuality"
 
 
+def _ui_challenge_cooldown_seconds() -> int:
+    return _to_int(_env("EA_UI_CHALLENGE_COOLDOWN_SECONDS", "1800"), 1800, minimum=30, maximum=86400)
+
+
+def _ui_challenge_max_consecutive() -> int:
+    return _to_int(_env("EA_UI_CHALLENGE_MAX_CONSECUTIVE", "2"), 2, minimum=1, maximum=20)
+
+
 def _cache_get(cache_key: str) -> "SurvivalResult" | None:
     if not cache_key:
         return None
@@ -212,6 +223,17 @@ def _release_survival_slot() -> None:
         _SURVIVAL_QUEUE_LOCK.notify_all()
 
 
+def _test_reset_survival_state() -> None:
+    global _SURVIVAL_ACTIVE_REQUESTS
+    with _SURVIVAL_CACHE_LOCK:
+        _SURVIVAL_CACHE.clear()
+    with _SURVIVAL_BACKEND_STATE_LOCK:
+        _SURVIVAL_BACKEND_STATE.clear()
+    with _SURVIVAL_QUEUE_LOCK:
+        _SURVIVAL_ACTIVE_REQUESTS = 0
+        _SURVIVAL_QUEUE_LOCK.notify_all()
+
+
 @dataclass(frozen=True)
 class SurvivalPacket:
     objective: str
@@ -220,6 +242,33 @@ class SurvivalPacket:
     current_input: str
     desired_format: str | None
     fingerprint: str
+
+
+class UiLaneFailureCode(str, Enum):
+    challenge_required = "challenge_required"
+    challenge_loop = "challenge_loop"
+    session_expired = "session_expired"
+    lane_unavailable = "lane_unavailable"
+    timeout = "timeout"
+    empty_output = "empty_output"
+
+
+@dataclass(frozen=True)
+class UiLaneFailure:
+    provider_backend: str
+    code: UiLaneFailureCode
+    detail: str = ""
+    retryable: bool = True
+    cooldown_seconds: int = 0
+
+
+@dataclass
+class _BackendFailureState:
+    cooldown_until: float = 0.0
+    consecutive_challenges: int = 0
+    last_failure_code: str = ""
+    last_failure_detail: str = ""
+    last_failure_at: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -369,6 +418,19 @@ class SurvivalLaneService:
 
             attempts: list[SurvivalAttempt] = []
             for backend in _survival_route_order():
+                cooldown = self._backend_cooldown_failure(backend)
+                if cooldown is not None:
+                    now = time.time()
+                    attempts.append(
+                        SurvivalAttempt(
+                            backend=backend,
+                            started_at=now,
+                            completed_at=now,
+                            status="skipped",
+                            detail=f"cooldown_active:{cooldown.code.value}",
+                        )
+                    )
+                    continue
                 if backend == "gemini_vortex":
                     result = self.try_gemini_vortex(packet=packet, attempts=attempts)
                 elif backend == "gemini_web":
@@ -529,29 +591,40 @@ class SurvivalLaneService:
         try:
             result = self._tool_execution.execute_invocation(invocation)
         except ToolExecutionError as exc:
+            failure = self._ui_failure_from_detail(str(exc), backend_hint="gemini_web")
+            if failure is not None:
+                self._record_backend_failure("gemini_web", failure)
             attempts.append(
                 SurvivalAttempt(
                     backend="gemini_web",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail=str(exc),
+                    detail=(failure.code.value if failure is not None else str(exc)),
                 )
             )
             return None
         output_json = dict(result.output_json or {})
         text = _extract_textish(output_json.get("text")) or _extract_textish(output_json.get("normalized_text"))
         if not text:
+            failure = UiLaneFailure(
+                provider_backend="gemini_web",
+                code=UiLaneFailureCode.empty_output,
+                detail="empty_output",
+                retryable=True,
+                cooldown_seconds=0,
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="gemini_web",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail="empty_output",
+                    detail=failure.code.value,
                 )
             )
             return None
+        self._clear_backend_failure("gemini_web")
         attempts.append(
             SurvivalAttempt(
                 backend="gemini_web",
@@ -617,13 +690,16 @@ class SurvivalLaneService:
         try:
             result = self._tool_execution.execute_invocation(invocation)
         except ToolExecutionError as exc:
+            failure = self._ui_failure_from_detail(str(exc), backend_hint="chatplayground")
+            if failure is not None:
+                self._record_backend_failure("chatplayground", failure)
             attempts.append(
                 SurvivalAttempt(
                     backend="chatplayground",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail=str(exc),
+                    detail=(failure.code.value if failure is not None else str(exc)),
                 )
             )
             return None
@@ -647,16 +723,24 @@ class SurvivalLaneService:
             or _extract_textish(output_json.get("normalized_text"))
         )
         if not text:
+            failure = UiLaneFailure(
+                provider_backend="chatplayground",
+                code=UiLaneFailureCode.empty_output,
+                detail="empty_output",
+                retryable=True,
+                cooldown_seconds=0,
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="chatplayground",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail="empty_output",
+                    detail=failure.code.value,
                 )
             )
             return None
+        self._clear_backend_failure("chatplayground")
         attempts.append(
             SurvivalAttempt(
                 backend="chatplayground",
@@ -703,3 +787,117 @@ class SurvivalLaneService:
             parts.append(f"Desired format:\n{packet.desired_format}")
         parts.append("Rules:\n- Continue the task.\n- Be concise and actionable.\n- Do not require extra context unless blocked.")
         return "\n\n".join(part for part in parts if part).strip()
+
+    def _backend_cooldown_failure(self, backend: str) -> UiLaneFailure | None:
+        normalized = str(backend or "").strip().lower()
+        if not normalized:
+            return None
+        now = time.time()
+        with _SURVIVAL_BACKEND_STATE_LOCK:
+            state = _SURVIVAL_BACKEND_STATE.get(normalized)
+            if state is None or state.cooldown_until <= now or not state.last_failure_code:
+                return None
+            try:
+                code = UiLaneFailureCode(state.last_failure_code)
+            except ValueError:
+                return None
+            return UiLaneFailure(
+                provider_backend=normalized,
+                code=code,
+                detail=state.last_failure_detail,
+                retryable=True,
+                cooldown_seconds=max(0, int(state.cooldown_until - now)),
+            )
+
+    def _clear_backend_failure(self, backend: str) -> None:
+        normalized = str(backend or "").strip().lower()
+        if not normalized:
+            return
+        with _SURVIVAL_BACKEND_STATE_LOCK:
+            _SURVIVAL_BACKEND_STATE.pop(normalized, None)
+
+    def _record_backend_failure(self, backend: str, failure: UiLaneFailure) -> None:
+        normalized = str(backend or failure.provider_backend or "").strip().lower()
+        if not normalized:
+            return
+        now = time.time()
+        with _SURVIVAL_BACKEND_STATE_LOCK:
+            state = _SURVIVAL_BACKEND_STATE.get(normalized) or _BackendFailureState()
+            if failure.code in {
+                UiLaneFailureCode.challenge_required,
+                UiLaneFailureCode.challenge_loop,
+                UiLaneFailureCode.session_expired,
+            }:
+                state.consecutive_challenges += 1
+                if state.consecutive_challenges >= _ui_challenge_max_consecutive():
+                    state.last_failure_code = UiLaneFailureCode.challenge_loop.value
+                else:
+                    state.last_failure_code = failure.code.value
+                state.cooldown_until = now + float(failure.cooldown_seconds or _ui_challenge_cooldown_seconds())
+            else:
+                state.consecutive_challenges = 0
+                state.last_failure_code = failure.code.value
+                state.cooldown_until = now + float(max(0, failure.cooldown_seconds))
+            state.last_failure_detail = failure.detail
+            state.last_failure_at = now
+            _SURVIVAL_BACKEND_STATE[normalized] = state
+
+    def _ui_failure_from_detail(self, detail: str, *, backend_hint: str) -> UiLaneFailure | None:
+        normalized = str(detail or "").strip()
+        if not normalized:
+            return None
+        lowered = normalized.lower()
+        if lowered.startswith("ui_lane_failure:"):
+            parts = normalized.split(":", 3)
+            backend = backend_hint or (parts[1] if len(parts) > 1 else "")
+            code_raw = parts[2] if len(parts) > 2 else ""
+            try:
+                code = UiLaneFailureCode(str(code_raw or "").strip().lower())
+            except ValueError:
+                return None
+            cooldown = _ui_challenge_cooldown_seconds() if code in {
+                UiLaneFailureCode.challenge_required,
+                UiLaneFailureCode.challenge_loop,
+                UiLaneFailureCode.session_expired,
+            } else 0
+            extra_detail = parts[3] if len(parts) > 3 else normalized
+            return UiLaneFailure(
+                provider_backend=str(backend or backend_hint or "").strip().lower(),
+                code=code,
+                detail=extra_detail,
+                retryable=(code != UiLaneFailureCode.empty_output),
+                cooldown_seconds=cooldown,
+            )
+        if "session_expired" in lowered:
+            return UiLaneFailure(
+                provider_backend=backend_hint,
+                code=UiLaneFailureCode.session_expired,
+                detail=normalized,
+                retryable=True,
+                cooldown_seconds=_ui_challenge_cooldown_seconds(),
+            )
+        if "timeout" in lowered:
+            return UiLaneFailure(
+                provider_backend=backend_hint,
+                code=UiLaneFailureCode.timeout,
+                detail=normalized,
+                retryable=True,
+                cooldown_seconds=0,
+            )
+        if "empty_output" in lowered:
+            return UiLaneFailure(
+                provider_backend=backend_hint,
+                code=UiLaneFailureCode.empty_output,
+                detail=normalized,
+                retryable=True,
+                cooldown_seconds=0,
+            )
+        if "unavailable" in lowered:
+            return UiLaneFailure(
+                provider_backend=backend_hint,
+                code=UiLaneFailureCode.lane_unavailable,
+                detail=normalized,
+                retryable=True,
+                cooldown_seconds=0,
+            )
+        return None

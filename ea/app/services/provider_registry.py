@@ -447,6 +447,8 @@ class ProviderRegistryService:
                 "ONEMIN_AI_API_KEY_FALLBACK_9",
                 "ONEMIN_AI_API_KEY_FALLBACK_10",
                 "ONEMIN_AI_API_KEY_FALLBACK_11",
+                "ONEMIN_AI_API_KEY_FALLBACK_12",
+                "ONEMIN_AI_API_KEY_FALLBACK_13",
             ),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),

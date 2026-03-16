@@ -1018,6 +1018,9 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "health-key-i")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "health-key-j")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "health-key-k")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_11", "health-key-l")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_12", "health-key-m")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_13", "health-key-n")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-health-key")
     monkeypatch.setenv("BROWSERACT_API_KEY_FALLBACK_1", "browseract-health-fallback")
     monkeypatch.setenv("AI_MAGICX_API_KEY", "health-magicx-key")
@@ -1028,8 +1031,8 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 11
-    assert len(providers["onemin"]["slots"]) == 11
+    assert providers["onemin"]["configured_slots"] == 14
+    assert len(providers["onemin"]["slots"]) == 14
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
         "fallback_1",
@@ -1042,6 +1045,9 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "fallback_8",
         "fallback_9",
         "fallback_10",
+        "fallback_11",
+        "fallback_12",
+        "fallback_13",
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -1068,6 +1074,9 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "ONEMIN_AI_API_KEY_FALLBACK_8",
         "ONEMIN_AI_API_KEY_FALLBACK_9",
         "ONEMIN_AI_API_KEY_FALLBACK_10",
+        "ONEMIN_AI_API_KEY_FALLBACK_11",
+        "ONEMIN_AI_API_KEY_FALLBACK_12",
+        "ONEMIN_AI_API_KEY_FALLBACK_13",
     ]
     assert body["provider_config"]["chatplayground_accounts"] == [
         "BROWSERACT_API_KEY",

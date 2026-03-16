@@ -33,11 +33,127 @@ def _extract_textish(value: object) -> str:
     return ""
 
 
+def _collect_text_fragments(value: object, *, limit: int = 64) -> tuple[str, ...]:
+    collected: list[str] = []
+
+    def _visit(node: object) -> None:
+        if len(collected) >= limit:
+            return
+        if node is None:
+            return
+        if isinstance(node, (str, int, float, bool)):
+            text = str(node).strip()
+            if text:
+                collected.append(text[:500])
+            return
+        if isinstance(node, dict):
+            for key, nested in node.items():
+                if len(collected) >= limit:
+                    break
+                key_text = str(key or "").strip()
+                if key_text:
+                    collected.append(key_text[:120])
+                _visit(nested)
+            return
+        if isinstance(node, (list, tuple, set)):
+            for nested in node:
+                if len(collected) >= limit:
+                    break
+                _visit(nested)
+
+    _visit(value)
+    return tuple(collected)
+
+
+def _has_marker(fragments: tuple[str, ...], markers: tuple[str, ...]) -> bool:
+    lowered = tuple(fragment.lower() for fragment in fragments if fragment)
+    return any(marker in fragment for fragment in lowered for marker in markers)
+
+
 class BrowserActToolAdapter:
     def __init__(self, *, connector_dispatch: ConnectorDispatchToolAdapter) -> None:
         self._connector_dispatch = connector_dispatch
         self._chatplayground_audit = None
         self._gemini_web_generate = None
+
+    @staticmethod
+    def _looks_like_cloudflare_challenge(payload: dict[str, object]) -> bool:
+        return _has_marker(
+            _collect_text_fragments(payload),
+            (
+                "cloudflare",
+                "just a moment",
+                "checking your browser",
+                "attention required",
+                "verify you are human",
+                "prove you are human",
+                "human verification",
+                "captcha",
+                "security check",
+                "browser integrity check",
+            ),
+        )
+
+    @staticmethod
+    def _looks_like_turnstile(payload: dict[str, object]) -> bool:
+        return _has_marker(
+            _collect_text_fragments(payload),
+            (
+                "turnstile",
+                "cf-turnstile",
+                "challenge-platform",
+                "cf_challenge",
+            ),
+        )
+
+    @staticmethod
+    def _looks_like_chatgpt_human_verification(payload: dict[str, object]) -> bool:
+        fragments = _collect_text_fragments(payload)
+        has_product = _has_marker(fragments, ("chatgpt", "openai"))
+        has_challenge = _has_marker(
+            fragments,
+            (
+                "verify you are human",
+                "prove you are human",
+                "human verification",
+                "captcha",
+            ),
+        )
+        return has_product and has_challenge
+
+    @staticmethod
+    def _looks_like_ui_session_expired(payload: dict[str, object]) -> bool:
+        return _has_marker(
+            _collect_text_fragments(payload),
+            (
+                "session expired",
+                "please sign in",
+                "sign in to continue",
+                "log in to continue",
+                "login required",
+                "reauthenticate",
+            ),
+        )
+
+    @classmethod
+    def _raise_for_ui_lane_failure(cls, *, payload: dict[str, object], backend: str) -> None:
+        explicit = str(
+            payload.get("ui_failure_code")
+            or payload.get("failure_code")
+            or payload.get("error_code")
+            or payload.get("challenge_state")
+            or ""
+        ).strip().lower()
+        if explicit in {"challenge_required", "challenge_loop", "session_expired", "lane_unavailable", "timeout"}:
+            raise ToolExecutionError(f"ui_lane_failure:{backend}:{explicit}")
+        if cls._looks_like_ui_session_expired(payload):
+            raise ToolExecutionError(f"ui_lane_failure:{backend}:session_expired")
+        if (
+            cls._looks_like_turnstile(payload)
+            or cls._looks_like_cloudflare_challenge(payload)
+            or cls._looks_like_chatgpt_human_verification(payload)
+        ):
+            raise ToolExecutionError(f"ui_lane_failure:{backend}:challenge_required")
 
     def execute_extract(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
@@ -1184,6 +1300,7 @@ class BrowserActToolAdapter:
         if not isinstance(candidate, dict):
             return None
         safe_payload = dict(candidate)
+        BrowserActToolAdapter._raise_for_ui_lane_failure(payload=safe_payload, backend="chatplayground")
         safe_payload.setdefault("requested_url", run_url)
         safe_payload.setdefault("requested_roles", list(roles))
         safe_payload.setdefault("roles", list(roles))
@@ -1289,6 +1406,7 @@ class BrowserActToolAdapter:
                 },
                 timeout_seconds=timeout_seconds,
             )
+            self._raise_for_ui_lane_failure(payload=response, backend="gemini_web")
             text = _extract_textish(
                 response.get("text")
                 or response.get("answer")
@@ -1435,6 +1553,7 @@ class BrowserActToolAdapter:
         if not isinstance(candidate, dict):
             return None
         safe_payload = dict(candidate)
+        BrowserActToolAdapter._raise_for_ui_lane_failure(payload=safe_payload, backend="gemini_web")
         text = _extract_textish(
             safe_payload.get("text")
             or safe_payload.get("answer")
