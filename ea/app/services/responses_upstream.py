@@ -1696,6 +1696,10 @@ def _provider_candidates(
         provider_keys_by_lane = _provider_order()
 
     if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
+        # Keep the public default biased toward the cheap/fast lane, but never
+        # trap it on Magicx-only when the fast lane is degraded.
+        if lane in {_LANE_FAST, _LANE_OVERFLOW}:
+            provider_keys_by_lane = _merge_unique(("magixai",), _provider_order())
         candidates: list[tuple[ProviderConfig, str]] = []
         for provider_key in provider_keys_by_lane:
             config = configs.get(provider_key)
