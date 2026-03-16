@@ -5,6 +5,7 @@ from typing import Callable
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_browseract_registry import (
+    register_builtin_browseract_gemini_web_generate,
     register_builtin_browseract_extract,
     register_builtin_browseract_inventory,
     register_builtin_browseract_chatplayground_audit,
@@ -45,6 +46,14 @@ class BrowserActToolExecutionModule:
     def chatplayground_audit(self, handler) -> None:
         self._adapter._chatplayground_audit = handler
 
+    @property
+    def gemini_web_generate(self):
+        return self._adapter._gemini_web_generate
+
+    @gemini_web_generate.setter
+    def gemini_web_generate(self, handler) -> None:
+        self._adapter._gemini_web_generate = handler
+
     def register_extract(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_extract(
             tool_runtime=self._tool_runtime,
@@ -75,6 +84,13 @@ class BrowserActToolExecutionModule:
 
     def register_chatplayground_audit(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_chatplayground_audit(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_gemini_web_generate(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_browseract_gemini_web_generate(
             tool_runtime=self._tool_runtime,
             register_handler=register_handler,
             browseract_adapter=self._adapter,

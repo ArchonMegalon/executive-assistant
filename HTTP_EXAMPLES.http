@@ -92,6 +92,18 @@ X-EA-Principal-ID: {{principal_id}}
   "input": "Write a short, mechanical docs cleanup patch."
 }
 
+POST {{host}}/v1/codex/survival
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Continue the task slowly and cheaply if the premium lanes are unavailable."
+}
+
+### Poll the survival response until status=completed
+GET {{host}}/v1/responses/replace_with_survival_response_id
+X-EA-Principal-ID: {{principal_id}}
+
 POST {{host}}/v1/codex/audit
 Content-Type: application/json
 X-EA-Principal-ID: {{principal_id}}

@@ -14,10 +14,30 @@ from app.services.tool_execution_common import ToolExecutionError
 from app.services.tool_execution_connector_dispatch_adapter import ConnectorDispatchToolAdapter
 
 
+def _extract_textish(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, list):
+        return "\n".join(part for part in (_extract_textish(item) for item in value) if part).strip()
+    if isinstance(value, dict):
+        for key in ("text", "answer", "summary", "consensus", "recommendation", "message", "output", "result", "normalized_text"):
+            text = _extract_textish(value.get(key))
+            if text:
+                return text
+        try:
+            return json.dumps(value, ensure_ascii=True)
+        except Exception:
+            return ""
+    return ""
+
+
 class BrowserActToolAdapter:
     def __init__(self, *, connector_dispatch: ConnectorDispatchToolAdapter) -> None:
         self._connector_dispatch = connector_dispatch
         self._chatplayground_audit = None
+        self._gemini_web_generate = None
 
     def execute_extract(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
@@ -1204,6 +1224,254 @@ class BrowserActToolAdapter:
                 "requested_roles": requested_roles,
                 "audit_scope": str(safe_payload.get("audit_scope") or audit_scope),
                 "route": "browseract.chatplayground_audit",
+                "handler": "callback",
+            },
+        )
+
+    def execute_gemini_web_generate(
+        self,
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+    ) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:browseract.gemini_web_generate",
+            required_scopes=None,
+        )
+        packet = payload.get("packet")
+        if not isinstance(packet, dict) or not packet:
+            raise ToolExecutionError(f"packet_required:{definition.tool_name}")
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        run_url = str(
+            payload.get("run_url")
+            or binding_metadata.get("gemini_web_run_url")
+            or binding_metadata.get("browseract_gemini_web_run_url")
+            or os.environ.get("BROWSERACT_GEMINI_WEB_URL", "").strip()
+            or ""
+        ).strip()
+        mode = str(payload.get("mode") or "thinking").strip().lower() or "thinking"
+        if mode not in {"thinking", "fast", "pro"}:
+            mode = "thinking"
+        deep_think = bool(payload.get("deep_think"))
+        try:
+            timeout_seconds = max(60, min(1800, int(payload.get("timeout_seconds") or 600)))
+        except Exception:
+            timeout_seconds = 600
+
+        callback = getattr(self, "_gemini_web_generate", None)
+        if callback is not None:
+            callback_result = self._safe_call_gemini_web_generate_callback(
+                callback=callback,
+                request=request,
+                payload=payload,
+                definition=definition,
+                packet=packet,
+                mode=mode,
+                deep_think=deep_think,
+                run_url=run_url,
+            )
+            if callback_result is not None:
+                return callback_result
+
+        if run_url:
+            response = self._post_browseract_json(
+                run_url=run_url,
+                request_payload={
+                    "packet": packet,
+                    "mode": mode,
+                    "deep_think": deep_think,
+                    "timeout_seconds": timeout_seconds,
+                    "principal_id": principal_id,
+                    "binding_id": binding.binding_id,
+                    "external_account_ref": binding.external_account_ref,
+                },
+                timeout_seconds=timeout_seconds,
+            )
+            text = _extract_textish(
+                response.get("text")
+                or response.get("answer")
+                or response.get("result")
+                or response.get("normalized_text")
+            )
+            if text:
+                action_kind = str(request.action_kind or "content.generate") or "content.generate"
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind=action_kind,
+                    target_ref=f"browseract:{binding.binding_id}:gemini_web_generate:{uuid.uuid4()}",
+                    output_json={
+                        "binding_id": binding.binding_id,
+                        "connector_name": binding.connector_name,
+                        "external_account_ref": binding.external_account_ref,
+                        "text": text,
+                        "mode_used": str(response.get("mode_used") or mode),
+                        "deep_think": bool(response.get("deep_think", deep_think)),
+                        "requested_url": run_url,
+                        "provider_backend": "gemini_web",
+                        "citations": list(response.get("citations") or []) if isinstance(response.get("citations"), list) else [],
+                        "latency_ms": int(response.get("latency_ms") or 0),
+                        "normalized_text": text,
+                        "preview_text": artifact_preview_text(text),
+                        "mime_type": "text/plain",
+                        "structured_output_json": dict(response),
+                        "tool_name": definition.tool_name,
+                        "action_kind": action_kind,
+                    },
+                    receipt_json={
+                        "binding_id": binding.binding_id,
+                        "connector_name": binding.connector_name,
+                        "external_account_ref": binding.external_account_ref,
+                        "principal_id": principal_id,
+                        "handler_key": definition.tool_name,
+                        "invocation_contract": "tool.v1",
+                        "tool_version": definition.version,
+                        "requested_url": run_url,
+                        "mode_used": str(response.get("mode_used") or mode),
+                        "provider_backend": "gemini_web",
+                        "route": "browseract.gemini_web_generate",
+                        "handler": "run_url",
+                    },
+                )
+
+        raise ToolExecutionError("browseract_gemini_web_generate_unavailable")
+
+    def _post_browseract_json(
+        self,
+        *,
+        run_url: str,
+        request_payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        api_key = self._configured_api_key()
+        if not run_url or not api_key:
+            raise ToolExecutionError("browseract_run_url_or_key_missing")
+        request = urllib.request.Request(
+            run_url,
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"authorization": f"Bearer {api_key}", "content-type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as exc:
+            raise ToolExecutionError(f"browseract_live_http_error:{exc.code}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolExecutionError(f"browseract_live_transport_error:{exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise ToolExecutionError("browseract_live_response_invalid") from exc
+        if isinstance(body, dict):
+            return {str(key): value for key, value in body.items()}
+        raise ToolExecutionError("browseract_live_response_invalid")
+
+    @staticmethod
+    def _safe_call_gemini_web_generate_callback(
+        *,
+        callback,
+        request: ToolInvocationRequest,
+        payload: dict[str, object],
+        definition: ToolDefinition,
+        packet: dict[str, object],
+        mode: str,
+        deep_think: bool,
+        run_url: str,
+    ) -> ToolInvocationResult | None:
+        request_payload = dict(payload)
+        request_payload["packet"] = dict(packet)
+        request_payload["mode"] = mode
+        request_payload["deep_think"] = deep_think
+        request_payload["run_url"] = run_url
+        signatures = None
+        try:
+            signatures = inspect.signature(callback)
+        except Exception:
+            signatures = None
+
+        def _bind_kwargs(candidates: dict[str, object]) -> dict[str, object]:
+            if signatures is None:
+                return candidates
+            try:
+                bound = signatures.bind_partial(**candidates)
+            except TypeError:
+                bound = {}
+            else:
+                return dict(bound.arguments)
+            fallback: dict[str, object] = {}
+            for key, value in candidates.items():
+                if key in signatures.parameters:
+                    fallback[key] = value
+            return fallback
+
+        variants = (
+            {"request": request, "payload": request_payload, "run_url": run_url},
+            {"request_payload": request_payload, "run_url": run_url},
+            {"payload": request_payload},
+            {"request": request},
+            {},
+        )
+        candidate = None
+        for call_kwargs in variants:
+            bound = _bind_kwargs(call_kwargs)
+            try:
+                if bound:
+                    candidate = callback(**bound)
+                else:
+                    if signatures is not None and len(signatures.parameters) > 0:
+                        continue
+                    candidate = callback()
+            except TypeError as exc:
+                message = str(exc)
+                if "missing" in message and "required" in message:
+                    raise
+                continue
+            if candidate is not None:
+                break
+        if candidate is None:
+            return None
+        if isinstance(candidate, ToolInvocationResult):
+            return candidate
+        if not isinstance(candidate, dict):
+            return None
+        safe_payload = dict(candidate)
+        text = _extract_textish(
+            safe_payload.get("text")
+            or safe_payload.get("answer")
+            or safe_payload.get("result")
+            or safe_payload.get("normalized_text")
+        )
+        if not text:
+            return None
+        action_kind = str(request.action_kind or "content.generate") or "content.generate"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=str(safe_payload.get("target_ref") or "browseract:gemini_web_generate:callback"),
+            output_json={
+                **safe_payload,
+                "text": text,
+                "normalized_text": text,
+                "preview_text": artifact_preview_text(text),
+                "mime_type": "text/plain",
+                "mode_used": str(safe_payload.get("mode_used") or mode),
+                "deep_think": bool(safe_payload.get("deep_think", deep_think)),
+                "requested_url": str(safe_payload.get("requested_url") or run_url),
+                "provider_backend": "gemini_web",
+                "structured_output_json": safe_payload,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": str(safe_payload.get("requested_url") or run_url),
+                "mode_used": str(safe_payload.get("mode_used") or mode),
+                "provider_backend": "gemini_web",
+                "route": "browseract.gemini_web_generate",
                 "handler": "callback",
             },
         )

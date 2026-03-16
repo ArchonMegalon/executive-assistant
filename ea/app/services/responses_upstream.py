@@ -18,6 +18,7 @@ from typing import Any, Callable
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
+SURVIVAL_PUBLIC_MODEL = "ea-coder-survival"
 AUDIT_PUBLIC_MODEL = "ea-audit-jury"
 AUDIT_PUBLIC_MODEL_ALIAS = "ea-audit"
 ChatMessage = dict[str, str]
@@ -1431,6 +1432,7 @@ def list_response_models() -> list[dict[str, object]]:
         AUDIT_PUBLIC_MODEL,
         AUDIT_PUBLIC_MODEL_ALIAS,
         ONEMIN_PUBLIC_MODEL,
+        SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
         "ea-review",
         "ea-critic",

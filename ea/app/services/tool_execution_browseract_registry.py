@@ -184,3 +184,36 @@ def register_builtin_browseract_chatplayground_audit(
             enabled=True,
         )
     register_handler("browseract.chatplayground_audit", browseract_adapter.execute_chatplayground_audit)
+
+
+def register_builtin_browseract_gemini_web_generate(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.gemini_web_generate") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.gemini_web_generate",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["binding_id", "packet"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "packet": {"type": "object"},
+                    "mode": {"type": "string"},
+                    "deep_think": {"type": "boolean"},
+                    "timeout_seconds": {"type": "integer"},
+                    "run_url": {"type": "string"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": ["text", "tool_name", "action_kind", "provider_backend"],
+            },
+            policy_json={"builtin": True, "action_kind": "content.generate"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("browseract.gemini_web_generate", browseract_adapter.execute_gemini_web_generate)

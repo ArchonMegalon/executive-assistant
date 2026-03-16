@@ -30,6 +30,7 @@
 - Task contracts: `/v1/tasks/contracts/*`
 - Tools: `/v1/tools/*`
 - Codex-compatible façade: `/v1/models`, `/v1/responses`, `/v1/responses/{response_id}`, `/v1/responses/{response_id}/input_items`
+- Codex lane routes: `/v1/codex/core`, `/v1/codex/easy`, `/v1/codex/survival`, `/v1/codex/audit`, `/v1/codex/profiles`
 - Route roots: `ea/app/api/routes/`
 
 ## Core Domain Models
@@ -59,6 +60,7 @@
 - Task contract storage + serialization: `ea/app/services/task_contracts.py`
 - Skill catalog: `ea/app/services/skills.py`
 - Provider registry: `ea/app/services/provider_registry.py`
+- Survival lane: `ea/app/services/survival_lane.py`
 - Tool execution: `ea/app/services/tool_execution.py`
 - Channel runtime: `ea/app/services/channel_runtime.py`
 - Evidence runtime: `ea/app/services/evidence_runtime.py`

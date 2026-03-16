@@ -101,6 +101,11 @@ class ProviderRegistryService:
                         capability_key="chatplayground_audit",
                         tool_name="browseract.chatplayground_audit",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="gemini_web_generate",
+                        tool_name="browseract.gemini_web_generate",
+                    ),
                 ),
             ),
             ProviderBinding(
@@ -692,6 +697,8 @@ class ProviderRegistryService:
             "workflow_repair": "workflow_spec_repair",
             "repair_workflow_spec": "workflow_spec_repair",
             "browseract_workflow_repair": "workflow_spec_repair",
+            "gemini_web": "gemini_web_generate",
+            "browseract_gemini_web": "gemini_web_generate",
             "delivery_dispatch": "dispatch",
             "connector_dispatch": "dispatch",
             "generate_json": "structured_generate",
@@ -711,6 +718,7 @@ class ProviderRegistryService:
             "chatplayground": "browseract",
             "chat_playground": "browseract",
             "chatplay": "browseract",
+            "gemini_web": "browseract",
             "browserly.ai": "browserly",
             "browsely": "browserly",
             "prompting.systems": "prompting_systems",
