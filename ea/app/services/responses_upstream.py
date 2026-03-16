@@ -930,8 +930,16 @@ def _magicx_lane_models() -> tuple[str, ...]:
         "mistralai/codestral-2508",
         "inception/mercury-coder",
     )
-    if configured:
-        return _merge_unique(configured, desired)
+    blocked_fast_models = {"openai/gpt-5.1-codex-mini"}
+    if _to_bool(_env("EA_RESPONSES_MAGICX_ALLOW_PREMIUM_FAST", "0"), False):
+        blocked_fast_models = set()
+    filtered = tuple(
+        model
+        for model in configured
+        if str(model or "").strip().lower() not in blocked_fast_models
+    )
+    if filtered:
+        return _merge_unique(filtered, desired)
     return desired
 
 
@@ -1253,7 +1261,7 @@ def _normalize_provider(value: str) -> str:
 
 
 def _provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,magixai")
+    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "magixai,gemini_vortex,onemin")
     ordered: list[str] = []
     seen: set[str] = set()
     for item in raw.split(","):
@@ -1262,7 +1270,7 @@ def _provider_order() -> tuple[str, ...]:
             continue
         seen.add(provider_key)
         ordered.append(provider_key)
-    return tuple(ordered or ("onemin", "magixai"))
+    return tuple(ordered or ("magixai", "gemini_vortex", "onemin"))
 
 
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
@@ -1789,6 +1797,11 @@ def _provider_candidates(
     if normalized == ONEMIN_PUBLIC_MODEL:
         model_names = _provider_model_order_for_lane("onemin", lane, requested) or _onemin_models()
         return [(configs["onemin"], model_name) for model_name in model_names]
+
+    if normalized in {item.lower() for item in _onemin_supported_models()}:
+        candidates: list[tuple[ProviderConfig, str]] = [(configs["onemin"], requested)]
+        candidates.extend((configs["magixai"], model_name) for model_name in _magicx_lane_models())
+        return candidates
 
     if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in gemini_model_names:
         model_names = _provider_model_order_for_lane("gemini_vortex", lane, requested) or _gemini_vortex_models()

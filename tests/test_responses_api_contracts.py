@@ -993,6 +993,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     body = response.json()
     assert body["profiles"][0]["lane"] == "hard"
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
+    assert easy_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
     assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
