@@ -17,7 +17,7 @@
 
 ## Responses Provider Variables
 
-- `ONEMIN_AI_API_KEY` plus `ONEMIN_AI_API_KEY_FALLBACK_1` through `ONEMIN_AI_API_KEY_FALLBACK_28`: ordered 1min.AI account slots used by the Responses facade and surfaced back as account names in provider-health payloads.
+- `ONEMIN_AI_API_KEY` plus sequential `ONEMIN_AI_API_KEY_FALLBACK_N` slots: ordered 1min.AI account slots used by the Responses facade and surfaced back as account names in provider-health payloads. The shipped env templates currently include placeholders through `ONEMIN_AI_API_KEY_FALLBACK_33`.
 - `EA_RESPONSES_DEFAULT_PROFILE`: explicit default public lane profile for generic `/v1/responses` traffic; use `easy` to keep unattended callers out of the hard lane by default.
 - `EA_RESPONSES_PROVIDER_ORDER`: generic provider preference order for the public default alias; use `magixai,onemin` for cheap-first fallback behavior.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS`: enable and tune live Magicx readiness probes so fallback state is based on a real upstream check.

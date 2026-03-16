@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 from dataclasses import dataclass
@@ -8,6 +9,42 @@ from dataclasses import dataclass
 from app.domain.models import ProviderBindingState, SkillContract
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
 from app.services.tool_execution_common import ToolExecutionError
+
+
+_ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+_ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
+
+
+def _onemin_fallback_slot_number(raw: object) -> int | None:
+    match = _ONEMIN_FALLBACK_SLOT_RE.match(str(raw or "").strip().lower().replace(" ", "_").replace("-", "_"))
+    if match is None:
+        return None
+    try:
+        slot_number = int(match.group(1))
+    except Exception:
+        return None
+    return slot_number if slot_number >= 1 else None
+
+
+def _onemin_secret_env_names() -> tuple[str, ...]:
+    fallback_numbers: set[int] = set()
+    for env_name in os.environ:
+        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            fallback_numbers.add(int(match.group(1)))
+        except Exception:
+            continue
+    for env_var in ("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "EA_RESPONSES_ONEMIN_RESERVE_SLOTS"):
+        for slot_name in str(os.environ.get(env_var) or "").split(","):
+            slot_number = _onemin_fallback_slot_number(slot_name)
+            if slot_number is not None:
+                fallback_numbers.add(slot_number)
+    names = ["ONEMIN_AI_API_KEY"]
+    for slot_number in sorted(fallback_numbers):
+        names.append(f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
+    return tuple(names)
 
 
 def _collect_strings(value: object) -> tuple[str, ...]:
@@ -434,37 +471,7 @@ class ProviderRegistryService:
             "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
             "magixai": ("AI_MAGICX_API_KEY",),
             "markupgo": ("MARKUPGO_API_KEY",),
-            "onemin": (
-                "ONEMIN_AI_API_KEY",
-                "ONEMIN_AI_API_KEY_FALLBACK_1",
-                "ONEMIN_AI_API_KEY_FALLBACK_2",
-                "ONEMIN_AI_API_KEY_FALLBACK_3",
-                "ONEMIN_AI_API_KEY_FALLBACK_4",
-                "ONEMIN_AI_API_KEY_FALLBACK_5",
-                "ONEMIN_AI_API_KEY_FALLBACK_6",
-                "ONEMIN_AI_API_KEY_FALLBACK_7",
-                "ONEMIN_AI_API_KEY_FALLBACK_8",
-                "ONEMIN_AI_API_KEY_FALLBACK_9",
-                "ONEMIN_AI_API_KEY_FALLBACK_10",
-                "ONEMIN_AI_API_KEY_FALLBACK_11",
-                "ONEMIN_AI_API_KEY_FALLBACK_12",
-                "ONEMIN_AI_API_KEY_FALLBACK_13",
-                "ONEMIN_AI_API_KEY_FALLBACK_14",
-                "ONEMIN_AI_API_KEY_FALLBACK_15",
-                "ONEMIN_AI_API_KEY_FALLBACK_16",
-                "ONEMIN_AI_API_KEY_FALLBACK_17",
-                "ONEMIN_AI_API_KEY_FALLBACK_18",
-                "ONEMIN_AI_API_KEY_FALLBACK_19",
-                "ONEMIN_AI_API_KEY_FALLBACK_20",
-                "ONEMIN_AI_API_KEY_FALLBACK_21",
-                "ONEMIN_AI_API_KEY_FALLBACK_22",
-                "ONEMIN_AI_API_KEY_FALLBACK_23",
-                "ONEMIN_AI_API_KEY_FALLBACK_24",
-                "ONEMIN_AI_API_KEY_FALLBACK_25",
-                "ONEMIN_AI_API_KEY_FALLBACK_26",
-                "ONEMIN_AI_API_KEY_FALLBACK_27",
-                "ONEMIN_AI_API_KEY_FALLBACK_28",
-            ),
+            "onemin": _onemin_secret_env_names(),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
             "unmixr": ("UNMIXR_API_KEY",),

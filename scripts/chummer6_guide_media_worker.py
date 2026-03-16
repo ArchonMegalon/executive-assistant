@@ -693,19 +693,15 @@ def resolve_onemin_image_keys() -> list[str]:
             if key and key not in seen:
                 seen.add(key)
                 keys.append(key)
-    for env_name in (
-        "ONEMIN_AI_API_KEY",
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-        "ONEMIN_AI_API_KEY_FALLBACK_3",
-        "ONEMIN_AI_API_KEY_FALLBACK_4",
-        "ONEMIN_AI_API_KEY_FALLBACK_5",
-        "ONEMIN_AI_API_KEY_FALLBACK_6",
-        "ONEMIN_AI_API_KEY_FALLBACK_7",
-        "ONEMIN_AI_API_KEY_FALLBACK_8",
-        "ONEMIN_AI_API_KEY_FALLBACK_9",
-        "ONEMIN_AI_API_KEY_FALLBACK_10",
-    ):
+    fallback_env_names = sorted(
+        (
+            env_name
+            for env_name in os.environ
+            if re.fullmatch(r"ONEMIN_AI_API_KEY_FALLBACK_(\d+)", env_name)
+        ),
+        key=lambda env_name: int(env_name.rsplit("_", 1)[-1]),
+    )
+    for env_name in ("ONEMIN_AI_API_KEY", *fallback_env_names):
         key = env_value(env_name)
         if key and key not in seen:
             seen.add(key)
