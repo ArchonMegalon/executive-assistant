@@ -143,6 +143,16 @@ def test_provider_registry_onemin_secret_rotation_includes_fallback_2() -> None:
     assert "ONEMIN_AI_API_KEY_FALLBACK_16" in state.secret_env_names
     assert "ONEMIN_AI_API_KEY_FALLBACK_17" in state.secret_env_names
     assert "ONEMIN_AI_API_KEY_FALLBACK_18" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_19" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_20" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_21" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_22" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_23" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_24" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_25" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_26" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_27" in state.secret_env_names
+    assert "ONEMIN_AI_API_KEY_FALLBACK_28" in state.secret_env_names
 
 
 def test_provider_registry_normalizes_chatplayground_aliases() -> None:
