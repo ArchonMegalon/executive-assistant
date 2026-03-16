@@ -62,10 +62,13 @@ Then open `http://localhost:8090/health`.
   - `GET /v1/codex/profiles` for lane/provider health and account attribution
   - `POST /v1/codex/core` (hard lane, forced `ea-coder-hard`)
   - `POST /v1/codex/easy` (fast lane, forced `ea-coder-fast`)
+  - `POST /v1/codex/survival` (slow backup lane, forced `ea-coder-survival`, background/poll only in v1)
   - `POST /v1/codex/audit` (jury lane, forced `ea-audit-jury`)
   - stream mode via `Accept: text/event-stream`
+  - survival mode is intentionally non-streaming in v1; create returns an `in_progress` response object and clients poll `GET /v1/responses/{response_id}` until completion
   - `GET /v1/models` returns the public EA aliases plus the currently configured upstream model IDs so Codex can target concrete provider backends when needed.
   - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
+  - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
 
 ### Codex Configuration Example
 
@@ -81,6 +84,13 @@ env_key = "EA_API_TOKEN"
 env_http_headers = { "X-EA-Principal-ID" = "EA_PRINCIPAL_ID" }
 stream_idle_timeout_ms = 300000
 stream_max_retries = 5
+```
+
+For the explicit survival lane, point Codex at the dedicated alias instead of the default lane:
+
+```toml
+model = "ea-coder-survival"
+model_provider = "ea"
 ```
 
 If your Codex deployment prefers `x-api-token` for auth instead of bearer, add this style:

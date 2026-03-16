@@ -109,6 +109,19 @@ def test_provider_registry_routes_chatplayground_audit_with_aliases() -> None:
     assert route.executable is True
 
 
+def test_provider_registry_routes_browseract_gemini_web_generate_with_aliases() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="gemini_web",
+        provider_hints=("gemini_web",),
+        allowed_tools=("browseract.gemini_web_generate", "artifact_repository"),
+    )
+    assert route.provider_key == "browseract"
+    assert route.capability_key == "gemini_web_generate"
+    assert route.tool_name == "browseract.gemini_web_generate"
+    assert route.executable is True
+
+
 def test_provider_registry_onemin_secret_rotation_includes_fallback_2() -> None:
     registry = ProviderRegistryService()
     state = registry.binding_state("onemin")

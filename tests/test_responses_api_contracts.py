@@ -215,6 +215,7 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
     assert "ea-onemin-coder" in model_ids
+    assert "ea-coder-survival" in model_ids
     assert "gpt-5" in model_ids
     assert "x-ai/grok-code-fast-1" in model_ids
 
@@ -852,6 +853,99 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
 
+def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-survival")
+    from app.api.routes import responses
+    from app.services.survival_lane import SurvivalAttempt, SurvivalResult
+
+    def fake_execute(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None = None,
+        prompt_cache_key: str | None = None,
+        previous_response_id: str | None = None,
+    ) -> SurvivalResult:
+        assert current_input == "keep going"
+        assert desired_format == "plain_text"
+        return SurvivalResult(
+            text="survival output",
+            provider_key="gemini_vortex",
+            provider_backend="gemini_vortex_cli",
+            model="gemini-3-flash-preview",
+            latency_ms=12,
+            attempts=(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=time.time(),
+                    completed_at=time.time(),
+                    status="completed",
+                    detail="ok",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(responses.SurvivalLaneService, "execute", fake_execute)
+
+    created = client.post("/v1/codex/survival", json={"input": "keep going"})
+    assert created.status_code == 202
+    created_body = created.json()
+    assert created_body["status"] == "in_progress"
+    assert created_body["model"] == "ea-coder-survival"
+    assert created_body["metadata"]["codex_profile"] == "survival"
+    assert created_body["metadata"]["codex_lane"] == "survival"
+
+    response_id = created_body["id"]
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "survival output"
+    assert completed_body["metadata"]["survival_backend"] == "gemini_vortex_cli"
+    assert completed_body["metadata"]["survival_provider"] == "gemini_vortex"
+    assert completed_body["metadata"]["survival_attempts"][0]["backend"] == "gemini_vortex"
+
+    items = client.get(f"/v1/responses/{response_id}/input_items")
+    assert items.status_code == 200
+    assert items.json()["data"] == [{"type": "input_text", "text": "keep going"}]
+
+
+def test_codex_survival_rejects_streaming() -> None:
+    client = _client(principal_id="codex-survival-stream")
+    response = client.post("/v1/codex/survival", json={"input": "keep going", "stream": True})
+    assert response.status_code == 400
+    assert "survival_stream_not_supported_yet" in response.text
+
+
+def test_codex_survival_rejects_client_tools() -> None:
+    client = _client(principal_id="codex-survival-tools")
+    response = client.post(
+        "/v1/codex/survival",
+        json={
+            "input": "keep going",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "run shell",
+                    "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+                }
+            ],
+        },
+    )
+    assert response.status_code == 400
+    assert "survival_unsupported_fields:tools" in response.text
+
+
 def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-audit-fallback")
     from app.api.routes import responses
@@ -897,6 +991,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     body = response.json()
     assert body["profiles"][0]["lane"] == "hard"
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == "ONEMIN_AI_API_KEY"

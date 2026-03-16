@@ -58,6 +58,7 @@ class ToolExecutionService:
             ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
             ("browseract", "workflow_spec_repair"): self._register_builtin_browseract_workflow_repair,
             ("browseract", "chatplayground_audit"): self._register_builtin_browseract_chatplayground_audit,
+            ("browseract", "gemini_web_generate"): self._register_builtin_browseract_gemini_web_generate,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
         }
@@ -149,6 +150,9 @@ class ToolExecutionService:
     def _register_builtin_browseract_chatplayground_audit(self) -> None:
         self._browseract_module.register_chatplayground_audit(self.register_handler)
 
+    def _register_builtin_browseract_gemini_web_generate(self) -> None:
+        self._browseract_module.register_gemini_web_generate(self.register_handler)
+
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
 
@@ -170,3 +174,11 @@ class ToolExecutionService:
     @_browseract_chatplayground_audit.setter
     def _browseract_chatplayground_audit(self, handler) -> None:
         self._browseract_module.chatplayground_audit = handler
+
+    @property
+    def _browseract_gemini_web_generate(self):
+        return self._browseract_module.gemini_web_generate
+
+    @_browseract_gemini_web_generate.setter
+    def _browseract_gemini_web_generate(self, handler) -> None:
+        self._browseract_module.gemini_web_generate = handler

@@ -1,0 +1,705 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+
+from app.domain.models import ToolInvocationRequest
+from app.services.responses_upstream import UpstreamResult
+from app.services.tool_execution_common import ToolExecutionError
+
+
+_SURVIVAL_CACHE_LOCK = threading.Lock()
+_SURVIVAL_CACHE: dict[str, tuple[float, "SurvivalResult"]] = {}
+_SURVIVAL_QUEUE_LOCK = threading.Condition(threading.Lock())
+_SURVIVAL_ACTIVE_REQUESTS = 0
+
+
+def _env(name: str, default: str = "") -> str:
+    return str(os.environ.get(name) or default).strip()
+
+
+def _to_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "on", "y"}:
+        return True
+    if normalized in {"0", "false", "off", "no", "n"}:
+        return False
+    return default
+
+
+def _to_int(value: object, default: int, *, minimum: int = 0, maximum: int | None = None) -> int:
+    try:
+        parsed = int(float(str(value)))
+    except Exception:
+        return default
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+    return parsed
+
+
+def _extract_textish(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, list):
+        return "\n".join(part for part in (_extract_textish(item) for item in value) if part).strip()
+    if isinstance(value, dict):
+        for key in ("text", "answer", "summary", "consensus", "recommendation", "message", "output", "result"):
+            text = _extract_textish(value.get(key))
+            if text:
+                return text
+        try:
+            return json.dumps(value, ensure_ascii=True)
+        except Exception:
+            return ""
+    return ""
+
+
+def _compact_json(value: object) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+    except Exception:
+        return str(value)
+
+
+def _history_item_to_text(item: dict[str, object]) -> str:
+    item_type = str(item.get("type") or "").strip().lower()
+    if item_type == "message":
+        role = str(item.get("role") or "user").strip() or "user"
+        content = item.get("content")
+        text = ""
+        if isinstance(content, list):
+            text = "\n\n".join(
+                _extract_textish(part.get("text"))
+                for part in content
+                if isinstance(part, dict) and _extract_textish(part.get("text"))
+            ).strip()
+        else:
+            text = _extract_textish(content)
+        if not text:
+            return ""
+        return f"{role.capitalize()}:\n{text}"
+    if item_type == "input_text":
+        text = _extract_textish(item.get("text"))
+        return f"User:\n{text}" if text else ""
+    if item_type == "function_call":
+        name = str(item.get("name") or "").strip()
+        arguments = str(item.get("arguments") or "").strip()
+        if not name:
+            return ""
+        return f"Assistant tool call:\nTool: {name}\nArguments: {arguments}".strip()
+    if item_type == "function_call_output":
+        output = _extract_textish(item.get("output"))
+        return f"Tool output:\n{output}".strip() if output else ""
+    return ""
+
+
+def _clamp_text(text: str, *, limit: int) -> str:
+    cleaned = str(text or "").strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip()
+
+
+def _survival_route_order() -> tuple[str, ...]:
+    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "gemini_vortex,gemini_web,chatplayground")
+    ordered: list[str] = []
+    seen: set[str] = set()
+    aliases = {
+        "gemini": "gemini_vortex",
+        "gemini_cli": "gemini_vortex",
+        "gemini_vortex": "gemini_vortex",
+        "gemini_web": "gemini_web",
+        "browseract_gemini_web": "gemini_web",
+        "chatplayground": "chatplayground",
+        "chatplayground_audit": "chatplayground",
+    }
+    for item in raw.split(","):
+        normalized = aliases.get(str(item or "").strip().lower().replace("-", "_"), "")
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return tuple(ordered or ("gemini_vortex", "gemini_web", "chatplayground"))
+
+
+def _survival_cache_ttl_seconds() -> int:
+    return _to_int(_env("EA_SURVIVAL_CACHE_TTL_SECONDS", "86400"), 86400, minimum=60, maximum=604800)
+
+
+def _survival_enabled() -> bool:
+    return _to_bool(_env("EA_SURVIVAL_ENABLED", "1"), True)
+
+
+def _survival_max_active_requests() -> int:
+    return _to_int(_env("EA_SURVIVAL_MAX_ACTIVE_REQUESTS", "1"), 1, minimum=1, maximum=4)
+
+
+def _survival_queue_timeout_seconds() -> int:
+    return _to_int(_env("EA_SURVIVAL_QUEUE_TIMEOUT_SECONDS", "900"), 900, minimum=1, maximum=7200)
+
+
+def _survival_gemini_web_mode() -> str:
+    raw = str(_env("EA_SURVIVAL_GEMINI_WEB_MODE", "thinking") or "thinking").strip().lower()
+    if raw not in {"thinking", "fast", "pro"}:
+        return "thinking"
+    return raw
+
+
+def _survival_gemini_web_deep_think_allowed() -> bool:
+    return _to_bool(_env("EA_SURVIVAL_GEMINI_WEB_ALLOW_DEEP_THINK", "0"), False)
+
+
+def _survival_chatplayground_role() -> str:
+    return str(_env("EA_SURVIVAL_CHATPLAYGROUND_SINGLE_ROLE", "factuality") or "factuality").strip() or "factuality"
+
+
+def _cache_get(cache_key: str) -> "SurvivalResult" | None:
+    if not cache_key:
+        return None
+    ttl = _survival_cache_ttl_seconds()
+    now = time.time()
+    with _SURVIVAL_CACHE_LOCK:
+        entry = _SURVIVAL_CACHE.get(cache_key)
+        if entry is None:
+            return None
+        expires_at, result = entry
+        if expires_at < now:
+            _SURVIVAL_CACHE.pop(cache_key, None)
+            return None
+        return result
+
+
+def _cache_put(cache_key: str, result: "SurvivalResult") -> None:
+    if not cache_key:
+        return
+    expires_at = time.time() + float(_survival_cache_ttl_seconds())
+    with _SURVIVAL_CACHE_LOCK:
+        _SURVIVAL_CACHE[cache_key] = (expires_at, result)
+
+
+def _acquire_survival_slot() -> bool:
+    global _SURVIVAL_ACTIVE_REQUESTS
+    max_active = _survival_max_active_requests()
+    deadline = time.time() + float(_survival_queue_timeout_seconds())
+    with _SURVIVAL_QUEUE_LOCK:
+        while _SURVIVAL_ACTIVE_REQUESTS >= max_active:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return False
+            _SURVIVAL_QUEUE_LOCK.wait(remaining)
+        _SURVIVAL_ACTIVE_REQUESTS += 1
+        return True
+
+
+def _release_survival_slot() -> None:
+    global _SURVIVAL_ACTIVE_REQUESTS
+    with _SURVIVAL_QUEUE_LOCK:
+        if _SURVIVAL_ACTIVE_REQUESTS > 0:
+            _SURVIVAL_ACTIVE_REQUESTS -= 1
+        _SURVIVAL_QUEUE_LOCK.notify_all()
+
+
+@dataclass(frozen=True)
+class SurvivalPacket:
+    objective: str
+    instructions: str | None
+    condensed_history: str
+    current_input: str
+    desired_format: str | None
+    fingerprint: str
+
+
+@dataclass(frozen=True)
+class SurvivalAttempt:
+    backend: str
+    started_at: float
+    completed_at: float | None = None
+    status: str = "pending"
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class SurvivalResult:
+    text: str
+    provider_key: str
+    provider_backend: str
+    model: str
+    latency_ms: int
+    attempts: tuple[SurvivalAttempt, ...]
+    cache_hit: bool = False
+
+    def to_upstream_result(self) -> UpstreamResult:
+        return UpstreamResult(
+            text=self.text,
+            provider_key=self.provider_key,
+            model=self.model,
+            provider_backend=self.provider_backend,
+            latency_ms=self.latency_ms,
+        )
+
+
+class SurvivalLaneService:
+    def __init__(
+        self,
+        *,
+        tool_execution: object | None,
+        tool_runtime: object | None,
+        principal_id: str,
+    ) -> None:
+        self._tool_execution = tool_execution
+        self._tool_runtime = tool_runtime
+        self._principal_id = str(principal_id or "").strip()
+
+    def build_packet(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None,
+        prompt_cache_key: str | None,
+        previous_response_id: str | None,
+    ) -> SurvivalPacket:
+        history_lines = [
+            line
+            for line in (_history_item_to_text(item) for item in history_items[:-1])
+            if line
+        ]
+        condensed_history = _clamp_text("\n\n".join(history_lines).strip(), limit=6000)
+        current = _clamp_text(current_input, limit=3000)
+        objective = current.splitlines()[0].strip() if current else "continue the current task"
+        desired = str(desired_format or "plain_text").strip() or "plain_text"
+        fingerprint_source = {
+            "principal_id": self._principal_id,
+            "instructions": instructions or "",
+            "condensed_history": condensed_history,
+            "current_input": current,
+            "desired_format": desired,
+            "previous_response_id": previous_response_id or "",
+            "prompt_cache_key": prompt_cache_key or "",
+        }
+        fingerprint = hashlib.sha256(_compact_json(fingerprint_source).encode("utf-8")).hexdigest()
+        return SurvivalPacket(
+            objective=objective,
+            instructions=instructions,
+            condensed_history=condensed_history,
+            current_input=current,
+            desired_format=desired,
+            fingerprint=fingerprint,
+        )
+
+    def execute(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None = None,
+        prompt_cache_key: str | None = None,
+        previous_response_id: str | None = None,
+    ) -> SurvivalResult:
+        if not _survival_enabled():
+            raise RuntimeError("survival_lane_disabled")
+        packet = self.build_packet(
+            instructions=instructions,
+            history_items=history_items,
+            current_input=current_input,
+            desired_format=desired_format,
+            prompt_cache_key=prompt_cache_key,
+            previous_response_id=previous_response_id,
+        )
+        cache_key = str(prompt_cache_key or packet.fingerprint).strip()
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return SurvivalResult(
+                text=cached.text,
+                provider_key=cached.provider_key,
+                provider_backend=cached.provider_backend,
+                model=cached.model,
+                latency_ms=0,
+                attempts=cached.attempts
+                + (
+                    SurvivalAttempt(
+                        backend="cache",
+                        started_at=time.time(),
+                        completed_at=time.time(),
+                        status="completed",
+                        detail="cache_hit",
+                    ),
+                ),
+                cache_hit=True,
+            )
+
+        if not _acquire_survival_slot():
+            raise RuntimeError("survival_queue_timeout")
+        try:
+            cached = _cache_get(cache_key)
+            if cached is not None:
+                return SurvivalResult(
+                    text=cached.text,
+                    provider_key=cached.provider_key,
+                    provider_backend=cached.provider_backend,
+                    model=cached.model,
+                    latency_ms=0,
+                    attempts=cached.attempts
+                    + (
+                        SurvivalAttempt(
+                            backend="cache",
+                            started_at=time.time(),
+                            completed_at=time.time(),
+                            status="completed",
+                            detail="cache_hit_after_queue",
+                        ),
+                    ),
+                    cache_hit=True,
+                )
+
+            attempts: list[SurvivalAttempt] = []
+            for backend in _survival_route_order():
+                if backend == "gemini_vortex":
+                    result = self.try_gemini_vortex(packet=packet, attempts=attempts)
+                elif backend == "gemini_web":
+                    result = self.try_browseract_gemini_web(packet=packet, attempts=attempts)
+                elif backend == "chatplayground":
+                    result = self.try_chatplayground_tiebreak(packet=packet, attempts=attempts)
+                else:
+                    result = None
+                if result is not None:
+                    _cache_put(cache_key, result)
+                    return result
+            raise RuntimeError("survival_no_backend_available")
+        finally:
+            _release_survival_slot()
+
+    def cache_lookup(self, *, cache_key: str) -> SurvivalResult | None:
+        return _cache_get(cache_key)
+
+    def cache_store(self, *, cache_key: str, result: SurvivalResult) -> None:
+        _cache_put(cache_key, result)
+
+    def try_gemini_vortex(
+        self,
+        *,
+        packet: SurvivalPacket,
+        attempts: list[SurvivalAttempt],
+    ) -> SurvivalResult | None:
+        started_at = time.time()
+        if self._tool_execution is None:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="tool_execution_unavailable",
+                )
+            )
+            return None
+        payload = {
+            "source_text": self._render_packet(packet),
+            "goal": packet.objective,
+            "generation_instruction": (
+                "Answer the user's request using the reduced survival packet. "
+                "Return JSON with a single top-level `text` field only."
+            ),
+            "response_schema_json": {
+                "type": "object",
+                "required": ["text"],
+                "properties": {"text": {"type": "string"}},
+            },
+            "model": _env("EA_SURVIVAL_GEMINI_VORTEX_MODEL", _env("EA_GEMINI_VORTEX_MODEL", "")),
+        }
+        invocation = ToolInvocationRequest(
+            session_id=f"survival:{uuid.uuid4().hex}",
+            step_id=f"survival-step:{uuid.uuid4().hex}",
+            tool_name="provider.gemini_vortex.structured_generate",
+            action_kind="content.generate",
+            payload_json=payload,
+            context_json={"principal_id": self._principal_id},
+        )
+        try:
+            result = self._tool_execution.execute_invocation(invocation)
+        except ToolExecutionError as exc:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail=str(exc),
+                )
+            )
+            return None
+        output_json = dict(result.output_json or {})
+        structured = output_json.get("structured_output_json")
+        text = _extract_textish(structured if isinstance(structured, dict) else output_json) or _extract_textish(output_json.get("normalized_text"))
+        if not text:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="empty_output",
+                )
+            )
+            return None
+        attempts.append(
+            SurvivalAttempt(
+                backend="gemini_vortex",
+                started_at=started_at,
+                completed_at=time.time(),
+                status="completed",
+                detail="ok",
+            )
+        )
+        return SurvivalResult(
+            text=text,
+            provider_key="gemini_vortex",
+            provider_backend="gemini_vortex_cli",
+            model=str(result.model_name or output_json.get("model") or "gemini"),
+            latency_ms=max(0, int((time.time() - started_at) * 1000)),
+            attempts=tuple(attempts),
+        )
+
+    def try_browseract_gemini_web(
+        self,
+        *,
+        packet: SurvivalPacket,
+        attempts: list[SurvivalAttempt],
+    ) -> SurvivalResult | None:
+        started_at = time.time()
+        if self._tool_execution is None:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_web",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="tool_execution_unavailable",
+                )
+            )
+            return None
+        binding_id = self._browseract_binding_id()
+        if not binding_id:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_web",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="browseract_binding_unavailable",
+                )
+            )
+            return None
+        invocation = ToolInvocationRequest(
+            session_id=f"survival:{uuid.uuid4().hex}",
+            step_id=f"survival-step:{uuid.uuid4().hex}",
+            tool_name="browseract.gemini_web_generate",
+            action_kind="content.generate",
+            payload_json={
+                "binding_id": binding_id,
+                "packet": {
+                    "objective": packet.objective,
+                    "instructions": packet.instructions,
+                    "condensed_history": packet.condensed_history,
+                    "current_input": packet.current_input,
+                    "desired_format": packet.desired_format,
+                    "fingerprint": packet.fingerprint,
+                },
+                "mode": _survival_gemini_web_mode(),
+                "deep_think": _survival_gemini_web_deep_think_allowed(),
+                "timeout_seconds": _to_int(_env("EA_SURVIVAL_GEMINI_WEB_TIMEOUT_SECONDS", "600"), 600, minimum=60, maximum=1800),
+            },
+            context_json={"principal_id": self._principal_id},
+        )
+        try:
+            result = self._tool_execution.execute_invocation(invocation)
+        except ToolExecutionError as exc:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_web",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail=str(exc),
+                )
+            )
+            return None
+        output_json = dict(result.output_json or {})
+        text = _extract_textish(output_json.get("text")) or _extract_textish(output_json.get("normalized_text"))
+        if not text:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="gemini_web",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="empty_output",
+                )
+            )
+            return None
+        attempts.append(
+            SurvivalAttempt(
+                backend="gemini_web",
+                started_at=started_at,
+                completed_at=time.time(),
+                status="completed",
+                detail="ok",
+            )
+        )
+        return SurvivalResult(
+            text=text,
+            provider_key="browseract",
+            provider_backend="gemini_web",
+            model=str(output_json.get("mode_used") or _survival_gemini_web_mode()),
+            latency_ms=max(0, int((time.time() - started_at) * 1000)),
+            attempts=tuple(attempts),
+        )
+
+    def try_chatplayground_tiebreak(
+        self,
+        *,
+        packet: SurvivalPacket,
+        attempts: list[SurvivalAttempt],
+    ) -> SurvivalResult | None:
+        started_at = time.time()
+        if self._tool_execution is None:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="chatplayground",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="tool_execution_unavailable",
+                )
+            )
+            return None
+        binding_id = self._browseract_binding_id()
+        if not binding_id:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="chatplayground",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="browseract_binding_unavailable",
+                )
+            )
+            return None
+        invocation = ToolInvocationRequest(
+            session_id=f"survival:{uuid.uuid4().hex}",
+            step_id=f"survival-step:{uuid.uuid4().hex}",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.factuality",
+            payload_json={
+                "binding_id": binding_id,
+                "prompt": self._render_packet(packet),
+                "roles": [_survival_chatplayground_role()],
+                "scope": "survival",
+                "max_chars": 12000,
+            },
+            context_json={"principal_id": self._principal_id},
+        )
+        try:
+            result = self._tool_execution.execute_invocation(invocation)
+        except ToolExecutionError as exc:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="chatplayground",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail=str(exc),
+                )
+            )
+            return None
+        output_json = dict(result.output_json or {})
+        structured = output_json.get("structured_output_json")
+        if isinstance(structured, dict) and str(structured.get("status") or "").strip().lower() == "fallback":
+            attempts.append(
+                SurvivalAttempt(
+                    backend="chatplayground",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="fallback_only",
+                )
+            )
+            return None
+        text = (
+            _extract_textish(output_json.get("consensus"))
+            or _extract_textish(output_json.get("summary"))
+            or _extract_textish(output_json.get("recommendation"))
+            or _extract_textish(output_json.get("normalized_text"))
+        )
+        if not text:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="chatplayground",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="empty_output",
+                )
+            )
+            return None
+        attempts.append(
+            SurvivalAttempt(
+                backend="chatplayground",
+                started_at=started_at,
+                completed_at=time.time(),
+                status="completed",
+                detail="ok",
+            )
+        )
+        return SurvivalResult(
+            text=text,
+            provider_key="browseract",
+            provider_backend="chatplayground",
+            model="chatplayground",
+            latency_ms=max(0, int((time.time() - started_at) * 1000)),
+            attempts=tuple(attempts),
+        )
+
+    def _browseract_binding_id(self) -> str:
+        if self._tool_runtime is None or not self._principal_id:
+            return ""
+        try:
+            bindings = self._tool_runtime.list_connector_bindings(self._principal_id, limit=100)
+        except Exception:
+            return ""
+        for binding in bindings:
+            connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+            status = str(getattr(binding, "status", "") or "").strip().lower()
+            if connector_name != "browseract":
+                continue
+            if status and status != "enabled":
+                continue
+            return str(getattr(binding, "binding_id", "") or "").strip()
+        return ""
+
+    def _render_packet(self, packet: SurvivalPacket) -> str:
+        parts = [f"Objective:\n{packet.objective}"]
+        if packet.instructions:
+            parts.append(f"Instructions:\n{packet.instructions}")
+        if packet.condensed_history:
+            parts.append(f"Condensed history:\n{packet.condensed_history}")
+        parts.append(f"Current input:\n{packet.current_input}")
+        if packet.desired_format:
+            parts.append(f"Desired format:\n{packet.desired_format}")
+        parts.append("Rules:\n- Continue the task.\n- Be concise and actionable.\n- Do not require extra context unless blocked.")
+        return "\n\n".join(part for part in parts if part).strip()

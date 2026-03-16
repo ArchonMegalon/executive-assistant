@@ -2199,6 +2199,66 @@ def test_tool_execution_service_uses_default_chatplayground_audit_roles_and_defa
     assert result.receipt_json["requested_url"] == "https://web.chatplayground.ai/"
 
 
+def test_tool_execution_service_self_heals_missing_builtin_browseract_gemini_web_generate_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        status="enabled",
+    )
+
+    def _fake_generate(**_: object) -> dict[str, object]:
+        return {
+            "text": "browseract gemini response",
+            "mode_used": "thinking",
+            "latency_ms": 321,
+            "citations": [],
+        }
+
+    monkeypatch.setattr(service, "_browseract_gemini_web_generate", _fake_generate)
+    registry._rows.pop("browseract.gemini_web_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.gemini_web_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-gemini-web-1",
+            step_id="step-browseract-gemini-web-1",
+            tool_name="browseract.gemini_web_generate",
+            action_kind="content.generate",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "packet": {
+                    "objective": "Answer the question",
+                    "instructions": "Be concise",
+                    "condensed_history": "Earlier context",
+                    "current_input": "What is the next step?",
+                    "desired_format": "plain_text",
+                    "fingerprint": "abc123",
+                },
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.gemini_web_generate"
+    assert result.output_json["text"] == "browseract gemini response"
+    assert result.output_json["provider_backend"] == "gemini_web"
+    assert result.receipt_json["route"] == "browseract.gemini_web_generate"
+    assert tool_runtime.get_tool("browseract.gemini_web_generate") is not None
+
+
 def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),

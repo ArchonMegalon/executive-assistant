@@ -20,6 +20,7 @@ from app.domain.models import ToolInvocationRequest
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.responses_upstream import (
     DEFAULT_PUBLIC_MODEL,
+    SURVIVAL_PUBLIC_MODEL,
     ResponsesUpstreamError,
     UpstreamResult,
     _provider_health_report,
@@ -27,6 +28,7 @@ from app.services.responses_upstream import (
     generate_text,
     list_response_models,
 )
+from app.services.survival_lane import SurvivalLaneService
 
 
 router = APIRouter(tags=["responses"])
@@ -252,6 +254,16 @@ _CODEx_PROFILES = (
         "needs_review": True,
         "risk_labels": ["publish", "high_risk", "multi_view"],
         "merge_policy": "require_review",
+    },
+    {
+        "profile": "survival",
+        "lane": "survival",
+        "model": SURVIVAL_PUBLIC_MODEL,
+        "provider_hint_order": ("gemini_vortex", "browseract"),
+        "review_required": False,
+        "needs_review": False,
+        "risk_labels": ["budget_exhausted", "backup", "slow_path"],
+        "merge_policy": "auto_if_low_risk",
     },
 )
 
@@ -1303,6 +1315,209 @@ def _error_event_payload(message: str) -> dict[str, object]:
     }
 
 
+def _survival_max_output_tokens() -> int:
+    raw = str(os.environ.get("EA_SURVIVAL_MAX_OUTPUT_TOKENS") or "768").strip() or "768"
+    try:
+        value = int(raw)
+    except Exception:
+        value = 768
+    return max(32, min(4096, value))
+
+
+def _survival_rejected_fields(payload: _ResponsesCreateRequest) -> list[str]:
+    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "1").strip().lower() not in {"0", "false", "no", "off"}
+    rejected: list[str] = []
+    if refuse_tools and payload.tools:
+        rejected.append("tools")
+    if refuse_tools and payload.tool_choice is not None:
+        rejected.append("tool_choice")
+    if refuse_tools and payload.parallel_tool_calls is not None:
+        rejected.append("parallel_tool_calls")
+    return rejected
+
+
+def _run_survival_response(
+    request: _ResponsesCreateRequest,
+    *,
+    parsed_input: _ParsedResponseInput,
+    context: RequestContext,
+    container: object | None,
+    codex_profile: str | None,
+    profile_config: dict[str, object] | None,
+    model: str,
+    metadata: dict[str, object],
+    history_items: list[dict[str, object]],
+    previous_response_id: str | None,
+) -> Response:
+    if str(os.environ.get("EA_SURVIVAL_ENABLED") or "1").strip().lower() in {"0", "false", "no", "off"}:
+        raise HTTPException(status_code=503, detail="survival_lane_disabled")
+    if request.stream:
+        raise HTTPException(status_code=400, detail="survival_stream_not_supported_yet")
+    rejected_fields = _survival_rejected_fields(request)
+    if rejected_fields:
+        raise HTTPException(status_code=400, detail=f"survival_unsupported_fields:{','.join(rejected_fields)}")
+    if request.store is False:
+        raise HTTPException(status_code=400, detail="survival_requires_store")
+
+    created_at = _now_unix()
+    response_id = "resp_" + uuid.uuid4().hex[:24]
+    requested_max_output_tokens = _requested_max_output_tokens(request)
+    max_output_tokens = min(requested_max_output_tokens or _survival_max_output_tokens(), _survival_max_output_tokens())
+    response_metadata = {
+        **metadata,
+        "principal_id": context.principal_id,
+        "survival_lane": True,
+        "survival_background": True,
+        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "gemini_vortex,gemini_web,chatplayground"),
+    }
+    if codex_profile:
+        response_metadata.update(
+            {
+                "codex_profile": codex_profile,
+                "codex_lane": profile_config.get("lane") if profile_config else None,
+                "codex_review_required": bool(profile_config.get("review_required")) if isinstance(profile_config, dict) else None,
+                "codex_needs_review": bool(profile_config.get("needs_review")) if isinstance(profile_config, dict) else None,
+                "codex_risk_labels": list(profile_config.get("risk_labels", [])) if isinstance(profile_config, dict) else None,
+                "codex_merge_policy": profile_config.get("merge_policy") if isinstance(profile_config, dict) else None,
+                "codex_provider_hint_order": list(profile_config.get("provider_hint_order", []))
+                if isinstance(profile_config, dict)
+                else None,
+            }
+        )
+
+    in_progress_obj = _response_object(
+        response_id=response_id,
+        model=model,
+        created_at=created_at,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=max_output_tokens,
+        metadata=response_metadata,
+        instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+        input_items=parsed_input.input_items,
+        store=True,
+        previous_response_id=previous_response_id,
+        parallel_tool_calls=False,
+        tool_choice="none",
+        tools=[],
+        reasoning=request.reasoning,
+    )
+    _store_response(
+        response_id=response_id,
+        response_obj=in_progress_obj,
+        input_items=parsed_input.input_items,
+        history_items=history_items,
+        principal_id=context.principal_id,
+        container=container,
+    )
+
+    def _worker() -> None:
+        service = SurvivalLaneService(
+            tool_execution=getattr(container, "tool_execution", None),
+            tool_runtime=getattr(container, "tool_runtime", None),
+            principal_id=context.principal_id,
+        )
+        try:
+            result = service.execute(
+                instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                history_items=history_items,
+                current_input=parsed_input.prompt,
+                desired_format="plain_text",
+                prompt_cache_key=request.prompt_cache_key,
+                previous_response_id=previous_response_id,
+            )
+            upstream_result = result.to_upstream_result()
+            message_item = _message_item(
+                item_id="msg_" + uuid.uuid4().hex[:24],
+                text=result.text,
+                status="completed",
+            )
+            completed_metadata = {
+                **response_metadata,
+                "survival_provider": result.provider_key,
+                "survival_backend": result.provider_backend,
+                "survival_cache_hit": result.cache_hit,
+                "survival_attempts": [
+                    {
+                        "backend": item.backend,
+                        "started_at": item.started_at,
+                        "completed_at": item.completed_at,
+                        "status": item.status,
+                        "detail": item.detail,
+                    }
+                    for item in result.attempts
+                ],
+                "upstream_provider": upstream_result.provider_key,
+                "upstream_model": upstream_result.model,
+                "provider_backend": upstream_result.provider_backend,
+            }
+            completed_obj = _response_object(
+                response_id=response_id,
+                model=model,
+                created_at=created_at,
+                status="completed",
+                output=[message_item],
+                output_text=result.text,
+                tokens_in=0,
+                tokens_out=0,
+                max_output_tokens=max_output_tokens,
+                metadata=completed_metadata,
+                instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                input_items=parsed_input.input_items,
+                store=True,
+                previous_response_id=previous_response_id,
+                parallel_tool_calls=False,
+                tool_choice="none",
+                tools=[],
+                reasoning=request.reasoning,
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=completed_obj,
+                input_items=parsed_input.input_items,
+                history_items=[*history_items, message_item],
+                principal_id=context.principal_id,
+                container=container,
+            )
+        except Exception as exc:
+            failed_obj = _response_object(
+                response_id=response_id,
+                model=model,
+                created_at=created_at,
+                status="failed",
+                output=[],
+                output_text="",
+                tokens_in=0,
+                tokens_out=0,
+                max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                input_items=parsed_input.input_items,
+                store=True,
+                previous_response_id=previous_response_id,
+                parallel_tool_calls=False,
+                tool_choice="none",
+                tools=[],
+                reasoning=request.reasoning,
+                error={"code": "survival_failed", "message": str(exc)[:500]},
+                incomplete_details={"type": "error", "reason": str(exc)[:500]},
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=parsed_input.input_items,
+                history_items=history_items,
+                principal_id=context.principal_id,
+                container=container,
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return JSONResponse(in_progress_obj, status_code=202)
+
+
 def _run_response(
     request_payload: dict[str, object],
     *,
@@ -1328,6 +1543,9 @@ def _run_response(
             model = codex_model
 
     requested_model = _requested_model(request)
+    is_survival_profile = codex_profile == "survival"
+    is_survival_model = requested_model == SURVIVAL_PUBLIC_MODEL or model == SURVIVAL_PUBLIC_MODEL
+
     is_audit_profile = codex_profile == "audit"
     is_audit_model = requested_model in {"ea-audit", "ea-audit-jury"}
     audit_profile_or_model = is_audit_profile or is_audit_model
@@ -1405,6 +1623,20 @@ def _run_response(
                 if isinstance(profile_config, dict)
                 else None,
             }
+        )
+
+    if is_survival_profile or is_survival_model:
+        return _run_survival_response(
+            request,
+            parsed_input=parsed_input,
+            context=context,
+            container=container,
+            codex_profile=codex_profile,
+            profile_config=profile_config,
+            model=SURVIVAL_PUBLIC_MODEL,
+            metadata=response_metadata,
+            history_items=history_items,
+            previous_response_id=previous_response_id,
         )
 
     if not stream:
@@ -2084,6 +2316,35 @@ def create_codex_easy(
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="easy")
     return _run_response(normalized, context=context, container=container, codex_profile="easy")
+
+
+@codex_router.post(
+    "/survival",
+    response_model=_ResponseObject,
+    responses={
+        202: {
+            "description": "Returns an in-progress response object for background survival execution.",
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_survival(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="survival")
+    return _run_response(normalized, context=context, container=container, codex_profile="survival")
 
 
 @codex_router.post(

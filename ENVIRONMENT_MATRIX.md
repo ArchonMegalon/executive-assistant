@@ -23,6 +23,9 @@
 - `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`: long quarantine applied when 1min.AI reports a deleted or inactive key so the slot remains visibly `deleted`.
 - `EA_RESPONSES_MAGICX_API_KEY`: primary MagicX account name surfaced in `/v1/codex/profiles` and `/v1/responses/_provider_health`.
 - `BROWSERACT_API_KEY` plus `BROWSERACT_API_KEY_FALLBACK_1` through `BROWSERACT_API_KEY_FALLBACK_3`: audit-lane ChatPlayground slots surfaced as `chatplayground_accounts` in provider-health payloads.
+- `EA_SURVIVAL_ENABLED`, `EA_SURVIVAL_ROUTE_ORDER`, `EA_SURVIVAL_QUEUE_TIMEOUT_SECONDS`, `EA_SURVIVAL_MAX_OUTPUT_TOKENS`, and `EA_SURVIVAL_CACHE_TTL_SECONDS`: control the explicit survival lane used by `POST /v1/codex/survival` and the `ea-coder-survival` alias.
+- `EA_SURVIVAL_GEMINI_WEB_MODE`, `EA_SURVIVAL_GEMINI_WEB_ALLOW_DEEP_THINK`, `EA_SURVIVAL_GEMINI_WEB_TIMEOUT_SECONDS`, and `BROWSERACT_GEMINI_WEB_URL`: govern the BrowserAct-backed Gemini web fallback after the local Gemini Vortex attempt.
+- `EA_SURVIVAL_CHATPLAYGROUND_SINGLE_ROLE`: limits the last-resort ChatPlayground tie-break to a single role instead of the normal multi-role jury lane.
 
 ## Recommended Profiles
 
