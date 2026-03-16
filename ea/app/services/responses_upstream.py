@@ -485,7 +485,6 @@ def _magicx_models() -> tuple[str, ...]:
         "inception/mercury-coder",
         "mistralai/codestral-2508",
         "x-ai/grok-code-fast-1",
-        "openai/gpt-5.1-codex-mini",
     )
     if configured:
         return _merge_unique(configured, legacy)
@@ -929,7 +928,6 @@ def _magicx_lane_models() -> tuple[str, ...]:
     desired = (
         "x-ai/grok-code-fast-1",
         "mistralai/codestral-2508",
-        "openai/gpt-5.1-codex-mini",
         "inception/mercury-coder",
     )
     if configured:
@@ -1308,6 +1306,8 @@ def _provider_model_order_for_lane(
             return (requested,)
         if normalized == GEMINI_VORTEX_PUBLIC_MODEL:
             return _gemini_vortex_models()
+        if lane in {_LANE_FAST, _LANE_OVERFLOW}:
+            return _gemini_vortex_models()
         return ()
 
     if provider_key == "chatplayground":
@@ -1331,6 +1331,8 @@ def _provider_model_order_for_lane(
     if lane == _LANE_HARD:
         return _onemin_hard_models()
     if lane == _LANE_REVIEW:
+        return _onemin_review_models()
+    if lane in {_LANE_FAST, _LANE_OVERFLOW}:
         return _onemin_review_models()
     if normalized in {ONEMIN_PUBLIC_MODEL, DEFAULT_PUBLIC_MODEL} or not normalized:
         return _onemin_models()
@@ -1754,7 +1756,7 @@ def _provider_candidates(
 
     provider_keys_by_lane: tuple[str, ...]
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
-        provider_keys_by_lane = ("magixai",)
+        provider_keys_by_lane = _merge_unique(("magixai", "gemini_vortex"), _provider_order())
     elif lane == _LANE_AUDIT:
         provider_keys_by_lane = ("chatplayground",)
     else:
@@ -1764,7 +1766,7 @@ def _provider_candidates(
         # Keep the public default biased toward the cheap/fast lane, but never
         # trap it on Magicx-only when the fast lane is degraded.
         if lane in {_LANE_FAST, _LANE_OVERFLOW}:
-            provider_keys_by_lane = _merge_unique(("magixai",), _provider_order())
+            provider_keys_by_lane = _merge_unique(("magixai", "gemini_vortex"), _provider_order())
         candidates: list[tuple[ProviderConfig, str]] = []
         for provider_key in provider_keys_by_lane:
             config = configs.get(provider_key)
@@ -1825,7 +1827,20 @@ def _provider_candidates(
         ]
 
     if normalized in {"ea-coder-fast", "ea-overflow"}:
-        return [(configs["magixai"], model_name) for model_name in _magicx_lane_models()]
+        candidates: list[tuple[ProviderConfig, str]] = [
+            (configs["magixai"], model_name) for model_name in _magicx_lane_models()
+        ]
+        candidates.extend(
+            (configs["gemini_vortex"], model_name)
+            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
+            or _gemini_vortex_models()
+        )
+        candidates.extend(
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_review_models()
+        )
+        return candidates
 
     if normalized in {"chatplayground", "browseract", AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         return [

@@ -10,7 +10,7 @@ from app.services import responses_upstream as upstream
 def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magicxai,onemin")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best,om-fallback")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best,review-fallback")
 
     candidates = [
         (config.provider_key, model)
@@ -22,17 +22,20 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         ("magixai", "mx-fallback"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
-        ("onemin", "om-best"),
-        ("onemin", "om-fallback"),
+        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("onemin", "review-best"),
+        ("onemin", "review-fallback"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
     ]
 
 
 def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best")
 
     candidates = [
         (config.provider_key, model)
@@ -43,9 +46,12 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
-        ("onemin", "om-best"),
+        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("onemin", "review-best"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
     ]
 
 
@@ -54,10 +60,13 @@ def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best")
 
     def fake_call_magicx(*args: object, **kwargs: object) -> upstream.UpstreamResult:
         raise upstream.ResponsesUpstreamError("magicx_unavailable")
+
+    def fake_call_gemini_vortex(*args: object, **kwargs: object) -> upstream.UpstreamResult:
+        raise upstream.ResponsesUpstreamError("gemini_vortex_unavailable")
 
     def fake_call_onemin(
         config: upstream.ProviderConfig,
@@ -69,7 +78,7 @@ def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable
         lane: str,
     ) -> upstream.UpstreamResult:
         assert config.provider_key == "onemin"
-        assert model == "om-best"
+        assert model == "review-best"
         assert lane == upstream._LANE_FAST
         return upstream.UpstreamResult(
             text="fallback ok",
@@ -80,12 +89,37 @@ def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable
         )
 
     monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
+    monkeypatch.setattr(upstream, "_call_gemini_vortex", fake_call_gemini_vortex)
     monkeypatch.setattr(upstream, "_call_onemin", fake_call_onemin)
 
     result = upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
     assert result.provider_key == "onemin"
     assert result.text == "fallback ok"
+
+
+def test_fast_public_model_candidates_prefer_magicx_then_gemini_then_onemin_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("ea-coder-fast")
+    ]
+
+    assert candidates == [
+        ("magixai", "mx-best"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+        ("magixai", "mistralai/codestral-2508"),
+        ("magixai", "inception/mercury-coder"),
+        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("onemin", "review-best"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
+    ]
 
 
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
