@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -68,10 +69,29 @@ ADAPTER_ENV_NAMES = {
 
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
+_ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
 
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def raw_key_names(provider_name: str) -> list[str]:
+    if provider_name != "onemin":
+        return RAW_KEY_NAMES.get(provider_name, [])
+    fallback_numbers: set[int] = set()
+    for mapping in (os.environ, LOCAL_ENV, POLICY_ENV):
+        for env_name in mapping:
+            match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+            if match is None:
+                continue
+            try:
+                fallback_numbers.add(int(match.group(1)))
+            except Exception:
+                continue
+    names = ["ONEMIN_AI_API_KEY"]
+    names.extend(f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in sorted(fallback_numbers))
+    return names
 
 
 def key_names_present(names: list[str]) -> list[str]:
@@ -122,7 +142,7 @@ def provider_state(name: str) -> dict[str, object]:
             "adapters": [],
             "detail": "Disabled. Chummer6 media must use a real provider.",
         }
-    raw_keys = key_names_present(RAW_KEY_NAMES.get(name, []))
+    raw_keys = key_names_present(raw_key_names(name))
     adapters = key_names_present(ADAPTER_ENV_NAMES.get(name, []))
     if name == "gemini_vortex":
         command_name, cli_ready = command_state(env_value("EA_GEMINI_VORTEX_COMMAND") or "gemini")

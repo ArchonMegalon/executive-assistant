@@ -61,7 +61,6 @@ _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_MAX_KEY_SLOTS = 29
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
@@ -275,6 +274,44 @@ def _non_empty_values(*values: str) -> tuple[str, ...]:
     return tuple(items)
 
 
+_ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+_ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
+
+
+def _onemin_fallback_slot_number(raw: object) -> int | None:
+    match = _ONEMIN_FALLBACK_SLOT_RE.match(str(raw or "").strip().lower().replace(" ", "_").replace("-", "_"))
+    if match is None:
+        return None
+    try:
+        slot_number = int(match.group(1))
+    except Exception:
+        return None
+    return slot_number if slot_number >= 1 else None
+
+
+def _onemin_secret_env_names() -> tuple[str, ...]:
+    fallback_numbers: set[int] = set()
+    for env_name in os.environ:
+        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            fallback_numbers.add(int(match.group(1)))
+        except Exception:
+            continue
+    for slot_name in _merge_unique(
+        _csv_values(_env("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS")),
+        _csv_values(_env("EA_RESPONSES_ONEMIN_RESERVE_SLOTS")),
+    ):
+        slot_number = _onemin_fallback_slot_number(slot_name)
+        if slot_number is not None:
+            fallback_numbers.add(slot_number)
+    names = ["ONEMIN_AI_API_KEY"]
+    for slot_number in sorted(fallback_numbers):
+        names.append(f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
+    return tuple(names)
+
+
 def _browserplayground_url() -> str:
     return _env(
         "BROWSERACT_CHATPLAYGROUND_URL",
@@ -410,37 +447,7 @@ def _provider_account_name(provider_key: str, key_names: tuple[str, ...], key: s
 def _provider_account_names(provider_key: str) -> tuple[str, ...]:
     normalized = str(provider_key or "").strip().lower()
     if normalized == "onemin":
-        return (
-            "ONEMIN_AI_API_KEY",
-            "ONEMIN_AI_API_KEY_FALLBACK_1",
-            "ONEMIN_AI_API_KEY_FALLBACK_2",
-            "ONEMIN_AI_API_KEY_FALLBACK_3",
-            "ONEMIN_AI_API_KEY_FALLBACK_4",
-            "ONEMIN_AI_API_KEY_FALLBACK_5",
-            "ONEMIN_AI_API_KEY_FALLBACK_6",
-            "ONEMIN_AI_API_KEY_FALLBACK_7",
-            "ONEMIN_AI_API_KEY_FALLBACK_8",
-            "ONEMIN_AI_API_KEY_FALLBACK_9",
-            "ONEMIN_AI_API_KEY_FALLBACK_10",
-            "ONEMIN_AI_API_KEY_FALLBACK_11",
-            "ONEMIN_AI_API_KEY_FALLBACK_12",
-            "ONEMIN_AI_API_KEY_FALLBACK_13",
-            "ONEMIN_AI_API_KEY_FALLBACK_14",
-            "ONEMIN_AI_API_KEY_FALLBACK_15",
-            "ONEMIN_AI_API_KEY_FALLBACK_16",
-            "ONEMIN_AI_API_KEY_FALLBACK_17",
-            "ONEMIN_AI_API_KEY_FALLBACK_18",
-            "ONEMIN_AI_API_KEY_FALLBACK_19",
-            "ONEMIN_AI_API_KEY_FALLBACK_20",
-            "ONEMIN_AI_API_KEY_FALLBACK_21",
-            "ONEMIN_AI_API_KEY_FALLBACK_22",
-            "ONEMIN_AI_API_KEY_FALLBACK_23",
-            "ONEMIN_AI_API_KEY_FALLBACK_24",
-            "ONEMIN_AI_API_KEY_FALLBACK_25",
-            "ONEMIN_AI_API_KEY_FALLBACK_26",
-            "ONEMIN_AI_API_KEY_FALLBACK_27",
-            "ONEMIN_AI_API_KEY_FALLBACK_28",
-        )
+        return _onemin_secret_env_names()
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
     if normalized == "chatplayground":
@@ -537,35 +544,7 @@ def _onemin_key_names() -> tuple[str, ...]:
     return _merge_unique(
         _non_empty_values(
             _env("EA_RESPONSES_ONEMIN_API_KEY"),
-            _env("ONEMIN_AI_API_KEY"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_1"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_2"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_3"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_4"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_5"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_6"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_7"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_8"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_9"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_10"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_11"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_12"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_13"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_14"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_15"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_16"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_17"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_18"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_19"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_20"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_21"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_22"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_23"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_24"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_25"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_26"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_27"),
-            _env("ONEMIN_AI_API_KEY_FALLBACK_28"),
+            *(_env(env_name) for env_name in _onemin_secret_env_names()),
         )
     )
 
@@ -578,37 +557,9 @@ def _normalize_slot_name(raw: object) -> str:
         value = "primary"
     if value in {"primary", "fallback", "fallback_1", "fallback_1st"}:
         return value if value == "primary" else "fallback_1"
-    if value in {
-        "fallback1",
-        "fallback2",
-        "fallback3",
-        "fallback4",
-        "fallback5",
-        "fallback6",
-        "fallback7",
-        "fallback8",
-        "fallback9",
-        "fallback10",
-        "fallback11",
-        "fallback12",
-        "fallback13",
-        "fallback14",
-        "fallback15",
-        "fallback16",
-        "fallback17",
-        "fallback18",
-        "fallback19",
-        "fallback20",
-        "fallback21",
-        "fallback22",
-        "fallback23",
-        "fallback24",
-        "fallback25",
-        "fallback26",
-        "fallback27",
-        "fallback28",
-    }:
-        return value.replace("fallback", "fallback_")
+    fallback_slot = _onemin_fallback_slot_number(value)
+    if fallback_slot is not None:
+        return f"fallback_{fallback_slot}"
     if value.isdigit():
         return f"fallback_{value}"
     return value
@@ -3166,7 +3117,7 @@ def _provider_health_report() -> dict[str, object]:
                 _provider_account_name("onemin", key_names=onemin_key_names, key=key)
                 for key in onemin_reserve_keys
             ],
-            "onemin_max_slots": _ONEMIN_MAX_KEY_SLOTS,
+            "onemin_max_slots": len(_onemin_secret_env_names()),
             "onemin_included_credits_per_key": _onemin_included_credits_per_key(),
             "onemin_bonus_credits_per_key": _onemin_bonus_credits_per_key(),
             "onemin_max_requests_per_hour": onemin_max_requests_per_hour,

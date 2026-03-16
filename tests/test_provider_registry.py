@@ -122,37 +122,23 @@ def test_provider_registry_routes_browseract_gemini_web_generate_with_aliases() 
     assert route.executable is True
 
 
-def test_provider_registry_onemin_secret_rotation_includes_fallback_2() -> None:
+def test_provider_registry_onemin_secret_rotation_includes_declared_fallback_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_1")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
+        ",".join(f"fallback_{index}" for index in range(2, 34)),
+    )
+    for index in range(1, 34):
+        monkeypatch.setenv(f"ONEMIN_AI_API_KEY_FALLBACK_{index}", f"onemin-key-{index}")
     registry = ProviderRegistryService()
     state = registry.binding_state("onemin")
     assert state is not None
-    assert "ONEMIN_AI_API_KEY_FALLBACK_2" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_3" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_4" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_5" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_6" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_7" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_8" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_9" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_10" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_11" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_12" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_13" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_14" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_15" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_16" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_17" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_18" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_19" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_20" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_21" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_22" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_23" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_24" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_25" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_26" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_27" in state.secret_env_names
-    assert "ONEMIN_AI_API_KEY_FALLBACK_28" in state.secret_env_names
+    assert list(state.secret_env_names) == [
+        "ONEMIN_AI_API_KEY",
+        *[f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in range(1, 34)],
+    ]
 
 
 def test_provider_registry_normalizes_chatplayground_aliases() -> None:

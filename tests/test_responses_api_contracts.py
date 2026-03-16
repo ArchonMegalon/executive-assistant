@@ -1008,38 +1008,15 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     upstream._test_reset_onemin_states()
 
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "health-key-a")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "health-key-b")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "health-key-c")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "health-key-d")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_4", "health-key-e")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_5", "health-key-f")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "health-key-g")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "health-key-h")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "health-key-i")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "health-key-j")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "health-key-k")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_11", "health-key-l")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_12", "health-key-m")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_13", "health-key-n")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_14", "health-key-o")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_15", "health-key-p")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_16", "health-key-q")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_17", "health-key-r")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_18", "health-key-s")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_19", "health-key-t")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_20", "health-key-u")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_21", "health-key-v")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_22", "health-key-w")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_23", "health-key-x")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_24", "health-key-y")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_25", "health-key-z")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_26", "health-key-aa")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_27", "health-key-ab")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_28", "health-key-ac")
+    for index in range(1, 34):
+        monkeypatch.setenv(f"ONEMIN_AI_API_KEY_FALLBACK_{index}", f"health-key-{index}")
     monkeypatch.setenv("EA_RESPONSES_DEFAULT_PROFILE", "easy")
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai,onemin")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_1")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_RESERVE_SLOTS", "fallback_2,fallback_3")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
+        ",".join(f"fallback_{index}" for index in range(2, 34)),
+    )
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MAX_REQUESTS_PER_HOUR", "120")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR", "80000")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY", "600000")
@@ -1055,38 +1032,11 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     body = response.json()
 
     providers = body["providers"]
-    assert providers["onemin"]["configured_slots"] == 29
-    assert len(providers["onemin"]["slots"]) == 29
+    assert providers["onemin"]["configured_slots"] == 34
+    assert len(providers["onemin"]["slots"]) == 34
     assert [slot["slot"] for slot in providers["onemin"]["slots"]] == [
         "primary",
-        "fallback_1",
-        "fallback_2",
-        "fallback_3",
-        "fallback_4",
-        "fallback_5",
-        "fallback_6",
-        "fallback_7",
-        "fallback_8",
-        "fallback_9",
-        "fallback_10",
-        "fallback_11",
-        "fallback_12",
-        "fallback_13",
-        "fallback_14",
-        "fallback_15",
-        "fallback_16",
-        "fallback_17",
-        "fallback_18",
-        "fallback_19",
-        "fallback_20",
-        "fallback_21",
-        "fallback_22",
-        "fallback_23",
-        "fallback_24",
-        "fallback_25",
-        "fallback_26",
-        "fallback_27",
-        "fallback_28",
+        *[f"fallback_{index}" for index in range(1, 34)],
     ]
     assert providers["chatplayground"]["provider_key"] == "chatplayground"
     assert providers["chatplayground"]["backend"] == "browseract"
@@ -1103,34 +1053,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert providers["magixai"]["state"] in {"ready", "unknown", "degraded"}
     assert body["provider_config"]["onemin_accounts"] == [
         "ONEMIN_AI_API_KEY",
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-        "ONEMIN_AI_API_KEY_FALLBACK_3",
-        "ONEMIN_AI_API_KEY_FALLBACK_4",
-        "ONEMIN_AI_API_KEY_FALLBACK_5",
-        "ONEMIN_AI_API_KEY_FALLBACK_6",
-        "ONEMIN_AI_API_KEY_FALLBACK_7",
-        "ONEMIN_AI_API_KEY_FALLBACK_8",
-        "ONEMIN_AI_API_KEY_FALLBACK_9",
-        "ONEMIN_AI_API_KEY_FALLBACK_10",
-        "ONEMIN_AI_API_KEY_FALLBACK_11",
-        "ONEMIN_AI_API_KEY_FALLBACK_12",
-        "ONEMIN_AI_API_KEY_FALLBACK_13",
-        "ONEMIN_AI_API_KEY_FALLBACK_14",
-        "ONEMIN_AI_API_KEY_FALLBACK_15",
-        "ONEMIN_AI_API_KEY_FALLBACK_16",
-        "ONEMIN_AI_API_KEY_FALLBACK_17",
-        "ONEMIN_AI_API_KEY_FALLBACK_18",
-        "ONEMIN_AI_API_KEY_FALLBACK_19",
-        "ONEMIN_AI_API_KEY_FALLBACK_20",
-        "ONEMIN_AI_API_KEY_FALLBACK_21",
-        "ONEMIN_AI_API_KEY_FALLBACK_22",
-        "ONEMIN_AI_API_KEY_FALLBACK_23",
-        "ONEMIN_AI_API_KEY_FALLBACK_24",
-        "ONEMIN_AI_API_KEY_FALLBACK_25",
-        "ONEMIN_AI_API_KEY_FALLBACK_26",
-        "ONEMIN_AI_API_KEY_FALLBACK_27",
-        "ONEMIN_AI_API_KEY_FALLBACK_28",
+        *[f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in range(1, 34)],
     ]
     assert body["provider_config"]["default_profile"] == "easy"
     assert body["provider_config"]["default_lane"] == "fast"
@@ -1140,8 +1063,7 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "ONEMIN_AI_API_KEY_FALLBACK_1",
     ]
     assert body["provider_config"]["onemin_reserve_accounts"] == [
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        *[f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in range(2, 34)],
     ]
     assert body["provider_config"]["onemin_max_requests_per_hour"] == 120
     assert body["provider_config"]["onemin_max_credits_per_hour"] == 80000
