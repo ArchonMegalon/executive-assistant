@@ -234,7 +234,6 @@ def test_plain_onemin_model_routes_onemin_first_with_magicx_fallback_lane(monkey
         ("magixai", "mx-fallback"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
     ]
 

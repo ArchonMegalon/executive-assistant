@@ -239,7 +239,7 @@ _CODEx_PROFILES = (
         "profile": "easy",
         "lane": "fast",
         "model": "ea-coder-fast",
-        "provider_hint_order": ("magixai",),
+        "provider_hint_order": ("magixai", "gemini_vortex", "onemin"),
         "review_required": False,
         "needs_review": False,
         "risk_labels": ["low_impact", "assist"],
