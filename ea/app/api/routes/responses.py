@@ -240,6 +240,19 @@ def _sse_comment(comment: str = "keep-alive") -> str:
     return f": {comment}\n\n"
 
 
+def _sse_heartbeat(*, sequence: int, response: dict[str, object]) -> str:
+    heartbeat_response = dict(response)
+    return _sse_event(
+        event="response.in_progress",
+        sequence=sequence,
+        data={
+            "type": "response.in_progress",
+            "response": heartbeat_response,
+            "heartbeat": True,
+        },
+    )
+
+
 def _extract_text(value: object) -> str:
     if value is None:
         return ""
@@ -1351,7 +1364,7 @@ def _run_response(
             try:
                 state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
             except queue.Empty:
-                yield _sse_comment()
+                yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
 
         status, result_payload = state
         if status == "error":
@@ -1681,7 +1694,14 @@ def _run_response(
         )
         yield _sse_done()
 
-    return StreamingResponse(_iter_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _iter_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @models_router.get("", response_model=_ModelListObject)

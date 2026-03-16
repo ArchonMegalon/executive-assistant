@@ -60,7 +60,7 @@ _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_MAX_KEY_SLOTS = 10
+_ONEMIN_MAX_KEY_SLOTS = 11
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 
@@ -367,6 +367,8 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
             "ONEMIN_AI_API_KEY_FALLBACK_7",
             "ONEMIN_AI_API_KEY_FALLBACK_8",
             "ONEMIN_AI_API_KEY_FALLBACK_9",
+            "ONEMIN_AI_API_KEY_FALLBACK_10",
+            "ONEMIN_AI_API_KEY_FALLBACK_11",
         )
     if normalized in {"magixai", "magicxai", "aimagicx"}:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
@@ -474,6 +476,8 @@ def _onemin_key_names() -> tuple[str, ...]:
             _env("ONEMIN_AI_API_KEY_FALLBACK_7"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_8"),
             _env("ONEMIN_AI_API_KEY_FALLBACK_9"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_10"),
+            _env("ONEMIN_AI_API_KEY_FALLBACK_11"),
         )
     )
 
