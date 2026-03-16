@@ -6,13 +6,19 @@ import logging
 import inspect
 import os
 import re
+import shutil
 import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass, replace
 from typing import Any, Callable
+
+from app.domain.models import ToolDefinition, ToolInvocationRequest
+from app.services.tool_execution_common import ToolExecutionError
+from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter
 
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
@@ -21,6 +27,7 @@ ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
 SURVIVAL_PUBLIC_MODEL = "ea-coder-survival"
 AUDIT_PUBLIC_MODEL = "ea-audit-jury"
 AUDIT_PUBLIC_MODEL_ALIAS = "ea-audit"
+GEMINI_VORTEX_PUBLIC_MODEL = "ea-gemini-flash"
 ChatMessage = dict[str, str]
 
 _LOG = logging.getLogger("ea.responses.upstream")
@@ -452,6 +459,8 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
         return ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
     if normalized == "chatplayground":
         return _browserplayground_auth_names()
+    if normalized == "gemini_vortex":
+        return ("EA_GEMINI_VORTEX_COMMAND",)
     return tuple()
 
 
@@ -944,6 +953,13 @@ def _onemin_review_models() -> tuple[str, ...]:
     return defaults
 
 
+def _gemini_vortex_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_GEMINI_VORTEX_MODELS"))
+    default_model = _env("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+    defaults = (default_model,) if default_model else ("gemini-3-flash-preview",)
+    return _merge_unique(configured, defaults)
+
+
 def _onemin_max_requests_per_hour() -> int:
     return _to_int(_env("EA_RESPONSES_ONEMIN_MAX_REQUESTS_PER_HOUR", str(_ONEMIN_MAX_REQUESTS_PER_HOUR)), 0, minimum=0)
 
@@ -1261,6 +1277,8 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_HARD
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         return _LANE_AUDIT
+    if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in {item.lower() for item in _gemini_vortex_models()}:
+        return _LANE_FAST
     if normalized == "ea-coder-fast":
         return _LANE_FAST
     if normalized == "ea-overflow":
@@ -1284,6 +1302,13 @@ def _provider_model_order_for_lane(
         if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
             return ()
         return _magicx_lane_models()
+
+    if provider_key == "gemini_vortex":
+        if normalized in {item.lower() for item in _gemini_vortex_models()}:
+            return (requested,)
+        if normalized == GEMINI_VORTEX_PUBLIC_MODEL:
+            return _gemini_vortex_models()
+        return ()
 
     if provider_key == "chatplayground":
         return _browserplayground_models()
@@ -1349,12 +1374,40 @@ def _chatplayground_config() -> ProviderConfig:
     )
 
 
+def _gemini_vortex_config() -> ProviderConfig:
+    command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
+    return ProviderConfig(
+        provider_key="gemini_vortex",
+        display_name="Gemini Vortex",
+        api_keys=(command,),
+        default_models=_gemini_vortex_models(),
+        timeout_seconds=_to_int(_env("EA_GEMINI_VORTEX_TIMEOUT_SECONDS", "180"), 180, minimum=15, maximum=1800),
+    )
+
+
 def _provider_configs() -> dict[str, ProviderConfig]:
     return {
         "magixai": _magicx_config(),
         "onemin": _onemin_config(),
         "chatplayground": _chatplayground_config(),
+        "gemini_vortex": _gemini_vortex_config(),
     }
+
+
+def _gemini_vortex_health_state() -> tuple[str, str]:
+    command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
+    adapter = GeminiVortexToolAdapter()
+    command_base = adapter._command_base()
+    binary = command_base[0] if command_base else ""
+    if not binary:
+        return ("missing", "gemini_vortex_command_missing")
+    if os.path.sep in binary:
+        ready = os.path.exists(binary) and os.access(binary, os.X_OK)
+    else:
+        ready = shutil.which(binary) is not None
+    if ready:
+        return ("ready", command)
+    return ("missing", f"command_not_found:{command}")
 
 
 def _acquire_hard_slot() -> bool:
@@ -1455,6 +1508,7 @@ def list_response_models() -> list[dict[str, object]]:
         AUDIT_PUBLIC_MODEL,
         AUDIT_PUBLIC_MODEL_ALIAS,
         ONEMIN_PUBLIC_MODEL,
+        GEMINI_VORTEX_PUBLIC_MODEL,
         SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
         "ea-review",
@@ -1466,6 +1520,7 @@ def list_response_models() -> list[dict[str, object]]:
         _onemin_models(),
         _onemin_code_models(),
         _magicx_lane_models(),
+        _gemini_vortex_models(),
         _browserplayground_models(),
     )
     return [
@@ -1683,6 +1738,7 @@ def _provider_candidates(
     requested = str(requested_model or "").strip()
     normalized = requested.lower()
     configs = _provider_configs()
+    gemini_model_names = {item.lower() for item in _gemini_vortex_models()}
 
     if lane == _LANE_DEFAULT:
         lane = _effective_request_lane(requested_model=requested, max_output_tokens=None)
@@ -1731,6 +1787,10 @@ def _provider_candidates(
     if normalized == ONEMIN_PUBLIC_MODEL:
         model_names = _provider_model_order_for_lane("onemin", lane, requested) or _onemin_models()
         return [(configs["onemin"], model_name) for model_name in model_names]
+
+    if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in gemini_model_names:
+        model_names = _provider_model_order_for_lane("gemini_vortex", lane, requested) or _gemini_vortex_models()
+        return [(configs["gemini_vortex"], model_name) for model_name in model_names]
 
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         candidates: list[tuple[ProviderConfig, str]] = [
@@ -2547,6 +2607,97 @@ def _call_chatplayground_audit(
     raise ResponsesUpstreamError("; ".join(errors))
 
 
+def _call_gemini_vortex(
+    config: ProviderConfig,
+    *,
+    prompt: str,
+    messages: list[ChatMessage] | None = None,
+    model: str,
+    max_output_tokens: int | None = None,
+    lane: str = _LANE_DEFAULT,
+) -> UpstreamResult:
+    normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
+    prompt_text = _messages_to_prompt(normalized_messages)
+    if not prompt_text:
+        raise ResponsesUpstreamError("gemini_vortex:prompt_required")
+    adapter = GeminiVortexToolAdapter()
+    definition = ToolDefinition(
+        tool_name="provider.gemini_vortex.structured_generate",
+        version="builtin",
+        input_schema_json={},
+        output_schema_json={},
+        policy_json={},
+        allowed_channels=("commentary",),
+        approval_default="never",
+        enabled=True,
+        updated_at=_now_iso(),
+    )
+    request = ToolInvocationRequest(
+        session_id=f"responses:{uuid.uuid4().hex}",
+        step_id=f"responses-step:{uuid.uuid4().hex}",
+        tool_name=definition.tool_name,
+        action_kind="content.generate",
+        payload_json={
+            "source_text": prompt_text,
+            "generation_instruction": (
+                "Answer the user's request. Return JSON with a single top-level `text` field only."
+            ),
+            "response_schema_json": {
+                "type": "object",
+                "required": ["text"],
+                "properties": {"text": {"type": "string"}},
+            },
+            "model": model,
+            "lane": lane,
+            "max_output_tokens": max_output_tokens,
+        },
+    )
+    started_at = _now_ms()
+    try:
+        result = adapter.execute(request, definition)
+    except ToolExecutionError as exc:
+        detail = str(exc).strip() or "gemini_vortex_failed"
+        _log_provider_selection(
+            provider="gemini_vortex",
+            event="failure",
+            key_slot="primary",
+            model=model,
+            latency_ms=max(0, _now_ms() - started_at),
+            reason=detail,
+        )
+        raise ResponsesUpstreamError(f"gemini_vortex:{detail}") from exc
+    output_json = dict(result.output_json or {})
+    structured = output_json.get("structured_output_json")
+    text = str(((structured or {}).get("text") if isinstance(structured, dict) else "") or "").strip()
+    if not text:
+        text = str(output_json.get("normalized_text") or "").strip()
+    if not text:
+        raise ResponsesUpstreamError("gemini_vortex:empty_text")
+    account_key = config.api_keys[0] if config.api_keys else ""
+    account_name = _provider_account_name("gemini_vortex", key_names=tuple(config.api_keys), key=account_key)
+    latency_ms = max(0, _now_ms() - started_at)
+    _log_provider_selection(
+        provider="gemini_vortex",
+        event="success",
+        key_slot="primary",
+        model=str(result.model_name or model or "").strip() or model,
+        latency_ms=latency_ms,
+        reason=None,
+    )
+    return UpstreamResult(
+        text=text,
+        provider_key="gemini_vortex",
+        model=str(result.model_name or output_json.get("model") or model or "gemini").strip() or "gemini",
+        tokens_in=int(result.tokens_in or 0),
+        tokens_out=int(result.tokens_out or 0),
+        provider_key_slot="primary",
+        provider_backend="gemini_vortex_cli",
+        provider_account_name=account_name,
+        upstream_model=str(output_json.get("model") or model or "").strip() or model,
+        latency_ms=latency_ms,
+    )
+
+
 def _call_onemin(
     config: ProviderConfig,
     *,
@@ -2944,6 +3095,15 @@ def generate_text(
                         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
                     )
+                if config.provider_key == "gemini_vortex":
+                    return _call_gemini_vortex(
+                        config,
+                        prompt=prompt_text,
+                        messages=normalized_messages,
+                        model=model_name,
+                        max_output_tokens=resolved_max_output_tokens,
+                        lane=lane,
+                    )
                 errors.append(f"{config.provider_key}:unsupported_provider")
             except ResponsesUpstreamError as exc:
                 message = str(exc)
@@ -3055,6 +3215,17 @@ def _provider_health_report() -> dict[str, object]:
         }
         for api_key in chatplayground_key_names
     ]
+    gemini_command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
+    gemini_state, gemini_detail = _gemini_vortex_health_state()
+    gemini_key_names = (gemini_command,)
+    gemini_slots = [
+        {
+            "slot": "primary",
+            "configured": bool(gemini_command),
+            "account_name": _provider_account_name("gemini_vortex", key_names=gemini_key_names, key=gemini_command),
+            "state": gemini_state,
+        }
+    ]
     hard_max_active, hard_queue_timeout, _ = _resolve_hard_defaults()
     onemin_max_requests_per_hour = _onemin_max_requests_per_hour()
     onemin_max_credits_per_hour = _onemin_max_credits_per_hour()
@@ -3100,6 +3271,15 @@ def _provider_health_report() -> dict[str, object]:
                 "configured_slots": len(chatplayground_slots),
                 "slots": chatplayground_slots,
             },
+            "gemini_vortex": {
+                "provider_key": "gemini_vortex",
+                "backend": "gemini_vortex_cli",
+                "configured_slots": len(gemini_slots),
+                "slots": gemini_slots,
+                "state": gemini_state,
+                "detail": gemini_detail,
+                "models": list(_gemini_vortex_models()),
+            },
         },
         "provider_config": {
             "default_profile": _env("EA_RESPONSES_DEFAULT_PROFILE", _DEFAULT_LANE_PROFILE) or _DEFAULT_LANE_PROFILE,
@@ -3128,6 +3308,8 @@ def _provider_health_report() -> dict[str, object]:
                 for key in chatplayground_key_names
             ],
             "chatplayground_url": _browserplayground_url(),
+            "gemini_vortex_command": gemini_command,
+            "gemini_vortex_models": list(_gemini_vortex_models()),
             "hard_max_active_requests": hard_max_active,
             "hard_queue_timeout_seconds": hard_queue_timeout,
             "lane_caps": {
