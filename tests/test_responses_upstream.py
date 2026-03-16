@@ -23,6 +23,8 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
+        ("onemin", "om-best"),
+        ("onemin", "om-fallback"),
     ]
 
 
@@ -42,7 +44,47 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "openai/gpt-5.1-codex-mini"),
         ("magixai", "inception/mercury-coder"),
+        ("onemin", "om-best"),
     ]
+
+
+def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "om-best")
+
+    def fake_call_magicx(*args: object, **kwargs: object) -> upstream.UpstreamResult:
+        raise upstream.ResponsesUpstreamError("magicx_unavailable")
+
+    def fake_call_onemin(
+        config: upstream.ProviderConfig,
+        *,
+        prompt: str,
+        messages: list[dict[str, str]],
+        model: str,
+        max_output_tokens: int | None,
+        lane: str,
+    ) -> upstream.UpstreamResult:
+        assert config.provider_key == "onemin"
+        assert model == "om-best"
+        assert lane == upstream._LANE_FAST
+        return upstream.UpstreamResult(
+            text="fallback ok",
+            provider_key="onemin",
+            model=model,
+            tokens_in=3,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
+    monkeypatch.setattr(upstream, "_call_onemin", fake_call_onemin)
+
+    result = upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
+
+    assert result.provider_key == "onemin"
+    assert result.text == "fallback ok"
 
 
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
