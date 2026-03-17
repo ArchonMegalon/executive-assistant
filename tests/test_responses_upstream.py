@@ -135,6 +135,23 @@ def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.Monkey
     assert upstream._onemin_max_credits_per_day() == 600000
 
 
+def test_groundwork_public_model_prefers_gemini_then_single_chatplayground_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL)
+    ]
+
+    assert candidates == [
+        ("gemini_vortex", "gemini-groundwork"),
+        ("chatplayground", "judge-model"),
+    ]
+
+
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
 

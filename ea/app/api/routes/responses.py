@@ -21,6 +21,7 @@ from app.services.tool_execution_common import ToolExecutionError
 from app.services.responses_upstream import (
     DEFAULT_PUBLIC_MODEL,
     FAST_PUBLIC_MODEL,
+    GROUNDWORK_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     ResponsesUpstreamError,
     UpstreamResult,
@@ -245,6 +246,16 @@ _CODEx_PROFILES = (
         "review_required": False,
         "needs_review": False,
         "risk_labels": ["low_impact", "assist"],
+        "merge_policy": "auto",
+    },
+    {
+        "profile": "groundwork",
+        "lane": "groundwork",
+        "model": GROUNDWORK_PUBLIC_MODEL,
+        "provider_hint_order": ("gemini_vortex", "chatplayground"),
+        "review_required": False,
+        "needs_review": False,
+        "risk_labels": ["non_urgent", "analysis", "design"],
         "merge_policy": "auto",
     },
     {
