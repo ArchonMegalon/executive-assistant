@@ -25,7 +25,8 @@ from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAd
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 FAST_PUBLIC_MODEL = "ea-coder-fast"
-GROUNDWORK_PUBLIC_MODEL = "ea-groundwork"
+GROUNDWORK_PUBLIC_MODEL = "ea-groundwork-gemini"
+GROUNDWORK_PUBLIC_MODEL_ALIAS = "ea-groundwork"
 REVIEW_LIGHT_PUBLIC_MODEL = "ea-review-light"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
@@ -1800,7 +1801,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_AUDIT
     if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in {item.lower() for item in _gemini_vortex_models()}:
         return _LANE_FAST
-    if normalized == GROUNDWORK_PUBLIC_MODEL:
+    if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
         return _LANE_FAST
     if normalized == FAST_PUBLIC_MODEL:
         return _LANE_FAST
@@ -2050,6 +2051,7 @@ def list_response_models() -> list[dict[str, object]]:
         ONEMIN_PUBLIC_MODEL,
         GEMINI_VORTEX_PUBLIC_MODEL,
         GROUNDWORK_PUBLIC_MODEL,
+        GROUNDWORK_PUBLIC_MODEL_ALIAS,
         SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
         "ea-review",
@@ -2340,17 +2342,12 @@ def _provider_candidates(
         model_names = _provider_model_order_for_lane("gemini_vortex", lane, requested) or _gemini_vortex_models()
         return [(configs["gemini_vortex"], model_name) for model_name in model_names]
 
-    if normalized == GROUNDWORK_PUBLIC_MODEL:
-        candidates: list[tuple[ProviderConfig, str]] = [
+    if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
+        return [
             (configs["gemini_vortex"], model_name)
             for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
             or _gemini_vortex_models()
         ]
-        candidates.extend(
-            (configs["chatplayground"], model_name)
-            for model_name in _groundwork_lane_models()
-        )
-        return candidates
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
         return [

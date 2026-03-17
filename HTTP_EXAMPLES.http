@@ -101,6 +101,30 @@ X-EA-Principal-ID: {{principal_id}}
   "input": "Write a short, mechanical docs cleanup patch."
 }
 
+POST {{host}}/v1/codex/repair
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Apply a bounded retry-handling fix without moving onto the hard lane."
+}
+
+POST {{host}}/v1/codex/groundwork
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Map the design tradeoffs and leave implementation for a later pass."
+}
+
+POST {{host}}/v1/codex/review-light
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "input": "Run a cheap posthoc diff review and summarize only actionable issues."
+}
+
 POST {{host}}/v1/codex/survival
 Content-Type: application/json
 X-EA-Principal-ID: {{principal_id}}

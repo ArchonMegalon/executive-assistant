@@ -250,10 +250,20 @@ _CODEx_PROFILES = (
         "merge_policy": "auto",
     },
     {
+        "profile": "repair",
+        "lane": "repair",
+        "model": FAST_PUBLIC_MODEL,
+        "provider_hint_order": ("magixai", "gemini_vortex", "onemin"),
+        "review_required": False,
+        "needs_review": False,
+        "risk_labels": ["bounded_patch", "code_change", "follow_up"],
+        "merge_policy": "auto_if_low_risk",
+    },
+    {
         "profile": "groundwork",
         "lane": "groundwork",
         "model": GROUNDWORK_PUBLIC_MODEL,
-        "provider_hint_order": ("gemini_vortex", "chatplayground"),
+        "provider_hint_order": ("gemini_vortex",),
         "review_required": False,
         "needs_review": False,
         "risk_labels": ["non_urgent", "analysis", "design"],
@@ -2445,6 +2455,80 @@ def create_codex_easy(
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="easy")
     return _run_response(normalized, context=context, container=container, codex_profile="easy")
+
+
+@codex_router.post(
+    "/repair",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_repair(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="repair")
+    return _run_response(normalized, context=context, container=container, codex_profile="repair")
+
+
+@codex_router.post(
+    "/groundwork",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_groundwork(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="groundwork")
+    return _run_response(normalized, context=context, container=container, codex_profile="groundwork")
 
 
 @codex_router.post(
