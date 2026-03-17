@@ -67,8 +67,8 @@ _LANE_AUDIT = "audit"
 
 _AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
 
-_HARD_MAX_ACTIVE_REQUESTS = 2
-_HARD_QUEUE_TIMEOUT_SECONDS = 1.0
+_HARD_MAX_ACTIVE_REQUESTS = 1
+_HARD_QUEUE_TIMEOUT_SECONDS = 120.0
 _HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
 _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
@@ -77,8 +77,8 @@ _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
-_ONEMIN_MAX_CREDITS_PER_HOUR = 0
-_ONEMIN_MAX_CREDITS_PER_DAY = 0
+_ONEMIN_MAX_CREDITS_PER_HOUR = 80000
+_ONEMIN_MAX_CREDITS_PER_DAY = 600000
 _DEFAULT_LANE_PROFILE = "easy"
 
 
@@ -690,9 +690,9 @@ def _magicx_lane_default_max_tokens(lane: str) -> int:
     defaults = {
         _LANE_FAST: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_FAST", "2048"),
         _LANE_REVIEW: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"),
-        _LANE_HARD: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"),
+        _LANE_HARD: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "1536"),
         _LANE_OVERFLOW: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_OVERFLOW", "1536"),
-        _LANE_DEFAULT: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"),
+        _LANE_DEFAULT: _env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "1536"),
     }
     return _to_int(defaults.get(lane) or defaults[_LANE_DEFAULT], 2048, minimum=16)
 
@@ -1164,7 +1164,7 @@ def _onemin_max_credits_per_day() -> int:
 
 def _lane_max_output_tokens(lane: str) -> int | None:
     if lane == _LANE_HARD:
-        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "8192"), 8192, minimum=16)
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", "1536"), 1536, minimum=16)
     if lane == _LANE_REVIEW:
         return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"), 2048, minimum=16)
     if lane == _LANE_AUDIT:
