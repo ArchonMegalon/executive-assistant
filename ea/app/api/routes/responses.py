@@ -23,6 +23,7 @@ from app.services.responses_upstream import (
     SURVIVAL_PUBLIC_MODEL,
     ResponsesUpstreamError,
     UpstreamResult,
+    codex_status_report,
     _provider_health_report,
     _provider_order,
     generate_text,
@@ -456,10 +457,6 @@ def _extract_textish(value: object) -> str:
             text = _extract_textish(value.get(key))
             if text:
                 return text
-        try:
-            return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
-        except Exception:
-            return ""
     return ""
 
 
@@ -468,6 +465,42 @@ def _json_compact(value: object) -> str:
         return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     except Exception:
         return str(value)
+
+
+def _extract_resume_fallback_text(value: object) -> str:
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    if isinstance(value, list):
+        parts = [_extract_resume_fallback_text(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "content", "output", "summary", "message", "result", "arguments"):
+        text = _extract_textish(value.get(key))
+        if text:
+            return text
+    return ""
+
+
+def _normalize_passthrough_input_item(item: dict[str, object]) -> dict[str, object]:
+    normalized: dict[str, object] = {}
+    for key in (
+        "id",
+        "type",
+        "call_id",
+        "name",
+        "status",
+        "arguments",
+        "output",
+        "summary",
+        "role",
+        "content",
+    ):
+        if key in item:
+            normalized[key] = item.get(key)
+    if "type" not in normalized:
+        normalized["type"] = str(item.get("type") or "").strip().lower()
+    return normalized
 
 
 def _normalize_message_role(role: object) -> str:
@@ -520,6 +553,10 @@ def _parse_input_parts(content: object, *, item_context: str) -> list[dict[str, 
         if part_type in {"text", "output_text"}:
             part_type = "input_text"
         if part_type not in _SUPPORTED_INPUT_PART_TYPES:
+            fallback_text = _extract_resume_fallback_text(entry)
+            if fallback_text:
+                parts.append({"type": "input_text", "text": fallback_text})
+                continue
             raise HTTPException(
                 status_code=400,
                 detail=f"unsupported_input_part_type:{item_context}:{part_type}",
@@ -564,7 +601,18 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
             continue
 
         if not isinstance(item, dict):
-            raise HTTPException(status_code=400, detail=f"unsupported_input_item:{item_key}")
+            if item is None:
+                continue
+            if isinstance(item, (int, float, bool)):
+                cleaned = str(item).strip()
+                if cleaned:
+                    _append_message(messages, role="user", content=cleaned)
+                    input_items.append({"type": "input_text", "text": cleaned})
+                    prompt_parts.append(cleaned)
+                continue
+            # Some Responses clients include non-dict state entries during
+            # resume/replay that are not actionable for this text-only facade.
+            continue
 
         item_type = str(item.get("type") or "").strip().lower()
 
@@ -602,6 +650,18 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
             )
             continue
 
+        if item_type == "reasoning":
+            input_items.append(_normalize_passthrough_input_item(item))
+            summary_text = _extract_textish(item.get("summary"))
+            if summary_text:
+                _append_message(messages, role="assistant", content=summary_text)
+                prompt_parts.append(summary_text)
+            continue
+
+        if item_type.endswith("_call") or item_type.endswith("_call_output"):
+            input_items.append(_normalize_passthrough_input_item(item))
+            continue
+
         if item_type == "message":
             role = _normalize_message_role(item.get("role"))
             parts = _parse_input_parts(item.get("content"), item_context=f"message[{item_key}].content")
@@ -634,7 +694,24 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
             prompt_parts.append(text)
             continue
 
-        raise HTTPException(status_code=400, detail=f"unsupported_input_item:{item_key}")
+        fallback_text = _extract_resume_fallback_text(
+            item.get("text")
+            or item.get("content")
+            or item.get("output")
+            or item.get("summary")
+            or item.get("arguments")
+        )
+        if fallback_text:
+            _append_message(messages, role="user", content=fallback_text)
+            input_items.append({"type": "input_text", "text": fallback_text})
+            prompt_parts.append(fallback_text)
+            continue
+
+        # Some Responses clients send non-text state items during resume that
+        # are not actionable for this text-only compatibility layer.
+        if item_type:
+            raise HTTPException(status_code=400, detail=f"unsupported_input_item:{item_key}")
+        continue
 
     return _ParsedResponseInput(
         messages=messages,
@@ -2421,6 +2498,15 @@ def list_codex_profiles() -> Response:
             "provider_health": _provider_health_report(),
         }
     )
+
+
+@codex_router.get("/status")
+def get_codex_status(
+    window: str = "1h",
+    refresh: bool = False,
+) -> Response:
+    _ = refresh
+    return JSONResponse(codex_status_report(window=window))
 
 
 router.include_router(models_router)

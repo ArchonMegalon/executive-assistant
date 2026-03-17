@@ -289,7 +289,7 @@ class ExecutionOperatorRoutingService:
         resolved_operator_id = str(operator_id or "").strip()
         session = str(session_id or "").strip()
         if session:
-            if self._fetch_session_for_principal(session, principal_id) is None:
+            if self._fetch_session_for_principal(session, principal_id=principal_id) is None:
                 return []
             rows = self._list_human_tasks_for_session(session, limit=max(limit, 1))
             rows = self.filter_human_task_rows(
