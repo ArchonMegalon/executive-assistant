@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-15
+Updated: 2026-03-17
 
 ## Workspace Integration Tier Guide
 
@@ -20,7 +20,6 @@ Updated: 2026-03-15
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 1` | `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Routed as a gated secondary lane for short/overflow paths and audit support where 1min capacity is constrained. |
-| `Browserly` | `Plan pending verification` | `1 account` | `Owned` |  | `Tier 2` | EA provider-registry catalog hint, Browserly env placeholders, and media-factory vendor-map reservation | Tracked as a browser-assisted capture/reference vendor; exact deal tier and account facts still need verification before runtime promotion. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
 | `Headway` | `Premium` | `1 account` | `Owned` |  | `Tier 3` | None | Knowledge/content utility only; no local runtime integration yet. |
@@ -34,7 +33,9 @@ Updated: 2026-03-15
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for approval-queue reading plus skill-catalog references in external-send flows | Ready for BrowserAct-backed queue reading and approval-lane observation without treating ApproveThis as the internal policy engine. |
 | `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, but the workflow-spec skill now emits real renderer scaffolds. |
 | `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
+| `Crezlo Tours` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Added from the AppSumo deal page plus local operator confirmation that credentials are stored in BrowserAct. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Added from the AppSumo deal page plus local operator confirmation that credentials are stored in BrowserAct. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection now has a staged BrowserAct extraction template instead of only a wishlist note. |
@@ -47,7 +48,7 @@ Updated: 2026-03-15
 
 ## Summary
 
-- `24` total LTD products tracked
+- `25` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -62,7 +63,6 @@ Use this section to track missing tier/email/account facts discovered through th
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
 | `AI Magicx` |  | `missing` | `manual_inventory` |  | Local Chummer6 render wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
-| `Browserly` |  | `missing` | `manual_inventory` |  | Deal/account facts still need verification; Browserly is reserved as a browser-assisted capture/reference vendor. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
@@ -71,7 +71,9 @@ Use this section to track missing tier/email/account facts discovered through th
 | `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `AvoMap` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | Plan/Tier: Tier 3; Status: activated |
+| `Crezlo Tours` |  | `missing` | `manual_inventory` |  | License Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Documentation.AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `First Book ai` |  | `missing` | `manual_inventory` |  | License Tier 5 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Invoiless` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `MarkupGo` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |

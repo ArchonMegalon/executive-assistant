@@ -203,7 +203,37 @@
       "slot": "fallback_33",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_33",
       "secret_sha256": "e22f48e5c3506f5b7367630fad96a98580eecd9c732d970cd0e3f3974a3082ce",
-      "owner_label": "es            qchummer.run"
+      "owner_email": "es@chummer.run"
+    },
+    {
+      "slot": "fallback_34",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_34",
+      "secret_sha256": "17dac816238ada7f85f9de8b8b4074c41a6027bef506b9d001bc9be4b1f5fa07",
+      "owner_email": "swiss@chummer.run"
+    },
+    {
+      "slot": "fallback_35",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_35",
+      "secret_sha256": "c643f91f8b42e0f00556cccbccc68300f426ad60298b7aaf3327b02888d789a9",
+      "owner_email": "sp@chummer.run"
+    },
+    {
+      "slot": "fallback_36",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_36",
+      "secret_sha256": "946e0d018263b3711060388f1c84c6c9cb9f22ef9becf061db49629d30f45fc1",
+      "owner_email": "be@chummer.run"
+    },
+    {
+      "slot": "fallback_37",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_37",
+      "secret_sha256": "3181172a0068e444d915e839bd0e4347e6aed35b98d7ffcd8a97f0045d46a76b",
+      "owner_email": "co@chummer.run"
+    },
+    {
+      "slot": "fallback_38",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_38",
+      "secret_sha256": "d82422d834306b7e3af2b58c5cb1fed42a97108ec8f0cebe4ec0583b29b4fb03",
+      "owner_email": "dk@chummer.run"
     }
   ]
 }
