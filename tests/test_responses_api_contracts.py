@@ -216,6 +216,8 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
     assert "ea-review-light" in model_ids
+    assert "ea-groundwork-gemini" in model_ids
+    assert "ea-groundwork" in model_ids
     assert "ea-onemin-coder" in model_ids
     assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
@@ -915,11 +917,14 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     assert forbidden.status_code == 403
 
 
-def test_codex_core_easy_review_light_and_audit_endpoints_force_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_force_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = _client(principal_id="codex-profile")
     from app.api.routes import responses
 
     calls: list[str] = []
+
     def fake_generate(
         *,
         prompt: str,
@@ -935,6 +940,10 @@ def test_codex_core_easy_review_light_and_audit_endpoints_force_profiles(monkeyp
             provider_account = "ONEMIN_AI_API_KEY"
             provider_key = "onemin"
             provider_model = "gpt-5"
+        elif requested_model == "ea-groundwork-gemini":
+            provider_account = "EA_GEMINI_VORTEX_API_KEY"
+            provider_key = "gemini_vortex"
+            provider_model = "gemini-3-flash-preview"
         elif requested_model == "ea-review-light":
             provider_account = "BROWSERACT_API_KEY"
             provider_key = "chatplayground"
@@ -961,6 +970,8 @@ def test_codex_core_easy_review_light_and_audit_endpoints_force_profiles(monkeyp
 
     core = client.post("/v1/codex/core", json={"input": "lane-check"})
     easy = client.post("/v1/codex/easy", json={"input": "lane-check"})
+    repair = client.post("/v1/codex/repair", json={"input": "lane-check"})
+    groundwork = client.post("/v1/codex/groundwork", json={"input": "lane-check"})
     review_light = client.post("/v1/codex/review-light", json={"input": "lane-check"})
     audit = client.post(
         "/v1/codex/audit",
@@ -969,27 +980,46 @@ def test_codex_core_easy_review_light_and_audit_endpoints_force_profiles(monkeyp
 
     assert core.status_code == 200
     assert easy.status_code == 200
+    assert repair.status_code == 200
+    assert groundwork.status_code == 200
     assert review_light.status_code == 200
     assert audit.status_code == 200
-    assert calls == ["ea-coder-hard", "ea-coder-fast", "ea-review-light", "ea-audit-jury"]
+    assert calls == [
+        "ea-coder-hard",
+        "ea-coder-fast",
+        "ea-coder-fast",
+        "ea-groundwork-gemini",
+        "ea-review-light",
+        "ea-audit-jury",
+    ]
     assert core.json()["metadata"]["codex_profile"] == "core"
     assert easy.json()["metadata"]["codex_profile"] == "easy"
+    assert repair.json()["metadata"]["codex_profile"] == "repair"
+    assert groundwork.json()["metadata"]["codex_profile"] == "groundwork"
     assert review_light.json()["metadata"]["codex_profile"] == "review_light"
     assert audit.json()["metadata"]["codex_profile"] == "audit"
     assert core.json()["metadata"]["codex_lane"] == "hard"
     assert easy.json()["metadata"]["codex_lane"] == "fast"
+    assert repair.json()["metadata"]["codex_lane"] == "repair"
+    assert groundwork.json()["metadata"]["codex_lane"] == "groundwork"
     assert review_light.json()["metadata"]["codex_lane"] == "review"
     assert audit.json()["metadata"]["codex_lane"] == "audit"
     assert core.json()["metadata"]["codex_review_required"] is True
     assert easy.json()["metadata"]["codex_review_required"] is False
+    assert repair.json()["metadata"]["codex_review_required"] is False
+    assert groundwork.json()["metadata"]["codex_review_required"] is False
     assert review_light.json()["metadata"]["codex_review_required"] is False
     assert audit.json()["metadata"]["codex_review_required"] is True
     assert core.json()["metadata"]["codex_merge_policy"] == "require_review"
     assert easy.json()["metadata"]["codex_merge_policy"] == "auto"
+    assert repair.json()["metadata"]["codex_merge_policy"] == "auto_if_low_risk"
+    assert groundwork.json()["metadata"]["codex_merge_policy"] == "auto"
     assert review_light.json()["metadata"]["codex_merge_policy"] == "auto_if_low_risk"
     assert audit.json()["metadata"]["codex_merge_policy"] == "require_review"
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert repair.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert groundwork.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
     assert review_light.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
@@ -1195,6 +1225,13 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
     assert easy_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
+    repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
+    assert repair_profile["lane"] == "repair"
+    assert repair_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
+    groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
+    assert groundwork_profile["lane"] == "groundwork"
+    assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert groundwork_profile["model"] == "ea-groundwork-gemini"
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["chatplayground"]
