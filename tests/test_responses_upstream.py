@@ -153,6 +153,20 @@ def test_groundwork_public_model_prefers_gemini_then_single_chatplayground_model
     ]
 
 
+def test_review_light_public_model_uses_single_chatplayground_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1,gpt-5")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.REVIEW_LIGHT_PUBLIC_MODEL)
+    ]
+
+    assert candidates == [("chatplayground", "gpt-4.1")]
+
+
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
 

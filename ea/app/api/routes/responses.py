@@ -22,6 +22,7 @@ from app.services.responses_upstream import (
     DEFAULT_PUBLIC_MODEL,
     FAST_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL,
+    REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     ResponsesUpstreamError,
     UpstreamResult,
@@ -257,6 +258,16 @@ _CODEx_PROFILES = (
         "needs_review": False,
         "risk_labels": ["non_urgent", "analysis", "design"],
         "merge_policy": "auto",
+    },
+    {
+        "profile": "review_light",
+        "lane": "review",
+        "model": REVIEW_LIGHT_PUBLIC_MODEL,
+        "provider_hint_order": ("chatplayground",),
+        "review_required": False,
+        "needs_review": False,
+        "risk_labels": ["posthoc", "light_review", "diff_review"],
+        "merge_policy": "auto_if_low_risk",
     },
     {
         "profile": "audit",
@@ -1658,9 +1669,12 @@ def _run_response(
 
     is_audit_profile = codex_profile == "audit"
     is_audit_model = requested_model in {"ea-audit", "ea-audit-jury"}
+    is_review_light_profile = codex_profile == "review_light"
+    is_review_light_model = requested_model == REVIEW_LIGHT_PUBLIC_MODEL or model == REVIEW_LIGHT_PUBLIC_MODEL
     audit_profile_or_model = is_audit_profile or is_audit_model
+    chatplayground_profile_or_model = audit_profile_or_model or is_review_light_profile or is_review_light_model
     chatplayground_audit_callback = None
-    if audit_profile_or_model:
+    if chatplayground_profile_or_model:
         browseract_binding_id = _browseract_binding_id(container=container, principal_id=context.principal_id)
 
         def _chatplayground_audit_callback(**kwargs: Any) -> Any:
@@ -2431,6 +2445,43 @@ def create_codex_easy(
 ) -> Response:
     normalized = _normalize_payload_for_profile(payload, profile="easy")
     return _run_response(normalized, context=context, container=container, codex_profile="easy")
+
+
+@codex_router.post(
+    "/review-light",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_review_light(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(payload, profile="review_light")
+    return _run_response(normalized, context=context, container=container, codex_profile="review_light")
 
 
 @codex_router.post(

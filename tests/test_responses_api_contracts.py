@@ -215,6 +215,7 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-magicx-coder" in model_ids
     assert "ea-audit-jury" in model_ids
     assert "ea-audit" in model_ids
+    assert "ea-review-light" in model_ids
     assert "ea-onemin-coder" in model_ids
     assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
@@ -914,7 +915,7 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     assert forbidden.status_code == 403
 
 
-def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_codex_core_easy_review_light_and_audit_endpoints_force_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-profile")
     from app.api.routes import responses
 
@@ -934,6 +935,10 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
             provider_account = "ONEMIN_AI_API_KEY"
             provider_key = "onemin"
             provider_model = "gpt-5"
+        elif requested_model == "ea-review-light":
+            provider_account = "BROWSERACT_API_KEY"
+            provider_key = "chatplayground"
+            provider_model = "gpt-4.1"
         elif requested_model == "ea-coder-fast":
             provider_account = "EA_RESPONSES_MAGICX_API_KEY"
             provider_key = "magixai"
@@ -956,6 +961,7 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
 
     core = client.post("/v1/codex/core", json={"input": "lane-check"})
     easy = client.post("/v1/codex/easy", json={"input": "lane-check"})
+    review_light = client.post("/v1/codex/review-light", json={"input": "lane-check"})
     audit = client.post(
         "/v1/codex/audit",
         json={"input": "lane-check"},
@@ -963,22 +969,28 @@ def test_codex_core_easy_and_audit_endpoints_force_profiles(monkeypatch: pytest.
 
     assert core.status_code == 200
     assert easy.status_code == 200
+    assert review_light.status_code == 200
     assert audit.status_code == 200
-    assert calls == ["ea-coder-hard", "ea-coder-fast", "ea-audit-jury"]
+    assert calls == ["ea-coder-hard", "ea-coder-fast", "ea-review-light", "ea-audit-jury"]
     assert core.json()["metadata"]["codex_profile"] == "core"
     assert easy.json()["metadata"]["codex_profile"] == "easy"
+    assert review_light.json()["metadata"]["codex_profile"] == "review_light"
     assert audit.json()["metadata"]["codex_profile"] == "audit"
     assert core.json()["metadata"]["codex_lane"] == "hard"
     assert easy.json()["metadata"]["codex_lane"] == "fast"
+    assert review_light.json()["metadata"]["codex_lane"] == "review"
     assert audit.json()["metadata"]["codex_lane"] == "audit"
     assert core.json()["metadata"]["codex_review_required"] is True
     assert easy.json()["metadata"]["codex_review_required"] is False
+    assert review_light.json()["metadata"]["codex_review_required"] is False
     assert audit.json()["metadata"]["codex_review_required"] is True
     assert core.json()["metadata"]["codex_merge_policy"] == "require_review"
     assert easy.json()["metadata"]["codex_merge_policy"] == "auto"
+    assert review_light.json()["metadata"]["codex_merge_policy"] == "auto_if_low_risk"
     assert audit.json()["metadata"]["codex_merge_policy"] == "require_review"
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert review_light.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
 
@@ -1183,6 +1195,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
     assert easy_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
+    review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
+    assert review_light_profile["lane"] == "review"
+    assert review_light_profile["provider_hint_order"] == ["chatplayground"]
     assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
