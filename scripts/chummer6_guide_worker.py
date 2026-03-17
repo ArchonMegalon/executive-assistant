@@ -10,6 +10,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -536,6 +537,41 @@ def ea_json(
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
     from app.domain.models import TaskExecutionRequest
+    from app.services.orchestrator import AsyncExecutionQueuedError
+
+    def drain_queued_session(session_id: str) -> dict[str, object]:
+        orchestrator = _ea_orchestrator()
+        deadline = time.time() + 300.0
+        last_artifact = None
+        while time.time() < deadline:
+            snapshot = orchestrator.fetch_session(session_id)
+            if snapshot is not None:
+                session_row = getattr(snapshot, "session", None)
+                session_status = str(getattr(session_row, "status", "") or "").strip().lower()
+                snapshot_artifacts = list(getattr(snapshot, "artifacts", []) or [])
+                if session_status == "completed":
+                    artifact = snapshot_artifacts[-1] if snapshot_artifacts else last_artifact
+                    if artifact is None:
+                        raise RuntimeError(f"queued_task_completed_without_artifact:{session_id}")
+                    structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+                    if structured:
+                        if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                            return dict(structured.get("result") or {})
+                        return structured
+                    return extract_json(artifact.content)
+                if session_status in {"failed", "denied", "awaiting_human", "waiting_human", "awaiting_approval", "waiting_approval"}:
+                    raise RuntimeError(f"queued_task_stopped:{session_status}:{session_id}")
+                queue_rows = [
+                    row
+                    for row in list(getattr(snapshot, "queue_items", []) or [])
+                    if str(getattr(row, "state", "") or "").strip().lower() == "queued"
+                ]
+                for row in queue_rows:
+                    artifact = orchestrator.run_queue_item(str(getattr(row, "queue_id", "") or ""), lease_owner="inline")
+                    if artifact is not None:
+                        last_artifact = artifact
+            time.sleep(0.25)
+        raise RuntimeError(f"queued_task_timeout:{session_id}")
 
     candidates = [skill_key]
     if skill_key == PUBLIC_WRITER_SKILL_KEY:
@@ -562,6 +598,8 @@ def ea_json(
                     return dict(structured.get("result") or {})
                 return structured
             return extract_json(artifact.content)
+        except AsyncExecutionQueuedError as exc:
+            return drain_queued_session(exc.session_id)
         except ValueError as exc:
             if str(exc).startswith("skill_not_found:") and candidate != candidates[-1]:
                 last_error = exc
@@ -578,6 +616,13 @@ def default_text_model() -> str:
         or env_value("CHUMMER6_TEXT_LANE")
         or DEFAULT_MODEL
     )
+
+
+def execution_text_model(model: str) -> str:
+    selected = str(model or "").strip() or DEFAULT_MODEL
+    if selected in {"ea-groundwork", "groundwork"}:
+        return env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview"
+    return selected
 
 
 def chat_json(
@@ -599,7 +644,7 @@ def chat_json(
             "unsupported_chummer6_text_provider:" + ",".join(unsupported)
         )
     selected_model = str(model or "").strip() or default_text_model()
-    payload = ea_json(prompt, model=selected_model, skill_key=skill_key)
+    payload = ea_json(prompt, model=execution_text_model(selected_model), skill_key=skill_key)
     TEXT_PROVIDER_USED = "ea-groundwork" if selected_model == "ea-groundwork" else "ea"
     return payload
 
