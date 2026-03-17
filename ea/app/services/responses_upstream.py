@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import hashlib
 import json
 import logging
 import inspect
@@ -41,6 +42,7 @@ _ONEMIN_KEY_CURSOR_LOCK = threading.Lock()
 _ONEMIN_KEY_STATES: dict[str, OneminKeyState] = {}
 _ONEMIN_USAGE_EVENTS: deque[OneminUsageEvent] = deque(maxlen=512)
 _ONEMIN_REQUIRED_CREDIT_EVENTS: deque[OneminRequiredCreditObservation] = deque(maxlen=128)
+_ONEMIN_PROBE_EVENTS: deque[OneminProbeEvent] = deque(maxlen=512)
 _PROVIDER_BALANCE_SNAPSHOTS: deque[ProviderBalanceSnapshot] = deque(maxlen=512)
 _PROVIDER_DISPATCH_EVENTS: deque[ProviderDispatchEvent] = deque(maxlen=1024)
 _ONEMIN_USAGE_LOCK = threading.Lock()
@@ -256,6 +258,18 @@ class ProviderBalanceSnapshot:
 
 
 @dataclass(frozen=True)
+class OneminProbeEvent:
+    happened_at: float
+    account_name: str
+    slot: str
+    result: str
+    detail: str = ""
+    model: str = ""
+    latency_ms: int = 0
+    source: str = "explicit_probe"
+
+
+@dataclass(frozen=True)
 class ProviderDispatchEvent:
     happened_at: float
     provider_key: str
@@ -338,6 +352,7 @@ def _load_provider_ledgers_once() -> None:
             return
         usage_rows = _load_provider_ledger_records("onemin_usage_events.jsonl")
         required_rows = _load_provider_ledger_records("onemin_required_credit_events.jsonl")
+        probe_rows = _load_provider_ledger_records("onemin_probe_events.jsonl")
         balance_rows = _load_provider_ledger_records("provider_balance_snapshots.jsonl")
         dispatch_rows = _load_provider_ledger_records("provider_dispatch_events.jsonl")
         with _ONEMIN_USAGE_LOCK:
@@ -372,6 +387,22 @@ def _load_provider_ledgers_once() -> None:
                             required_credits=int(row.get("required_credits") or 0),
                             remaining_credits=int(row.get("remaining_credits") or 0),
                             credit_subject=str(row.get("credit_subject") or ""),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in probe_rows[-_ONEMIN_PROBE_EVENTS.maxlen :]:
+                try:
+                    _ONEMIN_PROBE_EVENTS.append(
+                        OneminProbeEvent(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            account_name=str(row.get("account_name") or ""),
+                            slot=str(row.get("slot") or "unknown"),
+                            result=str(row.get("result") or "unknown"),
+                            detail=str(row.get("detail") or ""),
+                            model=str(row.get("model") or ""),
+                            latency_ms=int(row.get("latency_ms") or 0),
+                            source=str(row.get("source") or "explicit_probe"),
                         )
                     )
                 except Exception:
@@ -649,6 +680,108 @@ def _provider_secret_from_account_name(account_name: str) -> str:
     return ""
 
 
+def _sha256_hex(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _normalize_sha256_hex(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if re.fullmatch(r"[0-9a-f]{64}", normalized) else ""
+
+
+def _onemin_owner_ledger_path() -> Path | None:
+    raw = _env("EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH", "/config/onemin_slot_owners.json")
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+    except Exception:
+        return None
+    return path if path.exists() else None
+
+
+def _load_onemin_owner_ledger_payload() -> object:
+    inline = _env("EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON")
+    if inline:
+        try:
+            return json.loads(inline)
+        except Exception:
+            return None
+    path = _onemin_owner_ledger_path()
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _onemin_owner_entries() -> list[dict[str, str]]:
+    payload = _load_onemin_owner_ledger_payload()
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("owners"), list):
+            items = payload.get("owners") or []
+        else:
+            items = [
+                {"secret_sha256": key, **(value if isinstance(value, dict) else {"owner_label": value})}
+                for key, value in payload.items()
+            ]
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    rows: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        secret_sha256 = _normalize_sha256_hex(
+            item.get("secret_sha256") or item.get("sha256") or item.get("key_sha256") or item.get("hash")
+        )
+        account_name = str(item.get("account_name") or item.get("slot_env_name") or "").strip()
+        slot = str(item.get("slot") or "").strip()
+        owner_email = str(item.get("owner_email") or item.get("email") or "").strip()
+        owner_name = str(item.get("owner_name") or item.get("name") or "").strip()
+        owner_label = str(item.get("owner_label") or owner_email or owner_name or "").strip()
+        notes = str(item.get("notes") or "").strip()
+        if not any((secret_sha256, account_name, slot)):
+            continue
+        rows.append(
+            {
+                "secret_sha256": secret_sha256,
+                "account_name": account_name,
+                "slot": slot,
+                "owner_email": owner_email,
+                "owner_name": owner_name,
+                "owner_label": owner_label,
+                "notes": notes,
+            }
+        )
+    return rows
+
+
+def _onemin_owner_record_for_slot(*, api_key: str, account_name: str, slot: str) -> dict[str, str]:
+    hashed_secret = _sha256_hex(api_key) if api_key else ""
+    direct_slot = str(slot or "").strip().lower()
+    direct_account = str(account_name or "").strip()
+    fallback_match: dict[str, str] = {}
+    for row in _onemin_owner_entries():
+        row_hash = str(row.get("secret_sha256") or "").strip().lower()
+        if hashed_secret and row_hash and row_hash == hashed_secret:
+            return {
+                **row,
+                "secret_sha256": row_hash,
+            }
+        if not fallback_match:
+            if direct_account and str(row.get("account_name") or "").strip() == direct_account:
+                fallback_match = dict(row)
+            elif direct_slot and str(row.get("slot") or "").strip().lower() == direct_slot:
+                fallback_match = dict(row)
+    return fallback_match
+
+
 def _magicx_urls() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_MAGICX_URLS"))
     legacy = _csv_values(_env("EA_RESPONSES_MAGICX_URL"))
@@ -833,6 +966,14 @@ def _onemin_reserve_keys() -> tuple[str, ...]:
         return configured_reserve
     active_keys = set(_onemin_active_keys())
     return tuple(key for key in all_keys[len(active_keys) :] if key)
+
+
+def _onemin_slot_role_for_key(api_key: str, *, active_keys: tuple[str, ...], reserve_keys: tuple[str, ...]) -> str:
+    if api_key in set(active_keys):
+        return "active"
+    if api_key in set(reserve_keys):
+        return "reserve"
+    return "configured"
 
 
 def _ordered_onemin_keys() -> tuple[str, ...]:
@@ -1106,6 +1247,30 @@ def _onemin_supported_models() -> tuple[str, ...]:
 def _onemin_model_supports_code(model: str) -> bool:
     wanted = str(model or "").strip().lower()
     return wanted in {item.lower() for item in _onemin_code_models()}
+
+
+def _onemin_probe_model() -> str:
+    configured = str(_env("EA_RESPONSES_ONEMIN_PROBE_MODEL") or "").strip()
+    if configured:
+        return configured
+    preferred = ("gpt-4.1-nano", "gpt-4.1", "deepseek-chat", "gpt-5")
+    available = _merge_unique(_onemin_models(), _onemin_code_models())
+    lowered = {item.lower(): item for item in available}
+    for candidate in preferred:
+        if candidate in lowered:
+            return lowered[candidate]
+    if available:
+        return available[0]
+    return "gpt-4.1-nano"
+
+
+def _onemin_probe_timeout_seconds() -> int:
+    return _to_int(_env("EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS", "15"), 15, minimum=1, maximum=60)
+
+
+def _onemin_probe_prompt() -> str:
+    configured = str(_env("EA_RESPONSES_ONEMIN_PROBE_PROMPT") or "").strip()
+    return configured or "Reply with exactly OK."
 
 
 def _magicx_lane_models() -> tuple[str, ...]:
@@ -3522,6 +3687,7 @@ def _test_reset_onemin_states() -> None:
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_USAGE_EVENTS.clear()
         _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
+        _ONEMIN_PROBE_EVENTS.clear()
         _PROVIDER_BALANCE_SNAPSHOTS.clear()
         _PROVIDER_DISPATCH_EVENTS.clear()
     with _MAGIX_HEALTH_LOCK:
@@ -3531,6 +3697,7 @@ def _test_reset_onemin_states() -> None:
     for ledger_name in (
         "onemin_usage_events.jsonl",
         "onemin_required_credit_events.jsonl",
+        "onemin_probe_events.jsonl",
         "provider_balance_snapshots.jsonl",
         "provider_dispatch_events.jsonl",
     ):
@@ -3663,12 +3830,22 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         provider_slots = list(provider_dict.get("slots") or [])
         if provider_key == "onemin":
             for slot in provider_slots:
+                detail = (
+                    str(slot.get("last_probe_detail") or "").strip()
+                    or str(slot.get("last_error") or "").strip()
+                    or str(slot.get("credit_subject") or "").strip()
+                )
                 providers_summary.append(
                     {
                         "provider_key": "onemin",
                         "provider_name": "1min",
                         "account_name": slot.get("account_name"),
+                        "slot_env_name": slot.get("slot_env_name") or slot.get("account_name"),
                         "slot": slot.get("slot"),
+                        "slot_role": slot.get("slot_role"),
+                        "owner_label": slot.get("owner_label"),
+                        "owner_name": slot.get("owner_name"),
+                        "owner_email": slot.get("owner_email"),
                         "state": slot.get("state"),
                         "free_credits": slot.get("estimated_remaining_credits"),
                         "max_credits": slot.get("max_credits"),
@@ -3681,6 +3858,14 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                             else None
                         ),
                         "basis": slot.get("estimated_credit_basis"),
+                        "detail": detail,
+                        "last_error": slot.get("last_error"),
+                        "quarantine_until": slot.get("quarantine_until"),
+                        "last_probe_at": slot.get("last_probe_at"),
+                        "last_probe_result": slot.get("last_probe_result"),
+                        "last_probe_detail": slot.get("last_probe_detail"),
+                        "last_probe_model": slot.get("last_probe_model"),
+                        "last_probe_latency_ms": slot.get("last_probe_latency_ms"),
                         "last_balance_observed_at": slot.get("last_balance_observed_at"),
                         "burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
                         "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
@@ -3705,8 +3890,85 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                 }
             )
     topups = _recent_topup_events(provider_key="onemin", limit=10)
+    burn_1h_summary = _onemin_lane_burn_summary(now=now, window_seconds=3600.0)
+    burn_24h_summary = _onemin_lane_burn_summary(now=now, window_seconds=86400.0)
+    burn_7d_summary = _onemin_lane_burn_summary(now=now, window_seconds=604800.0)
     selected_window_burn = _onemin_lane_burn_summary(now=now, window_seconds=window_seconds)
     selected_window_avoided = _avoided_onemin_credit_summary(now=now, window_seconds=window_seconds)
+    basis_counts = dict(onemin.get("balance_basis_counts") or {})
+    state_counts: dict[str, int] = {}
+    precomputed_slots: list[dict[str, object]] = []
+    for slot in slots:
+        state = str(slot.get("state") or "unknown").strip() or "unknown"
+        basis = str(slot.get("estimated_credit_basis") or "unknown_unprobed").strip() or "unknown_unprobed"
+        state_counts[state] = state_counts.get(state, 0) + 1
+        detail = (
+            str(slot.get("last_probe_detail") or "").strip()
+            or str(slot.get("last_error") or "").strip()
+            or str(slot.get("credit_subject") or "").strip()
+        )
+        revoked_like = bool(
+            state in {"deleted", "revoked", "disabled", "expired"}
+            or _is_deleted_onemin_key_error(" ".join(filter(None, [detail, str(slot.get("last_error") or "")])))
+        )
+        precomputed_slots.append(
+            {
+                "account_name": slot.get("account_name"),
+                "slot_env_name": slot.get("slot_env_name") or slot.get("account_name"),
+                "slot": slot.get("slot"),
+                "slot_role": slot.get("slot_role"),
+                "owner_label": slot.get("owner_label"),
+                "owner_name": slot.get("owner_name"),
+                "owner_email": slot.get("owner_email"),
+                "state": state,
+                "basis": basis,
+                "free_credits": slot.get("estimated_remaining_credits"),
+                "max_credits": slot.get("max_credits"),
+                "detail": detail,
+                "last_error": slot.get("last_error"),
+                "quarantine_until": slot.get("quarantine_until"),
+                "last_probe_at": slot.get("last_probe_at"),
+                "last_probe_result": slot.get("last_probe_result"),
+                "last_probe_detail": slot.get("last_probe_detail"),
+                "last_probe_model": slot.get("last_probe_model"),
+                "last_probe_latency_ms": slot.get("last_probe_latency_ms"),
+                "revoked_like": revoked_like,
+                "quarantined": bool(slot.get("quarantine_until")),
+            }
+        )
+    seven_day_burn_total = (burn_7d_summary.get("provider_credits") or {}).get("onemin") or 0
+    avg_daily_burn_7d = (float(seven_day_burn_total) / 7.0) if seven_day_burn_total else None
+    remaining_total = onemin.get("estimated_remaining_credits_total")
+    days_remaining_7d = None
+    if remaining_total is not None and avg_daily_burn_7d not in (None, 0):
+        days_remaining_7d = round(float(remaining_total) / float(avg_daily_burn_7d), 2)
+    onemin_aggregate = {
+        "slot_count": len(slots),
+        "slot_count_with_known_balance": sum(1 for slot in slots if slot.get("estimated_remaining_credits") is not None),
+        "slot_count_with_positive_balance": sum(1 for slot in slots if int(slot.get("estimated_remaining_credits") or 0) > 0),
+        "sum_max_credits": onemin.get("max_credits_total"),
+        "sum_free_credits": onemin.get("estimated_remaining_credits_total"),
+        "remaining_percent_total": onemin.get("remaining_percent_of_max"),
+        "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
+        "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+        "avg_daily_burn_credits_7d": avg_daily_burn_7d,
+        "days_remaining_at_7d_avg_burn": days_remaining_7d,
+        "basis_summary": onemin.get("balance_basis_summary"),
+        "state_summary": ",".join(sorted(state_counts.keys())) if state_counts else "unknown",
+        "basis_counts": basis_counts,
+        "state_counts": state_counts,
+        "unknown_unprobed_slot_count": int(basis_counts.get("unknown_unprobed") or 0),
+        "observed_error_slot_count": int(basis_counts.get("observed_error") or 0),
+        "revoked_slot_count": sum(1 for slot in precomputed_slots if slot.get("revoked_like")),
+        "quarantined_slot_count": sum(1 for slot in precomputed_slots if slot.get("quarantined")),
+        "probe_result_counts": dict(onemin.get("probe_result_counts") or {}),
+        "owner_mapped_slot_count": onemin.get("owner_mapped_slots"),
+        "last_probe_at": onemin.get("last_probe_at"),
+        "slots": precomputed_slots,
+        "probe_note": "unknown_unprobed means no live evidence yet; run POST /v1/providers/onemin/probe-all or `codexea onemin --probe-all` to classify untouched slots.",
+        "status_basis": onemin.get("credit_estimation_mode"),
+        "incoming_topups_excluded": True,
+    }
     return {
         "generated_at": now,
         "window": str(window or "1h"),
@@ -3714,10 +3976,11 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         "default_lane": provider_health.get("provider_config", {}).get("default_lane"),
         "provider_health": provider_health,
         "providers_summary": providers_summary,
+        "onemin_aggregate": onemin_aggregate,
         "fleet_burn": {
-            "1h": _onemin_lane_burn_summary(now=now, window_seconds=3600.0),
-            "24h": _onemin_lane_burn_summary(now=now, window_seconds=86400.0),
-            "7d": _onemin_lane_burn_summary(now=now, window_seconds=604800.0),
+            "1h": burn_1h_summary,
+            "24h": burn_24h_summary,
+            "7d": burn_7d_summary,
             "selected_window": selected_window_burn,
         },
         "avoided_credits": {
@@ -3849,6 +4112,251 @@ def record_onemin_balance_from_facts(
     )
 
 
+def _record_onemin_probe_event(
+    *,
+    account_name: str,
+    slot: str,
+    result: str,
+    detail: str = "",
+    model: str = "",
+    latency_ms: int = 0,
+    source: str = "explicit_probe",
+    happened_at: float | None = None,
+) -> OneminProbeEvent:
+    _load_provider_ledgers_once()
+    event = OneminProbeEvent(
+        happened_at=float(happened_at if happened_at is not None else _now_epoch()),
+        account_name=str(account_name or ""),
+        slot=str(slot or "unknown"),
+        result=str(result or "unknown"),
+        detail=str(detail or ""),
+        model=str(model or ""),
+        latency_ms=max(0, int(latency_ms or 0)),
+        source=str(source or "explicit_probe"),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _ONEMIN_PROBE_EVENTS.append(event)
+    _append_provider_ledger_record(
+        "onemin_probe_events.jsonl",
+        {
+            "happened_at": event.happened_at,
+            "account_name": event.account_name,
+            "slot": event.slot,
+            "result": event.result,
+            "detail": event.detail,
+            "model": event.model,
+            "latency_ms": event.latency_ms,
+            "source": event.source,
+        },
+    )
+    return event
+
+
+def _latest_onemin_probe_event(*, account_name: str) -> OneminProbeEvent | None:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [item for item in _ONEMIN_PROBE_EVENTS if item.account_name == account_name]
+    if not rows:
+        return None
+    return max(rows, key=lambda item: item.happened_at)
+
+
+def _onemin_probe_failure_result(detail: str) -> str:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return "unknown_error"
+    if _is_auth_error(lowered) or _is_deleted_onemin_key_error(lowered):
+        return "revoked"
+    if _is_onemin_key_depleted(lowered):
+        return "depleted"
+    if "http_429" in lowered or "rate limit" in lowered or "too_many_requests" in lowered:
+        return "rate_limited"
+    return "unknown_error"
+
+
+def _probe_onemin_slot(
+    *,
+    api_key: str,
+    key_names: tuple[str, ...],
+    active_keys: tuple[str, ...],
+    reserve_keys: tuple[str, ...],
+    model: str,
+    prompt: str,
+    timeout_seconds: int,
+    source: str = "probe_all_api",
+) -> dict[str, object]:
+    account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+    slot = _onemin_key_slot(api_key, key_names=key_names)
+    owner = _onemin_owner_record_for_slot(api_key=api_key, account_name=account_name, slot=slot)
+    started_at = _now_ms()
+    status, payload = _post_json(
+        url=_onemin_chat_url(),
+        headers={"API-KEY": api_key},
+        payload=_onemin_payload_for_mode("chat", prompt=prompt, model=model),
+        timeout_seconds=timeout_seconds,
+    )
+    latency_ms = _now_ms() - started_at
+    error_detail = ""
+
+    if 200 <= status < 300 and isinstance(payload, dict):
+        onemin_error = _extract_onemin_error(payload)
+        if onemin_error:
+            error_detail = onemin_error
+        else:
+            text = _extract_onemin_text(payload)
+            if text:
+                usage = payload.get("usage") if isinstance(payload, dict) else {}
+                tokens_in = int((usage or {}).get("prompt_tokens") or (usage or {}).get("input_tokens") or 0)
+                tokens_out = int((usage or {}).get("completion_tokens") or (usage or {}).get("output_tokens") or 0)
+                _record_onemin_usage_event(
+                    api_key=api_key,
+                    model=_extract_onemin_model(payload) or model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    lane="probe",
+                )
+                _mark_onemin_success(api_key)
+                event = _record_onemin_probe_event(
+                    account_name=account_name,
+                    slot=slot,
+                    result="ok",
+                    detail=text[:117] + "..." if len(text) > 120 else text,
+                    model=_extract_onemin_model(payload) or model,
+                    latency_ms=latency_ms,
+                    source=source,
+                )
+                latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+                estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
+                    state_label="ready",
+                    state=_onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key)),
+                )
+                return {
+                    "slot": slot,
+                    "account_name": account_name,
+                    "slot_env_name": account_name,
+                    "slot_role": _onemin_slot_role_for_key(api_key, active_keys=active_keys, reserve_keys=reserve_keys),
+                    "owner_label": str(owner.get("owner_label") or ""),
+                    "owner_name": str(owner.get("owner_name") or ""),
+                    "owner_email": str(owner.get("owner_email") or ""),
+                    "result": "ok",
+                    "state": "ready",
+                    "detail": event.detail,
+                    "model": event.model,
+                    "latency_ms": event.latency_ms,
+                    "last_probe_at": event.happened_at,
+                    "estimated_remaining_credits": estimated_remaining_credits,
+                    "estimated_credit_basis": estimated_credit_basis,
+                    "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
+                }
+            error_detail = "empty_response"
+    elif status < 200 or status >= 300:
+        error_detail = _trim_error_payload(payload) or f"http_{status}"
+    else:
+        error_detail = "invalid_payload"
+
+    result = _onemin_probe_failure_result(error_detail)
+    if _is_auth_error(error_detail):
+        quarantine_seconds = _deleted_onemin_key_quarantine_seconds() if _is_deleted_onemin_key_error(error_detail) else None
+        _mark_onemin_failure(
+            api_key,
+            error_detail,
+            temporary_quarantine=True,
+            quarantine_seconds=quarantine_seconds,
+        )
+    else:
+        _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+    state = _onemin_key_state_label(
+        _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key)),
+        now=_now_epoch(),
+    )
+    event = _record_onemin_probe_event(
+        account_name=account_name,
+        slot=slot,
+        result=result,
+        detail=error_detail,
+        model=model,
+        latency_ms=latency_ms,
+        source=source,
+    )
+    latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+    estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
+        state_label=state,
+        state=_onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key)),
+    )
+    return {
+        "slot": slot,
+        "account_name": account_name,
+        "slot_env_name": account_name,
+        "slot_role": _onemin_slot_role_for_key(api_key, active_keys=active_keys, reserve_keys=reserve_keys),
+        "owner_label": str(owner.get("owner_label") or ""),
+        "owner_name": str(owner.get("owner_name") or ""),
+        "owner_email": str(owner.get("owner_email") or ""),
+        "result": result,
+        "state": state,
+        "detail": error_detail,
+        "model": model,
+        "latency_ms": latency_ms,
+        "last_probe_at": event.happened_at,
+        "estimated_remaining_credits": estimated_remaining_credits,
+        "estimated_credit_basis": estimated_credit_basis,
+        "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
+    }
+
+
+def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    key_names = _onemin_key_names()
+    active_keys = _onemin_active_keys()
+    reserve_keys = _onemin_reserve_keys()
+    selected_keys = key_names if include_reserve else active_keys
+    if not selected_keys:
+        return {
+            "provider_key": "onemin",
+            "slot_count": 0,
+            "configured_slot_count": len(key_names),
+            "include_reserve": include_reserve,
+            "probe_model": _onemin_probe_model(),
+            "result_counts": {},
+            "owner_mapped_slots": 0,
+            "slots": [],
+            "note": "No configured 1min slots were available to probe.",
+        }
+    model = _onemin_probe_model()
+    prompt = _onemin_probe_prompt()
+    timeout_seconds = _onemin_probe_timeout_seconds()
+    rows = [
+        _probe_onemin_slot(
+            api_key=api_key,
+            key_names=key_names,
+            active_keys=active_keys,
+            reserve_keys=reserve_keys,
+            model=model,
+            prompt=prompt,
+            timeout_seconds=timeout_seconds,
+        )
+        for api_key in selected_keys
+    ]
+    result_counts: dict[str, int] = {}
+    for row in rows:
+        result = str(row.get("result") or "unknown")
+        result_counts[result] = result_counts.get(result, 0) + 1
+    latest_probe_at = max((float(row.get("last_probe_at") or 0.0) for row in rows), default=0.0) or None
+    return {
+        "provider_key": "onemin",
+        "slot_count": len(rows),
+        "configured_slot_count": len(key_names),
+        "include_reserve": include_reserve,
+        "probe_model": model,
+        "probe_prompt": prompt,
+        "probe_timeout_seconds": timeout_seconds,
+        "result_counts": result_counts,
+        "owner_mapped_slots": sum(1 for row in rows if row.get("owner_label") or row.get("owner_email") or row.get("owner_name")),
+        "last_probe_at": latest_probe_at,
+        "note": "Probe-all sends one live low-volume request to each selected 1min slot and updates slot evidence.",
+        "slots": rows,
+    }
+
+
 def _provider_health_report() -> dict[str, object]:
     _load_provider_ledgers_once()
     now = _now_epoch()
@@ -3865,6 +4373,10 @@ def _provider_health_report() -> dict[str, object]:
         slot_state = _onemin_key_state_label(key_state, now=now)
         credit_state = _parse_credit_state(key_state.last_error)
         account_name = _provider_account_name("onemin", key_names=onemin_key_names, key=key)
+        slot_name = _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names)
+        slot_role = _onemin_slot_role_for_key(key, active_keys=onemin_active_keys, reserve_keys=onemin_reserve_keys)
+        owner = _onemin_owner_record_for_slot(api_key=key, account_name=account_name, slot=slot_name)
+        latest_probe = _latest_onemin_probe_event(account_name=account_name)
         estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
             state_label=slot_state,
             state=key_state,
@@ -3879,9 +4391,14 @@ def _provider_health_report() -> dict[str, object]:
             next_retry_at = float(key_state.cooldown_until)
         onemin_slots.append(
             {
-                "slot": _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names),
+                "slot": slot_name,
                 "configured": bool(key),
                 "account_name": account_name,
+                "slot_env_name": account_name,
+                "slot_role": slot_role,
+                "owner_label": str(owner.get("owner_label") or ""),
+                "owner_name": str(owner.get("owner_name") or ""),
+                "owner_email": str(owner.get("owner_email") or ""),
                 "state": slot_state,
                 "last_used_at": float(key_state.last_used_at),
                 "last_success_at": float(key_state.last_success_at),
@@ -3904,6 +4421,12 @@ def _provider_health_report() -> dict[str, object]:
                 "observed_success_count": observed_success_count,
                 "next_retry_at": next_retry_at or None,
                 "upstream_reset_unknown": bool(credit_state and credit_state.get("remaining_credits") == 0),
+                "last_probe_at": latest_probe.happened_at if latest_probe is not None else None,
+                "last_probe_result": latest_probe.result if latest_probe is not None else None,
+                "last_probe_detail": latest_probe.detail if latest_probe is not None else "",
+                "last_probe_model": latest_probe.model if latest_probe is not None else "",
+                "last_probe_latency_ms": latest_probe.latency_ms if latest_probe is not None else None,
+                "last_probe_source": latest_probe.source if latest_probe is not None else "",
             }
         )
 
@@ -3938,6 +4461,18 @@ def _provider_health_report() -> dict[str, object]:
         basis = str(slot.get("estimated_credit_basis") or "unknown_unprobed")
         balance_basis_counts[basis] = balance_basis_counts.get(basis, 0) + 1
     balance_basis_summary = ",".join(sorted(balance_basis_counts.keys())) if balance_basis_counts else "unknown_unprobed"
+    probe_result_counts: dict[str, int] = {}
+    last_probe_at = None
+    owner_mapped_slots = 0
+    for slot in onemin_slots:
+        if slot.get("owner_label") or slot.get("owner_name") or slot.get("owner_email"):
+            owner_mapped_slots += 1
+        probe_result = str(slot.get("last_probe_result") or "").strip()
+        if probe_result:
+            probe_result_counts[probe_result] = probe_result_counts.get(probe_result, 0) + 1
+        probe_time = slot.get("last_probe_at")
+        if probe_time is not None:
+            last_probe_at = max(float(probe_time), float(last_probe_at or 0.0))
 
     magix_state, magix_detail, magix_checked_at = _magix_health_state_snapshot()
     magix_key_names = tuple(_magicx_config().api_keys)
@@ -3995,7 +4530,11 @@ def _provider_health_report() -> dict[str, object]:
                 "max_credits_per_key": _onemin_max_credits_per_key(),
                 "unknown_balance_slots": onemin_unknown_slots,
                 "last_actual_balance_at": latest_actual_balance_at,
+                "last_probe_at": last_probe_at,
+                "owner_mapped_slots": owner_mapped_slots,
                 "balance_basis_summary": balance_basis_summary,
+                "balance_basis_counts": balance_basis_counts,
+                "probe_result_counts": probe_result_counts,
                 "credit_estimation_mode": "actual_or_observed_or_estimated_else_unknown_unprobed",
                 "max_requests_per_hour": onemin_max_requests_per_hour,
                 "max_credits_per_hour": onemin_max_credits_per_hour,

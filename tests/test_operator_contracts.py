@@ -88,6 +88,9 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_example
     assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_example
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_example
+    assert "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" in env_example
+    assert "EA_RESPONSES_ONEMIN_PROBE_MODEL" in env_example
+    assert "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS" in env_example
     assert "ONEMIN_AI_API_KEY" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_local_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_local_example
@@ -105,6 +108,9 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_local_example
     assert "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY" in env_local_example
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_PROBE_MODEL" in env_local_example
+    assert "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS" in env_local_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
 
@@ -123,14 +129,18 @@ def test_responses_provider_health_credit_debug_contract_is_documented() -> None
     assert "observed_consumed_credits" in readme
     assert "/v1/responses/_provider_health" in runbook
     assert "/v1/codex/profiles" in runbook
+    assert "/v1/providers/onemin/probe-all" in runbook
     assert "estimated_remaining_credits_total" in runbook
     assert "estimated_hours_remaining_at_current_pace" in runbook
     assert "observed_consumed_credits" in runbook
     assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in runbook
     assert "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY" in env_matrix
     assert "EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS" in env_matrix
+    assert "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" in env_matrix
+    assert "EA_RESPONSES_ONEMIN_PROBE_MODEL" in env_matrix
     assert "EA_RESPONSES_MAGICX_HEALTH_CHECK" in env_matrix
     assert "account-attributed credit estimates" in http_examples
+    assert "/v1/providers/onemin/probe-all" in http_examples
     assert "estimated_remaining_credits_total" in changelog
     assert "remaining_percent_of_max" in changelog
     assert "estimated_burn_credits_per_hour" in changelog

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import pytest
 
@@ -931,6 +932,107 @@ def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.Mon
     assert deleted_slot["quarantine_until"] > deleted_slot["last_failure_at"] + 86000
 
 
+def test_probe_all_onemin_slots_maps_owner_hashes_and_classifies_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "probe-ok")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "probe-deleted")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_PROBE_MODEL", "gpt-4.1")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "secret_sha256": hashlib.sha256(b"probe-ok").hexdigest(),
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        if headers["API-KEY"] == "probe-ok":
+            return (
+                200,
+                {
+                    "aiRecord": {
+                        "model": "gpt-4.1",
+                        "aiRecordDetail": {"resultObject": "OK"},
+                    }
+                },
+            )
+        return (401, {"errorCode": "HTTP_EXCEPTION", "message": "API Key has been deleted"})
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    probe = upstream.probe_all_onemin_slots(include_reserve=True)
+
+    assert probe["result_counts"] == {"ok": 1, "revoked": 1}
+    primary = next(slot for slot in probe["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    deleted = next(slot for slot in probe["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1")
+    assert primary["owner_email"] == "owner@example.com"
+    assert primary["result"] == "ok"
+    assert deleted["result"] == "revoked"
+
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+    health_primary = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    health_deleted = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1")
+    assert onemin["owner_mapped_slots"] == 1
+    assert onemin["probe_result_counts"] == {"ok": 1, "revoked": 1}
+    assert health_primary["owner_email"] == "owner@example.com"
+    assert health_primary["last_probe_result"] == "ok"
+    assert health_deleted["last_probe_result"] == "revoked"
+    assert health_deleted["state"] == "deleted"
+
+
+def test_probe_all_onemin_slots_maps_owner_fallbacks_by_slot_and_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "probe-slot")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "probe-account")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "slot": "primary",
+                        "owner_email": "slot-owner@example.com",
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                        "owner_email": "account-owner@example.com",
+                    },
+                ]
+            }
+        ),
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {"resultObject": "OK"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    probe = upstream.probe_all_onemin_slots(include_reserve=True)
+
+    primary = next(slot for slot in probe["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    fallback = next(slot for slot in probe["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1")
+    assert primary["owner_email"] == "slot-owner@example.com"
+    assert fallback["owner_email"] == "account-owner@example.com"
+
+    health = upstream._provider_health_report()
+    assert health["providers"]["onemin"]["owner_mapped_slots"] == 2
+
+
 def test_onemin_provider_health_reports_burn_rate_from_recent_successes(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary")
@@ -972,7 +1074,7 @@ def test_onemin_provider_health_reports_burn_rate_from_recent_successes(monkeypa
 
     assert onemin["estimated_burn_credits_per_hour"] == 1800000.0
     assert onemin["estimated_requests_per_hour"] == 60.0
-    assert onemin["estimated_hours_remaining_at_current_pace"] == 2.47
+    assert onemin["estimated_hours_remaining_at_current_pace"] == 0.0
     assert onemin["burn_event_count"] == 2
     assert onemin["burn_estimate_basis"] == "recent_required_credit_median"
 

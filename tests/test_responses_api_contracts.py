@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -1269,6 +1270,11 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert providers["onemin"]["slots"][0]["upstream_reset_unknown"] is False
     assert providers["onemin"]["slots"][0]["observed_consumed_credits"] == 0
     assert providers["onemin"]["slots"][0]["observed_success_count"] == 0
+    assert providers["onemin"]["slots"][0]["slot_env_name"] == "ONEMIN_AI_API_KEY"
+    assert providers["onemin"]["slots"][0]["slot_role"] == "active"
+    assert providers["onemin"]["slots"][0]["owner_label"] == ""
+    assert providers["onemin"]["slots"][0]["last_probe_result"] is None
+    assert providers["onemin"]["slots"][2]["slot_role"] == "reserve"
     assert "estimated_burn_credits_per_hour" in providers["onemin"]
     assert "estimated_hours_remaining_at_current_pace" in providers["onemin"]
     assert "burn_estimate_basis" in providers["onemin"]
@@ -1403,6 +1409,57 @@ def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPa
     assert avoided["jury_lane"]["avoided_credits"] == 150
     assert "Without the easy lane" in body["avoided_credits"]["selected_window_text"]["easy"]
     assert "Without the jury lane" in body["avoided_credits"]["selected_window_text"]["jury"]
+
+
+def test_codex_status_endpoint_exposes_onemin_probe_aggregate(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-status")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "status-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "status-deleted")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "secret_sha256": hashlib.sha256(b"status-primary").hexdigest(),
+                        "owner_email": "status@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        if headers["API-KEY"] == "status-primary":
+            return (
+                200,
+                {
+                    "aiRecord": {
+                        "model": "gpt-4.1",
+                        "aiRecordDetail": {"resultObject": "OK"},
+                    }
+                },
+            )
+        return (401, {"errorCode": "HTTP_EXCEPTION", "message": "API Key has been deleted"})
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+    upstream.probe_all_onemin_slots()
+
+    response = client.get("/v1/codex/status?window=7d&refresh=1")
+    assert response.status_code == 200
+    body = response.json()
+    aggregate = body["onemin_aggregate"]
+    assert aggregate["owner_mapped_slot_count"] == 1
+    assert aggregate["probe_result_counts"] == {"ok": 1, "revoked": 1}
+    primary = next(slot for slot in aggregate["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    deleted = next(slot for slot in aggregate["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1")
+    assert primary["owner_email"] == "status@example.com"
+    assert primary["last_probe_result"] == "ok"
+    assert deleted["last_probe_result"] == "revoked"
+    assert deleted["revoked_like"] is True
 
 
 def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
