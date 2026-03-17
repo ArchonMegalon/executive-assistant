@@ -26,7 +26,7 @@ FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
 STYLE_EPOCH_PATH = Path("/docker/fleet/state/chummer6/ea_style_epoch.json")
 SCENE_LEDGER_PATH = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "ea-groundwork"
 WORKING_VARIANT: dict[str, object] | None = None
 TEXT_PROVIDER_USED: str = ""
 EA_ORCHESTRATOR = None
@@ -572,6 +572,14 @@ def ea_json(
     raise RuntimeError("ea_json_failed_without_candidate")
 
 
+def default_text_model() -> str:
+    return (
+        env_value("CHUMMER6_TEXT_MODEL")
+        or env_value("CHUMMER6_TEXT_LANE")
+        or DEFAULT_MODEL
+    )
+
+
 def chat_json(
     prompt: str,
     *,
@@ -590,8 +598,9 @@ def chat_json(
         raise RuntimeError(
             "unsupported_chummer6_text_provider:" + ",".join(unsupported)
         )
-    payload = ea_json(prompt, model=model, skill_key=skill_key)
-    TEXT_PROVIDER_USED = "ea"
+    selected_model = str(model or "").strip() or default_text_model()
+    payload = ea_json(prompt, model=selected_model, skill_key=skill_key)
+    TEXT_PROVIDER_USED = "ea-groundwork" if selected_model == "ea-groundwork" else "ea"
     return payload
 
 
@@ -2606,7 +2615,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate Chummer6 downstream guide overrides through EA using section-level OODA.")
     parser.add_argument("--output", default=str(OVERRIDE_OUT), help="Where to write the override JSON.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Preferred EA/Gemini text model hint.")
+    parser.add_argument("--model", default=default_text_model(), help="Preferred EA/Gemini text model hint.")
     parser.add_argument("--parts-only", action="store_true", help="Generate part-page overrides only.")
     parser.add_argument("--horizons-only", action="store_true", help="Generate horizon-page overrides only.")
     args = parser.parse_args()
@@ -2616,7 +2625,7 @@ def main() -> int:
     overrides = generate_overrides(
         include_parts=include_parts,
         include_horizons=include_horizons,
-        model=str(args.model or DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+        model=str(args.model or default_text_model()).strip() or default_text_model(),
     )
     output_path = Path(args.output).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)

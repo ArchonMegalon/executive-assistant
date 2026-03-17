@@ -22,23 +22,24 @@ def _load_worker_module():
 def test_chat_json_routes_through_ea_only(monkeypatch) -> None:
     worker = _load_worker_module()
     monkeypatch.setenv("CHUMMER6_TEXT_PROVIDER_ORDER", "ea")
+    monkeypatch.delenv("CHUMMER6_TEXT_MODEL", raising=False)
     monkeypatch.setattr(
         worker,
         "ea_json",
-        lambda prompt, model="gemini-3-flash-preview", skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+        lambda prompt, model="ea-groundwork", skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
             "prompt": prompt,
             "model": model,
             "skill_key": skill_key,
         },
     )
 
-    result = worker.chat_json("prompt", model="gemini-3-flash-preview")
+    result = worker.chat_json("prompt")
     assert result == {
         "prompt": "prompt",
-        "model": "gemini-3-flash-preview",
+        "model": "ea-groundwork",
         "skill_key": "chummer6_public_writer",
     }
-    assert worker.TEXT_PROVIDER_USED == "ea"
+    assert worker.TEXT_PROVIDER_USED == "ea-groundwork"
 
 
 def test_chat_json_rejects_legacy_provider_aliases(monkeypatch) -> None:
@@ -64,13 +65,13 @@ def test_ea_json_executes_public_writer_skill_identity_by_default(monkeypatch) -
 
     monkeypatch.setattr(worker, "_ea_orchestrator", lambda: _Orchestrator())
 
-    result = worker.ea_json("prompt body", model="gemini-3-flash-preview")
+    result = worker.ea_json("prompt body", model="ea-groundwork")
     request = captured["request"]
 
     assert result == {"packet": "guide_refresh", "scene": "troll union sticker"}
     assert request.skill_key == "chummer6_public_writer"
     assert request.goal == "Generate a structured JSON packet for the chummer6_public_writer worker."
-    assert request.input_json["model"] == "gemini-3-flash-preview"
+    assert request.input_json["model"] == "ea-groundwork"
 
 
 def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None:
