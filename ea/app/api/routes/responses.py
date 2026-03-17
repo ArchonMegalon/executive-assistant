@@ -20,6 +20,7 @@ from app.domain.models import ToolInvocationRequest
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.responses_upstream import (
     DEFAULT_PUBLIC_MODEL,
+    FAST_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     ResponsesUpstreamError,
     UpstreamResult,
@@ -239,7 +240,7 @@ _CODEx_PROFILES = (
     {
         "profile": "easy",
         "lane": "fast",
-        "model": "ea-coder-fast",
+        "model": FAST_PUBLIC_MODEL,
         "provider_hint_order": ("magixai", "gemini_vortex", "onemin"),
         "review_required": False,
         "needs_review": False,
