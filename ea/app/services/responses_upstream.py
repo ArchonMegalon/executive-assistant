@@ -26,6 +26,7 @@ from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAd
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
 FAST_PUBLIC_MODEL = "ea-coder-fast"
 GROUNDWORK_PUBLIC_MODEL = "ea-groundwork"
+REVIEW_LIGHT_PUBLIC_MODEL = "ea-review-light"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
 SURVIVAL_PUBLIC_MODEL = "ea-coder-survival"
@@ -67,6 +68,7 @@ _LANE_FAST = "fast"
 _LANE_OVERFLOW = "overflow"
 _LANE_DEFAULT = "default"
 _LANE_AUDIT = "audit"
+_LANE_REVIEW_LIGHT = "review_light"
 
 _AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
 
@@ -630,11 +632,25 @@ def _browserplayground_models() -> tuple[str, ...]:
     return ("gpt-5", "gpt-4.1")
 
 
+def _review_light_chatplayground_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS"))
+    if configured:
+        return configured[:1] or configured
+    return ("gpt-4.1",)
+
+
 def _browserplayground_roles() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_CHATPLAYGROUND_ROLES"))
     if configured:
         return configured
     return ("factuality", "adversarial", "completeness", "risk")
+
+
+def _review_light_chatplayground_roles() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_ROLES"))
+    if configured:
+        return configured[:1] or configured
+    return ("factuality",)
 
 
 def _browserplayground_auth_names() -> tuple[str, ...]:
@@ -1774,6 +1790,8 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
     normalized = str(requested_model or "").strip().lower()
     if normalized == "":
         return _resolve_default_response_lane()
+    if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
+        return _LANE_REVIEW_LIGHT
     if normalized in {"ea-review", "ea-critic"}:
         return _LANE_REVIEW
     if normalized == "ea-coder-hard":
@@ -1818,6 +1836,8 @@ def _provider_model_order_for_lane(
         return ()
 
     if provider_key == "chatplayground":
+        if lane == _LANE_REVIEW_LIGHT:
+            return _review_light_lane_models()
         return _browserplayground_models()
 
     if provider_key != "onemin":
@@ -1852,6 +1872,11 @@ def _audit_lane_models() -> tuple[str, ...]:
 
 def _groundwork_lane_models() -> tuple[str, ...]:
     models = _browserplayground_models()
+    return models[:1] or models
+
+
+def _review_light_lane_models() -> tuple[str, ...]:
+    models = _review_light_chatplayground_models()
     return models[:1] or models
 
 
@@ -2021,6 +2046,7 @@ def list_response_models() -> list[dict[str, object]]:
         MAGICX_PUBLIC_MODEL,
         AUDIT_PUBLIC_MODEL,
         AUDIT_PUBLIC_MODEL_ALIAS,
+        REVIEW_LIGHT_PUBLIC_MODEL,
         ONEMIN_PUBLIC_MODEL,
         GEMINI_VORTEX_PUBLIC_MODEL,
         GROUNDWORK_PUBLIC_MODEL,
@@ -2270,6 +2296,8 @@ def _provider_candidates(
     provider_keys_by_lane: tuple[str, ...]
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
         provider_keys_by_lane = _merge_unique(("magixai", "gemini_vortex"), _provider_order())
+    elif lane == _LANE_REVIEW_LIGHT:
+        provider_keys_by_lane = ("chatplayground",)
     elif lane == _LANE_AUDIT:
         provider_keys_by_lane = ("chatplayground",)
     else:
@@ -2323,6 +2351,12 @@ def _provider_candidates(
             for model_name in _groundwork_lane_models()
         )
         return candidates
+
+    if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
+        return [
+            (configs["chatplayground"], model_name)
+            for model_name in _review_light_lane_models()
+        ]
 
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         candidates: list[tuple[ProviderConfig, str]] = [
@@ -2869,12 +2903,16 @@ def _call_chatplayground_audit(
     key_names = tuple(config.api_keys)
     run_url_candidates = _chatplayground_request_urls()
 
-    model_candidates = tuple(config.default_models) or _browserplayground_models()
+    if lane == _LANE_REVIEW_LIGHT:
+        model_candidates = _review_light_lane_models()
+        audit_scope = "review_light"
+        base_roles = list(_review_light_chatplayground_roles())
+    else:
+        model_candidates = tuple(config.default_models) or _browserplayground_models()
+        audit_scope = "jury"
+        base_roles = list(_browserplayground_roles())
     if not model_candidates:
         model_candidates = _browserplayground_models()
-
-    audit_scope = "jury"
-    base_roles = list(_browserplayground_roles())
     if chatplayground_audit_callback_only and chatplayground_audit_callback is None:
         _log_provider_selection(
             provider="chatplayground",
@@ -2961,6 +2999,9 @@ def _call_chatplayground_audit(
                     model_deltas,
                     details,
                 ) = _normalize_chatplayground_audit_payload(callback_payload)
+                if audit_scope == "review_light":
+                    roles = list(base_roles)
+                    details["roles"] = roles
                 if not consensus and not recommendation:
                     if chatplayground_audit_callback_only:
                         return _chatplayground_audit_disabled_result(
@@ -3102,6 +3143,9 @@ def _call_chatplayground_audit(
                     model_deltas,
                     details,
                 ) = _normalize_chatplayground_audit_payload(api_response)
+                if audit_scope == "review_light":
+                    roles = list(base_roles)
+                    details["roles"] = roles
                 if not consensus and not recommendation:
                     errors.append(f"{account_name}:{key_slot}:{audit_scope}:empty_audit")
                     continue
