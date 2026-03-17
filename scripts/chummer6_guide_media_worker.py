@@ -36,10 +36,10 @@ FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
-    "onemin",
     "magixai",
     "browseract_magixai",
     "browseract_prompting_systems",
+    "onemin",
 ]
 PALETTES = [
     ("#0f766e", "#34d399"),
@@ -202,7 +202,7 @@ LEGACY_PART_SLUGS = {
 
 
 def provider_order() -> list[str]:
-    preferred = ["onemin", "magixai", "browseract_magixai", "browseract_prompting_systems"]
+    preferred = ["magixai", "browseract_magixai", "browseract_prompting_systems", "onemin"]
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
         return list(preferred)
