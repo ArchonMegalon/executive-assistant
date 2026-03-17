@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 from app.domain.models import ProviderBindingRecord, ProviderBindingState
+from app.services.responses_upstream import probe_all_onemin_slots
 from app.services.tool_execution_common import ToolExecutionError
 
 router = APIRouter(prefix="/v1/providers", tags=["providers"])
@@ -29,6 +30,10 @@ class ProviderBindingStatusIn(BaseModel):
 class ProviderBindingProbeIn(BaseModel):
     probe_state: str = Field(min_length=1, max_length=50)
     probe_details_json: dict[str, object] = Field(default_factory=dict)
+
+
+class OneminProbeAllIn(BaseModel):
+    include_reserve: bool = Field(default=True)
 
 
 class ProviderBindingOut(BaseModel):
@@ -211,3 +216,13 @@ def get_provider_state(
     if row is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
     return _state_out(row)
+
+
+@router.post("/onemin/probe-all", response_model=None)
+def probe_all_onemin(
+    body: OneminProbeAllIn | None = None,
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    _ = context
+    include_reserve = True if body is None else bool(body.include_reserve)
+    return probe_all_onemin_slots(include_reserve=include_reserve)

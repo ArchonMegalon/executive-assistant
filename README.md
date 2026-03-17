@@ -66,6 +66,7 @@ Then open `http://localhost:8090/health`.
   - `GET /v1/responses/{response_id}/input_items`
   - `GET /v1/responses/_provider_health`
   - `GET /v1/codex/profiles` for lane/provider health and account attribution
+  - `POST /v1/providers/onemin/probe-all` for explicit per-slot 1min validation
   - `POST /v1/codex/core` (hard lane, forced `ea-coder-hard`)
   - `POST /v1/codex/easy` (fast lane, forced `ea-coder-fast`)
   - `POST /v1/codex/survival` (slow backup lane, forced `ea-coder-survival`, background/poll only in v1)
@@ -73,7 +74,8 @@ Then open `http://localhost:8090/health`.
   - stream mode via `Accept: text/event-stream`
   - survival mode is intentionally non-streaming in v1; create returns an `in_progress` response object and clients poll `GET /v1/responses/{response_id}` until completion
   - `GET /v1/models` returns the public EA aliases plus the currently configured upstream model IDs so Codex can target concrete provider backends when needed.
-  - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
+  - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, owner-ledger metadata matched by hash or stable slot/account identifiers, latest explicit probe result, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
+  - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values while preserving the existing owner roster metadata by slot/account.
   - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias plus the concrete `gemini-3-flash-preview` model id when that backend is configured.
   - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
   - UI-backed survival backends are challenge-aware: Cloudflare/Turnstile/human-verification or session-expiry responses put that backend on cooldown and survival falls through to the next backend instead of trying to automate the challenge

@@ -1,0 +1,209 @@
+{
+  "hash_algorithm": "sha256",
+  "slots": [
+    {
+      "slot": "primary",
+      "account_name": "ONEMIN_AI_API_KEY",
+      "secret_sha256": "f3c85b892ab0188059cd2ab61b837236117ee8c233aa657825e67ad02009e0de",
+      "owner_name": "Tibor 1minAi"
+    },
+    {
+      "slot": "fallback_1",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+      "secret_sha256": "b9ae5545eb87371a664a591f3e861edbf71998e43404e4754597743d310a4a8b",
+      "owner_name": "archon onemin"
+    },
+    {
+      "slot": "fallback_2",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+      "secret_sha256": "57b38edd04c34d5e7b6e152af544b2a300f786374aae2c027dde9012a211085c",
+      "owner_name": "girschele onemin"
+    },
+    {
+      "slot": "fallback_3",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_3",
+      "secret_sha256": "e82887a39c0a01bcad8dfba87c5c70fd44e0346bb188a2d0ae86d73aca3bfc71",
+      "owner_name": "1min1"
+    },
+    {
+      "slot": "fallback_4",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_4",
+      "secret_sha256": "ff26607c0737fdfed70317a824f817e672016bfcee349bb27ccf151a7f3027de",
+      "owner_name": "1min2"
+    },
+    {
+      "slot": "fallback_5",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_5",
+      "secret_sha256": "90a6ef03d6e7ca09d7cd6b0896f5827bb24f106ab98c48186361ef954a733207",
+      "owner_name": "1min3"
+    },
+    {
+      "slot": "fallback_6",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_6",
+      "secret_sha256": "aa1a2f4877f39cd080e4f9fe20cd9451bf411bd8c286b3e4faca603bdd535c36",
+      "owner_name": "tibor hoza"
+    },
+    {
+      "slot": "fallback_7",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_7",
+      "secret_sha256": "3e7d7451cfd110f06e7bc76789e2fe051f6c9ad821352776431e701d808e6865",
+      "owner_name": "Noah girschele"
+    },
+    {
+      "slot": "fallback_8",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_8",
+      "secret_sha256": "5d7e9fda8acb4be84628c8def306652443d8595c7d90af7936ccc13ce0853abe",
+      "owner_name": "elisabeth Girschele"
+    },
+    {
+      "slot": "fallback_9",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_9",
+      "secret_sha256": "86b6ebcdb727fe9a9f65e896ff17d6ff44d09e2270a99df291ed287e977d08f2",
+      "owner_name": "vermisst.Ma01"
+    },
+    {
+      "slot": "fallback_10",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_10",
+      "secret_sha256": "3e657c1cfa67c5324a5ebde36e98e8ba765a875f699fa13f8321d596e296e956",
+      "owner_email": "peter@chummer.run"
+    },
+    {
+      "slot": "fallback_11",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_11",
+      "secret_sha256": "0aaa3cbe972e3bafa992f4b89277a341a483527d1d94959290888e04d8e5ceec",
+      "owner_email": "franz@chummer.run"
+    },
+    {
+      "slot": "fallback_12",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_12",
+      "secret_sha256": "fb4feb77d86ad30a203d6d9a3adf15a69c5f1031e708c9863c15ae2e765f4018",
+      "owner_email": "errant@chummer.run"
+    },
+    {
+      "slot": "fallback_13",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_13",
+      "secret_sha256": "28f1c290c4ea815cf3d1ca624478fd129c56f486caae3cd63b3dec86a27e59c1",
+      "owner_email": "tibor.hoza@wien.gv.at"
+    },
+    {
+      "slot": "fallback_14",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_14",
+      "secret_sha256": "45d4fd5bcbabfac9da6655ce73d3307c880025ee86c14ba244865e322566f102",
+      "owner_email": "office@chummer.run"
+    },
+    {
+      "slot": "fallback_15",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_15",
+      "secret_sha256": "781e5780a605668b4d6bd2e3c3f743227ff9a9749bdb75777172c9e061dd5771",
+      "owner_email": "support@chummer.run"
+    },
+    {
+      "slot": "fallback_16",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_16",
+      "secret_sha256": "3349e3dc410ae150d79e905437eb71bc2e8135c2df4144b48159a8d5c0621d47",
+      "owner_email": "invoice@chummer.run"
+    },
+    {
+      "slot": "fallback_17",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_17",
+      "secret_sha256": "a9f712bc794c5d417efaa00ba10474e5d9b15f0a18d858a4fca5779673179a90",
+      "owner_email": "zmhms86kcg@privaterelay.appleid.com"
+    },
+    {
+      "slot": "fallback_18",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_18",
+      "secret_sha256": "1ec3b5c812be8f0a90432812e1efddfe84c88735a77d7a7f64296fbb342a5c8a",
+      "owner_email": "uk@chummer.run"
+    },
+    {
+      "slot": "fallback_19",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_19",
+      "secret_sha256": "0e98e8952a9d0689bc4a49b7d7b20c2bd403cdfee7c651a9849e60c0719ee2d8",
+      "owner_email": "us@chummer.run"
+    },
+    {
+      "slot": "fallback_20",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_20",
+      "secret_sha256": "d687e9616b8572ab18ba05c396e48a8fb2d7fed9d595cbd6eeb12e6ef992aaf2",
+      "owner_email": "ny@chummer.run"
+    },
+    {
+      "slot": "fallback_21",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_21",
+      "secret_sha256": "4f644614d750deba570fe8e76538820846c9fb56242ca7113aebf5c239f4fde1",
+      "owner_email": "sk@chummer.run"
+    },
+    {
+      "slot": "fallback_22",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_22",
+      "secret_sha256": "d3bc10caec83b331d535b272d19f8eed31991b0445ef6871240dd2aabd2d34d4",
+      "owner_email": "hk@chummer.run"
+    },
+    {
+      "slot": "fallback_23",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_23",
+      "secret_sha256": "a7463acd7148b96d44fd7113abe9f75be8a7c13e604b6e8bc6beb9d13600cb5b",
+      "owner_email": "usport@chummer.run"
+    },
+    {
+      "slot": "fallback_24",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_24",
+      "secret_sha256": "9b844d99275d36935f03c634bc75ea204d19f56688b5b03291980de36f9ccf24",
+      "owner_email": "tk@chummer.run"
+    },
+    {
+      "slot": "fallback_25",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_25",
+      "secret_sha256": "238422bc585db5ed1b03922ab9ae248e1f0333b72d7ca97f0a637f334d8479d8",
+      "owner_email": "it@chummer.run"
+    },
+    {
+      "slot": "fallback_26",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_26",
+      "secret_sha256": "bf3f3f86a5322879636ef34b39bb01ea9d6cacc3fc9b8da23a8f0eb3ba9fc826",
+      "owner_email": "nr@chummer.run"
+    },
+    {
+      "slot": "fallback_27",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_27",
+      "secret_sha256": "22a5d0ed325b6aebc3fad6feed1023e26ebf2058d46f6040f6e34a814290c537",
+      "owner_email": "fi@chummer.run"
+    },
+    {
+      "slot": "fallback_28",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_28",
+      "secret_sha256": "f14d028061b5ccad1c094094d43d1defd079d7d9d8dfb5042752b5ace2631f11",
+      "owner_email": "ru@chummer.run"
+    },
+    {
+      "slot": "fallback_29",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_29",
+      "secret_sha256": "e057852e659cefdf5973bcd47336526acdf15abc32a69a394282fc5c7caa5f2c",
+      "owner_email": "pl@chummer.run"
+    },
+    {
+      "slot": "fallback_30",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_30",
+      "secret_sha256": "4d9728f4e2cfdbe4fe5a8fa3dfe9987f2f04a9dea6dc20f44ea6689aa04a367a",
+      "owner_email": "au@chummer.run"
+    },
+    {
+      "slot": "fallback_31",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_31",
+      "secret_sha256": "cf16f1853d7ba43d893b88fb0532e17192df2ddb33458d4934605ce1bf073e54",
+      "owner_email": "id@chummer.run"
+    },
+    {
+      "slot": "fallback_32",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_32",
+      "secret_sha256": "fc3b233b37228fa22e5e29e213e5bdaea1978f924a885d495ba96c064fa9c701",
+      "owner_email": "pt@chummer.run"
+    },
+    {
+      "slot": "fallback_33",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_33",
+      "secret_sha256": "e22f48e5c3506f5b7367630fad96a98580eecd9c732d970cd0e3f3974a3082ce",
+      "owner_label": "es            qchummer.run"
+    }
+  ]
+}

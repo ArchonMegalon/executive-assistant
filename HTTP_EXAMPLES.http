@@ -72,6 +72,15 @@ X-EA-Principal-ID: {{principal_id}}
 GET {{host}}/v1/responses/_provider_health
 X-EA-Principal-ID: {{principal_id}}
 
+### Explicit 1min slot probe sweep
+POST {{host}}/v1/providers/onemin/probe-all
+Content-Type: application/json
+X-EA-Principal-ID: {{principal_id}}
+
+{
+  "include_reserve": true
+}
+
 ### Codex three-layer profiles and lanes (same provider health surface plus lane defaults)
 GET {{host}}/v1/codex/profiles
 X-EA-Principal-ID: {{principal_id}}
