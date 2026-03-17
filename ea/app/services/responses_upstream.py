@@ -23,6 +23,7 @@ from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAd
 
 
 DEFAULT_PUBLIC_MODEL = "ea-coder-best"
+FAST_PUBLIC_MODEL = "ea-coder-fast"
 MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
 ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
 SURVIVAL_PUBLIC_MODEL = "ea-coder-survival"
@@ -1615,7 +1616,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_AUDIT
     if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in {item.lower() for item in _gemini_vortex_models()}:
         return _LANE_FAST
-    if normalized == "ea-coder-fast":
+    if normalized == FAST_PUBLIC_MODEL:
         return _LANE_FAST
     if normalized == "ea-overflow":
         return _LANE_OVERFLOW
@@ -1853,7 +1854,7 @@ def list_response_models() -> list[dict[str, object]]:
         "ea-coder-hard",
         "ea-review",
         "ea-critic",
-        "ea-coder-fast",
+        FAST_PUBLIC_MODEL,
         "ea-overflow",
     )
     dynamic = _merge_unique(
@@ -2169,7 +2170,7 @@ def _provider_candidates(
             or _onemin_hard_models()
         ]
 
-    if normalized in {"ea-coder-fast", "ea-overflow"}:
+    if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:
         candidates: list[tuple[ProviderConfig, str]] = [
             (configs["magixai"], model_name) for model_name in _magicx_lane_models()
         ]
