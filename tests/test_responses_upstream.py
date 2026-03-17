@@ -122,6 +122,19 @@ def test_fast_public_model_candidates_prefer_magicx_then_gemini_then_onemin_revi
     ]
 
 
+def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_MAX_OUTPUT_TOKENS_HARD", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY", raising=False)
+
+    assert upstream._resolve_hard_defaults() == (1, 120.0, 256)
+    assert upstream._lane_max_output_tokens(upstream._LANE_HARD) == 1536
+    assert upstream._onemin_max_credits_per_hour() == 80000
+    assert upstream._onemin_max_credits_per_day() == 600000
+
+
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
 
