@@ -5,6 +5,7 @@ import json
 import logging
 import inspect
 import os
+from pathlib import Path
 import re
 import shutil
 import threading
@@ -38,7 +39,11 @@ _ONEMIN_KEY_CURSOR_LOCK = threading.Lock()
 _ONEMIN_KEY_STATES: dict[str, OneminKeyState] = {}
 _ONEMIN_USAGE_EVENTS: deque[OneminUsageEvent] = deque(maxlen=512)
 _ONEMIN_REQUIRED_CREDIT_EVENTS: deque[OneminRequiredCreditObservation] = deque(maxlen=128)
+_PROVIDER_BALANCE_SNAPSHOTS: deque[ProviderBalanceSnapshot] = deque(maxlen=512)
+_PROVIDER_DISPATCH_EVENTS: deque[ProviderDispatchEvent] = deque(maxlen=1024)
 _ONEMIN_USAGE_LOCK = threading.Lock()
+_PROVIDER_LEDGER_LOADED = False
+_PROVIDER_LEDGER_LOCK = threading.Lock()
 
 _HARD_CONCURRENCY_LOCK = threading.Condition(threading.Lock())
 _HARD_ACTIVE_REQUESTS = 0
@@ -235,6 +240,29 @@ class OneminRequiredCreditObservation:
 
 
 @dataclass(frozen=True)
+class ProviderBalanceSnapshot:
+    happened_at: float
+    provider_key: str
+    account_name: str
+    remaining_credits: int | None
+    max_credits: int | None
+    basis: str
+    source: str
+    topup_detected: bool = False
+    topup_delta: int | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderDispatchEvent:
+    happened_at: float
+    provider_key: str
+    model: str
+    lane: str
+    estimated_onemin_credits: int | None
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     provider_key: str
     display_name: str
@@ -245,6 +273,151 @@ class ProviderConfig:
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
+
+
+def _provider_ledger_dir() -> Path | None:
+    raw = _env("EA_RESPONSES_PROVIDER_LEDGER_DIR", "/tmp/ea_provider_ledger")
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception:
+        return None
+
+
+def _provider_ledger_file(name: str) -> Path | None:
+    root = _provider_ledger_dir()
+    if root is None:
+        return None
+    return root / name
+
+
+def _append_provider_ledger_record(name: str, payload: dict[str, object]) -> None:
+    target = _provider_ledger_file(name)
+    if target is None:
+        return
+    try:
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+            handle.write("\n")
+    except Exception:
+        return
+
+
+def _load_provider_ledger_records(name: str) -> list[dict[str, object]]:
+    target = _provider_ledger_file(name)
+    if target is None or not target.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    try:
+        for line in target.read_text(encoding="utf-8").splitlines():
+            text = str(line or "").strip()
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                rows.append({str(key): value for key, value in payload.items()})
+    except Exception:
+        return []
+    return rows
+
+
+def _load_provider_ledgers_once() -> None:
+    global _PROVIDER_LEDGER_LOADED
+    if _PROVIDER_LEDGER_LOADED:
+        return
+    with _PROVIDER_LEDGER_LOCK:
+        if _PROVIDER_LEDGER_LOADED:
+            return
+        usage_rows = _load_provider_ledger_records("onemin_usage_events.jsonl")
+        required_rows = _load_provider_ledger_records("onemin_required_credit_events.jsonl")
+        balance_rows = _load_provider_ledger_records("provider_balance_snapshots.jsonl")
+        dispatch_rows = _load_provider_ledger_records("provider_dispatch_events.jsonl")
+        with _ONEMIN_USAGE_LOCK:
+            for row in usage_rows[-_ONEMIN_USAGE_EVENTS.maxlen :]:
+                try:
+                    _ONEMIN_USAGE_EVENTS.append(
+                        OneminUsageEvent(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            api_key=str(row.get("api_key") or ""),
+                            model=str(row.get("model") or ""),
+                            estimated_credits=int(row.get("estimated_credits") or 0),
+                            basis=str(row.get("basis") or "unknown"),
+                            tokens_in=int(row.get("tokens_in") or 0),
+                            tokens_out=int(row.get("tokens_out") or 0),
+                            lane=str(row.get("lane") or "") or None,
+                            codex_profile=str(row.get("codex_profile") or "") or None,
+                            route=str(row.get("route") or "") or None,
+                            principal_id=str(row.get("principal_id") or "") or None,
+                            response_id=str(row.get("response_id") or "") or None,
+                            task_class=str(row.get("task_class") or "") or None,
+                            escalation_reason=str(row.get("escalation_reason") or "") or None,
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in required_rows[-_ONEMIN_REQUIRED_CREDIT_EVENTS.maxlen :]:
+                try:
+                    _ONEMIN_REQUIRED_CREDIT_EVENTS.append(
+                        OneminRequiredCreditObservation(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            api_key=str(row.get("api_key") or ""),
+                            required_credits=int(row.get("required_credits") or 0),
+                            remaining_credits=int(row.get("remaining_credits") or 0),
+                            credit_subject=str(row.get("credit_subject") or ""),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in balance_rows[-_PROVIDER_BALANCE_SNAPSHOTS.maxlen :]:
+                try:
+                    _PROVIDER_BALANCE_SNAPSHOTS.append(
+                        ProviderBalanceSnapshot(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            provider_key=str(row.get("provider_key") or ""),
+                            account_name=str(row.get("account_name") or ""),
+                            remaining_credits=(
+                                int(row.get("remaining_credits"))
+                                if row.get("remaining_credits") is not None
+                                else None
+                            ),
+                            max_credits=int(row.get("max_credits")) if row.get("max_credits") is not None else None,
+                            basis=str(row.get("basis") or "unknown_unprobed"),
+                            source=str(row.get("source") or "ledger"),
+                            topup_detected=bool(row.get("topup_detected")),
+                            topup_delta=(
+                                int(row.get("topup_delta"))
+                                if row.get("topup_delta") is not None
+                                else None
+                            ),
+                            detail=str(row.get("detail") or ""),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in dispatch_rows[-_PROVIDER_DISPATCH_EVENTS.maxlen :]:
+                try:
+                    _PROVIDER_DISPATCH_EVENTS.append(
+                        ProviderDispatchEvent(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            provider_key=str(row.get("provider_key") or ""),
+                            model=str(row.get("model") or ""),
+                            lane=str(row.get("lane") or _LANE_DEFAULT),
+                            estimated_onemin_credits=(
+                                int(row.get("estimated_onemin_credits"))
+                                if row.get("estimated_onemin_credits") is not None
+                                else None
+                            ),
+                        )
+                    )
+                except Exception:
+                    continue
+        _PROVIDER_LEDGER_LOADED = True
 
 
 def _csv_values(raw: str) -> tuple[str, ...]:
@@ -462,6 +635,16 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
     if normalized == "gemini_vortex":
         return ("EA_GEMINI_VORTEX_COMMAND",)
     return tuple()
+
+
+def _provider_secret_from_account_name(account_name: str) -> str:
+    target = str(account_name or "").strip()
+    if not target:
+        return ""
+    env_value = _env(target)
+    if env_value:
+        return env_value
+    return ""
 
 
 def _magicx_urls() -> tuple[str, ...]:
@@ -1061,6 +1244,11 @@ def _onemin_max_credits_total(configured_slots: int) -> int:
 
 
 def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeyState) -> tuple[int | None, str]:
+    _load_provider_ledgers_once()
+    account_name = _provider_account_name("onemin", key_names=_onemin_key_names(), key=state.key)
+    latest_snapshot = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+    if latest_snapshot is not None and latest_snapshot.remaining_credits is not None:
+        return int(latest_snapshot.remaining_credits), str(latest_snapshot.basis or "unknown")
     credit_state = _parse_credit_state(state.last_error)
     if credit_state is not None:
         return int(credit_state["remaining_credits"]), "observed_error"
@@ -1071,17 +1259,17 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     observed_spend = _observed_onemin_spend(api_key=state.key)
     if observed_spend > 0:
         return max(0, _onemin_max_credits_per_key() - observed_spend), "max_minus_observed_usage"
-    if state_label in {"ready", "cooldown"}:
-        return _onemin_max_credits_per_key(), "assumed_full_unobserved"
-    return 0, "unknown_unobserved"
+    return None, "unknown_unprobed"
 
 
 def _record_onemin_required_credit_observation(*, api_key: str, message: str, happened_at: float | None = None) -> None:
+    _load_provider_ledgers_once()
     credit_state = _parse_credit_state(message)
     if credit_state is None:
         return
+    effective_time = float(happened_at if happened_at is not None else _now_epoch())
     event = OneminRequiredCreditObservation(
-        happened_at=float(happened_at if happened_at is not None else _now_epoch()),
+        happened_at=effective_time,
         api_key=api_key,
         required_credits=int(credit_state["required_credits"]),
         remaining_credits=int(credit_state["remaining_credits"]),
@@ -1089,6 +1277,126 @@ def _record_onemin_required_credit_observation(*, api_key: str, message: str, ha
     )
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_REQUIRED_CREDIT_EVENTS.append(event)
+    _append_provider_ledger_record(
+        "onemin_required_credit_events.jsonl",
+        {
+            "happened_at": event.happened_at,
+            "api_key": event.api_key,
+            "required_credits": event.required_credits,
+            "remaining_credits": event.remaining_credits,
+            "credit_subject": event.credit_subject,
+        },
+    )
+    _record_provider_balance_snapshot(
+        provider_key="onemin",
+        account_name=_provider_account_name("onemin", key_names=_onemin_key_names(), key=api_key),
+        remaining_credits=event.remaining_credits,
+        max_credits=_onemin_max_credits_per_key(),
+        basis="observed_error",
+        source="required_credit_error",
+        happened_at=effective_time,
+        detail=event.credit_subject,
+    )
+
+
+def _recent_provider_balance_snapshots(
+    *,
+    provider_key: str,
+    account_name: str,
+) -> list[ProviderBalanceSnapshot]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = list(_PROVIDER_BALANCE_SNAPSHOTS)
+    return [
+        item
+        for item in rows
+        if item.provider_key == provider_key and item.account_name == account_name
+    ]
+
+
+def _latest_provider_balance_snapshot(
+    *,
+    provider_key: str,
+    account_name: str,
+) -> ProviderBalanceSnapshot | None:
+    snapshots = _recent_provider_balance_snapshots(provider_key=provider_key, account_name=account_name)
+    if not snapshots:
+        return None
+    return max(snapshots, key=lambda item: item.happened_at)
+
+
+def _observed_spend_since(
+    *,
+    api_key: str,
+    since: float,
+) -> int:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        return sum(
+            max(0, int(item.estimated_credits))
+            for item in _ONEMIN_USAGE_EVENTS
+            if item.api_key == api_key and item.happened_at >= since
+        )
+
+
+def _record_provider_balance_snapshot(
+    *,
+    provider_key: str,
+    account_name: str,
+    remaining_credits: int | None,
+    max_credits: int | None,
+    basis: str,
+    source: str,
+    happened_at: float | None = None,
+    detail: str = "",
+) -> ProviderBalanceSnapshot:
+    _load_provider_ledgers_once()
+    effective_time = float(happened_at if happened_at is not None else _now_epoch())
+    previous = _latest_provider_balance_snapshot(provider_key=provider_key, account_name=account_name)
+    topup_detected = False
+    topup_delta = None
+    if (
+        provider_key == "onemin"
+        and previous is not None
+        and remaining_credits is not None
+        and previous.remaining_credits is not None
+    ):
+        spent_since_last = _observed_spend_since(api_key=_provider_secret_from_account_name(account_name), since=previous.happened_at)
+        threshold = max(100, int(max_credits or 0) // 1000)
+        delta = int(remaining_credits) - int(previous.remaining_credits) - int(spent_since_last)
+        if delta > threshold:
+            topup_detected = True
+            topup_delta = delta
+    snapshot = ProviderBalanceSnapshot(
+        happened_at=effective_time,
+        provider_key=provider_key,
+        account_name=account_name,
+        remaining_credits=remaining_credits,
+        max_credits=max_credits,
+        basis=str(basis or "unknown_unprobed"),
+        source=str(source or "unknown"),
+        topup_detected=topup_detected,
+        topup_delta=topup_delta,
+        detail=str(detail or ""),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _PROVIDER_BALANCE_SNAPSHOTS.append(snapshot)
+    _append_provider_ledger_record(
+        "provider_balance_snapshots.jsonl",
+        {
+            "happened_at": snapshot.happened_at,
+            "provider_key": snapshot.provider_key,
+            "account_name": snapshot.account_name,
+            "remaining_credits": snapshot.remaining_credits,
+            "max_credits": snapshot.max_credits,
+            "basis": snapshot.basis,
+            "source": snapshot.source,
+            "topup_detected": snapshot.topup_detected,
+            "topup_delta": snapshot.topup_delta,
+            "detail": snapshot.detail,
+        },
+    )
+    return snapshot
 
 
 def _observed_onemin_spend(*, api_key: str) -> int:
@@ -1144,8 +1452,10 @@ def _record_onemin_usage_event(
     model: str,
     tokens_in: int,
     tokens_out: int,
+    lane: str | None = None,
     happened_at: float | None = None,
 ) -> tuple[int, str]:
+    _load_provider_ledgers_once()
     now = float(happened_at if happened_at is not None else _now_epoch())
     estimated_credits, basis = _estimate_onemin_request_credits(
         now=now,
@@ -1162,9 +1472,29 @@ def _record_onemin_usage_event(
         basis=basis,
         tokens_in=int(tokens_in or 0),
         tokens_out=int(tokens_out or 0),
+        lane=str(lane or "") or None,
     )
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_USAGE_EVENTS.append(event)
+    _append_provider_ledger_record(
+        "onemin_usage_events.jsonl",
+        {
+            "happened_at": event.happened_at,
+            "api_key": event.api_key,
+            "model": event.model,
+            "estimated_credits": event.estimated_credits,
+            "basis": event.basis,
+            "tokens_in": event.tokens_in,
+            "tokens_out": event.tokens_out,
+            "lane": event.lane,
+            "codex_profile": event.codex_profile,
+            "route": event.route,
+            "principal_id": event.principal_id,
+            "response_id": event.response_id,
+            "task_class": event.task_class,
+            "escalation_reason": event.escalation_reason,
+        },
+    )
     return int(estimated_credits), basis
 
 
@@ -2885,6 +3215,7 @@ def _call_onemin(
                 model=resolved_model,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
+                lane=lane,
             )
             _mark_onemin_success(api_key)
             fallback_reason = None
@@ -3093,8 +3424,9 @@ def generate_text(
                     errors.append(f"{config.provider_key}:missing_api_key")
                     continue
             try:
+                result: UpstreamResult | None = None
                 if config.provider_key == "magixai":
-                    return _call_magicx(
+                    result = _call_magicx(
                         config,
                         prompt=prompt_text,
                         messages=normalized_messages,
@@ -3102,8 +3434,8 @@ def generate_text(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                     )
-                if config.provider_key == "onemin":
-                    return _call_onemin(
+                elif config.provider_key == "onemin":
+                    result = _call_onemin(
                         config,
                         prompt=prompt_text,
                         messages=normalized_messages,
@@ -3111,8 +3443,8 @@ def generate_text(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                     )
-                if config.provider_key == "chatplayground":
-                    return _call_chatplayground_audit(
+                elif config.provider_key == "chatplayground":
+                    result = _call_chatplayground_audit(
                         config,
                         prompt=prompt_text,
                         messages=normalized_messages,
@@ -3123,8 +3455,8 @@ def generate_text(
                         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
                     )
-                if config.provider_key == "gemini_vortex":
-                    return _call_gemini_vortex(
+                elif config.provider_key == "gemini_vortex":
+                    result = _call_gemini_vortex(
                         config,
                         prompt=prompt_text,
                         messages=normalized_messages,
@@ -3132,6 +3464,19 @@ def generate_text(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                     )
+                if result is not None:
+                    estimated_onemin_credits, _ = _estimate_onemin_request_credits(
+                        now=_now_epoch(),
+                        tokens_in=result.tokens_in,
+                        tokens_out=result.tokens_out,
+                    )
+                    _record_provider_dispatch_event(
+                        provider_key=result.provider_key,
+                        model=result.model,
+                        lane=lane,
+                        estimated_onemin_credits=estimated_onemin_credits if estimated_onemin_credits > 0 else None,
+                    )
+                    return result
                 errors.append(f"{config.provider_key}:unsupported_provider")
             except ResponsesUpstreamError as exc:
                 message = str(exc)
@@ -3148,18 +3493,342 @@ def generate_text(
 
 
 def _test_reset_onemin_states() -> None:
-    global _ONEMIN_KEY_CURSOR
+    global _ONEMIN_KEY_CURSOR, _PROVIDER_LEDGER_LOADED
     with _ONEMIN_KEY_CURSOR_LOCK:
         _ONEMIN_KEY_STATES.clear()
         _ONEMIN_KEY_CURSOR = 0
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_USAGE_EVENTS.clear()
         _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
+        _PROVIDER_BALANCE_SNAPSHOTS.clear()
+        _PROVIDER_DISPATCH_EVENTS.clear()
     with _MAGIX_HEALTH_LOCK:
         _MAGIX_HEALTH_STATE.update(state="unknown", checked_at=0.0, detail="", provider_key="magixai")
+    with _PROVIDER_LEDGER_LOCK:
+        _PROVIDER_LEDGER_LOADED = False
+    for ledger_name in (
+        "onemin_usage_events.jsonl",
+        "onemin_required_credit_events.jsonl",
+        "provider_balance_snapshots.jsonl",
+        "provider_dispatch_events.jsonl",
+    ):
+        target = _provider_ledger_file(ledger_name)
+        if target is None:
+            continue
+        try:
+            target.unlink(missing_ok=True)
+        except Exception:
+            continue
+
+
+def _status_window_seconds(window: str) -> float:
+    normalized = str(window or "1h").strip().lower()
+    if normalized == "24h":
+        return 86400.0
+    if normalized == "7d":
+        return 604800.0
+    return 3600.0
+
+
+def _onemin_lane_burn_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        usage_events = [item for item in _ONEMIN_USAGE_EVENTS if now - item.happened_at <= window_seconds]
+    lane_requests: dict[str, int] = {}
+    lane_credits: dict[str, int] = {}
+    for item in usage_events:
+        lane = str(item.lane or "unknown")
+        lane_requests[lane] = lane_requests.get(lane, 0) + 1
+        lane_credits[lane] = lane_credits.get(lane, 0) + max(0, int(item.estimated_credits))
+    return {
+        "window_seconds": window_seconds,
+        "provider_credits": {"onemin": sum(max(0, int(item.estimated_credits)) for item in usage_events)},
+        "lane_requests": lane_requests,
+        "lane_credits": lane_credits,
+    }
+
+
+def _record_provider_dispatch_event(
+    *,
+    provider_key: str,
+    model: str,
+    lane: str,
+    estimated_onemin_credits: int | None,
+    happened_at: float | None = None,
+) -> None:
+    _load_provider_ledgers_once()
+    event = ProviderDispatchEvent(
+        happened_at=float(happened_at if happened_at is not None else _now_epoch()),
+        provider_key=str(provider_key or ""),
+        model=str(model or ""),
+        lane=str(lane or _LANE_DEFAULT),
+        estimated_onemin_credits=int(estimated_onemin_credits) if estimated_onemin_credits is not None else None,
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _PROVIDER_DISPATCH_EVENTS.append(event)
+    _append_provider_ledger_record(
+        "provider_dispatch_events.jsonl",
+        {
+            "happened_at": event.happened_at,
+            "provider_key": event.provider_key,
+            "model": event.model,
+            "lane": event.lane,
+            "estimated_onemin_credits": event.estimated_onemin_credits,
+        },
+    )
+
+
+def _avoided_onemin_credit_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        dispatch_events = [item for item in _PROVIDER_DISPATCH_EVENTS if now - item.happened_at <= window_seconds]
+    by_lane: dict[str, dict[str, int]] = {}
+    for item in dispatch_events:
+        lane = str(item.lane or _LANE_DEFAULT)
+        if lane not in {"fast", "audit"}:
+            continue
+        if item.provider_key == "onemin":
+            continue
+        bucket = by_lane.setdefault(
+            lane,
+            {"avoided_credits": 0, "requests": 0},
+        )
+        bucket["requests"] += 1
+        bucket["avoided_credits"] += max(0, int(item.estimated_onemin_credits or 0))
+    return {
+        "window_seconds": window_seconds,
+        "easy_lane": by_lane.get("fast", {"avoided_credits": 0, "requests": 0}),
+        "jury_lane": by_lane.get("audit", {"avoided_credits": 0, "requests": 0}),
+        "total_avoided_credits": sum(bucket["avoided_credits"] for bucket in by_lane.values()),
+    }
+
+
+def _avoided_credit_text(*, actual_onemin_burn: int, avoided: dict[str, object]) -> dict[str, str]:
+    lines: dict[str, str] = {}
+    actual = max(0, int(actual_onemin_burn))
+    for key, lane_name in (("easy_lane", "easy"), ("jury_lane", "jury")):
+        bucket = dict(avoided.get(key) or {})
+        avoided_credits = max(0, int(bucket.get("avoided_credits") or 0))
+        requests = max(0, int(bucket.get("requests") or 0))
+        if avoided_credits <= 0 or requests <= 0:
+            lines[lane_name] = f"No measurable {lane_name} lane savings yet in this window."
+            continue
+        percent = round((avoided_credits / float(actual + avoided_credits)) * 100.0, 1) if (actual + avoided_credits) > 0 else 0.0
+        lines[lane_name] = (
+            f"Without the {lane_name} lane, the 1min pool would be about {percent}% lower "
+            f"in this window ({avoided_credits} credits avoided across {requests} requests)."
+        )
+    return lines
+
+
+def _recent_topup_events(*, provider_key: str, limit: int = 10) -> list[ProviderBalanceSnapshot]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [item for item in _PROVIDER_BALANCE_SNAPSHOTS if item.provider_key == provider_key and item.topup_detected]
+    rows.sort(key=lambda item: item.happened_at, reverse=True)
+    return rows[: max(1, limit)]
+
+
+def codex_status_report(*, window: str = "1h") -> dict[str, object]:
+    provider_health = _provider_health_report()
+    now = _now_epoch()
+    window_seconds = _status_window_seconds(window)
+    onemin = dict((provider_health.get("providers") or {}).get("onemin") or {})
+    slots = list(onemin.get("slots") or [])
+    providers_summary: list[dict[str, object]] = []
+    for provider_key, provider in dict(provider_health.get("providers") or {}).items():
+        provider_dict = dict(provider or {})
+        provider_slots = list(provider_dict.get("slots") or [])
+        if provider_key == "onemin":
+            for slot in provider_slots:
+                providers_summary.append(
+                    {
+                        "provider_key": "onemin",
+                        "provider_name": "1min",
+                        "account_name": slot.get("account_name"),
+                        "slot": slot.get("slot"),
+                        "state": slot.get("state"),
+                        "free_credits": slot.get("estimated_remaining_credits"),
+                        "max_credits": slot.get("max_credits"),
+                        "used_percent": (
+                            round(
+                                (1.0 - (float(slot.get("estimated_remaining_credits")) / float(slot.get("max_credits")))) * 100.0,
+                                2,
+                            )
+                            if slot.get("estimated_remaining_credits") is not None and slot.get("max_credits")
+                            else None
+                        ),
+                        "basis": slot.get("estimated_credit_basis"),
+                        "last_balance_observed_at": slot.get("last_balance_observed_at"),
+                        "burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
+                        "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+                    }
+                )
+            continue
+        for slot in provider_slots or [{}]:
+            providers_summary.append(
+                {
+                    "provider_key": provider_key,
+                    "provider_name": str(provider_dict.get("backend") or provider_key),
+                    "account_name": slot.get("account_name"),
+                    "slot": slot.get("slot"),
+                    "state": slot.get("state") or provider_dict.get("state"),
+                    "free_credits": None,
+                    "max_credits": None,
+                    "used_percent": None,
+                    "basis": "no_balance_api",
+                    "last_balance_observed_at": None,
+                    "burn_credits_per_hour": None,
+                    "hours_remaining_at_current_pace": None,
+                }
+            )
+    topups = _recent_topup_events(provider_key="onemin", limit=10)
+    selected_window_burn = _onemin_lane_burn_summary(now=now, window_seconds=window_seconds)
+    selected_window_avoided = _avoided_onemin_credit_summary(now=now, window_seconds=window_seconds)
+    return {
+        "generated_at": now,
+        "window": str(window or "1h"),
+        "default_profile": provider_health.get("provider_config", {}).get("default_profile"),
+        "default_lane": provider_health.get("provider_config", {}).get("default_lane"),
+        "provider_health": provider_health,
+        "providers_summary": providers_summary,
+        "fleet_burn": {
+            "1h": _onemin_lane_burn_summary(now=now, window_seconds=3600.0),
+            "24h": _onemin_lane_burn_summary(now=now, window_seconds=86400.0),
+            "7d": _onemin_lane_burn_summary(now=now, window_seconds=604800.0),
+            "selected_window": selected_window_burn,
+        },
+        "avoided_credits": {
+            "1h": _avoided_onemin_credit_summary(now=now, window_seconds=3600.0),
+            "24h": _avoided_onemin_credit_summary(now=now, window_seconds=86400.0),
+            "7d": _avoided_onemin_credit_summary(now=now, window_seconds=604800.0),
+            "selected_window": selected_window_avoided,
+            "selected_window_text": _avoided_credit_text(
+                actual_onemin_burn=int((selected_window_burn.get("provider_credits") or {}).get("onemin") or 0),
+                avoided=selected_window_avoided,
+            ),
+        },
+        "topup_summary": {
+            "last_actual_balance_check_at": onemin.get("last_actual_balance_at"),
+            "last_topup_detected_at": topups[0].happened_at if topups else None,
+            "topup_events": [
+                {
+                    "happened_at": item.happened_at,
+                    "account_name": item.account_name,
+                    "topup_delta": item.topup_delta,
+                    "basis": item.basis,
+                    "source": item.source,
+                }
+                for item in topups
+            ],
+            "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+        },
+        "status_basis": onemin.get("credit_estimation_mode"),
+    }
+
+
+def _parse_credit_like_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value or "").strip()
+    if not text:
+        return None
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return None
+    try:
+        return max(0, int(digits))
+    except Exception:
+        return None
+
+
+def _parse_onemin_balance_facts(facts: dict[str, object]) -> tuple[int | None, int | None]:
+    remaining_keys = (
+        "remaining_credits",
+        "free_credits",
+        "credits_left",
+        "available_credits",
+        "credits_available",
+    )
+    max_keys = (
+        "max_credits",
+        "total_credits",
+        "credits_total",
+        "plan_credits",
+    )
+    remaining = None
+    max_credits = None
+    for key in remaining_keys:
+        remaining = _parse_credit_like_int(facts.get(key))
+        if remaining is not None:
+            break
+    for key in max_keys:
+        max_credits = _parse_credit_like_int(facts.get(key))
+        if max_credits is not None:
+            break
+    return remaining, max_credits
+
+
+def record_provider_balance_snapshot(
+    *,
+    provider_key: str,
+    account_name: str,
+    remaining_credits: int | None,
+    max_credits: int | None,
+    basis: str,
+    source: str,
+    detail: str = "",
+) -> dict[str, object]:
+    snapshot = _record_provider_balance_snapshot(
+        provider_key=provider_key,
+        account_name=account_name,
+        remaining_credits=remaining_credits,
+        max_credits=max_credits,
+        basis=basis,
+        source=source,
+        detail=detail,
+    )
+    return {
+        "provider_key": snapshot.provider_key,
+        "account_name": snapshot.account_name,
+        "remaining_credits": snapshot.remaining_credits,
+        "max_credits": snapshot.max_credits,
+        "basis": snapshot.basis,
+        "source": snapshot.source,
+        "happened_at": snapshot.happened_at,
+        "topup_detected": snapshot.topup_detected,
+        "topup_delta": snapshot.topup_delta,
+        "detail": snapshot.detail,
+    }
+
+
+def record_onemin_balance_from_facts(
+    *,
+    account_name: str,
+    facts: dict[str, object],
+    source: str = "browseract_extract",
+    basis: str = "actual_ui_probe",
+) -> dict[str, object] | None:
+    remaining_credits, max_credits = _parse_onemin_balance_facts(facts)
+    if remaining_credits is None:
+        return None
+    return record_provider_balance_snapshot(
+        provider_key="onemin",
+        account_name=account_name,
+        remaining_credits=remaining_credits,
+        max_credits=max_credits or _onemin_max_credits_per_key(),
+        basis=basis,
+        source=source,
+        detail="1min_facts_probe",
+    )
 
 
 def _provider_health_report() -> dict[str, object]:
+    _load_provider_ledgers_once()
     now = _now_epoch()
     onemin_key_names = _onemin_key_names()
     onemin_active_keys = _onemin_active_keys()
@@ -3173,10 +3842,12 @@ def _provider_health_report() -> dict[str, object]:
         key_state = onemin_key_states.get(key, OneminKeyState(key=key))
         slot_state = _onemin_key_state_label(key_state, now=now)
         credit_state = _parse_credit_state(key_state.last_error)
+        account_name = _provider_account_name("onemin", key_names=onemin_key_names, key=key)
         estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
             state_label=slot_state,
             state=key_state,
         )
+        latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
         observed_spend = _observed_onemin_spend(api_key=key)
         observed_success_count = _observed_onemin_request_count(api_key=key)
         next_retry_at = 0.0
@@ -3188,7 +3859,7 @@ def _provider_health_report() -> dict[str, object]:
             {
                 "slot": _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names),
                 "configured": bool(key),
-                "account_name": _provider_account_name("onemin", key_names=onemin_key_names, key=key),
+                "account_name": account_name,
                 "state": slot_state,
                 "last_used_at": float(key_state.last_used_at),
                 "last_success_at": float(key_state.last_success_at),
@@ -3202,6 +3873,11 @@ def _provider_health_report() -> dict[str, object]:
                 "credit_subject": credit_state.get("credit_subject") if credit_state else None,
                 "estimated_remaining_credits": estimated_remaining_credits,
                 "estimated_credit_basis": estimated_credit_basis,
+                "max_credits": _onemin_max_credits_per_key(),
+                "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
+                "last_balance_source": latest_balance.source if latest_balance is not None else None,
+                "topup_detected": bool(latest_balance.topup_detected) if latest_balance is not None else False,
+                "topup_delta": latest_balance.topup_delta if latest_balance is not None else None,
                 "observed_consumed_credits": observed_spend,
                 "observed_success_count": observed_success_count,
                 "next_retry_at": next_retry_at or None,
@@ -3210,17 +3886,36 @@ def _provider_health_report() -> dict[str, object]:
         )
 
     onemin_max_total = _onemin_max_credits_total(len(onemin_slots))
-    onemin_estimated_remaining_total = sum(
+    onemin_known_remaining_total = sum(
         int(slot.get("estimated_remaining_credits") or 0)
         for slot in onemin_slots
+        if slot.get("estimated_remaining_credits") is not None
     )
+    onemin_unknown_slots = sum(1 for slot in onemin_slots if slot.get("estimated_remaining_credits") is None)
     onemin_burn_summary = _onemin_burn_summary(
         now=now,
-        estimated_remaining_credits_total=onemin_estimated_remaining_total,
+        estimated_remaining_credits_total=onemin_known_remaining_total,
     )
     onemin_remaining_percent = None
-    if onemin_max_total > 0:
-        onemin_remaining_percent = round((onemin_estimated_remaining_total / onemin_max_total) * 100.0, 2)
+    if onemin_max_total > 0 and onemin_unknown_slots == 0:
+        onemin_remaining_percent = round((onemin_known_remaining_total / onemin_max_total) * 100.0, 2)
+    actual_snapshots = [
+        snapshot
+        for snapshot in _recent_topup_events(provider_key="onemin", limit=512)
+    ]
+    latest_actual_balance_at = None
+    with _ONEMIN_USAGE_LOCK:
+        for snapshot in _PROVIDER_BALANCE_SNAPSHOTS:
+            if snapshot.provider_key != "onemin":
+                continue
+            if snapshot.basis not in {"actual_ui_probe", "actual_provider_api"}:
+                continue
+            latest_actual_balance_at = max(latest_actual_balance_at or 0.0, snapshot.happened_at)
+    balance_basis_counts: dict[str, int] = {}
+    for slot in onemin_slots:
+        basis = str(slot.get("estimated_credit_basis") or "unknown_unprobed")
+        balance_basis_counts[basis] = balance_basis_counts.get(basis, 0) + 1
+    balance_basis_summary = ",".join(sorted(balance_basis_counts.keys())) if balance_basis_counts else "unknown_unprobed"
 
     magix_state, magix_detail, magix_checked_at = _magix_health_state_snapshot()
     magix_key_names = tuple(_magicx_config().api_keys)
@@ -3273,13 +3968,26 @@ def _provider_health_report() -> dict[str, object]:
                     if slot.get("remaining_credits") is not None
                 },
                 "remaining_percent_of_max": onemin_remaining_percent,
-                "estimated_remaining_credits_total": onemin_estimated_remaining_total,
+                "estimated_remaining_credits_total": onemin_known_remaining_total,
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
-                "credit_estimation_mode": "observed_error_or_observed_usage_or_ready_assumed_full",
+                "unknown_balance_slots": onemin_unknown_slots,
+                "last_actual_balance_at": latest_actual_balance_at,
+                "balance_basis_summary": balance_basis_summary,
+                "credit_estimation_mode": "actual_or_observed_or_estimated_else_unknown_unprobed",
                 "max_requests_per_hour": onemin_max_requests_per_hour,
                 "max_credits_per_hour": onemin_max_credits_per_hour,
                 "max_credits_per_day": onemin_max_credits_per_day,
+                "recent_topup_events": [
+                    {
+                        "happened_at": item.happened_at,
+                        "account_name": item.account_name,
+                        "topup_delta": item.topup_delta,
+                        "basis": item.basis,
+                        "source": item.source,
+                    }
+                    for item in actual_snapshots[:10]
+                ],
                 **onemin_burn_summary,
             },
             "magixai": {

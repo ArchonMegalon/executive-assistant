@@ -11,11 +11,13 @@ services:
     environment:
       - EA_ROLE=api
       - EA_PORT=8090
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - TZ=Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
     volumes:
       - ./config:/config:ro
+      - ea_provider_ledger:/data/provider-ledger
     depends_on:
       ea-db:
         condition: service_healthy
@@ -31,9 +33,11 @@ services:
       - .env
     environment:
       - EA_ROLE=worker
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ea_provider_ledger:/data/provider-ledger
     depends_on:
       ea-db:
         condition: service_healthy
@@ -49,9 +53,11 @@ services:
       - .env
     environment:
       - EA_ROLE=scheduler
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ea_provider_ledger:/data/provider-ledger
     depends_on:
       ea-db:
         condition: service_healthy
@@ -72,3 +78,4 @@ services:
 
 volumes:
   ea_pgdata: {}
+  ea_provider_ledger: {}

@@ -12,10 +12,12 @@ WORKDIR /app
 COPY ea/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ea/app ./app
-RUN chown -R ea:ea /app
+COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chown -R ea:ea /app && chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER ea
+USER root
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import os,sys,urllib.request; role=os.environ.get('EA_ROLE','api').strip().lower(); sys.exit(0 if role in {'worker','scheduler'} else int(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3).status != 200))" >/dev/null || exit 1
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "app.runner"]

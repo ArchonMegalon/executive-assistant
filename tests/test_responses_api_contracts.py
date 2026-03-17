@@ -738,6 +738,132 @@ def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.M
     assert "unsupported_input_item" in resp.text or "unsupported_input_part_type" in resp.text
 
 
+def test_responses_ignores_non_dict_resume_state_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        return UpstreamResult(
+            text="resume ok",
+            provider_key="magixai",
+            model="x-ai/grok-code-fast-1",
+            tokens_in=3,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "input": [
+                {"type": "input_text", "text": "keep going"},
+                ["resume-state", {"ignored": True}],
+                None,
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "resume ok"
+    assert body["input"] == [{"type": "input_text", "text": "keep going"}]
+
+
+def test_responses_accepts_unknown_textish_resume_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert "assistant summary from resume" in prompt
+        assert "resume trace payload" in prompt
+        assert messages
+        return UpstreamResult(
+            text="resume ok",
+            provider_key="magixai",
+            model="x-ai/grok-code-fast-1",
+            tokens_in=3,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-fast",
+            "input": [
+                {"type": "reasoning", "summary": "assistant summary from resume"},
+                {"type": "custom_debug_blob", "content": [{"type": "output_text", "text": "resume trace payload"}]},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["output_text"] == "resume ok"
+
+
+def test_responses_accepts_codex_tool_history_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "thinking\n\nfollow up"
+        assert messages == [
+            {"role": "assistant", "content": "thinking"},
+            {"role": "user", "content": "follow up"},
+        ]
+        assert requested_model == "ea-coder-fast"
+        return UpstreamResult(
+            text="tool resume ok",
+            provider_key="magixai",
+            model="x-ai/grok-code-fast-1",
+            tokens_in=4,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-fast",
+            "input": [
+                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "thinking"}]},
+                {"type": "local_shell_call", "call_id": "call_123", "name": "exec_command", "arguments": "{\"cmd\":\"pwd\"}"},
+                {"type": "local_shell_call_output", "call_id": "call_123", "output": "{\"stdout\":\"/docker/fleet\\n\"}"},
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "follow up"}]},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "tool resume ok"
+    input_items = body["input"]
+    assert input_items[0]["type"] == "reasoning"
+    assert input_items[1]["type"] == "local_shell_call"
+    assert input_items[2]["type"] == "local_shell_call_output"
+
+
 def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
@@ -1041,6 +1167,10 @@ def test_codex_audit_smoke_uses_chatplayground_callback_path(monkeypatch: pytest
 def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-profile")
 
+    for key in list(os.environ.keys()):
+        if key.startswith("ONEMIN_AI_API_KEY"):
+            monkeypatch.delenv(key, raising=False)
+
     monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
@@ -1192,6 +1322,10 @@ def test_responses_provider_health_reports_observed_credit_balance_without_leaki
 def test_responses_provider_health_aggregates_onemin_remaining_percent_of_max(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream as upstream
 
+    for key in list(os.environ.keys()):
+        if key.startswith("ONEMIN_AI_API_KEY") or key.startswith("EA_RESPONSES_ONEMIN_"):
+            monkeypatch.delenv(key, raising=False)
+
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "empty-a")
@@ -1212,8 +1346,63 @@ def test_responses_provider_health_aggregates_onemin_remaining_percent_of_max(mo
     onemin = health["providers"]["onemin"]
 
     assert onemin["max_credits_total"] == 13350000
-    assert onemin["estimated_remaining_credits_total"] == 4450000
-    assert onemin["remaining_percent_of_max"] == 33.33
+    assert onemin["estimated_remaining_credits_total"] == 0
+    assert onemin["remaining_percent_of_max"] is None
+    assert onemin["unknown_balance_slots"] == 1
+    healthy_slot = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    assert healthy_slot["estimated_remaining_credits"] is None
+    assert healthy_slot["estimated_credit_basis"] == "unknown_unprobed"
+
+
+def test_responses_provider_health_keeps_fresh_onemin_slots_unknown_until_observed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "fresh-primary")
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+
+    assert slot["estimated_remaining_credits"] is None
+    assert slot["estimated_credit_basis"] == "unknown_unprobed"
+    assert health["providers"]["onemin"]["remaining_percent_of_max"] is None
+
+
+def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-status")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "savings-key")
+
+    upstream._record_onemin_usage_event(
+        api_key="savings-key",
+        model="gpt-5",
+        tokens_in=100,
+        tokens_out=50,
+        lane="hard",
+    )
+    upstream._record_provider_dispatch_event(
+        provider_key="gemini_vortex",
+        model="gemini-3-flash-preview",
+        lane="fast",
+        estimated_onemin_credits=300,
+    )
+    upstream._record_provider_dispatch_event(
+        provider_key="chatplayground",
+        model="judge-model",
+        lane="audit",
+        estimated_onemin_credits=150,
+    )
+
+    response = client.get("/v1/codex/status?window=1h")
+    assert response.status_code == 200
+    body = response.json()
+    avoided = body["avoided_credits"]["selected_window"]
+    assert avoided["easy_lane"]["avoided_credits"] == 300
+    assert avoided["jury_lane"]["avoided_credits"] == 150
+    assert "Without the easy lane" in body["avoided_credits"]["selected_window_text"]["easy"]
+    assert "Without the jury lane" in body["avoided_credits"]["selected_window_text"]["jury"]
 
 
 def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
