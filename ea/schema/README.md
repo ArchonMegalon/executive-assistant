@@ -25,3 +25,14 @@ Current rewrite kernel migrations:
 - `20260305_v0_20_communication_policies_kernel.sql`
 - `20260305_v0_21_follow_up_rules_kernel.sql`
 - `20260305_v0_22_interruption_budgets_kernel.sql`
+- `20260305_v0_23_execution_queue_kernel.sql`
+- `20260305_v0_24_human_tasks_kernel.sql`
+- `20260305_v0_25_human_task_resume_kernel.sql`
+- `20260305_v0_26_human_task_assignment_state.sql`
+- `20260305_v0_27_human_task_review_contract.sql`
+- `20260305_v0_28_operator_profiles_kernel.sql`
+- `20260305_v0_29_human_task_assignment_source.sql`
+- `20260305_v0_30_human_task_assignment_provenance.sql`
+- `20260305_v0_31_artifact_principal_scope.sql`
+- `20260305_v0_32_provider_bindings_kernel.sql`
+- `20260305_v0_33_task_contract_runtime_policy.sql`

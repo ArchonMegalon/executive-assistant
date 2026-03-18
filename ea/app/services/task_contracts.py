@@ -92,11 +92,13 @@ class TaskContractService:
         evidence_requirements: tuple[str, ...] = (),
         memory_write_policy: str = "reviewed_only",
         budget_policy_json: dict[str, object] | None = None,
+        runtime_policy_json: dict[str, object] | None = None,
         runtime_policy: TaskContractRuntimePolicy | None = None,
     ) -> TaskContract:
         policy_payload = dict(budget_policy_json or {})
+        typed_policy_payload = dict(runtime_policy_json or {})
         if runtime_policy is not None:
-            policy_payload.update(serialize_task_contract_runtime_policy(runtime_policy))
+            typed_policy_payload = serialize_task_contract_runtime_policy(runtime_policy)
         row = TaskContract(
             task_key=str(task_key or "").strip(),
             deliverable_type=str(deliverable_type or ""),
@@ -107,6 +109,7 @@ class TaskContractService:
             memory_write_policy=str(memory_write_policy or "reviewed_only"),
             budget_policy_json=policy_payload,
             updated_at=now_utc_iso(),
+            runtime_policy_json=typed_policy_payload,
         )
         return self._repo.upsert(row)
 
@@ -149,6 +152,7 @@ class TaskContractService:
                 memory_write_policy="reviewed_only",
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
+                runtime_policy_json={},
             )
         raise ValueError(f"task_contract_not_found:{normalized}")
 

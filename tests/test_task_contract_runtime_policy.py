@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.domain.models import TaskContract, now_utc_iso
+from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.services.task_contracts import TaskContractService
 
 
 def test_task_contract_runtime_policy_parses_typed_metadata() -> None:
@@ -101,3 +103,74 @@ def test_task_contract_runtime_policy_applies_safe_defaults_for_invalid_values()
     assert policy.human_review.desired_output_json["format"] == "review_packet"
     assert policy.skill_catalog.memory_reads == ()
     assert policy.skill_catalog.evaluation_cases_json == ()
+
+
+def test_task_contract_runtime_policy_prefers_typed_runtime_policy_json() -> None:
+    contract = TaskContract(
+        task_key="rewrite_text",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=(),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={"class": "low", "workflow_template": "rewrite"},
+        runtime_policy_json={"class": "medium", "workflow_template": "artifact_then_packs"},
+        updated_at=now_utc_iso(),
+    )
+
+    policy = contract.runtime_policy()
+
+    assert policy.budget_class == "medium"
+    assert policy.workflow_template_key == "artifact_then_packs"
+
+
+def test_task_contract_service_persists_runtime_policy_separately_from_budget_policy() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    contract = service.upsert_contract(
+        task_key="rewrite_text",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={"class": "low", "legacy_only": True},
+        runtime_policy_json={"workflow_template": "artifact_then_dispatch", "class": "medium"},
+    )
+
+    assert contract.budget_policy_json == {"class": "low", "legacy_only": True}
+    assert contract.runtime_policy_json["workflow_template"] == "artifact_then_dispatch"
+    assert contract.runtime_policy().budget_class == "medium"
+
+
+def test_task_contract_runtime_policy_deep_merges_nested_skill_catalog_fields() -> None:
+    contract = TaskContract(
+        task_key="rewrite_text",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("artifact_repository",),
+        evidence_requirements=(),
+        memory_write_policy="reviewed_only",
+        budget_policy_json={
+            "skill_catalog_json": {
+                "skill_key": "rewrite_text",
+                "provider_hints_json": {"primary": ["BrowserAct"]},
+                "model_policy_json": {"brain_profile": "groundwork"},
+            }
+        },
+        runtime_policy_json={
+            "skill_catalog_json": {
+                "provider_hints_json": {"secondary": ["gemini_vortex"]},
+            }
+        },
+        updated_at=now_utc_iso(),
+    )
+
+    policy = contract.runtime_policy()
+
+    assert policy.skill_catalog.skill_key == "rewrite_text"
+    assert policy.skill_catalog.model_policy_json["brain_profile"] == "groundwork"
+    assert policy.skill_catalog.provider_hints_json["primary"] == ["BrowserAct"]
+    assert policy.skill_catalog.provider_hints_json["secondary"] == ["gemini_vortex"]

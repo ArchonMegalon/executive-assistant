@@ -14,6 +14,9 @@ def test_schema_readme_lists_latest_migrations() -> None:
     assert "20260305_v0_8_channel_runtime_reliability.sql" in text
     assert "20260305_v0_9_tool_connector_kernel.sql" in text
     assert "20260305_v0_10_task_contracts_kernel.sql" in text
+    assert "20260305_v0_31_artifact_principal_scope.sql" in text
+    assert "20260305_v0_32_provider_bindings_kernel.sql" in text
+    assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
 
 
 def test_db_bootstrap_includes_latest_migrations() -> None:
@@ -24,6 +27,21 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
     assert "20260305_v0_8_channel_runtime_reliability.sql" in text
     assert "20260305_v0_9_tool_connector_kernel.sql" in text
     assert "20260305_v0_10_task_contracts_kernel.sql" in text
+    assert "20260305_v0_31_artifact_principal_scope.sql" in text
+    assert "20260305_v0_32_provider_bindings_kernel.sql" in text
+    assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
+
+
+def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_column() -> None:
+    provider_bindings = (ROOT / "ea/schema/20260305_v0_32_provider_bindings_kernel.sql").read_text()
+    runtime_policy = (ROOT / "ea/schema/20260305_v0_33_task_contract_runtime_policy.sql").read_text()
+
+    assert "CREATE TABLE IF NOT EXISTS provider_bindings" in provider_bindings
+    assert "idx_provider_bindings_principal_provider" in provider_bindings
+    assert "idx_provider_bindings_principal_updated" in provider_bindings
+
+    assert "ALTER TABLE task_contracts" in runtime_policy
+    assert "ADD COLUMN IF NOT EXISTS runtime_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb" in runtime_policy
 
 
 def test_legacy_migration_regression_smoke_contract_is_wired() -> None:

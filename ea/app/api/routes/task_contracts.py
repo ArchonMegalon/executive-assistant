@@ -18,6 +18,7 @@ class TaskContractIn(BaseModel):
     evidence_requirements: list[str] = Field(default_factory=list)
     memory_write_policy: str = Field(default="reviewed_only", max_length=100)
     budget_policy_json: dict[str, object] = Field(default_factory=dict)
+    runtime_policy_json: dict[str, object] = Field(default_factory=dict)
 
 
 class TaskContractOut(BaseModel):
@@ -29,6 +30,7 @@ class TaskContractOut(BaseModel):
     evidence_requirements: list[str]
     memory_write_policy: str
     budget_policy_json: dict[str, object]
+    runtime_policy_json: dict[str, object]
     updated_at: str
 
 
@@ -46,6 +48,7 @@ def upsert_task_contract(
         evidence_requirements=tuple(body.evidence_requirements),
         memory_write_policy=body.memory_write_policy,
         budget_policy_json=body.budget_policy_json,
+        runtime_policy_json=body.runtime_policy_json,
     )
     return TaskContractOut(
         task_key=row.task_key,
@@ -56,6 +59,7 @@ def upsert_task_contract(
         evidence_requirements=list(row.evidence_requirements),
         memory_write_policy=row.memory_write_policy,
         budget_policy_json=row.budget_policy_json,
+        runtime_policy_json=row.runtime_policy_json,
         updated_at=row.updated_at,
     )
 
@@ -76,6 +80,7 @@ def list_task_contracts(
             evidence_requirements=list(r.evidence_requirements),
             memory_write_policy=r.memory_write_policy,
             budget_policy_json=r.budget_policy_json,
+            runtime_policy_json=r.runtime_policy_json,
             updated_at=r.updated_at,
         )
         for r in rows
@@ -99,5 +104,6 @@ def get_task_contract(
         evidence_requirements=list(row.evidence_requirements),
         memory_write_policy=row.memory_write_policy,
         budget_policy_json=row.budget_policy_json,
+        runtime_policy_json=row.runtime_policy_json,
         updated_at=row.updated_at,
     )

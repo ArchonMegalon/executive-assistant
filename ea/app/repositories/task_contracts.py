@@ -27,9 +27,9 @@ class InMemoryTaskContractRepository:
         if not key:
             raise ValueError("task_key is required")
         updated = replace(row, task_key=key, updated_at=now_utc_iso())
-        if key not in self._rows:
-            self._order.append(key)
         self._rows[key] = updated
+        self._order = [existing for existing in self._order if existing != key]
+        self._order.append(key)
         return updated
 
     def get(self, task_key: str) -> TaskContract | None:
