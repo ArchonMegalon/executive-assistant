@@ -94,6 +94,10 @@ def _common_skill_fields() -> dict[str, object]:
             "artifact_retry_backoff_seconds": 1,
             "style_epoch_enabled": True,
             "variation_guard_enabled": True,
+            "publish_on_success": True,
+            "publish_repo": "ArchonMegalon/Chummer6",
+            "publish_branch": "main",
+            "refresh_schedule_utc": {"weekday": 0, "hour": 5, "minute": 30},
         },
     }
 

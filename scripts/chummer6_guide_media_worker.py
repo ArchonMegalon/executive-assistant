@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -24,6 +23,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from chummer6_guide_canon import load_horizon_canon, load_part_canon
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 
@@ -32,14 +32,13 @@ ENV_FILE = EA_ROOT / ".env"
 STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
 MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
-FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
     "magixai",
+    "onemin",
     "browseract_magixai",
     "browseract_prompting_systems",
-    "onemin",
 ]
 PALETTES = [
     ("#0f766e", "#34d399"),
@@ -184,42 +183,156 @@ def provider_busy_delay_seconds() -> int:
         return 3
 
 
-def import_guide_module():
-    spec = importlib.util.spec_from_file_location("finish_chummer6_guide", FLEET_GUIDE_SCRIPT)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot import {FLEET_GUIDE_SCRIPT}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-GUIDE = import_guide_module()
+CANON_PARTS = load_part_canon()
+CANON_HORIZONS = load_horizon_canon()
 LEGACY_PART_SLUGS = {
     "ui": "presentation",
     "mobile": "play",
     "hub": "run-services",
 }
+HORIZON_MEDIA_FALLBACKS: dict[str, dict[str, object]] = {
+    "runsite": {
+        "badge": "SITE PACK",
+        "kicker": "Spatial truth before the breach starts improvising.",
+        "meta": "Status: Horizon Concept // Bounded explorable mission-space artifacts",
+        "overlay_hint": "Hotspots, ingress routes, and diegetic location receipts",
+        "visual_motifs": [
+            "bounded location pack",
+            "route overlays",
+            "hotspot beacons",
+            "museum-grade floor-plan lighting",
+            "explorable mission-space context",
+        ],
+        "overlay_callouts": [
+            "Ingress route",
+            "Watch angle",
+            "Hotspot",
+            "Artifact receipt",
+        ],
+        "scene_contract": {
+            "subject": "a runner crew studying an explorable mission-site briefing wall",
+            "environment": "a planning room wrapped around a holographic compound map and layered floor plans",
+            "action": "tracing ingress paths, chokepoints, and extraction lanes before the breach",
+            "metaphor": "mission-space clarity replacing shouted room descriptions",
+            "props": ["floor plans", "route overlays", "hotspot markers", "site receipts"],
+            "overlays": ["diegetic AR route traces", "hazard markers", "entry labels"],
+            "composition": "district_map",
+            "palette": "petrol cyan, rust amber, wet concrete neutrals",
+            "mood": "focused, spatial, dangerous",
+            "humor": "the GM finally gets to stop redrawing the same cursed warehouse on a napkin",
+        },
+    },
+    "runbook-press": {
+        "badge": "PRESS ROOM",
+        "kicker": "Long-form artifacts without letting vendor dashboards become canon.",
+        "meta": "Status: Horizon Concept // Governed long-form publishing lane",
+        "overlay_hint": "Editorial receipts, publication manifests, and governed source-pack cues",
+        "visual_motifs": [
+            "campaign proof sheets",
+            "bound source packs",
+            "editorial markup",
+            "publication manifests",
+            "creator desk lighting",
+        ],
+        "overlay_callouts": [
+            "Source pack locked",
+            "Editorial approval",
+            "Publication manifest",
+            "Render-ready proof",
+        ],
+        "scene_contract": {
+            "subject": "a creator-operator assembling a campaign-book proof from governed source packs",
+            "environment": "a cramped publishing desk stacked with primers, district drafts, and glowing approval receipts",
+            "action": "marking a long-form proof while manifests and citations stay pinned to the spread",
+            "metaphor": "creator ambition constrained by governed publication truth",
+            "props": ["proof sheets", "bound primers", "approval receipts", "layout boards"],
+            "overlays": ["diegetic editorial ticks", "manifest stamps", "citation markers"],
+            "composition": "dossier_desk",
+            "palette": "rust amber, aged paper cream, petrol cyan monitor spill",
+            "mood": "craft-driven, meticulous, slightly sleep-deprived",
+            "humor": "the dev discovers publishing is just software scope wearing nicer typography",
+        },
+    },
+}
 
 
 def provider_order() -> list[str]:
-    preferred = ["magixai", "browseract_magixai", "browseract_prompting_systems", "onemin"]
+    preferred = ["magixai", "onemin", "browseract_magixai", "browseract_prompting_systems"]
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
         return list(preferred)
     values = [part.strip().lower() for part in raw.split(",") if part.strip()]
-    filtered = []
+    filtered: list[str] = []
     for value in values:
-        if value in {"markupgo", "pollinations"}:
+        if value in {"markupgo", "pollinations", "ooda_compositor", "scene_contract_renderer", "local_raster"}:
             continue
-        if value in {"ooda_compositor"}:
-            filtered.append("scene_contract_renderer")
-            continue
-        filtered.append(value)
-    ordered = sorted(
-        dict.fromkeys(filtered),
-        key=lambda value: preferred.index(value) if value in preferred else len(preferred),
+        if value not in filtered:
+            filtered.append(value)
+    return filtered or list(preferred)
+
+
+def is_credit_exhaustion_message(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "insufficient_credits",
+            "insufficient credit",
+            "insufficient credits",
+            "out of credits",
+            "not enough credits",
+            "credit balance",
+            "balance is too low",
+            "quota exceeded",
+        )
     )
-    return ordered or list(preferred)
+
+
+def fallback_horizon_media_row(slug: str, item: dict[str, object]) -> dict[str, object]:
+    template = dict(HORIZON_MEDIA_FALLBACKS.get(slug) or {})
+    title = str(item.get("title") or slug.replace("-", " ").title()).strip()
+    hook = " ".join(str(item.get("hook") or "").split()).strip()
+    problem = " ".join(str(item.get("problem") or item.get("brutal_truth") or "").split()).strip()
+    use_case = " ".join(str(item.get("use_case") or "").split()).strip()
+    foundations = [str(entry).strip() for entry in (item.get("foundations") or []) if str(entry).strip()]
+    scene_contract = dict(template.get("scene_contract") or {})
+    visual_prompt = str(template.get("visual_prompt") or "").strip()
+    if not visual_prompt:
+        visual_prompt = (
+            f"Cinematic cyberpunk concept art for {title}. {use_case or hook} "
+            f"Show concrete props tied to {', '.join(foundations[:3]) or 'governed receipts and mission-ready artifacts'}. "
+            "No printed text, no logos, no slide-deck framing."
+        ).strip()
+    return {
+        "badge": str(template.get("badge") or f"HORIZON:{slug.upper().replace('-', '_')[:14]}").strip(),
+        "title": title,
+        "subtitle": str(template.get("subtitle") or hook or use_case).strip(),
+        "kicker": str(
+            template.get("kicker")
+            or "Canonical design is ahead of the richer guide packet, so this scene is grounded directly in the current horizon brief."
+        ).strip(),
+        "note": str(template.get("note") or problem or use_case).strip(),
+        "meta": str(template.get("meta") or "Status: Horizon Concept // Canon-driven visual seed").strip(),
+        "visual_prompt": visual_prompt,
+        "overlay_hint": str(template.get("overlay_hint") or "Diegetic receipts and bounded operator overlays only.").strip(),
+        "visual_motifs": list(template.get("visual_motifs") or foundations[:4]),
+        "overlay_callouts": list(template.get("overlay_callouts") or foundations[:4]),
+        "scene_contract": {
+            "subject": str(scene_contract.get("subject") or f"{title} made concrete in one playable moment").strip(),
+            "environment": str(scene_contract.get("environment") or use_case or problem).strip(),
+            "action": str(scene_contract.get("action") or use_case or hook).strip(),
+            "metaphor": str(scene_contract.get("metaphor") or hook or problem).strip(),
+            "props": list(scene_contract.get("props") or foundations[:4]),
+            "overlays": list(scene_contract.get("overlays") or foundations[:3]),
+            "composition": str(scene_contract.get("composition") or "single_protagonist").strip(),
+            "palette": str(scene_contract.get("palette") or "petrol cyan, rust amber, wet charcoal").strip(),
+            "mood": str(scene_contract.get("mood") or "grounded, cinematic, specific").strip(),
+            "humor": str(
+                scene_contract.get("humor")
+                or "the design canon moved first, so the art direction is sprinting to catch up without pretending local fallback slop is acceptable"
+            ).strip(),
+        },
+    }
 
 
 def deep_merge(base: object, override: object) -> object:
@@ -624,6 +737,8 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
                             content_type = str(response.headers.get("Content-Type") or "").lower()
                     except urllib.error.HTTPError as exc:
                         body = exc.read().decode("utf-8", errors="replace").strip()
+                        if is_credit_exhaustion_message(body):
+                            return False, f"magixai:insufficient_credits:http_{exc.code}:{body[:180]}"
                         errors.append(f"{url}:{model}:http_{exc.code}:{body[:180]}")
                         continue
                     except urllib.error.URLError as exc:
@@ -986,74 +1101,6 @@ def palette_for(prompt: str) -> tuple[str, str]:
     return PALETTES[int(digest[:2], 16) % len(PALETTES)]
 
 
-def title_for(prompt: str, output_path: Path) -> str:
-    stem = output_path.stem.replace("-", " ").replace("_", " ").strip()
-    if stem:
-        return stem.title()
-    words = [word for word in prompt.split() if word.isalpha()]
-    return " ".join(words[:3]).title() or "Chummer6"
-
-
-def layout_for(output_path: Path) -> str:
-    name = output_path.name.lower()
-    if "program-map" in name:
-        return "grid"
-    if "status-strip" in name:
-        return "status"
-    return "banner"
-
-
-def render_local_raster(*, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
-    accent, glow = palette_for(prompt)
-    title = title_for(prompt, output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.suffix.lower() == ".gif":
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            for index in range(6):
-                frame = GUIDE.synth_cyberpunk_png(
-                    title,
-                    accent,
-                    glow,
-                    width=width,
-                    height=height,
-                    phase=index * 0.55,
-                    layout="banner",
-                )
-                (tmp / f"frame-{index:02d}.png").write_bytes(frame)
-            subprocess.run(
-                [
-                    ffmpeg_bin(),
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-framerate",
-                    "4",
-                    "-i",
-                    str(tmp / "frame-%02d.png"),
-                    "-vf",
-                    f"scale={width}:{height}:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
-                    str(output_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        return True, "local_raster:animated"
-    output_path.write_bytes(
-        GUIDE.synth_cyberpunk_png(
-            title,
-            accent,
-            glow,
-            width=width,
-            height=height,
-            layout=layout_for(output_path),
-        )
-    )
-    return True, "local_raster:rendered"
-
-
 def _font_path(bold: bool = False) -> str:
     path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     return path
@@ -1068,47 +1115,6 @@ def _write_text_file(directory: Path, name: str, value: str, *, width: int) -> P
 
 def _ffmpeg_path(value: Path) -> str:
     return str(value).replace("\\", "\\\\").replace(":", "\\:")
-
-
-def _ooda_layout_for(target: str) -> str:
-    lowered = str(target or "").lower()
-    if "horizons-index" in lowered or "parts-index" in lowered:
-        return "grid"
-    if "current-status" in lowered or "public-surfaces" in lowered:
-        return "status"
-    return "banner"
-
-
-def run_ooda_compositor(*, spec: dict[str, object], prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
-    row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
-    if not isinstance(row, dict):
-        return False, "ooda_compositor:missing_media_row"
-    title = " ".join(str(row.get("title", "") or output_path.stem).split()).strip() or output_path.stem.replace("-", " ").title()
-    subtitle = " ".join(str(row.get("subtitle", "")).split()).strip()
-    kicker = " ".join(str(row.get("kicker", "")).split()).strip()
-    note = " ".join(str(row.get("note", "")).split()).strip()
-    overlay_hint = " ".join(str(row.get("overlay_hint", "")).split()).strip()
-    callouts = [str(entry).strip() for entry in (row.get("overlay_callouts") or []) if str(entry).strip()]
-    motifs = [str(entry).strip() for entry in (row.get("visual_motifs") or []) if str(entry).strip()]
-    scene_contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
-    if not scene_contract or not str(scene_contract.get("visual_prompt") or row.get("visual_prompt") or "").strip():
-        return False, "ooda_compositor:missing_scene_contract"
-    layout = _ooda_layout_for(str(spec.get("target", output_path.name)))
-    accent, glow = palette_for(prompt + "::" + title + "::" + str(scene_contract.get("palette", "")))
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_bytes(
-        GUIDE.synth_context_scene_png(
-            title,
-            accent,
-            glow,
-            scene_contract,
-            scene_row=row,
-            width=width,
-            height=height,
-            layout=layout,
-        )
-    )
-    return True, "scene_contract_renderer:rendered"
 
 
 def refine_prompt_local(prompt: str, *, target: str) -> str:
@@ -1347,6 +1353,13 @@ def troll_mark_tint(kind: str) -> str:
     return "#f2f1e8"
 
 
+def hex_rgb(value: str) -> tuple[int, int, int]:
+    clean = str(value or "").strip().lstrip("#")
+    if len(clean) != 6:
+        raise ValueError(f"invalid_hex_color:{value}")
+    return int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16)
+
+
 def troll_overlay_defaults(*, composition: str, width: int, height: int, kind: str) -> dict[str, object]:
     base_positions = {
         "safehouse_table": (0.46, 0.82),
@@ -1416,7 +1429,7 @@ def apply_troll_postpass(*, image_path: Path, spec: dict[str, object], width: in
         raise RuntimeError(f"troll_postpass:missing_mark:{TROLL_MARK_PATH}")
     settings = troll_postpass_settings(spec=spec, width=width, height=height)
     tint = str(settings.get("tint") or "#f2f1e8").strip()
-    red, green, blue = GUIDE.hex_rgb(tint)
+    red, green, blue = hex_rgb(tint)
     rg = max(0.0, min(1.0, red / 255.0))
     gg = max(0.0, min(1.0, green / 255.0))
     bg = max(0.0, min(1.0, blue / 255.0))
@@ -1831,34 +1844,13 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
                 url_ok, url_detail = run_url_provider("onemin", url_template("CHUMMER6_1MIN_RENDER_URL_TEMPLATE"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
                 if url_ok or detail.endswith(":not_configured"):
                     ok, detail = url_ok, url_detail
-        elif normalized in {"scene_contract_renderer", "ooda_compositor"}:
-            ok, detail = run_ooda_compositor(spec=spec, prompt=prompt, output_path=output_path, width=width, height=height)
-        elif normalized == "local_raster":
-            ok, detail = render_local_raster(prompt=prompt, output_path=output_path, width=width, height=height)
+        elif normalized in {"scene_contract_renderer", "ooda_compositor", "local_raster"}:
+            ok, detail = False, f"{normalized}:forbidden_fallback"
         else:
             ok, detail = False, f"{normalized}:unknown_provider"
         attempts.append(detail)
         if ok:
             return {"provider": normalized, "status": detail, "attempts": attempts}
-    local_ok, local_detail = run_ooda_compositor(
-        spec=spec,
-        prompt=prompt,
-        output_path=output_path,
-        width=width,
-        height=height,
-    )
-    attempts.append(local_detail)
-    if local_ok:
-        return {"provider": "scene_contract_renderer", "status": local_detail, "attempts": attempts}
-    raster_ok, raster_detail = render_local_raster(
-        prompt=prompt,
-        output_path=output_path,
-        width=width,
-        height=height,
-    )
-    attempts.append(raster_detail)
-    if raster_ok:
-        return {"provider": "local_raster", "status": raster_detail, "attempts": attempts}
     raise RuntimeError("no image provider succeeded: " + " || ".join(attempts))
 
 
@@ -2225,7 +2217,7 @@ def asset_specs() -> list[dict[str, object]]:
         page_spec(target="assets/pages/horizons-index.png", page_id="horizons_index", role="horizons boulevard banner", composition_hint="horizon_boulevard"),
     ]
     part_overrides = media.get("parts") if isinstance(media, dict) else {}
-    for slug, item in GUIDE.PARTS.items():
+    for slug, item in CANON_PARTS.items():
         override = part_overrides.get(slug) if isinstance(part_overrides, dict) else None
         if not isinstance(override, dict):
             legacy_slug = LEGACY_PART_SLUGS.get(slug)
@@ -2247,10 +2239,10 @@ def asset_specs() -> list[dict[str, object]]:
             }
         )
     horizon_overrides = media.get("horizons") if isinstance(media, dict) else {}
-    for slug, item in GUIDE.HORIZONS.items():
+    for slug, item in CANON_HORIZONS.items():
         override = horizon_overrides.get(slug) if isinstance(horizon_overrides, dict) else None
         if not isinstance(override, dict) or not str(override.get("visual_prompt", "")).strip():
-            raise RuntimeError(f"missing horizon visual_prompt in EA overrides: {slug}")
+            override = fallback_horizon_media_row(slug, item)
         target = f"assets/horizons/{slug}.png"
         row = apply_visual_override(target, override)
         specs.append(

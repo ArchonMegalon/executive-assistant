@@ -109,10 +109,10 @@ def command_state(command_name: str) -> tuple[str, bool]:
 def provider_order() -> list[str]:
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
-        return ["onemin", "magixai"]
+        return ["magixai", "onemin"]
     values = [part.strip().lower() for part in raw.split(",") if part.strip()]
     filtered = [value for value in values if value not in {"local_raster", "markupgo", "ooda_compositor", "scene_contract_renderer", "pollinations"}]
-    return filtered or ["onemin", "magixai"]
+    return filtered or ["magixai", "onemin"]
 
 
 def text_provider_order() -> list[str]:

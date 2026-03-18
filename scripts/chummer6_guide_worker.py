@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import datetime as dt
 import json
 import os
@@ -20,10 +19,10 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from chummer6_guide_canon import load_horizon_canon, load_part_canon
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 EA_ROOT = Path(__file__).resolve().parents[1]
-FLEET_GUIDE_SCRIPT = Path("/docker/fleet/scripts/finish_chummer6_guide.py")
 OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
 STYLE_EPOCH_PATH = Path("/docker/fleet/state/chummer6/ea_style_epoch.json")
 SCENE_LEDGER_PATH = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
@@ -445,21 +444,8 @@ def url_template(env_name: str) -> str:
     return env_value(env_name)
 
 
-def load_literal(name: str) -> dict[str, object]:
-    module = ast.parse(FLEET_GUIDE_SCRIPT.read_text(encoding="utf-8"))
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                value = ast.literal_eval(node.value)
-                if isinstance(value, dict):
-                    return value
-    raise RuntimeError(f"missing literal {name} in {FLEET_GUIDE_SCRIPT}")
-
-
-PARTS = load_literal("PARTS")
-HORIZONS = load_literal("HORIZONS")
+PARTS = load_part_canon()
+HORIZONS = load_horizon_canon()
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
 
 
@@ -1457,20 +1443,16 @@ def normalize_pages_bundle(result: dict[str, object], *, items: dict[str, dict[s
     normalized: dict[str, dict[str, str]] = {}
     for page_id in items:
         row = result.get(page_id)
-        fallback_row = dict(PAGE_BUNDLE_FALLBACKS.get(page_id) or {})
         if not isinstance(row, dict):
-            row = dict(fallback_row)
+            raise ValueError(f"missing page bundle row: {page_id}")
         cleaned = {
             key: editorial_self_audit_text(
                 str(row.get(key, "")).strip(),
-                fallback=str(fallback_row.get(key, "")).strip(),
                 context=f"page:{page_id}:{key}",
             )
             for key in ("intro", "body", "kicker")
-            if str(row.get(key, "")).strip() or str(fallback_row.get(key, "")).strip()
+            if str(row.get(key, "")).strip()
         }
-        if len(cleaned) < 2:
-            cleaned = {key: str(value).strip() for key, value in fallback_row.items() if str(value).strip()}
         if len(cleaned) < 2:
             raise ValueError(f"insufficient page bundle content: {page_id}")
         assert_public_reader_safe(cleaned, context=f"page:{page_id}")
@@ -1535,13 +1517,25 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
 
 
 SOURCE_SIGNAL_FILES = [
-    ("/docker/chummercomplete/chummer-core-engine/instructions.md", "core_instructions"),
-    ("/docker/chummercomplete/chummer-core-engine/README.md", "core_readme"),
-    ("/docker/chummercomplete/chummer-core-engine/test-lua-evaluator.sh", "core_lua_rules"),
-    ("/docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs", "core_sr4_plugin"),
-    ("/docker/chummercomplete/chummer-presentation/README.md", "ui_readme"),
-    ("/docker/chummercomplete/chummer-play/README.md", "play_readme"),
-    ("/docker/chummercomplete/chummer.run-services/README.md", "hub_readme"),
+    (("/docker/chummercomplete/chummer6-core/instructions.md", "/docker/chummercomplete/chummer-core-engine/instructions.md"), "core_instructions"),
+    (("/docker/chummercomplete/chummer6-core/README.md", "/docker/chummercomplete/chummer-core-engine/README.md"), "core_readme"),
+    (
+        (
+            "/docker/chummercomplete/chummer6-core/test-lua-evaluator.sh",
+            "/docker/chummercomplete/chummer-core-engine/test-lua-evaluator.sh",
+        ),
+        "core_lua_rules",
+    ),
+    (
+        (
+            "/docker/chummercomplete/chummer6-core/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
+            "/docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
+        ),
+        "core_sr4_plugin",
+    ),
+    (("/docker/chummercomplete/chummer6-ui/README.md", "/docker/chummercomplete/chummer-presentation/README.md"), "ui_readme"),
+    (("/docker/chummercomplete/chummer6-mobile/README.md", "/docker/chummercomplete/chummer-play/README.md"), "play_readme"),
+    (("/docker/chummercomplete/chummer6-hub/README.md", "/docker/chummercomplete/chummer.run-services/README.md"), "hub_readme"),
     ("/docker/chummercomplete/chummer-design/products/chummer/README.md", "design_front_door"),
     ("/docker/chummercomplete/chummer-design/products/chummer/ARCHITECTURE.md", "design_architecture"),
     ("/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml", "design_milestones"),
@@ -1551,8 +1545,12 @@ SOURCE_SIGNAL_FILES = [
 def collect_interest_signals() -> dict[str, object]:
     snippets: list[str] = []
     tags: list[str] = []
-    for path_text, label in SOURCE_SIGNAL_FILES:
-        path = Path(path_text)
+    for raw_path, label in SOURCE_SIGNAL_FILES:
+        if isinstance(raw_path, (list, tuple)):
+            candidates = [Path(str(item)) for item in raw_path]
+            path = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+        else:
+            path = Path(str(raw_path))
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -2322,55 +2320,6 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
         "source": "Sell the horizon section as future table pain relief and vivid scene ideas without pretending they are active work. Avoid blueprint, garage, or architecture metaphors.",
     },
 }
-
-PAGE_BUNDLE_FALLBACKS: dict[str, dict[str, str]] = {
-    "readme": {
-        "intro": "Chummer6 is the human-facing guide to the next Chummer: what it is becoming, why it matters at the table, and what is already real enough to touch.",
-        "body": "Use this page when you want the shortest route to the product story, the current status, the parts map, and the future lanes without reverse-engineering that story from code ownership.",
-        "kicker": "Friendly guide first. Deep sources later.",
-    },
-    "start_here": {
-        "intro": "Start with the problem you have tonight: run a session, prove the math, support a weird rule, or peek at the future lanes.",
-        "body": "This page exists to get you to the right answer fast, not to lecture you about software structure.",
-        "kicker": "Pick the symptom, not the folder tree.",
-    },
-    "what_chummer6_is": {
-        "intro": "Chummer6 is becoming a more trustworthy, local-first, receipts-heavy Shadowrun toolkit.",
-        "body": "The point is to make game night faster, clearer, and less dependent on mystery math or a stable network.",
-        "kicker": "Rules truth with receipts beats folklore with confidence.",
-    },
-    "where_to_go_deeper": {
-        "intro": "Use this page when the friendly tour stops being enough.",
-        "body": "It points to the long-range plan, the owning repos, and the place to report stale or confusing guide copy.",
-        "kicker": "Know what to trust before you dig deeper.",
-    },
-    "current_phase": {
-        "intro": "The current phase is trust work first: tighten the seams that affect real sessions before piling on flashy promises.",
-        "body": "That means cleaner rules truth, steadier live-play boundaries, and fewer expensive lies hiding behind preview chrome.",
-        "kicker": "The boring work is what keeps game night alive.",
-    },
-    "current_status": {
-        "intro": "The visible surfaces are real enough to try, but the overall shape is still moving.",
-        "body": "Use what helps tonight, but expect the shell and boundaries to keep getting sharper before anything gets called finished.",
-        "kicker": "Preview means usable, not frozen.",
-    },
-    "public_surfaces": {
-        "intro": "These are the surfaces someone can actually try today.",
-        "body": "The page shows what is visible now and how close each surface is to feeling like the promoted version.",
-        "kicker": "Real enough to touch, not final enough to relax.",
-    },
-    "parts_index": {
-        "intro": "The parts page is a symptom map for the program.",
-        "body": "Use it when you want to know which part matters to your pain instead of memorizing the internal map first.",
-        "kicker": "Start from the problem, not the topology.",
-    },
-    "horizons_index": {
-        "intro": "Horizons is the future-pains wing: ideas that could make later sessions smoother, stranger, or more ambitious.",
-        "body": "These pages are invitations to imagine better table moments, not promises that the feature already ships.",
-        "kicker": "Future table pain relief, not roadmap cosplay.",
-    },
-}
-
 
 def chunk_mapping(mapping: dict[str, object], *, size: int) -> list[dict[str, object]]:
     items = list(mapping.items())
