@@ -243,10 +243,8 @@ def test_editorial_pack_audit_ignores_banned_term_lists() -> None:
     assert result["status"] == "ok"
 
 
-def test_normalize_pages_bundle_falls_back_when_model_drops_a_page() -> None:
+def test_normalize_pages_bundle_requires_real_page_rows() -> None:
     worker = _load_worker_module()
 
-    normalized = worker.normalize_pages_bundle({}, items={"horizons_index": worker.PAGE_PROMPTS["horizons_index"]})
-
-    assert "horizons_index" in normalized
-    assert "future-pains wing" in normalized["horizons_index"]["intro"]
+    with pytest.raises(ValueError, match="missing page bundle row: horizons_index"):
+        worker.normalize_pages_bundle({}, items={"horizons_index": worker.PAGE_PROMPTS["horizons_index"]})
