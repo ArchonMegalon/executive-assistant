@@ -1686,7 +1686,7 @@ class BrowserActToolAdapter:
         return shlex.split(raw)
 
     def _gemini_model(self) -> str:
-        return str(os.environ.get("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
+        return str(os.environ.get("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 
     def _gemini_timeout_seconds(self) -> int:
         raw = str(os.environ.get("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "180").strip() or "180"

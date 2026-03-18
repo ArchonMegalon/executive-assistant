@@ -21,7 +21,7 @@ def test_gemini_vortex_tool_executes_and_returns_structured_output(monkeypatch) 
                     "response": "{\"ok\": true, \"title\": \"Chummer6\"}",
                     "stats": {
                         "models": {
-                            "gemini-3-flash-preview": {
+                            "gemini-2.5-flash": {
                                 "tokens": {"input": 123, "candidates": 45}
                             }
                         }
@@ -60,7 +60,7 @@ def test_gemini_vortex_tool_executes_and_returns_structured_output(monkeypatch) 
     )
 
     assert result.tool_name == "provider.gemini_vortex.structured_generate"
-    assert result.model_name == "gemini-3-flash-preview"
+    assert result.model_name == "gemini-2.5-flash"
     assert result.tokens_in == 123
     assert result.tokens_out == 45
     assert result.output_json["mime_type"] == "application/json"
@@ -91,7 +91,7 @@ def test_gemini_vortex_tool_falls_back_to_vertex_key_slot(monkeypatch, tmp_path)
             stdout=json.dumps(
                 {
                     "response": "{\"ok\": true}",
-                    "stats": {"models": {"gemini-3-flash-preview": {"tokens": {"input": 5, "candidates": 3}}}},
+                    "stats": {"models": {"gemini-2.5-flash": {"tokens": {"input": 5, "candidates": 3}}}},
                 }
             ),
             stderr="",
@@ -141,7 +141,7 @@ def test_gemini_vortex_tool_reuses_principal_slot_lease(monkeypatch, tmp_path) -
         return subprocess.CompletedProcess(
             args=args[0],
             returncode=0,
-            stdout=json.dumps({"response": "{\"ok\": true}", "stats": {"models": {"gemini-3-flash-preview": {"tokens": {"input": 1, "candidates": 1}}}}}),
+            stdout=json.dumps({"response": "{\"ok\": true}", "stats": {"models": {"gemini-2.5-flash": {"tokens": {"input": 1, "candidates": 1}}}}}),
             stderr="",
         )
 

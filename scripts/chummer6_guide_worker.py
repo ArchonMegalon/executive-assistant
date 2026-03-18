@@ -696,7 +696,7 @@ def default_text_model() -> str:
 def execution_text_model(model: str) -> str:
     selected = str(model or "").strip() or DEFAULT_MODEL
     if selected in {"ea-groundwork", "groundwork"}:
-        return env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview"
+        return env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash"
     return selected
 
 

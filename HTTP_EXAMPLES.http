@@ -1098,7 +1098,7 @@ Content-Type: application/json
   },
   "model_policy_json": {
     "provider": "gemini_vortex",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "gemini-2.5-flash",
     "output_mode": "json"
   },
   "provider_hints_json": {
@@ -1194,7 +1194,7 @@ Content-Type: application/json
   },
   "model_policy_json": {
     "provider": "gemini_vortex",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "gemini-2.5-flash",
     "output_mode": "json"
   },
   "provider_hints_json": {

@@ -210,7 +210,7 @@ class GeminiVortexToolAdapter:
         return shlex.split(raw)
 
     def _default_model(self) -> str:
-        return _env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview"
+        return _env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash"
 
     def _timeout_seconds(self) -> int:
         raw = _env_value("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "180"
