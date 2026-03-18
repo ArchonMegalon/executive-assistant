@@ -23,10 +23,10 @@ def test_provider_order_filters_fallback_render_aliases(monkeypatch: pytest.Monk
     media = _load_module()
     monkeypatch.setenv(
         "CHUMMER6_IMAGE_PROVIDER_ORDER",
-        "magixai,ooda_compositor,local_raster,onemin,scene_contract_renderer",
+        "magixai,media_factory,ooda_compositor,local_raster,onemin,scene_contract_renderer",
     )
 
-    assert media.provider_order() == ["magixai", "onemin"]
+    assert media.provider_order() == ["magixai", "media_factory", "onemin"]
 
 
 def test_provider_order_preserves_explicit_runtime_priority(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,7 +42,7 @@ def test_provider_order_defaults_to_magix_then_onemin_before_browseract(monkeypa
     monkeypatch.setattr(media, "LOCAL_ENV", {})
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
-    assert media.provider_order() == ["magixai", "onemin", "browseract_magixai", "browseract_prompting_systems"]
+    assert media.provider_order() == ["magixai", "media_factory", "onemin", "browseract_magixai", "browseract_prompting_systems"]
 
 
 def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,6 +67,30 @@ def test_render_with_ooda_rejects_forbidden_fallback_providers(tmp_path: Path) -
             height=540,
             spec={"providers": ["scene_contract_renderer"]},
         )
+
+
+def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+
+    def fake_run_command_provider(name: str, template: list[str], **kwargs):
+        assert name == "media_factory"
+        assert template
+        output_path = kwargs["output_path"]
+        output_path.write_bytes(b"png")
+        return True, "media_factory:rendered"
+
+    monkeypatch.setattr(media, "run_command_provider", fake_run_command_provider)
+
+    result = media.render_with_ooda(
+        prompt="bounded runsite scene",
+        output_path=tmp_path / "out.png",
+        width=1600,
+        height=900,
+        spec={"providers": ["media_factory"]},
+    )
+
+    assert result["provider"] == "media_factory"
+    assert result["status"] == "media_factory:rendered"
 
 
 def test_fallback_horizon_media_row_covers_new_canonical_horizons() -> None:

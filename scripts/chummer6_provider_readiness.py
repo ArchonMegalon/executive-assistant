@@ -42,6 +42,7 @@ RAW_KEY_NAMES = {
 }
 
 ADAPTER_ENV_NAMES = {
+    "media_factory": ["CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND"],
     "gemini_vortex": ["EA_GEMINI_VORTEX_COMMAND", "EA_GEMINI_VORTEX_MODEL", "EA_GEMINI_VORTEX_TIMEOUT_SECONDS"],
     "magixai": ["CHUMMER6_MAGIXAI_RENDER_COMMAND", "CHUMMER6_MAGIXAI_RENDER_URL_TEMPLATE"],
     "markupgo": ["CHUMMER6_MARKUPGO_RENDER_COMMAND", "CHUMMER6_MARKUPGO_RENDER_URL_TEMPLATE"],
@@ -109,10 +110,10 @@ def command_state(command_name: str) -> tuple[str, bool]:
 def provider_order() -> list[str]:
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
-        return ["magixai", "onemin"]
-    values = [part.strip().lower() for part in raw.split(",") if part.strip()]
+        return ["magixai", "media_factory", "onemin"]
+    values = [part.strip().lower().replace("-", "_") for part in raw.split(",") if part.strip()]
     filtered = [value for value in values if value not in {"local_raster", "markupgo", "ooda_compositor", "scene_contract_renderer", "pollinations"}]
-    return filtered or ["magixai", "onemin"]
+    return filtered or ["magixai", "media_factory", "onemin"]
 
 
 def text_provider_order() -> list[str]:
@@ -227,6 +228,34 @@ def provider_state(name: str) -> dict[str, object]:
             status = "not_configured"
             detail = "No AI Magicx credentials found."
         return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
+    if name == "media_factory":
+        script_path = Path("/docker/fleet/repos/chummer-media-factory/scripts/render_guide_asset.py")
+        configured_command = env_value("CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND")
+        command_name, cli_ready = command_state(configured_command or "python3")
+        onemin_keys = key_names_present(raw_key_names("onemin"))
+        available = bool((configured_command or script_path.exists()) and cli_ready and onemin_keys)
+        if available:
+            status = "ready"
+            detail = "Media Factory render bridge is available and can hand guide renders to the 1min-backed media seam."
+        elif configured_command or script_path.exists():
+            status = "missing_onemin_keys"
+            detail = "Media Factory render bridge exists, but no 1min keys are available for its current onemin-backed adapter."
+        else:
+            status = "not_configured"
+            detail = "No Media Factory render bridge command is configured yet."
+        effective_adapters = list(adapters)
+        if script_path.exists() and "built_in_media_factory_bridge" not in effective_adapters:
+            effective_adapters.append("built_in_media_factory_bridge")
+        return {
+            "provider": name,
+            "status": status,
+            "available": available,
+            "raw_keys": onemin_keys,
+            "adapters": effective_adapters,
+            "detail": detail,
+            "command": configured_command or str(script_path),
+            "backing_provider": "onemin",
+        }
     if name == "onemin":
         available = bool(raw_keys or adapters)
         if raw_keys:
