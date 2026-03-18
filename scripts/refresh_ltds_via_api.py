@@ -17,7 +17,7 @@ from app.services.ltd_inventory_api import (
     build_inventory_execute_payload,
     extract_inventory_output_json,
 )
-from app.services.ltd_inventory_markdown import update_discovery_tracking_table
+from app.services.ltd_inventory_markdown import refresh_inventory_markdown
 
 
 def _request_json(
@@ -96,7 +96,7 @@ def main() -> int:
         )
     markdown_path = Path(args.markdown)
     existing = markdown_path.read_text(encoding="utf-8")
-    updated = update_discovery_tracking_table(existing, inventory_output_json)
+    updated = refresh_inventory_markdown(existing, inventory_output_json)
     if args.write:
         markdown_path.write_text(updated, encoding="utf-8")
     else:

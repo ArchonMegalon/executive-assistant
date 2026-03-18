@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 import subprocess
 import sys
@@ -134,12 +135,30 @@ def test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown(tmp_pat
         markdown_path.write_text(
             """# LTDs
 
+Updated: 2026-03-01
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | adapter | ready |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | projection | ready |
+
+## Summary
+
+- `99` total LTD products tracked
+
 ## Discovery Tracking
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
 | `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_inventory` |  | waiting |
-| `Teable` |  | `missing` | `manual_inventory` |  | stale |
+| `Teable` |  | `missing` | `manual_inventory` |  | account details still missing |
 
 ## Attention Items
 """,
@@ -180,6 +199,8 @@ def test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown(tmp_pat
 
     assert completed.returncode == 0, completed.stderr
     updated = markdown_path.read_text(encoding="utf-8")
+    assert f"Updated: {date.today().isoformat()}" in updated
+    assert "- `2` total LTD products tracked" in updated
     assert "ops@example.com" in updated
     assert "ops@teable.example" in updated
     assert "Plan/Tier: Tier 3; Status: activated" in updated

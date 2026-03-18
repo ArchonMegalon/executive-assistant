@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-17
+Updated: 2026-03-18
 
 ## Workspace Integration Tier Guide
 
@@ -40,6 +40,7 @@ Updated: 2026-03-17
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection now has a staged BrowserAct extraction template instead of only a wishlist note. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. |
+| `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and the account credentials are stored in BrowserAct for later structured verification. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
@@ -48,7 +49,7 @@ Updated: 2026-03-17
 
 ## Summary
 
-- `25` total LTD products tracked
+- `26` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -78,6 +79,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `MarkupGo` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
+| `Nonverbia` |  | `missing` | `manual_inventory` |  | Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
@@ -93,5 +95,5 @@ None right now. All tracked LTDs are redeemed and activated; remaining follow-up
 - The Codex session skill list is not the LTD source of truth; skills are local agent capabilities, while this file tracks your external services/accounts.
 - Product/deal tier (`License Tier 3`, `Gold Plan`, `Elite`, etc.) is separate from the workspace integration tier used to describe local wiring posture.
 - Secrets are intentionally omitted here; only inventory, status, deadlines, and local integration contracts are documented.
-- BrowserAct inventory artifacts can refresh the `## Discovery Tracking` table through `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` when a fresh structured inventory payload is available.
+- BrowserAct inventory artifacts can refresh the `## Discovery Tracking` table, `Updated:` stamp, and total-count summary through `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` when a fresh structured inventory payload is available.
 - If the local EA API and BrowserAct binding are already configured, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the `ltd_inventory_refresh` skill and rewrite this file without manually exporting the intermediate JSON first.
