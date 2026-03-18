@@ -236,6 +236,22 @@ def get_provider_state(
     return _state_out(row)
 
 
+@router.get("/registry", response_model=None)
+def get_provider_registry(
+    principal_id: str | None = Query(default=None, min_length=1),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    resolved_principal = resolve_principal_id(principal_id, context)
+    provider_health = upstream._provider_health_report()
+    profile_decisions = container.brain_router.list_profile_decisions(principal_id=resolved_principal)
+    return container.provider_registry.registry_read_model(
+        principal_id=resolved_principal,
+        provider_health=provider_health,
+        profile_decisions=profile_decisions,
+    )
+
+
 @router.post("/onemin/probe-all", response_model=None)
 def probe_all_onemin(
     body: OneminProbeAllIn | None = None,

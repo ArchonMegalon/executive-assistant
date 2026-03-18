@@ -5,6 +5,7 @@ import pytest
 from app.domain.models import PlanValidationError, SkillContract
 from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.services.brain_router import BrainRouterService
 from app.services.planner import PlannerService
 from app.services.provider_registry import ProviderRegistryService
 from app.services.task_contracts import TaskContractService
@@ -236,6 +237,44 @@ def test_provider_registry_rejects_non_executable_capability_route() -> None:
             provider_hints=("prompting_systems",),
             allowed_tools=("provider.prompting_systems.prompt_refine",),
         )
+
+
+def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    registry = ProviderRegistryService()
+    router = BrainRouterService(provider_registry=registry)
+    payload = registry.registry_read_model(
+        principal_id="codex-fleet",
+        provider_health=upstream._provider_health_report(),
+        profile_decisions=router.list_profile_decisions(principal_id="codex-fleet"),
+    )
+
+    assert payload["contract_name"] == "ea.provider_registry"
+    assert payload["principal_id"] == "codex-fleet"
+
+    groundwork = next(item for item in payload["lanes"] if item["profile"] == "groundwork")
+    assert groundwork["backend"] == "gemini_vortex"
+    assert groundwork["health_provider_key"] == "gemini_vortex"
+    assert groundwork["providers"][0]["provider_key"] == "gemini_vortex"
+    assert groundwork["capacity_summary"]["configured_slots"] == 2
+    assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+
+    review_light = next(item for item in payload["lanes"] if item["profile"] == "review_light")
+    assert review_light["backend"] == "chatplayground"
+    assert review_light["health_provider_key"] == "chatplayground"
+    assert review_light["providers"][0]["provider_key"] == "browseract"
+
+    browseract = next(item for item in payload["providers"] if item["provider_key"] == "browseract")
+    assert browseract["health_provider_key"] == "chatplayground"
+    assert any(capability["capability_key"] == "account_inventory" for capability in browseract["capabilities"])
 
 
 def test_planner_rejects_non_executable_provider_capability_routes() -> None:

@@ -4,9 +4,11 @@ import os
 import re
 import shlex
 import shutil
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any, Sequence
 
-from app.domain.models import ProviderBindingState, SkillContract
+from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
 from app.services.tool_execution_common import ToolExecutionError
 
@@ -87,6 +89,100 @@ class CapabilityRoute:
     capability_key: str
     tool_name: str
     executable: bool
+
+
+@dataclass(frozen=True)
+class ProviderRegistryCapabilityView:
+    capability_key: str
+    tool_name: str
+    executable: bool
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "capability_key": self.capability_key,
+            "tool_name": self.tool_name,
+            "executable": self.executable,
+        }
+
+
+@dataclass(frozen=True)
+class ProviderRegistryProviderView:
+    provider_key: str
+    display_name: str
+    health_provider_key: str
+    backend: str
+    source: str
+    executable: bool
+    enabled: bool
+    state: str
+    status: str
+    auth_mode: str
+    priority: int
+    binding_id: str
+    secret_configured: bool
+    health_state: str
+    detail: str
+    capabilities: tuple[ProviderRegistryCapabilityView, ...]
+    slot_pool: dict[str, object] = field(default_factory=dict)
+    capacity: dict[str, object] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "provider_key": self.provider_key,
+            "display_name": self.display_name,
+            "health_provider_key": self.health_provider_key,
+            "backend": self.backend,
+            "source": self.source,
+            "executable": self.executable,
+            "enabled": self.enabled,
+            "state": self.state,
+            "status": self.status,
+            "auth_mode": self.auth_mode,
+            "priority": self.priority,
+            "binding_id": self.binding_id,
+            "secret_configured": self.secret_configured,
+            "health_state": self.health_state,
+            "detail": self.detail,
+            "capabilities": [item.as_dict() for item in self.capabilities],
+            "slot_pool": dict(self.slot_pool or {}),
+            "capacity": dict(self.capacity or {}),
+        }
+
+
+@dataclass(frozen=True)
+class ProviderRegistryLaneView:
+    profile: str
+    lane: str
+    public_model: str
+    brain: str
+    backend: str
+    health_provider_key: str
+    provider_hint_order: tuple[str, ...]
+    review_required: bool
+    needs_review: bool
+    merge_policy: str
+    primary_provider_key: str
+    primary_state: str
+    providers: tuple[ProviderRegistryProviderView, ...]
+    capacity_summary: dict[str, object] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "profile": self.profile,
+            "lane": self.lane,
+            "public_model": self.public_model,
+            "brain": self.brain,
+            "backend": self.backend,
+            "health_provider_key": self.health_provider_key,
+            "provider_hint_order": list(self.provider_hint_order),
+            "review_required": self.review_required,
+            "needs_review": self.needs_review,
+            "merge_policy": self.merge_policy,
+            "primary_provider_key": self.primary_provider_key,
+            "primary_state": self.primary_state,
+            "providers": [item.as_dict() for item in self.providers],
+            "capacity_summary": dict(self.capacity_summary or {}),
+        }
 
 
 class ProviderRegistryService:
@@ -583,6 +679,237 @@ class ProviderRegistryService:
             if synthetic is not None:
                 states.append(synthetic)
         return tuple(states)
+
+    def _health_provider_keys(self, provider_key: str) -> tuple[str, ...]:
+        normalized = self._normalize_provider_key(provider_key)
+        aliases = {
+            "browseract": ("chatplayground", "browseract"),
+            "chatplayground": ("chatplayground", "browseract"),
+        }
+        return aliases.get(normalized, (normalized,))
+
+    def _provider_health_payload(
+        self,
+        *,
+        provider_key: str,
+        provider_health: dict[str, object] | None,
+    ) -> tuple[str, dict[str, object]]:
+        providers = dict(((provider_health or {}).get("providers")) or {})
+        for health_provider_key in self._health_provider_keys(provider_key):
+            payload = dict(providers.get(health_provider_key) or {})
+            if payload:
+                return health_provider_key, payload
+        return "", {}
+
+    @staticmethod
+    def _slot_pool_summary(provider_payload: dict[str, object]) -> dict[str, object]:
+        slots = [dict(item) for item in provider_payload.get("slots") or [] if isinstance(item, dict)]
+        states = Counter(str(item.get("state") or "unknown").strip().lower() or "unknown" for item in slots)
+        owners = list(
+            dict.fromkeys(
+                str(item.get("slot_owner") or item.get("owner_label") or item.get("owner_name") or "").strip()
+                for item in slots
+                if str(item.get("slot_owner") or item.get("owner_label") or item.get("owner_name") or "").strip()
+            )
+        )
+        lease_holders = list(
+            dict.fromkeys(
+                str(item.get("lease_holder") or "").strip()
+                for item in slots
+                if str(item.get("lease_holder") or "").strip()
+            )
+        )
+        configured_slots = int(provider_payload.get("configured_slots") or len(slots))
+        ready_slots = int(states.get("ready", 0))
+        degraded_slots = sum(int(states.get(name, 0)) for name in ("degraded", "cooldown", "maintenance"))
+        unavailable_slots = max(configured_slots - ready_slots - degraded_slots, 0)
+        return {
+            "configured_slots": configured_slots,
+            "slot_count": len(slots),
+            "slot_state_counts": dict(states),
+            "ready_slots": ready_slots,
+            "degraded_slots": degraded_slots,
+            "unavailable_slots": unavailable_slots,
+            "leased_slots": len(lease_holders),
+            "owners": owners,
+            "lease_holders": lease_holders,
+            "selection_mode": str(provider_payload.get("selection_mode") or "").strip(),
+            "remaining_percent_of_max": provider_payload.get("remaining_percent_of_max"),
+            "estimated_hours_remaining_at_current_pace": provider_payload.get("estimated_hours_remaining_at_current_pace"),
+        }
+
+    def _provider_view(
+        self,
+        *,
+        state: ProviderBindingState,
+        provider_health: dict[str, object] | None,
+    ) -> ProviderRegistryProviderView:
+        health_provider_key, health_payload = self._provider_health_payload(
+            provider_key=state.provider_key,
+            provider_health=provider_health,
+        )
+        capabilities: list[ProviderRegistryCapabilityView] = []
+        binding = next((item for item in self._bindings if item.provider_key == state.provider_key), None)
+        for capability in ((binding.capabilities if binding is not None else ()) or ()):
+            capabilities.append(
+                ProviderRegistryCapabilityView(
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                    executable=bool(state.executable and capability.executable),
+                )
+            )
+        effective_state = str(health_payload.get("state") or state.state or "unknown").strip() or "unknown"
+        detail = str(health_payload.get("detail") or "").strip() or str((state.health_details_json or {}).get("detail") or "").strip()
+        capacity = {
+            "state": effective_state,
+            "remaining_percent_of_max": health_payload.get("remaining_percent_of_max"),
+            "estimated_hours_remaining_at_current_pace": health_payload.get("estimated_hours_remaining_at_current_pace"),
+            "estimated_remaining_credits_total": health_payload.get("estimated_remaining_credits_total"),
+            "max_requests_per_hour": health_payload.get("max_requests_per_hour"),
+            "max_credits_per_hour": health_payload.get("max_credits_per_hour"),
+            "max_credits_per_day": health_payload.get("max_credits_per_day"),
+            "detail": detail,
+        }
+        return ProviderRegistryProviderView(
+            provider_key=state.provider_key,
+            display_name=state.display_name,
+            health_provider_key=health_provider_key or state.provider_key,
+            backend=str(health_payload.get("backend") or state.provider_key).strip() or state.provider_key,
+            source=state.source,
+            executable=bool(state.executable),
+            enabled=bool(state.enabled),
+            state=effective_state,
+            status=state.status,
+            auth_mode=state.auth_mode,
+            priority=int(state.priority or 0),
+            binding_id=state.binding_id,
+            secret_configured=bool(state.secret_configured),
+            health_state=str(state.health_state or "unknown"),
+            detail=detail,
+            capabilities=tuple(capabilities),
+            slot_pool=self._slot_pool_summary(health_payload),
+            capacity=capacity,
+        )
+
+    @staticmethod
+    def _decision_field(decision: object, field_name: str, default: object = "") -> object:
+        if isinstance(decision, dict):
+            return decision.get(field_name, default)
+        return getattr(decision, field_name, default)
+
+    @staticmethod
+    def _lane_capacity_summary(primary: ProviderRegistryProviderView | None) -> dict[str, object]:
+        if primary is None:
+            return {
+                "state": "unknown",
+                "configured_slots": 0,
+                "ready_slots": 0,
+                "degraded_slots": 0,
+                "leased_slots": 0,
+                "slot_owners": [],
+                "lease_holders": [],
+                "selection_mode": "",
+                "remaining_percent_of_max": None,
+                "estimated_hours_remaining_at_current_pace": None,
+                "estimated_remaining_credits_total": None,
+            }
+        slot_pool = dict(primary.slot_pool or {})
+        capacity = dict(primary.capacity or {})
+        return {
+            "state": str(capacity.get("state") or primary.state or "unknown").strip() or "unknown",
+            "configured_slots": int(slot_pool.get("configured_slots") or 0),
+            "ready_slots": int(slot_pool.get("ready_slots") or 0),
+            "degraded_slots": int(slot_pool.get("degraded_slots") or 0),
+            "leased_slots": int(slot_pool.get("leased_slots") or 0),
+            "slot_owners": list(slot_pool.get("owners") or []),
+            "lease_holders": list(slot_pool.get("lease_holders") or []),
+            "selection_mode": str(slot_pool.get("selection_mode") or "").strip(),
+            "remaining_percent_of_max": capacity.get("remaining_percent_of_max"),
+            "estimated_hours_remaining_at_current_pace": capacity.get("estimated_hours_remaining_at_current_pace"),
+            "estimated_remaining_credits_total": capacity.get("estimated_remaining_credits_total"),
+        }
+
+    def registry_read_model(
+        self,
+        *,
+        principal_id: str | None = None,
+        provider_health: dict[str, object] | None = None,
+        profile_decisions: Sequence[object] = (),
+    ) -> dict[str, object]:
+        provider_views = {
+            state.provider_key: self._provider_view(state=state, provider_health=provider_health)
+            for state in self.list_binding_states(principal_id=principal_id)
+        }
+        capability_index: dict[str, dict[str, object]] = {}
+        for provider in provider_views.values():
+            for capability in provider.capabilities:
+                entry = capability_index.setdefault(
+                    capability.capability_key,
+                    {
+                        "capability_key": capability.capability_key,
+                        "providers": [],
+                        "executable_providers": [],
+                        "tool_routes": [],
+                    },
+                )
+                entry["providers"].append(provider.provider_key)
+                if capability.executable:
+                    entry["executable_providers"].append(provider.provider_key)
+                entry["tool_routes"].append(
+                    {
+                        "provider_key": provider.provider_key,
+                        "tool_name": capability.tool_name,
+                        "executable": capability.executable,
+                    }
+                )
+
+        lane_views: list[ProviderRegistryLaneView] = []
+        for decision in profile_decisions:
+            provider_hint_order = tuple(
+                str(value or "").strip()
+                for value in (self._decision_field(decision, "provider_hint_order", ()) or ())
+                if str(value or "").strip()
+            )
+            lane_providers = tuple(
+                provider_views[provider_key]
+                for provider_key in provider_hint_order
+                if provider_key in provider_views
+            )
+            primary = lane_providers[0] if lane_providers else None
+            capacity_summary = self._lane_capacity_summary(primary)
+            lane_views.append(
+                ProviderRegistryLaneView(
+                    profile=str(self._decision_field(decision, "profile", "") or ""),
+                    lane=str(self._decision_field(decision, "lane", "") or ""),
+                    public_model=str(self._decision_field(decision, "public_model", "") or ""),
+                    brain=str(self._decision_field(decision, "public_model", "") or ""),
+                    backend=str(self._decision_field(decision, "backend_key", "") or (primary.backend if primary else "")),
+                    health_provider_key=str(
+                        self._decision_field(decision, "health_provider_key", "") or (primary.health_provider_key if primary else "")
+                    ),
+                    provider_hint_order=provider_hint_order,
+                    review_required=bool(self._decision_field(decision, "review_required", False)),
+                    needs_review=bool(self._decision_field(decision, "needs_review", False)),
+                    merge_policy=str(self._decision_field(decision, "merge_policy", "auto") or "auto"),
+                    primary_provider_key=primary.provider_key if primary is not None else "",
+                    primary_state=primary.state if primary is not None else "unknown",
+                    providers=lane_providers,
+                    capacity_summary=capacity_summary,
+                )
+            )
+
+        return {
+            "contract_name": "ea.provider_registry",
+            "contract_version": "2026-03-18",
+            "generated_at": now_utc_iso(),
+            "principal_id": self._normalize_principal_id(principal_id),
+            "provider_count": len(provider_views),
+            "lane_count": len(lane_views),
+            "capability_count": len(capability_index),
+            "providers": [row.as_dict() for row in provider_views.values()],
+            "lanes": [row.as_dict() for row in lane_views],
+            "capabilities": sorted(capability_index.values(), key=lambda item: str(item.get("capability_key") or "")),
+        }
 
     def knows_tool(self, tool_name: str) -> bool:
         normalized_tool = str(tool_name or "").strip()

@@ -14,6 +14,8 @@ class BrainRouteDecision:
     lane: str
     public_model: str
     provider_hint_order: tuple[str, ...]
+    backend_key: str
+    health_provider_key: str
     review_required: bool
     needs_review: bool
     merge_policy: str
@@ -55,11 +57,16 @@ class BrainRouterService:
         merged_hints = self._merge_provider_hints(profile.provider_hint_order, provider_hints)
         filtered_hints = self._filter_available_provider_hints(merged_hints, principal_id=principal_id)
         effective_hints = filtered_hints or merged_hints
+        default_provider_key = effective_hints[0] if effective_hints else ""
+        backend_key = str(profile.backend_key or default_provider_key).strip()
+        health_provider_key = str(profile.health_provider_key or default_provider_key or backend_key).strip()
         return BrainRouteDecision(
             profile=profile.profile,
             lane=profile.lane,
             public_model=profile.public_model,
             provider_hint_order=effective_hints,
+            backend_key=backend_key,
+            health_provider_key=health_provider_key,
             review_required=bool(profile.review_required),
             needs_review=bool(profile.needs_review),
             merge_policy=str(profile.merge_policy or "auto"),

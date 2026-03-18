@@ -760,6 +760,24 @@ def _brain_router(container: object | None = None) -> BrainRouterService | None:
     return router if isinstance(router, BrainRouterService) else None
 
 
+def _provider_registry_payload(
+    *,
+    container: object | None = None,
+    principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
+) -> dict[str, object]:
+    registry = getattr(container, "provider_registry", None)
+    if registry is None or not hasattr(registry, "registry_read_model"):
+        return {}
+    router = _brain_router(container)
+    profile_decisions = router.list_profile_decisions(principal_id=principal_id or None) if router is not None else ()
+    return registry.registry_read_model(
+        principal_id=principal_id or None,
+        provider_health=provider_health or {},
+        profile_decisions=profile_decisions,
+    )
+
+
 def _codex_profiles(
     *,
     container: object | None = None,
@@ -776,6 +794,8 @@ def _codex_profiles(
                 "lane": profile.lane,
                 "model": profile.public_model,
                 "provider_hint_order": profile.provider_hint_order,
+                "backend": profile.backend_key,
+                "health_provider_key": profile.health_provider_key,
                 "review_required": bool(profile.review_required),
                 "needs_review": bool(profile.needs_review),
                 "risk_labels": list(profile.risk_labels),
@@ -794,6 +814,8 @@ def _codex_profile(profile: str, *, container: object | None = None, principal_i
         "lane": "default",
         "model": DEFAULT_PUBLIC_MODEL,
         "provider_hint_order": tuple(_provider_order()) if profile else (),
+        "backend": "",
+        "health_provider_key": "",
         "review_required": False,
         "needs_review": False,
     }
@@ -2393,9 +2415,20 @@ def list_models(request: Request) -> Response:
 @responses_item_router.get("/_provider_health", response_model=None)
 def get_provider_health(
     *,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
-    return JSONResponse(_provider_health_report())
+    provider_health = _provider_health_report()
+    return JSONResponse(
+        {
+            **provider_health,
+            "provider_registry": _provider_registry_payload(
+                container=container,
+                principal_id=context.principal_id,
+                provider_health=provider_health,
+            ),
+        }
+    )
 
 
 @responses_item_router.get("/{response_id}", response_model=_ResponseObject)
@@ -2735,6 +2768,11 @@ def list_codex_profiles(
         {
             "profiles": _attach_provider_slot_state(profiles, provider_health=provider_health),
             "provider_health": provider_health,
+            "provider_registry": _provider_registry_payload(
+                container=container,
+                principal_id=context.principal_id,
+                provider_health=provider_health,
+            ),
         }
     )
 

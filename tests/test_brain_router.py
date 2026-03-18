@@ -17,6 +17,8 @@ def test_brain_router_prefers_available_profile_hints(monkeypatch) -> None:
 
     assert decision.profile == "easy"
     assert decision.provider_hint_order == ("gemini_vortex",)
+    assert decision.backend_key == "gemini_vortex"
+    assert decision.health_provider_key == "gemini_vortex"
 
 
 def test_brain_router_merges_contract_profile_and_provider_hints(monkeypatch) -> None:
@@ -45,3 +47,14 @@ def test_brain_router_merges_contract_profile_and_provider_hints(monkeypatch) ->
 
     assert hints[0] == "gemini_vortex"
     assert "browseract" in hints
+
+
+def test_brain_router_keeps_chatplayground_backend_metadata_when_alias_maps_to_browseract(monkeypatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    router = BrainRouterService(provider_registry=ProviderRegistryService())
+    decision = router.resolve_profile("review_light")
+
+    assert decision.provider_hint_order == ("browseract",)
+    assert decision.backend_key == "chatplayground"
+    assert decision.health_provider_key == "chatplayground"
