@@ -5,10 +5,16 @@ import json
 import os
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 
 DEFAULT_OUTPUT_DIR = Path("/mnt/pcloud/EA/browseract_templates")
+ONEMIN_LOGIN_URL = "https://app.1min.ai/login"
+ONEMIN_APP_URL = "https://app.1min.ai/"
+ONEMIN_BILLING_USAGE_URL = "https://app.1min.ai/billing-usage"
+COMMON_CLOSE_SELECTORS = [
+    "button[aria-label='Close']",
+    "button[title='Close']",
+    "[data-testid='close']",
+]
 
 
 def build_skill_payload() -> dict[str, object]:
@@ -45,6 +51,32 @@ def build_skill_payload() -> dict[str, object]:
 
 def templates() -> list[dict[str, object]]:
     return [
+        {
+            "slug": "onemin_daily_bonus_checkin_live",
+            "workflow_name": "1min Daily Bonus Check-in",
+            "purpose": "Sign in to the 1min.AI app, land on the authenticated home/dashboard surface, and extract the visible daily bonus or check-in state so operators can verify the daily credit claim path.",
+            "login_url": ONEMIN_LOGIN_URL,
+            "tool_url": ONEMIN_APP_URL,
+            "workflow_kind": "page_extract",
+            "wait_selector": "main, body",
+            "title_selector": "h1, h2, [role='heading']",
+            "result_selector": "main, body",
+            "result_field_name": "daily_bonus_page",
+            "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+        },
+        {
+            "slug": "onemin_billing_usage_reader_live",
+            "workflow_name": "1min Billing Usage Reader",
+            "purpose": "Sign in to the 1min.AI app, open the billing/usage surface, and extract the visible credits, renewal, and usage text for later normalization into billing snapshots.",
+            "login_url": ONEMIN_LOGIN_URL,
+            "tool_url": ONEMIN_BILLING_USAGE_URL,
+            "workflow_kind": "page_extract",
+            "wait_selector": "main, body",
+            "title_selector": "h1, h2, [role='heading']",
+            "result_selector": "main, body",
+            "result_field_name": "billing_usage_page",
+            "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+        },
         {
             "slug": "economist_article_reader_live",
             "workflow_name": "Economist Article Reader",
@@ -112,7 +144,9 @@ def templates() -> list[dict[str, object]]:
     ]
 
 
-def client() -> TestClient:
+def client():
+    from fastapi.testclient import TestClient
+
     os.environ.setdefault("EA_STORAGE_BACKEND", "memory")
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.setdefault("EA_API_TOKEN", "")

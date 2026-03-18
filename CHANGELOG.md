@@ -2,6 +2,11 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-18
+
+### Changed
+- The BrowserAct content-template exporter now seeds two 1min.AI page-extract scaffolds: a daily bonus/check-in workflow and a billing/usage reader workflow, so operators can bootstrap authenticated BrowserAct specs for the recurring login-credit path and later billing normalization without hand-authoring those packets from scratch.
+
 ## 2026-03-15
 
 ### Changed

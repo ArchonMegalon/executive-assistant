@@ -49,7 +49,7 @@ Then open `http://localhost:8090/health`.
 - Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json)
 - Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
 - Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
-- BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py`
+- BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py` (includes 1min daily-bonus and billing/usage scaffold packets)
 - Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags.
 - Release preflight checklist includes milestone release-tag parity verification in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
