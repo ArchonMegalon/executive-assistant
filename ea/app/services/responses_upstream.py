@@ -3256,6 +3256,8 @@ def _call_chatplayground_audit(
                     "model_deltas": model_deltas,
                     "binding_id": binding_id,
                     "external_account_ref": external_account_ref,
+                    "workflow_id": str(callback_payload.get("workflow_id") or "").strip() or None,
+                    "task_id": str(callback_payload.get("task_id") or "").strip() or None,
                     "requested_at": details.get("requested_at"),
                     "callback_payload": callback_payload,
                     "raw_output": details,
