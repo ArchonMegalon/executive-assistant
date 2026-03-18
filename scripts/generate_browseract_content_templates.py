@@ -10,6 +10,7 @@ DEFAULT_OUTPUT_DIR = Path("/mnt/pcloud/EA/browseract_templates")
 ONEMIN_LOGIN_URL = "https://app.1min.ai/login"
 ONEMIN_APP_URL = "https://app.1min.ai/"
 ONEMIN_BILLING_USAGE_URL = "https://app.1min.ai/billing-usage"
+ONEMIN_MEMBERS_URL = "https://app.1min.ai/members"
 COMMON_CLOSE_SELECTORS = [
     "button[aria-label='Close']",
     "button[title='Close']",
@@ -75,6 +76,19 @@ def templates() -> list[dict[str, object]]:
             "title_selector": "h1, h2, [role='heading']",
             "result_selector": "main, body",
             "result_field_name": "billing_usage_page",
+            "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+        },
+        {
+            "slug": "onemin_members_reconciliation_live",
+            "workflow_name": "1min Members Reconciliation Reader",
+            "purpose": "Sign in to the 1min.AI app, open the members surface, and extract the visible member roster, statuses, and credit-limit hints for owner reconciliation.",
+            "login_url": ONEMIN_LOGIN_URL,
+            "tool_url": ONEMIN_MEMBERS_URL,
+            "workflow_kind": "page_extract",
+            "wait_selector": "main, body",
+            "title_selector": "h1, h2, [role='heading']",
+            "result_selector": "main, body",
+            "result_field_name": "members_page",
             "dismiss_selectors": COMMON_CLOSE_SELECTORS,
         },
         {

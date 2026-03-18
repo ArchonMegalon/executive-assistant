@@ -1643,6 +1643,76 @@ def test_codex_status_endpoint_exposes_onemin_probe_aggregate(monkeypatch: pytes
     assert deleted["revoked_like"] is True
 
 
+def test_codex_status_endpoint_exposes_onemin_billing_aggregate(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    client = _client(principal_id="codex-status-billing")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "billing-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "billing-fallback")
+
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-03-18T09:00:00Z",
+            "remaining_credits": 800000,
+            "max_credits": 1000000,
+            "used_percent": 20.0,
+            "next_topup_at": "2026-03-31T00:00:00Z",
+            "topup_amount": 1000000,
+            "rollover_enabled": True,
+            "basis": "actual_billing_usage_page",
+            "source_url": "https://app.1min.ai/billing-usage",
+            "structured_output_json": {"raw_text": "Remaining credits: 800000"},
+        },
+    )
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY_FALLBACK_1",
+        snapshot_json={
+            "observed_at": "2026-03-18T09:05:00Z",
+            "remaining_credits": 200000,
+            "max_credits": 1000000,
+            "used_percent": 80.0,
+            "next_topup_at": "2026-03-31T00:00:00Z",
+            "topup_amount": 1000000,
+            "rollover_enabled": True,
+            "basis": "actual_billing_usage_page",
+            "source_url": "https://app.1min.ai/billing-usage",
+            "structured_output_json": {"raw_text": "Remaining credits: 200000"},
+        },
+    )
+    upstream.record_onemin_member_reconciliation_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-03-18T09:10:00Z",
+            "basis": "actual_members_page",
+            "source_url": "https://app.1min.ai/members",
+            "members_json": [{"email": "billing@example.com", "status": "active"}],
+            "structured_output_json": {"raw_text": "billing@example.com"},
+        },
+    )
+
+    response = client.get("/v1/codex/status?window=7d&refresh=1")
+    assert response.status_code == 200
+    body = response.json()
+    aggregate = body["onemin_billing_aggregate"]
+    assert aggregate["slot_count"] == 2
+    assert aggregate["slot_count_with_billing_snapshot"] == 2
+    assert aggregate["slot_count_with_member_reconciliation"] == 1
+    assert aggregate["sum_max_credits"] == 2000000
+    assert aggregate["sum_free_credits"] == 1000000
+    assert aggregate["remaining_percent_total"] == 50.0
+    assert aggregate["next_topup_at"] == "2026-03-31T00:00:00Z"
+    assert aggregate["topup_amount"] == 2000000.0
+    assert aggregate["basis_counts"] == {"actual_billing_usage_page": 2}
+    assert aggregate["basis_summary"] == "actual_billing_usage_page x2"
+    assert body["topup_summary"]["next_topup_at"] == "2026-03-31T00:00:00Z"
+    provider_row = next(row for row in body["providers_summary"] if row["account_name"] == "ONEMIN_AI_API_KEY")
+    assert provider_row["basis"] == "actual_billing_usage_page"
+    assert provider_row["free_credits"] == 800000
+
+
 def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-health")
     from app.services import responses_upstream as upstream

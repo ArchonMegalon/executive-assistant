@@ -9,6 +9,8 @@ from app.services.tool_execution_browseract_registry import (
     register_builtin_browseract_extract,
     register_builtin_browseract_inventory,
     register_builtin_browseract_chatplayground_audit,
+    register_builtin_browseract_onemin_billing_usage,
+    register_builtin_browseract_onemin_member_reconciliation,
     register_builtin_browseract_workflow_repair,
     register_builtin_browseract_workflow_spec,
 )
@@ -54,6 +56,22 @@ class BrowserActToolExecutionModule:
     def gemini_web_generate(self, handler) -> None:
         self._adapter._gemini_web_generate = handler
 
+    @property
+    def onemin_billing_usage(self):
+        return self._adapter._onemin_billing_usage
+
+    @onemin_billing_usage.setter
+    def onemin_billing_usage(self, handler) -> None:
+        self._adapter._onemin_billing_usage = handler
+
+    @property
+    def onemin_member_reconciliation(self):
+        return self._adapter._onemin_member_reconciliation
+
+    @onemin_member_reconciliation.setter
+    def onemin_member_reconciliation(self, handler) -> None:
+        self._adapter._onemin_member_reconciliation = handler
+
     def register_extract(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_extract(
             tool_runtime=self._tool_runtime,
@@ -91,6 +109,20 @@ class BrowserActToolExecutionModule:
 
     def register_gemini_web_generate(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_gemini_web_generate(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_onemin_billing_usage(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_browseract_onemin_billing_usage(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_onemin_member_reconciliation(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_browseract_onemin_member_reconciliation(
             tool_runtime=self._tool_runtime,
             register_handler=register_handler,
             browseract_adapter=self._adapter,

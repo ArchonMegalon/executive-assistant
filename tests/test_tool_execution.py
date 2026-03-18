@@ -2658,6 +2658,150 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_gemini_web
     assert tool_runtime.get_tool("browseract.gemini_web_generate") is not None
 
 
+def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_billing_usage_definition(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_billing_usage_run_url": "https://browseract.example/run/billing"},
+        status="enabled",
+    )
+
+    def _fake_billing_usage(**_: object) -> dict[str, object]:
+        return {
+            "billing_usage_page": "\n".join(
+                [
+                    "Remaining credits: 1234567",
+                    "Max credits: 2000000",
+                    "Used percent: 38.27",
+                    "Next top-up: 2026-03-31T00:00:00Z",
+                    "Top-up amount: 2000000",
+                    "Lifetime credits roll over month to month",
+                ]
+            )
+        }
+
+    service._browseract_onemin_billing_usage = _fake_billing_usage
+    registry._rows.pop("browseract.onemin_billing_usage", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_billing_usage"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-1",
+            step_id="step-browseract-onemin-billing-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/billing",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.onemin_billing_usage"
+    assert result.output_json["remaining_credits"] == 1234567
+    assert result.output_json["next_topup_at"] == "2026-03-31T00:00:00Z"
+    assert result.output_json["topup_amount"] == 2000000
+    assert result.output_json["rollover_enabled"] is True
+    assert result.output_json["basis"] == "actual_billing_usage_page"
+    assert result.output_json["structured_output_json"]["persisted_snapshot"]["remaining_credits"] == 1234567
+    assert tool_runtime.get_tool("browseract.onemin_billing_usage") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_member_reconciliation_definition(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"owner_email": "owner1@example.com"},
+                    {"owner_email": "owner2@example.com"},
+                ]
+            }
+        ),
+    )
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_members_run_url": "https://browseract.example/run/members"},
+        status="enabled",
+    )
+
+    def _fake_member_reconciliation(**_: object) -> dict[str, object]:
+        return {
+            "members_page": "\n".join(
+                [
+                    "Owner One - owner1@example.com - active - owner",
+                    "Other User - other@example.com - active - member - limit 500000",
+                ]
+            )
+        }
+
+    service._browseract_onemin_member_reconciliation = _fake_member_reconciliation
+    registry._rows.pop("browseract.onemin_member_reconciliation", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_member_reconciliation"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-members-1",
+            step_id="step-browseract-onemin-members-1",
+            tool_name="browseract.onemin_member_reconciliation",
+            action_kind="billing.reconcile_members",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/members",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.onemin_member_reconciliation"
+    assert result.output_json["member_count"] == 2
+    assert result.output_json["matched_owner_slots"] == 1
+    assert result.output_json["missing_owner_emails"] == ["owner2@example.com"]
+    assert result.output_json["owner_mismatches"][0]["email"] == "other@example.com"
+    assert result.output_json["structured_output_json"]["persisted_snapshot"]["member_count"] == 2
+    assert tool_runtime.get_tool("browseract.onemin_member_reconciliation") is not None
+
+
 def test_tool_execution_service_detects_gemini_web_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(

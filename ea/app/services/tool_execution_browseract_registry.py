@@ -215,5 +215,110 @@ def register_builtin_browseract_gemini_web_generate(
             policy_json={"builtin": True, "action_kind": "content.generate"},
             approval_default="none",
             enabled=True,
-        )
+    )
     register_handler("browseract.gemini_web_generate", browseract_adapter.execute_gemini_web_generate)
+
+
+def register_builtin_browseract_onemin_billing_usage(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.onemin_billing_usage") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.onemin_billing_usage",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["binding_id", "run_url"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"},
+                    "account_label": {"type": "string"},
+                    "page_url": {"type": "string"},
+                    "capture_raw_text": {"type": "boolean"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": [
+                    "tool_name",
+                    "action_kind",
+                    "provider_backend",
+                    "remaining_credits",
+                    "next_topup_at",
+                    "basis",
+                ],
+                "properties": {
+                    "remaining_credits": {"type": ["number", "null"]},
+                    "max_credits": {"type": ["number", "null"]},
+                    "used_percent": {"type": ["number", "null"]},
+                    "next_topup_at": {"type": ["string", "null"]},
+                    "cycle_start_at": {"type": ["string", "null"]},
+                    "cycle_end_at": {"type": ["string", "null"]},
+                    "topup_amount": {"type": ["number", "null"]},
+                    "rollover_enabled": {"type": ["boolean", "null"]},
+                    "source_url": {"type": "string"},
+                    "basis": {"type": "string"},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            policy_json={"builtin": True, "action_kind": "billing.inspect"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("browseract.onemin_billing_usage", browseract_adapter.execute_onemin_billing_usage)
+
+
+def register_builtin_browseract_onemin_member_reconciliation(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.onemin_member_reconciliation") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.onemin_member_reconciliation",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["binding_id", "run_url"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"},
+                    "account_label": {"type": "string"},
+                    "page_url": {"type": "string"},
+                    "capture_raw_text": {"type": "boolean"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": [
+                    "tool_name",
+                    "action_kind",
+                    "provider_backend",
+                    "member_count",
+                    "basis",
+                ],
+                "properties": {
+                    "member_count": {"type": "integer"},
+                    "matched_owner_slots": {"type": "integer"},
+                    "missing_owner_emails": {"type": "array", "items": {"type": "string"}},
+                    "owner_mismatches": {"type": "array", "items": {"type": "object"}},
+                    "members_json": {"type": "array", "items": {"type": "object"}},
+                    "source_url": {"type": "string"},
+                    "basis": {"type": "string"},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            policy_json={"builtin": True, "action_kind": "billing.reconcile_members"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler(
+        "browseract.onemin_member_reconciliation",
+        browseract_adapter.execute_onemin_member_reconciliation,
+    )
