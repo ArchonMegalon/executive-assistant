@@ -409,7 +409,7 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
                     ),
                     "stats": {
                         "models": {
-                            "gemini-3-flash-preview": {
+                            "gemini-2.5-flash": {
                                 "tokens": {"input": 111, "candidates": 37}
                             }
                         }
@@ -446,7 +446,7 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
             "model_policy_json": {
                 "provider": "gemini_vortex",
-                "default_model": "gemini-3-flash-preview",
+                "default_model": "gemini-2.5-flash",
                 "output_mode": "json",
             },
             "provider_hints_json": {
@@ -544,7 +544,7 @@ def test_skill_catalog_can_execute_chummer6_public_writer_skill(monkeypatch) -> 
                     ),
                     "stats": {
                         "models": {
-                            "gemini-3-flash-preview": {
+                            "gemini-2.5-flash": {
                                 "tokens": {"input": 101, "candidates": 29}
                             }
                         }
@@ -581,7 +581,7 @@ def test_skill_catalog_can_execute_chummer6_public_writer_skill(monkeypatch) -> 
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
             "model_policy_json": {
                 "provider": "gemini_vortex",
-                "default_model": "gemini-3-flash-preview",
+                "default_model": "gemini-2.5-flash",
                 "output_mode": "json",
             },
             "provider_hints_json": {
@@ -678,7 +678,7 @@ def test_chummer6_skill_catalog_keeps_writer_and_visual_director_distinct() -> N
             "memory_writes": ["chummer6_public_copy_fact"],
             "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
-            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-3-flash-preview", "output_mode": "json"},
+            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-2.5-flash", "output_mode": "json"},
             "provider_hints_json": {"primary": ["Gemini Vortex"]},
             "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
             "human_policy_json": {"review_roles": ["guide_reviewer"]},
@@ -706,7 +706,7 @@ def test_chummer6_skill_catalog_keeps_writer_and_visual_director_distinct() -> N
             "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
             "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
             "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
-            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-3-flash-preview", "output_mode": "json"},
+            "model_policy_json": {"provider": "gemini_vortex", "default_model": "gemini-2.5-flash", "output_mode": "json"},
             "provider_hints_json": {"primary": ["Gemini Vortex"]},
             "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
             "human_policy_json": {"review_roles": ["guide_reviewer"]},

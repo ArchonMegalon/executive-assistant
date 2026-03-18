@@ -1438,8 +1438,8 @@ def _onemin_review_models() -> tuple[str, ...]:
 
 def _gemini_vortex_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_GEMINI_VORTEX_MODELS"))
-    default_model = _env("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
-    defaults = (default_model,) if default_model else ("gemini-3-flash-preview",)
+    default_model = _env("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
+    defaults = (default_model,) if default_model else ("gemini-2.5-flash",)
     return _merge_unique(configured, defaults)
 
 

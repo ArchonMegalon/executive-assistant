@@ -79,7 +79,7 @@ def _common_skill_fields() -> dict[str, object]:
         "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
         "model_policy_json": {
             "provider": "gemini_vortex",
-            "default_model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3-flash-preview",
+            "default_model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash",
             "output_mode": "json",
         },
         "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},

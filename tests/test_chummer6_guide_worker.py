@@ -92,7 +92,7 @@ def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None
 
     result = worker.ea_json(
         "prompt body",
-        model="gemini-3-flash-preview",
+        model="gemini-2.5-flash",
         skill_key=worker.VISUAL_DIRECTOR_SKILL_KEY,
     )
     request = captured["request"]

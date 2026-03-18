@@ -223,7 +223,7 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
     assert "gpt-5" in model_ids
-    assert "gemini-3-flash-preview" in model_ids
+    assert "gemini-2.5-flash" in model_ids
     assert "x-ai/grok-code-fast-1" in model_ids
 
 
@@ -944,7 +944,7 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
         elif requested_model == "ea-groundwork-gemini":
             provider_account = "EA_GEMINI_VORTEX_API_KEY"
             provider_key = "gemini_vortex"
-            provider_model = "gemini-3-flash-preview"
+            provider_model = "gemini-2.5-flash"
         elif requested_model == "ea-review-light":
             provider_account = "BROWSERACT_API_KEY"
             provider_key = "chatplayground"
@@ -1046,7 +1046,7 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
             text="survival output",
             provider_key="gemini_vortex",
             provider_backend="gemini_vortex_cli",
-            model="gemini-3-flash-preview",
+            model="gemini-2.5-flash",
             latency_ms=12,
             attempts=(
                 SurvivalAttempt(
@@ -1597,7 +1597,7 @@ def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPa
     )
     upstream._record_provider_dispatch_event(
         provider_key="gemini_vortex",
-        model="gemini-3-flash-preview",
+        model="gemini-2.5-flash",
         lane="fast",
         estimated_onemin_credits=300,
     )
@@ -1804,7 +1804,7 @@ def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.Mon
     client = _client(principal_id="codex-gemini-health")
 
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SELECTION_MODE", "round_robin")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
@@ -1814,7 +1814,7 @@ def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.Mon
     assert response.status_code == 200
     body = response.json()
     assert body["providers"]["gemini_vortex"]["state"] == "ready"
-    assert "gemini-3-flash-preview" in body["providers"]["gemini_vortex"]["models"]
+    assert "gemini-2.5-flash" in body["providers"]["gemini_vortex"]["models"]
     assert body["providers"]["gemini_vortex"]["selection_mode"] == "round_robin"
     assert [slot["account_name"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
         "EA_GEMINI_VORTEX_DEFAULT_AUTH",

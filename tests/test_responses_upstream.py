@@ -20,7 +20,7 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("gemini_vortex", "gemini-2.5-flash"),
         ("magixai", "mx-best"),
         ("magixai", "mx-fallback"),
         ("magixai", "x-ai/grok-code-fast-1"),
@@ -40,7 +40,7 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("gemini_vortex", "gemini-2.5-flash"),
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
@@ -62,7 +62,7 @@ def test_default_public_model_falls_back_to_gemini_without_onemin(monkeypatch: p
         return upstream.UpstreamResult(
             text="fallback ok",
             provider_key="gemini_vortex",
-            model="gemini-3-flash-preview",
+            model="gemini-2.5-flash",
             tokens_in=3,
             tokens_out=2,
         )
@@ -88,7 +88,7 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-3-flash-preview"),
+        ("gemini_vortex", "gemini-2.5-flash"),
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
@@ -295,23 +295,23 @@ def test_plain_magicx_model_skips_onemin(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_gemini_public_model_routes_to_gemini_vortex(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
 
     candidates = [
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.GEMINI_VORTEX_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-3-flash-preview")]
+    assert candidates == [("gemini_vortex", "gemini-2.5-flash")]
 
 
 def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
 
     def fake_execute(self, request, definition):  # type: ignore[no-untyped-def]
         assert definition.tool_name == "provider.gemini_vortex.structured_generate"
-        assert request.payload_json["model"] == "gemini-3-flash-preview"
+        assert request.payload_json["model"] == "gemini-2.5-flash"
         assert "say ok" in str(request.payload_json["source_text"])
         return ToolInvocationResult(
             tool_name=definition.tool_name,
@@ -320,12 +320,12 @@ def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
             output_json={
                 "normalized_text": '{\n  "text": "gemini ok"\n}',
                 "structured_output_json": {"text": "gemini ok"},
-                "model": "gemini-3-flash-preview",
+                "model": "gemini-2.5-flash",
                 "provider_key_slot": "fallback_1",
                 "provider_account_name": "GOOGLE_API_KEY_FALLBACK_1",
             },
             receipt_json={},
-            model_name="gemini-3-flash-preview",
+            model_name="gemini-2.5-flash",
             tokens_in=5,
             tokens_out=3,
         )
@@ -336,7 +336,7 @@ def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result.provider_key == "gemini_vortex"
     assert result.provider_backend == "gemini_vortex_cli"
-    assert result.model == "gemini-3-flash-preview"
+    assert result.model == "gemini-2.5-flash"
     assert result.provider_key_slot == "fallback_1"
     assert result.provider_account_name == "GOOGLE_API_KEY_FALLBACK_1"
     assert result.text == "gemini ok"
