@@ -5,61 +5,71 @@
       "slot": "primary",
       "account_name": "ONEMIN_AI_API_KEY",
       "secret_sha256": "f3c85b892ab0188059cd2ab61b837236117ee8c233aa657825e67ad02009e0de",
-      "owner_name": "Tibor 1minAi"
+      "owner_name": "Tibor 1minAi",
+      "owner_email": "tibor.girschele@gmail.com"
     },
     {
       "slot": "fallback_1",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
       "secret_sha256": "b9ae5545eb87371a664a591f3e861edbf71998e43404e4754597743d310a4a8b",
-      "owner_name": "archon onemin"
+      "owner_name": "archon onemin",
+      "owner_email": "archon.megalon@gmail.com"
     },
     {
       "slot": "fallback_2",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
       "secret_sha256": "57b38edd04c34d5e7b6e152af544b2a300f786374aae2c027dde9012a211085c",
-      "owner_name": "girschele onemin"
+      "owner_name": "girschele onemin",
+      "owner_email": "the.girscheles@gmail.com"
     },
     {
       "slot": "fallback_3",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_3",
       "secret_sha256": "e82887a39c0a01bcad8dfba87c5c70fd44e0346bb188a2d0ae86d73aca3bfc71",
-      "owner_name": "1min1"
+      "owner_name": "1min1",
+      "owner_email": "1min1@girschele.com"
     },
     {
       "slot": "fallback_4",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_4",
       "secret_sha256": "ff26607c0737fdfed70317a824f817e672016bfcee349bb27ccf151a7f3027de",
-      "owner_name": "1min2"
+      "owner_name": "1min2",
+      "owner_email": "1min2@girschele.com"
     },
     {
       "slot": "fallback_5",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_5",
       "secret_sha256": "90a6ef03d6e7ca09d7cd6b0896f5827bb24f106ab98c48186361ef954a733207",
-      "owner_name": "1min3"
+      "owner_name": "1min3",
+      "owner_email": "1min3@girschele.com"
     },
     {
       "slot": "fallback_6",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_6",
       "secret_sha256": "aa1a2f4877f39cd080e4f9fe20cd9451bf411bd8c286b3e4faca603bdd535c36",
-      "owner_name": "tibor hoza"
+      "owner_name": "tibor hoza",
+      "owner_email": "tibor.hoza@girschele.com"
     },
     {
       "slot": "fallback_7",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_7",
       "secret_sha256": "3e7d7451cfd110f06e7bc76789e2fe051f6c9ad821352776431e701d808e6865",
-      "owner_name": "Noah girschele"
+      "owner_name": "Noah girschele",
+      "owner_email": "noah.girschele@girschele.com"
     },
     {
       "slot": "fallback_8",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_8",
       "secret_sha256": "5d7e9fda8acb4be84628c8def306652443d8595c7d90af7936ccc13ce0853abe",
-      "owner_name": "elisabeth Girschele"
+      "owner_name": "elisabeth Girschele",
+      "owner_email": "elisabeth.girschele@girschele.com"
     },
     {
       "slot": "fallback_9",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_9",
       "secret_sha256": "86b6ebcdb727fe9a9f65e896ff17d6ff44d09e2270a99df291ed287e977d08f2",
-      "owner_name": "vermisst.Ma01"
+      "owner_name": "vermisst.Ma01",
+      "owner_email": "vermisst.ma01@gmail.com"
     },
     {
       "slot": "fallback_10",
