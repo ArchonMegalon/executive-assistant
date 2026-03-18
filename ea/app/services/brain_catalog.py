@@ -9,6 +9,8 @@ class BrainProfile:
     lane: str
     public_model: str
     provider_hint_order: tuple[str, ...]
+    backend_key: str = ""
+    health_provider_key: str = ""
     review_required: bool = False
     needs_review: bool = False
     risk_labels: tuple[str, ...] = ()
@@ -35,6 +37,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="hard",
         public_model="ea-coder-hard",
         provider_hint_order=("onemin",),
+        backend_key="onemin",
+        health_provider_key="onemin",
         review_required=True,
         needs_review=True,
         risk_labels=("high_impact", "code_change"),
@@ -45,6 +49,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="fast",
         public_model=FAST_PUBLIC_MODEL,
         provider_hint_order=("gemini_vortex", "magixai"),
+        backend_key="gemini_vortex",
+        health_provider_key="gemini_vortex",
         risk_labels=("low_impact", "assist"),
         merge_policy="auto",
     ),
@@ -53,6 +59,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="repair",
         public_model=FAST_PUBLIC_MODEL,
         provider_hint_order=("gemini_vortex", "magixai"),
+        backend_key="gemini_vortex",
+        health_provider_key="gemini_vortex",
         risk_labels=("bounded_patch", "code_change", "follow_up"),
         merge_policy="auto_if_low_risk",
     ),
@@ -61,6 +69,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="groundwork",
         public_model=GROUNDWORK_PUBLIC_MODEL,
         provider_hint_order=("gemini_vortex",),
+        backend_key="gemini_vortex",
+        health_provider_key="gemini_vortex",
         risk_labels=("non_urgent", "analysis", "design"),
         merge_policy="auto",
     ),
@@ -69,6 +79,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="review",
         public_model=REVIEW_LIGHT_PUBLIC_MODEL,
         provider_hint_order=("chatplayground",),
+        backend_key="chatplayground",
+        health_provider_key="chatplayground",
         risk_labels=("posthoc", "light_review", "diff_review"),
         merge_policy="auto_if_low_risk",
     ),
@@ -77,6 +89,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="audit",
         public_model=AUDIT_PUBLIC_MODEL,
         provider_hint_order=("chatplayground",),
+        backend_key="chatplayground",
+        health_provider_key="chatplayground",
         review_required=True,
         needs_review=True,
         risk_labels=("publish", "high_risk", "multi_view"),
@@ -87,6 +101,8 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         lane="survival",
         public_model=SURVIVAL_PUBLIC_MODEL,
         provider_hint_order=("gemini_vortex", "browseract"),
+        backend_key="gemini_vortex",
+        health_provider_key="gemini_vortex",
         risk_labels=("budget_exhausted", "backup", "slow_path"),
         merge_policy="auto_if_low_risk",
     ),
@@ -103,4 +119,3 @@ def get_brain_profile(name_or_model: str) -> BrainProfile | None:
         if target in {profile.profile, profile.public_model}:
             return profile
     return None
-

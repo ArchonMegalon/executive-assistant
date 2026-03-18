@@ -1357,6 +1357,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
     assert easy_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert easy_profile["backend"] == "gemini_vortex"
+    assert easy_profile["health_provider_key"] == "gemini_vortex"
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
     assert repair_profile["provider_hint_order"] == ["gemini_vortex"]
@@ -1364,11 +1366,15 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_profile["lane"] == "groundwork"
     assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
     assert groundwork_profile["model"] == "ea-groundwork-gemini"
+    assert groundwork_profile["backend"] == "gemini_vortex"
+    assert groundwork_profile["health_provider_key"] == "gemini_vortex"
     assert groundwork_profile["provider_slot_pool"]["selection_mode"] in {"fallback", "round_robin"}
     assert [slot["slot_owner"] for slot in groundwork_profile["provider_slots"]] == ["fleet-primary", "fleet-shadow"]
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["browseract"]
+    assert review_light_profile["backend"] == "chatplayground"
+    assert review_light_profile["health_provider_key"] == "chatplayground"
     assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
@@ -1376,6 +1382,14 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == "BROWSERACT_API_KEY"
     assert body["provider_health"]["provider_config"]["onemin_accounts"] == ["ONEMIN_AI_API_KEY"]
     assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == ["BROWSERACT_API_KEY"]
+    assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
+    groundwork_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "groundwork")
+    assert groundwork_lane["backend"] == "gemini_vortex"
+    assert groundwork_lane["capacity_summary"]["configured_slots"] == 2
+    assert groundwork_lane["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+    review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
+    assert review_light_lane["health_provider_key"] == "chatplayground"
+    assert review_light_lane["providers"][0]["provider_key"] == "browseract"
 
 
 def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1467,6 +1481,13 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert providers["onemin"]["max_requests_per_hour"] == 120
     assert providers["onemin"]["max_credits_per_hour"] == 80000
     assert providers["onemin"]["max_credits_per_day"] == 600000
+    assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
+    onemin_provider = next(item for item in body["provider_registry"]["providers"] if item["provider_key"] == "onemin")
+    assert onemin_provider["slot_pool"]["configured_slots"] == 34
+    assert onemin_provider["backend"] == "1min"
+    core_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "core")
+    assert core_lane["backend"] == "onemin"
+    assert core_lane["primary_provider_key"] == "onemin"
 
 
 def test_responses_provider_health_reports_observed_credit_balance_without_leaking_keys(monkeypatch: pytest.MonkeyPatch) -> None:

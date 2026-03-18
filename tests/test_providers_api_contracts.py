@@ -257,3 +257,31 @@ def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
     assert body["billing_results"][0]["refresh_backend"] == "onemin_api"
     assert body["member_results"][0]["refresh_backend"] == "onemin_api"
     assert "direct 1min API" in body["note"]
+
+
+def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    owner = _client(principal_id="exec-1")
+
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    response = owner.get("/v1/providers/registry")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["contract_name"] == "ea.provider_registry"
+    assert body["principal_id"] == "exec-1"
+
+    groundwork = next(item for item in body["lanes"] if item["profile"] == "groundwork")
+    assert groundwork["backend"] == "gemini_vortex"
+    assert groundwork["health_provider_key"] == "gemini_vortex"
+    assert groundwork["capacity_summary"]["configured_slots"] == 2
+    assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+
+    review_light = next(item for item in body["lanes"] if item["profile"] == "review_light")
+    assert review_light["backend"] == "chatplayground"
+    assert review_light["health_provider_key"] == "chatplayground"
+    assert review_light["providers"][0]["provider_key"] == "browseract"
