@@ -858,6 +858,26 @@ def _onemin_owner_record_for_slot(*, api_key: str, account_name: str, slot: str)
     return fallback_match
 
 
+def onemin_owner_account_names_for_email(*, owner_email: str) -> tuple[str, ...]:
+    normalized_email = str(owner_email or "").strip().lower()
+    if not normalized_email:
+        return ()
+    seen: set[str] = set()
+    matches: list[str] = []
+    for row in _onemin_owner_entries():
+        candidate_email = str(row.get("owner_email") or "").strip().lower()
+        account_name = str(row.get("account_name") or "").strip()
+        if candidate_email != normalized_email or not account_name or account_name in seen:
+            continue
+        seen.add(account_name)
+        matches.append(account_name)
+    return tuple(matches)
+
+
+def onemin_owner_rows() -> tuple[dict[str, str], ...]:
+    return tuple(dict(row) for row in _onemin_owner_entries())
+
+
 def _magicx_urls() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_MAGICX_URLS"))
     legacy = _csv_values(_env("EA_RESPONSES_MAGICX_URL"))
