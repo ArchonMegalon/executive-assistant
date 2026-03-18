@@ -42,7 +42,7 @@ from app.services.brain_catalog import (
     SURVIVAL_PUBLIC_MODEL,
 )
 from app.services.tool_execution_common import ToolExecutionError
-from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter
+from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter, gemini_vortex_slot_status
 ChatMessage = dict[str, str]
 
 _LOG = logging.getLogger("ea.responses.upstream")
@@ -743,8 +743,34 @@ def _provider_account_names(provider_key: str) -> tuple[str, ...]:
     if normalized == "chatplayground":
         return _browserplayground_auth_names()
     if normalized == "gemini_vortex":
-        return ("EA_GEMINI_VORTEX_COMMAND",)
+        return _gemini_vortex_account_names()
     return tuple()
+
+
+def _gemini_vortex_fallback_account_names() -> tuple[str, ...]:
+    entries: list[tuple[int, str]] = []
+    prefix = "GOOGLE_API_KEY_FALLBACK_"
+    for name, value in os.environ.items():
+        if not name.startswith(prefix):
+            continue
+        if not str(value or "").strip():
+            continue
+        suffix = name.removeprefix(prefix)
+        priority = int(suffix) if suffix.isdigit() else 10_000
+        entries.append((priority, name))
+    entries.sort(key=lambda item: (item[0], item[1]))
+    return tuple(name for _, name in entries)
+
+
+def _gemini_vortex_account_names() -> tuple[str, ...]:
+    return ("EA_GEMINI_VORTEX_DEFAULT_AUTH",) + _gemini_vortex_fallback_account_names()
+
+
+def _gemini_vortex_selection_mode() -> str:
+    raw = _env("EA_GEMINI_VORTEX_SELECTION_MODE").lower()
+    if raw in {"fallback", "round_robin"}:
+        return raw
+    return "round_robin" if _gemini_vortex_fallback_account_names() else "fallback"
 
 
 def _provider_secret_from_account_name(account_name: str) -> str:
@@ -2068,11 +2094,10 @@ def _chatplayground_config() -> ProviderConfig:
 
 
 def _gemini_vortex_config() -> ProviderConfig:
-    command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
     return ProviderConfig(
         provider_key="gemini_vortex",
         display_name="Gemini Vortex",
-        api_keys=(command,),
+        api_keys=_gemini_vortex_account_names(),
         default_models=_gemini_vortex_models(),
         timeout_seconds=_to_int(_env("EA_GEMINI_VORTEX_TIMEOUT_SECONDS", "180"), 180, minimum=15, maximum=1800),
     )
@@ -3421,6 +3446,7 @@ def _call_gemini_vortex(
     model: str,
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
+    principal_id: str = "",
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -3457,6 +3483,7 @@ def _call_gemini_vortex(
             "lane": lane,
             "max_output_tokens": max_output_tokens,
         },
+        context_json={"principal_id": principal_id},
     )
     started_at = _now_ms()
     try:
@@ -3479,13 +3506,16 @@ def _call_gemini_vortex(
         text = str(output_json.get("normalized_text") or "").strip()
     if not text:
         raise ResponsesUpstreamError("gemini_vortex:empty_text")
-    account_key = config.api_keys[0] if config.api_keys else ""
-    account_name = _provider_account_name("gemini_vortex", key_names=tuple(config.api_keys), key=account_key)
+    provider_key_slot = str(output_json.get("provider_key_slot") or "default").strip() or "default"
+    account_name = str(output_json.get("provider_account_name") or "").strip()
+    if not account_name:
+        account_key = config.api_keys[0] if config.api_keys else ""
+        account_name = _provider_account_name("gemini_vortex", key_names=tuple(config.api_keys), key=account_key)
     latency_ms = max(0, _now_ms() - started_at)
     _log_provider_selection(
         provider="gemini_vortex",
         event="success",
-        key_slot="primary",
+        key_slot=provider_key_slot,
         model=str(result.model_name or model or "").strip() or model,
         latency_ms=latency_ms,
         reason=None,
@@ -3496,7 +3526,7 @@ def _call_gemini_vortex(
         model=str(result.model_name or output_json.get("model") or model or "gemini").strip() or "gemini",
         tokens_in=int(result.tokens_in or 0),
         tokens_out=int(result.tokens_out or 0),
-        provider_key_slot="primary",
+        provider_key_slot=provider_key_slot,
         provider_backend="gemini_vortex_cli",
         provider_account_name=account_name,
         upstream_model=str(output_json.get("model") or model or "").strip() or model,
@@ -3911,6 +3941,7 @@ def generate_text(
                         model=model_name,
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
+                        principal_id=chatplayground_audit_principal_id,
                     )
                 if result is not None:
                     estimated_onemin_credits, _ = _estimate_onemin_request_credits(
@@ -5144,15 +5175,15 @@ def _provider_health_report() -> dict[str, object]:
     ]
     gemini_command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
     gemini_state, gemini_detail = _gemini_vortex_health_state()
-    gemini_key_names = (gemini_command,)
-    gemini_slots = [
-        {
-            "slot": "primary",
-            "configured": bool(gemini_command),
-            "account_name": _provider_account_name("gemini_vortex", key_names=gemini_key_names, key=gemini_command),
-            "state": gemini_state,
-        }
-    ]
+    gemini_key_names = _gemini_vortex_account_names()
+    gemini_slots = []
+    for slot in gemini_vortex_slot_status():
+        gemini_slots.append(
+            {
+                **slot,
+                "state": gemini_state if str(slot.get("last_result") or "").strip() != "failed" else "degraded",
+            }
+        )
     hard_max_active, hard_queue_timeout, _ = _resolve_hard_defaults()
     onemin_max_requests_per_hour = _onemin_max_requests_per_hour()
     onemin_max_credits_per_hour = _onemin_max_credits_per_hour()
@@ -5223,6 +5254,7 @@ def _provider_health_report() -> dict[str, object]:
                 "state": gemini_state,
                 "detail": gemini_detail,
                 "models": list(_gemini_vortex_models()),
+                "selection_mode": _gemini_vortex_selection_mode(),
             },
         },
         "provider_config": {
@@ -5253,7 +5285,9 @@ def _provider_health_report() -> dict[str, object]:
             ],
             "chatplayground_url": _browserplayground_url(),
             "gemini_vortex_command": gemini_command,
+            "gemini_vortex_accounts": list(gemini_key_names),
             "gemini_vortex_models": list(_gemini_vortex_models()),
+            "gemini_vortex_selection_mode": _gemini_vortex_selection_mode(),
             "hard_max_active_requests": hard_max_active,
             "hard_queue_timeout_seconds": hard_queue_timeout,
             "lane_caps": {

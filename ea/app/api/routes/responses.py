@@ -16,7 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
+from app.services.brain_router import BrainRouterService
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.brain_catalog import (
     DEFAULT_PUBLIC_MODEL,
@@ -24,6 +26,7 @@ from app.services.brain_catalog import (
     GROUNDWORK_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
+    get_brain_profile,
     list_brain_profiles,
 )
 from app.services.responses_upstream import (
@@ -752,8 +755,38 @@ def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
     return payload.store is not False
 
 
-def _codex_profile(profile: str) -> dict[str, object]:
-    for item in _CODEx_PROFILES:
+def _brain_router(container: object | None = None) -> BrainRouterService | None:
+    router = getattr(container, "brain_router", None)
+    return router if isinstance(router, BrainRouterService) else None
+
+
+def _codex_profiles(
+    *,
+    container: object | None = None,
+    principal_id: str = "",
+) -> tuple[dict[str, object], ...]:
+    router = _brain_router(container)
+    if router is None:
+        return _CODEx_PROFILES
+    rows = []
+    for profile in router.list_profile_decisions(principal_id=principal_id or None):
+        rows.append(
+            {
+                "profile": profile.profile,
+                "lane": profile.lane,
+                "model": profile.public_model,
+                "provider_hint_order": profile.provider_hint_order,
+                "review_required": bool(profile.review_required),
+                "needs_review": bool(profile.needs_review),
+                "risk_labels": list(profile.risk_labels),
+                "merge_policy": str(profile.merge_policy or "auto"),
+            }
+        )
+    return tuple(rows or _CODEx_PROFILES)
+
+
+def _codex_profile(profile: str, *, container: object | None = None, principal_id: str = "") -> dict[str, object]:
+    for item in _codex_profiles(container=container, principal_id=principal_id):
         if item["profile"] == profile:
             return dict(item)
     return {
@@ -764,6 +797,50 @@ def _codex_profile(profile: str) -> dict[str, object]:
         "review_required": False,
         "needs_review": False,
     }
+
+
+def _attach_provider_slot_state(
+    profiles: list[dict[str, object]],
+    *,
+    provider_health: dict[str, object],
+) -> list[dict[str, object]]:
+    gemini = dict(((provider_health or {}).get("providers") or {}).get("gemini_vortex") or {})
+    gemini_slots = [
+        {
+            "slot": item.get("slot"),
+            "account_name": item.get("account_name"),
+            "state": item.get("state"),
+            "slot_owner": item.get("slot_owner"),
+            "lease_holder": item.get("lease_holder"),
+            "lease_expires_at": item.get("lease_expires_at"),
+            "last_used_at": item.get("last_used_at"),
+            "quota_posture": item.get("quota_posture"),
+        }
+        for item in gemini.get("slots") or []
+        if isinstance(item, dict)
+    ]
+    if not gemini_slots:
+        return profiles
+    selection_mode = str(gemini.get("selection_mode") or "")
+    configured_slots = int(gemini.get("configured_slots") or len(gemini_slots))
+    enriched: list[dict[str, object]] = []
+    for profile in profiles:
+        hints = [str(item or "").strip() for item in profile.get("provider_hint_order") or [] if str(item or "").strip()]
+        if "gemini_vortex" not in hints:
+            enriched.append(profile)
+            continue
+        enriched.append(
+            {
+                **profile,
+                "provider_slots": gemini_slots,
+                "provider_slot_pool": {
+                    "provider_key": "gemini_vortex",
+                    "selection_mode": selection_mode,
+                    "configured_slots": configured_slots,
+                },
+            }
+        )
+    return enriched
 
 
 def _normalize_payload_for_profile(payload: dict[str, object], *, profile: str) -> dict[str, object]:
@@ -1672,10 +1749,16 @@ def _run_response(
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
     profile_config: dict[str, object] | None = None
     if codex_profile:
-        profile_config = _codex_profile(codex_profile)
+        profile_config = _codex_profile(codex_profile, container=container, principal_id=context.principal_id)
         codex_model = profile_config.get("model")
         if isinstance(codex_model, str) and codex_model:
             model = codex_model
+    else:
+        router = _brain_router(container)
+        if router is not None and get_brain_profile(model) is not None:
+            resolved = router.resolve_profile(model, principal_id=context.principal_id)
+            if resolved.public_model:
+                model = resolved.public_model
 
     requested_model = _requested_model(request)
     is_survival_profile = codex_profile == "survival"
@@ -2639,14 +2722,19 @@ def create_codex_audit(
 
 
 @codex_router.get("/profiles")
-def list_codex_profiles() -> Response:
+def list_codex_profiles(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    provider_health = _provider_health_report()
+    profiles = [
+        {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
+        for profile in _codex_profiles(container=container, principal_id=context.principal_id)
+    ]
     return JSONResponse(
         {
-            "profiles": [
-                {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
-                for profile in _CODEx_PROFILES
-            ],
-            "provider_health": _provider_health_report(),
+            "profiles": _attach_provider_slot_state(profiles, provider_health=provider_health),
+            "provider_health": provider_health,
         }
     )
 
