@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import inspect
 import json
 import os
-import inspect
+import re
 import shlex
 import subprocess
+import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
+from urllib.parse import urlencode, urlparse, urlunparse
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult, artifact_preview_text, now_utc_iso
 from app.services.tool_execution_common import ToolExecutionError
@@ -68,6 +72,262 @@ def _collect_text_fragments(value: object, *, limit: int = 64) -> tuple[str, ...
 def _has_marker(fragments: tuple[str, ...], markers: tuple[str, ...]) -> bool:
     lowered = tuple(fragment.lower() for fragment in fragments if fragment)
     return any(marker in fragment for fragment in lowered for marker in markers)
+
+
+def _normalize_text_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, dict):
+        values: list[str] = []
+        for nested in value.values():
+            values.extend(_normalize_text_list(nested))
+        return values
+    if isinstance(value, (list, tuple, set)):
+        values: list[str] = []
+        for nested in value:
+            values.extend(_normalize_text_list(nested))
+        return values
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _chatplayground_roles(value: object) -> list[str]:
+    roles = [entry.strip().lower() for entry in _normalize_text_list(value) if entry.strip()]
+    if roles:
+        return roles
+    return ["factuality", "adversarial", "completeness", "risk"]
+
+
+def _normalize_chatplayground_audit_payload(payload: dict[str, object] | None) -> tuple[str, str, list[str], list[str], list[str], list[str], dict[str, object]]:
+    root = dict(payload or {})
+    body = root.get("data") if isinstance(root.get("data"), dict) else root
+    if not isinstance(body, dict):
+        body = {}
+    normalized = dict(body)
+    consensus = str(
+        normalized.get("consensus")
+        or normalized.get("recommendation")
+        or normalized.get("summary")
+        or ""
+    ).strip()
+    recommendation = str(normalized.get("recommendation") or consensus or "").strip()
+    disagreements = [entry for entry in _normalize_text_list(normalized.get("disagreements")) if entry]
+    risks = [entry for entry in _normalize_text_list(normalized.get("risks")) if entry]
+    model_deltas = [
+        entry
+        for entry in _normalize_text_list(normalized.get("model_deltas") or normalized.get("model_delta"))
+        if entry
+    ]
+    instruction_trace = [entry for entry in _normalize_text_list(normalized.get("instruction_trace")) if entry]
+    roles = _chatplayground_roles(normalized.get("roles"))
+    return (
+        consensus,
+        recommendation,
+        roles,
+        disagreements,
+        risks,
+        model_deltas,
+        {
+            "consensus": consensus,
+            "recommendation": recommendation,
+            "disagreements": disagreements,
+            "risks": risks,
+            "model_deltas": model_deltas,
+            "instruction_trace": instruction_trace,
+            "roles": roles,
+            "audit_scope": str(normalized.get("audit_scope") or "jury").strip() or "jury",
+            "requested_models": _normalize_text_list(normalized.get("requested_models")),
+            "requested_at": str(normalized.get("requested_at") or now_utc_iso()).strip() or now_utc_iso(),
+            "raw_response": root,
+            "parsed_at": now_utc_iso(),
+        },
+    )
+
+
+def _strip_code_fences(text: object) -> str:
+    raw = str(text or "").strip()
+    if not raw.startswith("```"):
+        return raw
+    lines = raw.splitlines()
+    if lines:
+        lines = lines[1:]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _jsonish_candidates(text: object) -> tuple[str, ...]:
+    raw = str(text or "").strip()
+    if not raw:
+        return ()
+    candidates: list[str] = []
+
+    def _add(candidate: object) -> None:
+        normalized = str(candidate or "").strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+
+    _add(_strip_code_fences(raw))
+    _add(raw)
+    for match in re.findall(r"```(?:json)?\s*(.*?)```", raw, flags=re.IGNORECASE | re.DOTALL):
+        _add(match)
+        _add(_strip_code_fences(match))
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = raw.find(opener)
+        end = raw.rfind(closer)
+        if start >= 0 and end > start:
+            _add(raw[start : end + 1])
+    return tuple(candidates)
+
+
+def _load_jsonish(text: object) -> object | None:
+    for candidate in _jsonish_candidates(text):
+        try:
+            return json.loads(candidate)
+        except Exception:
+            continue
+    return None
+
+
+def _unwrap_browseract_output_payload(value: object) -> object | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        recognized = {
+            "consensus",
+            "recommendation",
+            "summary",
+            "disagreements",
+            "risks",
+            "model_deltas",
+            "roles",
+            "requested_models",
+            "requested_at",
+        }
+        if recognized.intersection(value.keys()):
+            return dict(value)
+        for key in (
+            "audit_response",
+            "result",
+            "output",
+            "answer",
+            "message",
+            "content",
+            "text",
+            "string",
+            "value",
+            "generated_prompt",
+        ):
+            if key not in value:
+                continue
+            unwrapped = _unwrap_browseract_output_payload(value.get(key))
+            if unwrapped is not None:
+                return unwrapped
+        if len(value) == 1:
+            only_value = next(iter(value.values()))
+            return _unwrap_browseract_output_payload(only_value)
+        return dict(value)
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            unwrapped = _unwrap_browseract_output_payload(nested)
+            if unwrapped is not None:
+                return unwrapped
+        return None
+    if isinstance(value, str):
+        parsed = _load_jsonish(value)
+        if parsed is not None and parsed != value:
+            unwrapped = _unwrap_browseract_output_payload(parsed)
+            if unwrapped is not None:
+                return unwrapped
+        text = value.strip()
+        return text or None
+    text = str(value).strip()
+    return text or None
+
+
+def _chatplayground_workflow_max_prompt_chars() -> int:
+    raw = (
+        str(os.getenv("BROWSERACT_CHATPLAYGROUND_WORKFLOW_MAX_PROMPT_CHARS") or "").strip()
+        or str(os.getenv("EA_CHATPLAYGROUND_AUDIT_MAX_PROMPT_CHARS") or "").strip()
+        or "16000"
+    )
+    try:
+        return max(2000, min(120000, int(raw)))
+    except Exception:
+        return 16000
+
+
+def _truncate_chatplayground_workflow_text(text: object, *, limit: int) -> str:
+    value = str(text or "")
+    if limit <= 0 or len(value) <= limit:
+        return value
+    if limit <= 96:
+        return value[:limit]
+    spacer = "\n\n[... omitted for ChatPlayground workflow transport ...]\n\n"
+    remaining = limit - len(spacer)
+    if remaining <= 32:
+        return value[:limit]
+    head = remaining // 2
+    tail = remaining - head
+    return f"{value[:head]}{spacer}{value[-tail:]}".strip()
+
+
+def _render_chatplayground_workflow_prompt(
+    *,
+    prompt: str,
+    roles: list[str],
+    audit_scope: str,
+    requested_models: list[str],
+) -> str:
+    role_list = [str(role).strip() for role in roles if str(role).strip()]
+    if not role_list:
+        role_list = ["factuality", "adversarial", "completeness", "risk"]
+    model_list = [str(model).strip() for model in requested_models if str(model).strip()]
+    scope_label = "review_light" if str(audit_scope or "").strip().lower() == "review_light" else "jury"
+    material = str(prompt or "").strip()
+    if not material:
+        return ""
+    limit = _chatplayground_workflow_max_prompt_chars()
+    base_lines = [
+        "You are the jury/audit reviewer for an external automation system.",
+        f"Audit scope: {scope_label}",
+        f"Review roles: {', '.join(role_list)}",
+    ]
+    if model_list:
+        base_lines.append(f"Requested comparison models: {', '.join(model_list)}")
+        base_lines.extend(
+        [
+            "Review the material and return exactly one JSON object with no markdown fences and no prose outside the JSON.",
+            'Use this schema: {{"consensus":"pass|fail|needs_revision|unavailable","recommendation":"short verdict","disagreements":["..."],"risks":["..."],"model_deltas":["..."]}}',
+            "Rules:",
+            "- consensus must be one of pass, fail, needs_revision, or unavailable",
+            "- recommendation must be a short actionable verdict",
+            "- disagreements, risks, and model_deltas must be arrays of short strings",
+            "- if the material is too incomplete to judge, use needs_revision or unavailable and explain why",
+            "",
+            "Material to review:",
+            "<material>",
+            "{material}",
+            "</material>",
+        ]
+    )
+    template = "\n".join(base_lines)
+    wrapped = template.format(material=material)
+    if len(wrapped) <= limit:
+        return wrapped
+    available = limit - len(template.format(material=""))
+    if available <= 512:
+        available = max(512, limit // 2)
+    compact_material = _truncate_chatplayground_workflow_text(material, limit=available)
+    rendered = template.format(material=compact_material)
+    if len(rendered) <= limit:
+        return rendered
+    return _truncate_chatplayground_workflow_text(rendered, limit=limit)
 
 
 class BrowserActToolAdapter:
@@ -323,6 +583,7 @@ class BrowserActToolAdapter:
         result_selector = str(payload.get("result_selector") or "main, body").strip() or "main, body"
         wait_selector = str(payload.get("wait_selector") or result_selector).strip() or result_selector
         title_selector = str(payload.get("title_selector") or "").strip()
+        result_field_name = str(payload.get("result_field_name") or ("page_body" if workflow_kind == "page_extract" else "result_text")).strip() or ("page_body" if workflow_kind == "page_extract" else "result_text")
         dismiss_selectors = self._normalize_string_list(payload.get("dismiss_selectors"))
         output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
         spec = self._build_workflow_spec(
@@ -338,6 +599,7 @@ class BrowserActToolAdapter:
             wait_selector=wait_selector,
             title_selector=title_selector,
             dismiss_selectors=dismiss_selectors,
+            result_field_name=result_field_name,
             output_dir=output_dir,
         )
         slug = str(((spec.get("meta") or {}).get("slug")) or self._slugify(workflow_name))
@@ -404,6 +666,7 @@ class BrowserActToolAdapter:
         runtime_input_name = str(payload.get("runtime_input_name") or "prompt").strip() or "prompt"
         wait_selector = str(payload.get("wait_selector") or result_selector).strip() or result_selector
         title_selector = str(payload.get("title_selector") or "").strip()
+        result_field_name = str(payload.get("result_field_name") or ("page_body" if workflow_kind == "page_extract" else "result_text")).strip() or ("page_body" if workflow_kind == "page_extract" else "result_text")
         dismiss_selectors = self._normalize_string_list(payload.get("dismiss_selectors"))
         output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
         scaffold = self._build_workflow_spec(
@@ -419,6 +682,7 @@ class BrowserActToolAdapter:
             wait_selector=wait_selector,
             title_selector=title_selector,
             dismiss_selectors=dismiss_selectors,
+            result_field_name=result_field_name,
             output_dir=output_dir,
         )
         failure_goals = self._normalize_string_list(payload.get("failing_step_goals"))
@@ -604,6 +868,7 @@ class BrowserActToolAdapter:
         wait_selector: str,
         title_selector: str,
         dismiss_selectors: list[str],
+        result_field_name: str,
         output_dir: str,
     ) -> dict[str, object]:
         slug = self._slugify(workflow_name)
@@ -660,8 +925,27 @@ class BrowserActToolAdapter:
                 nodes.append({"id": "extract_title", "type": "extract", "label": "Extract Title", "config": {"selector": title_selector}})
                 edges.append([last_node, "extract_title"])
                 last_node = "extract_title"
-            nodes.append({"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}})
+            nodes.append(
+                {
+                    "id": "extract_result",
+                    "type": "extract",
+                    "label": "Extract Result",
+                    "config": {"selector": result_selector, "field_name": result_field_name, "mode": "text"},
+                }
+            )
             edges.append([last_node, "extract_result"])
+            nodes.append(
+                {
+                    "id": "output_result",
+                    "type": "output",
+                    "label": "Output Result",
+                    "config": {
+                        "description": f"Publish the {result_field_name} field as the workflow output for API callers.",
+                        "field_name": result_field_name,
+                    },
+                }
+            )
+            edges.append(["extract_result", "output_result"])
         else:
             inputs.append(
                 {
@@ -674,14 +958,40 @@ class BrowserActToolAdapter:
                     {"id": "open_tool", "type": "visit_page", "label": "Open Tool", "config": {"url": tool_url}},
                     {"id": "input_prompt", "type": "input_text", "label": "Input Prompt", "config": {"selector": prompt_selector, "value_from_input": "prompt"}},
                     {"id": "generate", "type": "click", "label": "Generate", "config": {"selector": submit_selector}},
-                    {"id": "extract_result", "type": "extract", "label": "Extract Result", "config": {"selector": result_selector}},
+                    {
+                        "id": "wait_result",
+                        "type": "wait",
+                        "label": "Wait Result",
+                        "config": {
+                            "selector": wait_selector,
+                            "description": f"Wait until the result target {wait_selector} is visible and ready after submission.",
+                            "timeout_ms": 60000,
+                        },
+                    },
+                    {
+                        "id": "extract_result",
+                        "type": "extract",
+                        "label": "Extract Result",
+                        "config": {"selector": result_selector, "field_name": result_field_name, "mode": "text"},
+                    },
+                    {
+                        "id": "output_result",
+                        "type": "output",
+                        "label": "Output Result",
+                        "config": {
+                            "description": f"Publish the {result_field_name} field as the workflow output for API callers.",
+                            "field_name": result_field_name,
+                        },
+                    },
                 ]
             )
             edges.extend(
                 [
                     ["open_tool", "input_prompt"],
                     ["input_prompt", "generate"],
-                    ["generate", "extract_result"],
+                    ["generate", "wait_result"],
+                    ["wait_result", "extract_result"],
+                    ["extract_result", "output_result"],
                 ]
             )
         return {
@@ -920,6 +1230,513 @@ class BrowserActToolAdapter:
                 return value
         return ""
 
+    @staticmethod
+    def _resolve_principal_id(request: ToolInvocationRequest, payload: dict[str, object]) -> str:
+        request_principal_id = str((request.context_json or {}).get("principal_id") or "").strip()
+        if not request_principal_id:
+            raise ToolExecutionError("principal_id_required")
+        supplied_principal_id = str(payload.get("principal_id") or "").strip()
+        if supplied_principal_id and supplied_principal_id != request_principal_id:
+            raise ToolExecutionError("principal_scope_mismatch")
+        return request_principal_id
+
+    @staticmethod
+    def _chatplayground_request_urls(base_url: str) -> tuple[str, ...]:
+        seen: set[str] = set()
+        candidates: list[str] = []
+
+        def _add_url(raw: str) -> None:
+            url = str(raw or "").strip()
+            if not url:
+                return
+            parsed = urlparse(url)
+            scheme = str(parsed.scheme or "https").lower()
+            netloc = parsed.netloc
+            path = parsed.path or "/"
+            if path != "/" and path:
+                path = path.rstrip("/")
+            query = parsed.query or ""
+            fragment = parsed.fragment or ""
+            if not netloc and "://" in url:
+                return
+            if not scheme:
+                url = f"https://{url}"
+                parsed = urlparse(url)
+                scheme = "https"
+                netloc = parsed.netloc
+                path = parsed.path or ""
+                query = parsed.query or ""
+                fragment = parsed.fragment or ""
+            if not netloc:
+                return
+            normalized = urlunparse((scheme, netloc, path, "", query, fragment)) or url
+            if normalized in seen:
+                return
+            seen.add(normalized)
+            candidates.append(normalized)
+
+        parsed = urlparse(base_url or "")
+        if not parsed.scheme:
+            parsed = urlparse(f"https://{base_url}")
+        if parsed.netloc:
+            parsed_path = (parsed.path or "").rstrip("/")
+            netloc = parsed.netloc
+            api_prefixes = (
+                "/api/chat/lmsys",
+                "/api/chat",
+                "/api/chat/completions",
+                "/api/v1/chat/lmsys",
+                "/api/v1/chat/completions",
+            )
+            if parsed_path.startswith("/api/"):
+                candidate_paths = [parsed_path, *[suffix for suffix in api_prefixes if suffix != parsed_path]]
+            else:
+                candidate_paths = []
+                for suffix in api_prefixes:
+                    if not parsed_path or parsed_path == "/":
+                        candidate_path = suffix
+                    else:
+                        candidate_path = f"{parsed_path}{suffix}"
+                    candidate_paths.append(candidate_path)
+            for candidate_path in candidate_paths:
+                _add_url(urlunparse((parsed.scheme or "https", netloc, candidate_path, "", "", "")))
+            _add_url(base_url)
+            if parsed.netloc.lower() == "web.chatplayground.ai":
+                _add_url("https://app.chatplayground.ai/api/chat/lmsys")
+                _add_url("https://app.chatplayground.ai/api/v1/chat/lmsys")
+        else:
+            _add_url(base_url)
+        return tuple(candidates)
+
+    @staticmethod
+    def _browseract_api_base() -> str:
+        return str(os.getenv("BROWSERACT_WORKFLOW_API_BASE") or "https://api.browseract.com/v2/workflow").strip().rstrip("/")
+
+    def _browseract_api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        api_key = self._configured_api_key()
+        if not api_key:
+            raise ToolExecutionError("browseract_api_key_missing")
+        url = self._browseract_api_base() + path
+        if query:
+            url += "?" + urlencode(query)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "EA-BrowserAct/1.0",
+        }
+        data = None
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ToolExecutionError(f"browseract_api_http_error:{exc.code}:{detail[:240]}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolExecutionError(f"browseract_api_transport_error:{exc.reason}") from exc
+        try:
+            loaded = json.loads(body)
+        except Exception as exc:
+            raise ToolExecutionError("browseract_api_response_invalid") from exc
+        return loaded if isinstance(loaded, dict) else {"data": loaded}
+
+    @staticmethod
+    def _browseract_extract_workflow_id(entry: dict[str, object]) -> str:
+        for key in ("workflow_id", "id", "_id", "workflowId"):
+            value = str(entry.get(key) or "").strip()
+            if value:
+                return value
+        nested = entry.get("data")
+        if isinstance(nested, dict):
+            for key in ("workflow_id", "id", "_id", "workflowId"):
+                value = str(nested.get(key) or "").strip()
+                if value:
+                    return value
+        popup_url = str(entry.get("popup_url") or "").strip()
+        if "/workflow/" in popup_url:
+            tail = popup_url.split("/workflow/", 1)[1]
+            workflow_id = tail.split("/", 1)[0].split("?", 1)[0].strip()
+            if workflow_id:
+                return workflow_id
+        return ""
+
+    def _browseract_list_workflows(self) -> list[dict[str, object]]:
+        body = self._browseract_api_request("GET", "/list-workflows", timeout_seconds=120)
+        for key in ("workflows", "data", "items", "rows"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [entry for entry in value if isinstance(entry, dict)]
+        return [body] if isinstance(body, dict) else []
+
+    @staticmethod
+    def _candidate_chatplayground_workflow_result_paths(
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+    ) -> tuple[Path, ...]:
+        candidates: list[Path] = []
+        for raw in (
+            payload.get("workflow_result_path"),
+            payload.get("result_path"),
+            binding_metadata.get("chatplayground_workflow_result_path"),
+            binding_metadata.get("workflow_result_path"),
+            os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH"),
+            "/docker/fleet/state/browseract_bootstrap/runtime/ea_chatplayground_audit_live/result.json",
+        ):
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            path = Path(value).expanduser()
+            if path not in candidates:
+                candidates.append(path)
+        return tuple(candidates)
+
+    def _resolve_chatplayground_workflow(
+        self,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+    ) -> tuple[str, str]:
+        for raw in (
+            payload.get("workflow_id"),
+            payload.get("browseract_workflow_id"),
+            binding_metadata.get("chatplayground_workflow_id"),
+            binding_metadata.get("browseract_workflow_id"),
+            binding_metadata.get("workflow_id"),
+            os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_ID"),
+        ):
+            workflow_id = str(raw or "").strip()
+            if workflow_id:
+                return workflow_id, "explicit"
+
+        for path in self._candidate_chatplayground_workflow_result_paths(payload=payload, binding_metadata=binding_metadata):
+            if not path.exists():
+                continue
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(loaded, dict):
+                workflow_id = self._browseract_extract_workflow_id(loaded)
+                if workflow_id:
+                    return workflow_id, str(path)
+
+        queries: list[str] = []
+        for raw in (
+            payload.get("workflow_query"),
+            binding_metadata.get("chatplayground_workflow_query"),
+            binding_metadata.get("workflow_query"),
+            os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY"),
+            "ea_chatplayground_audit_live",
+        ):
+            value = str(raw or "").strip().lower()
+            if value and value not in queries:
+                queries.append(value)
+        if not queries:
+            return "", ""
+        try:
+            workflows = self._browseract_list_workflows()
+        except ToolExecutionError:
+            return "", ""
+        for query_value in queries:
+            for entry in workflows:
+                workflow_id = self._browseract_extract_workflow_id(entry)
+                if not workflow_id:
+                    continue
+                haystack = " ".join(
+                    str(entry.get(field) or "")
+                    for field in ("name", "title", "description", "slug", "workflow_name")
+                ).lower()
+                if query_value in haystack:
+                    return workflow_id, query_value
+        return "", ""
+
+    @staticmethod
+    def _browseract_task_id(body: dict[str, object]) -> str:
+        for key in ("task_id", "id", "_id"):
+            value = str(body.get(key) or "").strip()
+            if value:
+                return value
+        nested = body.get("data")
+        if isinstance(nested, dict):
+            for key in ("task_id", "id", "_id"):
+                value = str(nested.get(key) or "").strip()
+                if value:
+                    return value
+        raise ToolExecutionError("browseract_task_id_missing")
+
+    @staticmethod
+    def _browseract_task_status(body: dict[str, object]) -> str:
+        for key in ("status", "task_status", "state"):
+            value = str(body.get(key) or "").strip()
+            if value:
+                return value.lower()
+        nested = body.get("data")
+        if isinstance(nested, dict):
+            for key in ("status", "task_status", "state"):
+                value = str(nested.get(key) or "").strip()
+                if value:
+                    return value.lower()
+        return ""
+
+    @staticmethod
+    def _browseract_task_output(body: dict[str, object]) -> dict[str, object]:
+        candidates = [
+            body.get("output"),
+            (body.get("data") or {}).get("output") if isinstance(body.get("data"), dict) else None,
+            (body.get("result") or {}).get("output") if isinstance(body.get("result"), dict) else None,
+        ]
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                return dict(candidate)
+        return {}
+
+    @staticmethod
+    def _browseract_output_has_content(value: object) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (int, float, bool)):
+            return True
+        if isinstance(value, dict):
+            return any(BrowserActToolAdapter._browseract_output_has_content(nested) for nested in value.values())
+        if isinstance(value, (list, tuple, set)):
+            return any(BrowserActToolAdapter._browseract_output_has_content(nested) for nested in value)
+        return bool(str(value).strip())
+
+    @staticmethod
+    def _browseract_task_finished_at(body: dict[str, object]) -> str:
+        for key in ("finished_at", "finishedAt", "completed_at", "completedAt"):
+            value = str(body.get(key) or "").strip()
+            if value:
+                return value
+        nested = body.get("data")
+        if isinstance(nested, dict):
+            for key in ("finished_at", "finishedAt", "completed_at", "completedAt"):
+                value = str(nested.get(key) or "").strip()
+                if value:
+                    return value
+        return ""
+
+    @staticmethod
+    def _browseract_task_steps(body: dict[str, object]) -> list[dict[str, object]]:
+        for key in ("steps",):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [entry for entry in value if isinstance(entry, dict)]
+        nested = body.get("data")
+        if isinstance(nested, dict):
+            value = nested.get("steps")
+            if isinstance(value, list):
+                return [entry for entry in value if isinstance(entry, dict)]
+        return []
+
+    @staticmethod
+    def _browseract_task_failure_info(body: dict[str, object]) -> dict[str, object]:
+        for key in ("task_failure_info", "failure_info", "error"):
+            value = body.get(key)
+            if isinstance(value, dict):
+                return dict(value)
+        nested = body.get("data")
+        if isinstance(nested, dict):
+            for key in ("task_failure_info", "failure_info", "error"):
+                value = nested.get(key)
+                if isinstance(value, dict):
+                    return dict(value)
+        return {}
+
+    def _chatplayground_workflow_timeout_seconds(self, payload: dict[str, object]) -> int:
+        raw = str(
+            payload.get("timeout_seconds")
+            or os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_TIMEOUT_SECONDS")
+            or os.getenv("EA_RESPONSES_CHATPLAYGROUND_TIMEOUT_SECONDS")
+            or "600"
+        ).strip() or "600"
+        try:
+            return max(30, min(1800, int(raw)))
+        except Exception:
+            return 600
+
+    def _browseract_created_stall_seconds(self, payload: dict[str, object]) -> int:
+        raw = str(
+            payload.get("created_stall_seconds")
+            or os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_CREATED_STALL_SECONDS")
+            or "120"
+        ).strip() or "120"
+        try:
+            return max(30, min(900, int(raw)))
+        except Exception:
+            return 120
+
+    def _chatplayground_workflow_attempts(self, payload: dict[str, object]) -> int:
+        raw = str(
+            payload.get("workflow_attempts")
+            or os.getenv("BROWSERACT_CHATPLAYGROUND_AUDIT_MAX_ATTEMPTS")
+            or "3"
+        ).strip() or "3"
+        try:
+            return max(1, min(4, int(raw)))
+        except Exception:
+            return 3
+
+    def _run_browseract_workflow_task(
+        self,
+        *,
+        workflow_id: str,
+        prompt: str,
+    ) -> dict[str, object]:
+        payload_variants = [
+            {"workflow_id": workflow_id, "input_parameters": [{"name": "prompt", "value": prompt}]},
+            {"workflow_id": workflow_id, "input_parameters": [{"key": "prompt", "value": prompt}]},
+            {"workflow_id": workflow_id, "input_parameters": [{"prompt": prompt}]},
+        ]
+        last_error = "browseract_run_task_failed"
+        for candidate in payload_variants:
+            try:
+                return self._browseract_api_request("POST", "/run-task", payload=candidate, timeout_seconds=120)
+            except ToolExecutionError as exc:
+                last_error = str(exc)
+                continue
+        raise ToolExecutionError(last_error)
+
+    def _wait_for_browseract_task(
+        self,
+        *,
+        task_id: str,
+        timeout_seconds: int,
+        created_stall_seconds: int = 120,
+    ) -> dict[str, object]:
+        deadline = time.time() + max(30, timeout_seconds)
+        last_status = ""
+        created_started_at = time.time()
+        inconsistent_started_at: float | None = None
+        while time.time() < deadline:
+            status_body = self._browseract_api_request(
+                "GET",
+                "/get-task-status",
+                query={"task_id": task_id},
+                timeout_seconds=60,
+            )
+            status = self._browseract_task_status(status_body)
+            if status:
+                last_status = status
+            if status in {"created", "queued", "pending", "running", "processing"}:
+                task_body = self._browseract_api_request(
+                    "GET",
+                    "/get-task",
+                    query={"task_id": task_id},
+                    timeout_seconds=120,
+                )
+                task_status = self._browseract_task_status(task_body)
+                if task_status:
+                    last_status = task_status
+                failure_info = self._browseract_task_failure_info(task_body)
+                if failure_info:
+                    detail = json.dumps(failure_info, ensure_ascii=True)[:400]
+                    raise ToolExecutionError(f"browseract_task_failed:{detail}")
+                if self._browseract_output_has_content(self._browseract_task_output(task_body)):
+                    return task_body
+                if self._browseract_task_steps(task_body):
+                    created_started_at = time.time()
+                    inconsistent_started_at = None
+                    time.sleep(5)
+                    continue
+                if self._browseract_task_finished_at(task_body):
+                    if inconsistent_started_at is None:
+                        inconsistent_started_at = time.time()
+                    elif time.time() - inconsistent_started_at >= max(15, min(60, created_stall_seconds // 2 or 15)):
+                        raise ToolExecutionError(f"browseract_task_inconsistent_terminal:{task_id}:{status or task_status or 'unknown'}")
+                    time.sleep(5)
+                    continue
+                if time.time() - created_started_at >= max(30, created_stall_seconds):
+                    raise ToolExecutionError(f"browseract_task_stuck_created:{task_id}:{status}")
+            if status in {"done", "completed", "success", "succeeded", "finished"}:
+                task_body = self._browseract_api_request(
+                    "GET",
+                    "/get-task",
+                    query={"task_id": task_id},
+                    timeout_seconds=120,
+                )
+                failure_info = self._browseract_task_failure_info(task_body)
+                if failure_info:
+                    detail = json.dumps(failure_info, ensure_ascii=True)[:400]
+                    raise ToolExecutionError(f"browseract_task_failed:{detail}")
+                if self._browseract_output_has_content(self._browseract_task_output(task_body)):
+                    return task_body
+                if self._browseract_task_steps(task_body):
+                    inconsistent_started_at = None
+                    time.sleep(5)
+                    continue
+                if self._browseract_task_finished_at(task_body):
+                    if inconsistent_started_at is None:
+                        inconsistent_started_at = time.time()
+                    elif time.time() - inconsistent_started_at >= max(15, min(60, created_stall_seconds // 2 or 15)):
+                        raise ToolExecutionError(f"browseract_task_inconsistent_terminal:{task_id}:{status}")
+                    time.sleep(5)
+                    continue
+                return task_body
+            if status in {"failed", "error", "cancelled", "canceled"}:
+                detail = json.dumps(status_body, ensure_ascii=True)[:400]
+                raise ToolExecutionError(f"browseract_task_failed:{detail}")
+            time.sleep(5)
+        raise ToolExecutionError(f"browseract_task_timeout:{last_status or 'unknown'}")
+
+    def _normalize_chatplayground_workflow_task_payload(
+        self,
+        *,
+        task_body: dict[str, object],
+        workflow_id: str,
+        workflow_source: str,
+        task_id: str,
+        roles: list[str],
+        audit_scope: str,
+        requested_models: list[str],
+    ) -> dict[str, object]:
+        output_json = self._browseract_task_output(task_body)
+        unwrapped = _unwrap_browseract_output_payload(output_json)
+        normalized: dict[str, object] = {}
+        if isinstance(unwrapped, dict):
+            normalized = dict(unwrapped)
+        elif isinstance(unwrapped, str):
+            normalized = {
+                "consensus": unwrapped,
+                "recommendation": unwrapped,
+                "raw_response_text": unwrapped,
+            }
+        if not normalized:
+            fallback_text = _extract_textish(output_json)
+            if fallback_text:
+                normalized = {
+                    "consensus": fallback_text,
+                    "recommendation": fallback_text,
+                    "raw_response_text": fallback_text,
+                }
+        if not normalized:
+            raise ToolExecutionError("browseract_chatplayground_empty_output")
+        normalized.setdefault("roles", list(roles))
+        normalized.setdefault("requested_roles", list(roles))
+        normalized.setdefault("audit_scope", audit_scope)
+        normalized.setdefault("requested_models", list(requested_models))
+        normalized.setdefault("requested_at", now_utc_iso())
+        normalized.setdefault("requested_url", f"browseract://workflow/{workflow_id}/task/{task_id}")
+        normalized.setdefault("workflow_id", workflow_id)
+        normalized.setdefault("task_id", task_id)
+        normalized.setdefault("workflow_source", workflow_source)
+        normalized.setdefault("task_status", self._browseract_task_status(task_body) or "finished")
+        normalized.setdefault("workflow_output_json", output_json)
+        return normalized
+
     def _live_extract(
         self,
         *,
@@ -1109,16 +1926,24 @@ class BrowserActToolAdapter:
         definition: ToolDefinition,
     ) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        principal_id, binding = self._resolve_browseract_binding(
-            request=request,
-            payload=payload,
-            required_input_error="connector_binding_required:browseract.chatplayground_audit",
-            required_scopes=None,
-        )
+        binding = None
+        binding_id = str(payload.get("binding_id") or "").strip()
+        if binding_id:
+            principal_id, binding = self._resolve_browseract_binding(
+                request=request,
+                payload=payload,
+                required_input_error="connector_binding_required:browseract.chatplayground_audit",
+                required_scopes=None,
+            )
+        else:
+            principal_id = self._resolve_principal_id(request, payload)
         prompt = str(payload.get("prompt") or "").strip()
         if not prompt:
             raise ToolExecutionError(f"prompt_required:{definition.tool_name}")
-        binding_metadata = dict(binding.auth_metadata_json or {})
+        binding_metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
+        resolved_binding_id = str(getattr(binding, "binding_id", "") or "")
+        connector_name = str(getattr(binding, "connector_name", "") or "browseract") or "browseract"
+        external_account_ref = str(getattr(binding, "external_account_ref", "") or "")
         run_url = str(
             payload.get("run_url")
             or binding_metadata.get("chatplayground_run_url")
@@ -1152,23 +1977,222 @@ class BrowserActToolAdapter:
             if callback_result is not None:
                 return callback_result
 
+        request_payload = {
+            "prompt": prompt,
+            "roles": list(roles),
+            "requested_roles": list(roles),
+            "audit_scope": audit_scope,
+            "model": str(payload.get("model") or "").strip(),
+            "requested_models": _normalize_text_list(payload.get("requested_models")),
+            "principal_id": principal_id,
+            "binding_id": resolved_binding_id,
+            "external_account_ref": external_account_ref,
+        }
+        http_errors: list[str] = []
+        workflow_id, workflow_source = self._resolve_chatplayground_workflow(
+            payload=payload,
+            binding_metadata=binding_metadata,
+        )
+        if workflow_id and self._configured_api_key():
+            workflow_prompt = _render_chatplayground_workflow_prompt(
+                prompt=prompt,
+                roles=list(roles),
+                audit_scope=audit_scope,
+                requested_models=list(request_payload["requested_models"]),
+            )
+            max_attempts = self._chatplayground_workflow_attempts(payload)
+            for attempt in range(max_attempts):
+                try:
+                    started = self._run_browseract_workflow_task(workflow_id=workflow_id, prompt=workflow_prompt or prompt)
+                    task_id = self._browseract_task_id(started)
+                    task_body = self._wait_for_browseract_task(
+                        task_id=task_id,
+                        timeout_seconds=self._chatplayground_workflow_timeout_seconds(payload),
+                        created_stall_seconds=self._browseract_created_stall_seconds(payload),
+                    )
+                    response = self._normalize_chatplayground_workflow_task_payload(
+                        task_body=task_body,
+                        workflow_id=workflow_id,
+                        workflow_source=workflow_source,
+                        task_id=task_id,
+                        roles=list(roles),
+                        audit_scope=audit_scope,
+                        requested_models=list(request_payload["requested_models"]),
+                    )
+                    self._raise_for_ui_lane_failure(payload=response, backend="chatplayground")
+                    (
+                        consensus,
+                        recommendation,
+                        normalized_roles,
+                        disagreements,
+                        risks,
+                        model_deltas,
+                        details,
+                    ) = _normalize_chatplayground_audit_payload(response)
+                    if consensus or recommendation:
+                        safe_payload = {
+                            **details,
+                            "binding_id": resolved_binding_id,
+                            "connector_name": connector_name,
+                            "external_account_ref": external_account_ref,
+                            "requested_url": str(response.get("requested_url") or f"browseract://workflow/{workflow_id}/task/{task_id}"),
+                            "requested_roles": list(roles),
+                            "audit_scope": audit_scope,
+                            "consensus": consensus,
+                            "recommendation": recommendation,
+                            "roles": normalized_roles,
+                            "disagreements": disagreements,
+                            "risks": risks,
+                            "model_deltas": model_deltas,
+                            "prompt": prompt,
+                            "workflow_prompt_chars": len(workflow_prompt or prompt),
+                            "workflow_id": workflow_id,
+                            "task_id": task_id,
+                            "workflow_source": workflow_source,
+                        }
+                        action_kind = str(request.action_kind or "chatplayground_audit") or "chatplayground_audit"
+                        normalized_text = str(safe_payload.get("normalized_text") or json.dumps(safe_payload, ensure_ascii=True, separators=(",", ":")))
+                        return ToolInvocationResult(
+                            tool_name=definition.tool_name,
+                            action_kind=action_kind,
+                            target_ref=f"browseract:{resolved_binding_id or 'env'}:chatplayground_audit:{task_id}",
+                            output_json={
+                                **safe_payload,
+                                "tool_name": definition.tool_name,
+                                "action_kind": action_kind,
+                                "normalized_text": normalized_text,
+                                "preview_text": artifact_preview_text(normalized_text),
+                                "mime_type": "text/plain",
+                                "structured_output_json": safe_payload,
+                            },
+                            receipt_json={
+                                "binding_id": resolved_binding_id,
+                                "connector_name": connector_name,
+                                "external_account_ref": external_account_ref,
+                                "principal_id": principal_id,
+                                "handler_key": definition.tool_name,
+                                "invocation_contract": "tool.v1",
+                                "tool_version": definition.version,
+                                "tool_name": definition.tool_name,
+                                "action_kind": action_kind,
+                                "requested_url": str(response.get("requested_url") or f"browseract://workflow/{workflow_id}/task/{task_id}"),
+                                "requested_roles": list(roles),
+                                "audit_scope": audit_scope,
+                                "route": "browseract.chatplayground_audit",
+                                "handler": "workflow_api",
+                                "workflow_id": workflow_id,
+                                "task_id": task_id,
+                                "workflow_source": workflow_source,
+                            },
+                        )
+                    http_errors.append(f"workflow:{workflow_id}:empty_audit")
+                    break
+                except ToolExecutionError as exc:
+                    detail = str(exc)
+                    retryable_prefixes = (
+                        "browseract_task_inconsistent_terminal:",
+                        "browseract_task_stuck_created:",
+                    )
+                    if detail.startswith(retryable_prefixes) and attempt + 1 < max_attempts:
+                        time.sleep(min(10, 3 * (attempt + 1)))
+                        continue
+                    http_errors.append(f"workflow:{workflow_id}:{detail}")
+                    break
+        if self._configured_api_key():
+            for candidate_url in self._chatplayground_request_urls(run_url):
+                try:
+                    response = self._post_browseract_json(
+                        run_url=candidate_url,
+                        request_payload=request_payload,
+                        timeout_seconds=60,
+                    )
+                except ToolExecutionError as exc:
+                    http_errors.append(f"{candidate_url}:{exc}")
+                    continue
+                self._raise_for_ui_lane_failure(payload=response, backend="chatplayground")
+                (
+                    consensus,
+                    recommendation,
+                    normalized_roles,
+                    disagreements,
+                    risks,
+                    model_deltas,
+                    details,
+                ) = _normalize_chatplayground_audit_payload(response)
+                if not consensus and not recommendation:
+                    http_errors.append(f"{candidate_url}:empty_audit")
+                    continue
+                safe_payload = {
+                    **details,
+                    "binding_id": resolved_binding_id,
+                    "connector_name": connector_name,
+                    "external_account_ref": external_account_ref,
+                    "requested_url": candidate_url,
+                    "requested_roles": list(roles),
+                    "audit_scope": audit_scope,
+                    "consensus": consensus,
+                    "recommendation": recommendation,
+                    "roles": normalized_roles,
+                    "disagreements": disagreements,
+                    "risks": risks,
+                    "model_deltas": model_deltas,
+                    "prompt": prompt,
+                }
+                action_kind = str(request.action_kind or "chatplayground_audit") or "chatplayground_audit"
+                normalized_text = str(safe_payload.get("normalized_text") or json.dumps(safe_payload, ensure_ascii=True, separators=(",", ":")))
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind=action_kind,
+                    target_ref=f"browseract:{resolved_binding_id or 'env'}:chatplayground_audit:{uuid.uuid4()}",
+                    output_json={
+                        **safe_payload,
+                        "tool_name": definition.tool_name,
+                        "action_kind": action_kind,
+                        "normalized_text": normalized_text,
+                        "preview_text": artifact_preview_text(normalized_text),
+                        "mime_type": "text/plain",
+                        "structured_output_json": safe_payload,
+                    },
+                    receipt_json={
+                        "binding_id": resolved_binding_id,
+                        "connector_name": connector_name,
+                        "external_account_ref": external_account_ref,
+                        "principal_id": principal_id,
+                        "handler_key": definition.tool_name,
+                        "invocation_contract": "tool.v1",
+                        "tool_version": definition.version,
+                        "tool_name": definition.tool_name,
+                        "action_kind": action_kind,
+                        "requested_url": candidate_url,
+                        "requested_roles": list(roles),
+                        "audit_scope": audit_scope,
+                        "route": "browseract.chatplayground_audit",
+                        "handler": "run_url",
+                    },
+                )
+
+        if not binding_id:
+            if http_errors:
+                raise ToolExecutionError(f"browseract_chatplayground_audit_unavailable:{'; '.join(http_errors)}")
+            raise ToolExecutionError("connector_binding_required:browseract.chatplayground_audit")
+
         normalized_text = "\n".join(
             [
-                "ChatPlayground audit fallback output",
-                f"prompt: {prompt or '<empty>'}",
+                "ChatPlayground audit backend unavailable",
                 f"run_url: {run_url or '<missing>'}",
                 f"roles: {', '.join(roles) if roles else '<none>'}",
+                f"errors: {'; '.join(http_errors) if http_errors else 'no_backend'}",
             ]
         )
         action_kind = str(request.action_kind or "chatplayground_audit") or "chatplayground_audit"
         return ToolInvocationResult(
             tool_name=definition.tool_name,
             action_kind=action_kind,
-            target_ref=f"browseract:{binding.binding_id}:chatplayground_audit:{uuid.uuid4()}",
+            target_ref=f"browseract:{resolved_binding_id or 'env'}:chatplayground_audit:{uuid.uuid4()}",
             output_json={
-                "binding_id": binding.binding_id,
-                "connector_name": binding.connector_name,
-                "external_account_ref": binding.external_account_ref,
+                "binding_id": resolved_binding_id,
+                "connector_name": connector_name,
+                "external_account_ref": external_account_ref,
                 "prompt": prompt,
                 "requested_url": run_url,
                 "roles": roles,
@@ -1186,18 +2210,19 @@ class BrowserActToolAdapter:
                     "roles": roles,
                     "audit_scope": audit_scope,
                     "principal_id": principal_id,
-                    "binding_id": binding.binding_id,
-                    "connector_name": binding.connector_name,
-                    "external_account_ref": binding.external_account_ref,
-                    "status": "fallback",
+                    "binding_id": resolved_binding_id,
+                    "connector_name": connector_name,
+                    "external_account_ref": external_account_ref,
+                    "status": "backend_unavailable",
+                    "http_errors": list(http_errors),
                 },
                 "tool_name": definition.tool_name,
                 "action_kind": action_kind,
             },
             receipt_json={
-                "binding_id": binding.binding_id,
-                "connector_name": binding.connector_name,
-                "external_account_ref": binding.external_account_ref,
+                "binding_id": resolved_binding_id,
+                "connector_name": connector_name,
+                "external_account_ref": external_account_ref,
                 "principal_id": principal_id,
                 "handler_key": definition.tool_name,
                 "invocation_contract": "tool.v1",
@@ -1208,7 +2233,7 @@ class BrowserActToolAdapter:
                 "requested_roles": roles,
                 "audit_scope": audit_scope,
                 "route": "browseract.chatplayground_audit",
-                "handler": "fallback",
+                "handler": "unavailable",
             },
         )
 

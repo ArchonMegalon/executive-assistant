@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from itertools import count
 
 import pytest
 
@@ -23,6 +24,7 @@ from app.services.tool_execution import (
     ToolExecutionError,
     ToolExecutionService,
 )
+from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_runtime import ToolRuntimeService
 
 
@@ -2199,6 +2201,359 @@ def test_tool_execution_service_uses_default_chatplayground_audit_roles_and_defa
     assert result.receipt_json["requested_url"] == "https://web.chatplayground.ai/"
 
 
+def test_tool_execution_service_uses_env_backed_chatplayground_audit_without_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/")
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("", ""),
+    )
+
+    calls: list[tuple[str, dict[str, object], int]] = []
+
+    def _fake_post_browseract_json(
+        self,
+        *,
+        run_url: str,
+        request_payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        calls.append((run_url, dict(request_payload), timeout_seconds))
+        assert request_payload["principal_id"] == "exec-1"
+        assert request_payload["binding_id"] == ""
+        assert request_payload["roles"] == ["factuality", "adversarial", "completeness", "risk"]
+        return {
+            "consensus": "pass",
+            "recommendation": "ship it",
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+            "roles": request_payload["roles"],
+            "requested_at": "2026-03-18T00:00:00Z",
+        }
+
+    monkeypatch.setattr(BrowserActToolAdapter, "_post_browseract_json", _fake_post_browseract_json)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-env-1",
+            step_id="step-browseract-audit-env-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "principal_id": "exec-1",
+                "prompt": "Validate migration plan for concurrency safety.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert calls[0][0] == "https://web.chatplayground.ai/api/chat/lmsys"
+    assert result.output_json["binding_id"] == ""
+    assert result.output_json["requested_url"] == "https://web.chatplayground.ai/api/chat/lmsys"
+    assert result.output_json["consensus"] == "pass"
+    assert result.receipt_json["handler"] == "run_url"
+
+
+def test_tool_execution_service_uses_browseract_workflow_api_for_chatplayground_audit_without_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+
+    calls: list[tuple[str, str, dict[str, object] | None, dict[str, str] | None]] = []
+
+    def _fake_browseract_api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        calls.append((method, path, dict(payload or {}), dict(query or {})))
+        if path == "/run-task":
+            assert payload is not None
+            assert payload["workflow_id"] == "workflow-123"
+            assert payload["input_parameters"][0]["name"] == "prompt"
+            rendered_prompt = str(payload["input_parameters"][0]["value"] or "")
+            assert "Validate migration plan for concurrency safety." in rendered_prompt
+            assert "return exactly one JSON object" in rendered_prompt.lower()
+            assert '"consensus":"pass|fail|needs_revision|unavailable"' in rendered_prompt
+            assert "<material>" in rendered_prompt
+            return {"task_id": "task-456"}
+        if path == "/get-task-status":
+            assert query == {"task_id": "task-456"}
+            return {"status": "finished"}
+        if path == "/get-task":
+            assert query == {"task_id": "task-456"}
+            return {
+                "status": "finished",
+                "output": {
+                    "string": json.dumps(
+                        [
+                            {
+                                "audit_response": json.dumps(
+                                    {
+                                        "consensus": "pass",
+                                        "recommendation": "ship it",
+                                        "disagreements": [],
+                                        "risks": [],
+                                        "model_delta": ["delta"],
+                                        "roles": ["factuality", "adversarial", "completeness", "risk"],
+                                    }
+                                )
+                            }
+                        ]
+                    )
+                },
+            }
+        raise AssertionError(f"unexpected BrowserAct API path: {path}")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("workflow-123", "test-fixture"),
+    )
+    monkeypatch.setattr(BrowserActToolAdapter, "_browseract_api_request", _fake_browseract_api_request)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-env-workflow-1",
+            step_id="step-browseract-audit-env-workflow-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "principal_id": "exec-1",
+                "prompt": "Validate migration plan for concurrency safety.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert [path for _, path, _, _ in calls] == ["/run-task", "/get-task-status", "/get-task"]
+    assert result.output_json["consensus"] == "pass"
+    assert result.output_json["model_deltas"] == ["delta"]
+    assert result.output_json["workflow_prompt_chars"] > len("Validate migration plan for concurrency safety.")
+    assert result.output_json["workflow_id"] == "workflow-123"
+    assert result.output_json["task_id"] == "task-456"
+    assert result.output_json["requested_url"] == "browseract://workflow/workflow-123/task/task-456"
+    assert result.receipt_json["handler"] == "workflow_api"
+    assert result.receipt_json["workflow_source"] == "test-fixture"
+
+
+def test_tool_execution_service_retries_browseract_workflow_api_after_inconsistent_terminal_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+
+    calls: list[tuple[str, str, dict[str, object] | None, dict[str, str] | None]] = []
+    task_status_counts: dict[str, int] = {}
+
+    def _fake_browseract_api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        calls.append((method, path, dict(payload or {}), dict(query or {})))
+        if path == "/run-task":
+            attempt = sum(1 for _, logged_path, _, _ in calls if logged_path == "/run-task")
+            return {"task_id": f"task-{attempt}"}
+        if path == "/get-task-status":
+            task_id = str((query or {}).get("task_id") or "")
+            task_status_counts[task_id] = task_status_counts.get(task_id, 0) + 1
+            if task_id == "task-1":
+                return {"status": "created"}
+            if task_id == "task-2":
+                return {"status": "finished"}
+        if path == "/get-task":
+            task_id = str((query or {}).get("task_id") or "")
+            if task_id == "task-1":
+                return {
+                    "status": "created",
+                    "finished_at": "2026-03-18T00:00:00Z",
+                    "output": {"string": None, "files": None},
+                    "steps": [],
+                }
+            if task_id == "task-2":
+                return {
+                    "status": "finished",
+                    "output": {
+                        "string": json.dumps(
+                            [
+                                {
+                                    "audit_response": json.dumps(
+                                        {
+                                            "consensus": "pass",
+                                            "recommendation": "ship it",
+                                            "disagreements": [],
+                                            "risks": [],
+                                            "model_deltas": [],
+                                            "roles": ["factuality", "adversarial", "completeness", "risk"],
+                                        }
+                                    )
+                                }
+                            ]
+                        )
+                    },
+                }
+        raise AssertionError(f"unexpected BrowserAct API path: {path}")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("workflow-123", "test-fixture"),
+    )
+    monkeypatch.setattr(BrowserActToolAdapter, "_browseract_api_request", _fake_browseract_api_request)
+    tick = count()
+    monkeypatch.setattr("app.services.tool_execution_browseract_adapter.time.time", lambda: float(next(tick) * 5))
+    monkeypatch.setattr("app.services.tool_execution_browseract_adapter.time.sleep", lambda _: None)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-env-workflow-retry-1",
+            step_id="step-browseract-audit-env-workflow-retry-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "principal_id": "exec-1",
+                "prompt": "Validate migration plan for concurrency safety.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert [path for _, path, _, _ in calls].count("/run-task") == 2
+    assert result.output_json["consensus"] == "pass"
+    assert result.output_json["task_id"] == "task-2"
+
+
+def test_tool_execution_service_keeps_polling_browseract_workflow_when_created_status_has_step_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+
+    calls: list[tuple[str, str, dict[str, object] | None, dict[str, str] | None]] = []
+    get_task_calls = 0
+
+    def _fake_browseract_api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        nonlocal get_task_calls
+        calls.append((method, path, dict(payload or {}), dict(query or {})))
+        if path == "/run-task":
+            return {"task_id": "task-progress-1"}
+        if path == "/get-task-status":
+            return {"status": "created"}
+        if path == "/get-task":
+            get_task_calls += 1
+            if get_task_calls == 1:
+                return {
+                    "status": "created",
+                    "finished_at": "2026-03-18T00:00:00Z",
+                    "output": {"string": None, "files": None},
+                    "steps": [{"id": "step-1", "status": "succeed", "step_goal": "Open ChatPlayground"}],
+                }
+            return {
+                "status": "finished",
+                "output": {
+                    "string": json.dumps(
+                        [
+                            {
+                                "audit_response": json.dumps(
+                                    {
+                                        "consensus": "pass",
+                                        "recommendation": "ship it",
+                                        "disagreements": [],
+                                        "risks": [],
+                                        "model_deltas": [],
+                                        "roles": ["factuality", "adversarial", "completeness", "risk"],
+                                    }
+                                )
+                            }
+                        ]
+                    )
+                },
+                "steps": [{"id": "step-2", "status": "succeed", "step_goal": "Extract audit response"}],
+            }
+        raise AssertionError(f"unexpected BrowserAct API path: {path}")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("workflow-123", "test-fixture"),
+    )
+    monkeypatch.setattr(BrowserActToolAdapter, "_browseract_api_request", _fake_browseract_api_request)
+    monkeypatch.setattr("app.services.tool_execution_browseract_adapter.time.sleep", lambda _: None)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-env-workflow-progress-1",
+            step_id="step-browseract-audit-env-workflow-progress-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.jury",
+            payload_json={
+                "principal_id": "exec-1",
+                "prompt": "Validate migration plan for concurrency safety.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert [path for _, path, _, _ in calls].count("/get-task") >= 2
+    assert result.output_json["consensus"] == "pass"
+    assert result.output_json["task_id"] == "task-progress-1"
+
+
 def test_tool_execution_service_detects_chatplayground_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(
@@ -2383,6 +2738,9 @@ def test_tool_execution_service_builds_browseract_workflow_spec_packets() -> Non
     assert result.output_json["mime_type"] == "application/json"
     assert result.output_json["structured_output_json"]["workflow_name"] == "Prompt Forge"
     assert result.output_json["structured_output_json"]["meta"]["slug"] == "prompt_forge"
+    nodes = result.output_json["structured_output_json"]["nodes"]
+    assert [node["id"] for node in nodes[-3:]] == ["wait_result", "extract_result", "output_result"]
+    assert next(node for node in nodes if node["id"] == "extract_result")["config"]["field_name"] == "result_text"
     assert result.receipt_json["handler_key"] == "browseract.build_workflow_spec"
     assert tool_runtime.get_tool("browseract.build_workflow_spec") is not None
 
@@ -2427,6 +2785,8 @@ def test_tool_execution_service_builds_page_extract_browseract_packets() -> None
     assert open_tool["config"]["value_from_input"] == "article_url"
     assert any(node["id"] == "extract_title" for node in spec["nodes"])
     assert any(node["id"] == "extract_result" for node in spec["nodes"])
+    assert any(node["id"] == "output_result" for node in spec["nodes"])
+    assert next(node for node in spec["nodes"] if node["id"] == "extract_result")["config"]["field_name"] == "page_body"
     assert "Kind: page_extract" in result.output_json["normalized_text"]
 
 

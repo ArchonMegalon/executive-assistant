@@ -1110,10 +1110,43 @@ def _history_items_for_request(
     return history
 
 
-def _history_item_to_transcript(item: dict[str, object]) -> str:
+def _tool_shim_transcript_max_chars() -> int:
+    raw = str(os.environ.get("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS") or "4000").strip() or "4000"
+    try:
+        return max(800, min(32000, int(raw)))
+    except Exception:
+        return 4000
+
+
+def _tool_shim_transcript_part_max_chars() -> int:
+    raw = str(os.environ.get("EA_TOOL_SHIM_TRANSCRIPT_PART_MAX_CHARS") or "1200").strip() or "1200"
+    try:
+        return max(200, min(8000, int(raw)))
+    except Exception:
+        return 1200
+
+
+def _tool_shim_truncate_text(text: str, *, limit: int) -> str:
+    value = str(text or "")
+    if limit <= 0 or len(value) <= limit:
+        return value
+    if limit <= 96:
+        return value[:limit]
+    spacer = "\n\n[... omitted for compact audit transport ...]\n\n"
+    remaining = limit - len(spacer)
+    if remaining <= 32:
+        return value[:limit]
+    head = remaining // 2
+    tail = remaining - head
+    return f"{value[:head]}{spacer}{value[-tail:]}".strip()
+
+
+def _history_item_to_transcript(item: dict[str, object], *, include_system: bool = True, compact: bool = False) -> str:
     item_type = str(item.get("type") or "").strip().lower()
     if item_type == "message":
         role = _normalize_message_role(item.get("role"))
+        if role == "system" and not include_system:
+            return ""
         content = item.get("content")
         text = ""
         if isinstance(content, list):
@@ -1126,9 +1159,13 @@ def _history_item_to_transcript(item: dict[str, object]) -> str:
             text = _extract_textish(content)
         if not text:
             return ""
+        if compact:
+            text = _tool_shim_truncate_text(text, limit=_tool_shim_transcript_part_max_chars())
         return f"{role.capitalize()}:\n{text}"
     if item_type == "input_text":
         text = _extract_textish(item.get("text"))
+        if compact:
+            text = _tool_shim_truncate_text(text, limit=_tool_shim_transcript_part_max_chars())
         return f"User:\n{text}" if text else ""
     if item_type == "function_call":
         name = str(item.get("name") or "").strip()
@@ -1136,6 +1173,8 @@ def _history_item_to_transcript(item: dict[str, object]) -> str:
         arguments = str(item.get("arguments") or "").strip()
         if not name:
             return ""
+        if compact:
+            arguments = _tool_shim_truncate_text(arguments, limit=_tool_shim_transcript_part_max_chars())
         return (
             f"Assistant tool call ({call_id or 'no-call-id'})\n"
             f"Tool: {name}\n"
@@ -1144,6 +1183,8 @@ def _history_item_to_transcript(item: dict[str, object]) -> str:
     if item_type == "function_call_output":
         call_id = str(item.get("call_id") or "").strip()
         output_text = _extract_textish(item.get("output"))
+        if compact:
+            output_text = _tool_shim_truncate_text(output_text, limit=_tool_shim_transcript_part_max_chars())
         return (
             f"Tool output ({call_id or 'no-call-id'}):\n{output_text}"
         ).strip()
@@ -1155,6 +1196,7 @@ def _tool_shim_messages(
     instructions: str | None,
     tools: list[dict[str, object]],
     history_items: list[dict[str, object]],
+    compact_for_audit: bool = False,
 ) -> list[dict[str, str]]:
     tool_names = {str(tool.get("name") or "").strip() for tool in tools}
     has_apply_patch = "apply_patch" in tool_names
@@ -1170,10 +1212,19 @@ def _tool_shim_messages(
         )
     transcript_parts = [
         part
-        for part in (_history_item_to_transcript(item) for item in history_items)
+        for part in (
+            _history_item_to_transcript(
+                item,
+                include_system=not compact_for_audit,
+                compact=compact_for_audit,
+            )
+            for item in history_items
+        )
         if part
     ]
     transcript = "\n\n".join(transcript_parts).strip()
+    if compact_for_audit:
+        transcript = _tool_shim_truncate_text(transcript, limit=_tool_shim_transcript_max_chars())
     system_parts = [
         "You are the planning/model layer behind an OpenAI Responses tool-calling shim used by Codex CLI.",
         "Decide the single next assistant action and return JSON only.",
@@ -1207,11 +1258,19 @@ def _tool_shim_messages(
                 "- Use a short python heredoc only when no simpler edit command is practical.",
             ]
         )
-    if instructions:
+    if instructions and not compact_for_audit:
         system_parts.extend(
             [
                 "Original Codex instructions:",
                 instructions,
+            ]
+        )
+    elif compact_for_audit:
+        system_parts.extend(
+            [
+                "Compact audit transport is enabled.",
+                "- Hidden system/developer instructions are enforced outside this prompt.",
+                "- Focus on the visible conversation and tool outputs below.",
             ]
         )
     user_prompt = transcript or "No prior conversation context."
@@ -1353,6 +1412,7 @@ def _tool_shim_decision(
         instructions=instructions,
         tools=tools,
         history_items=history_items,
+        compact_for_audit=chatplayground_audit_callback_only,
     )
     shim_prompt = shim_messages[-1]["content"]
     result = _generate_upstream_text(

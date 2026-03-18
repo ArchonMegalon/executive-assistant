@@ -71,6 +71,14 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "BROWSERACT_API_KEY_FALLBACK_3" in env_local_example
     assert "BROWSERACT_CHATPLAYGROUND_URL" in env_example
     assert "BROWSERACT_CHATPLAYGROUND_URL" in env_local_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_ID" in env_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY" in env_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH" in env_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_TIMEOUT_SECONDS" in env_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_ID" in env_local_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY" in env_local_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH" in env_local_example
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_TIMEOUT_SECONDS" in env_local_example
     assert "ONEMIN_AI_API_KEY" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_1" in env_example
     assert "ONEMIN_AI_API_KEY_FALLBACK_2" in env_example

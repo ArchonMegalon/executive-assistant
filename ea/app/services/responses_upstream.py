@@ -173,6 +173,13 @@ def _normalize_text_list(raw: object) -> list[str]:
     return values
 
 
+def _compact_text_preview(text: object, *, limit: int = 160) -> str:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(limit - 3, 0)].rstrip() + "..."
+
+
 class ResponsesUpstreamError(RuntimeError):
     pass
 
@@ -2273,6 +2280,59 @@ def _messages_to_prompt(messages: list[ChatMessage]) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _chatplayground_audit_max_prompt_chars() -> int:
+    raw = _env("EA_CHATPLAYGROUND_AUDIT_MAX_PROMPT_CHARS", "16000")
+    try:
+        return max(2000, min(120000, int(raw)))
+    except Exception:
+        return 16000
+
+
+def _truncate_middle(text: str, *, limit: int) -> str:
+    value = str(text or "")
+    if limit <= 0 or len(value) <= limit:
+        return value
+    if limit <= 64:
+        return value[:limit]
+    spacer = "\n\n[... omitted for BrowserAct audit transport ...]\n\n"
+    remaining = limit - len(spacer)
+    if remaining <= 32:
+        return value[:limit]
+    head = remaining // 2
+    tail = remaining - head
+    return f"{value[:head]}{spacer}{value[-tail:]}".strip()
+
+
+def _compact_chatplayground_audit_prompt(messages: list[ChatMessage]) -> str:
+    if not messages:
+        return ""
+    keep_system = _env("EA_CHATPLAYGROUND_AUDIT_KEEP_SYSTEM", "0").lower() in {"1", "true", "yes", "on"}
+    relevant = list(messages) if keep_system else [message for message in messages if message["role"] != "system"]
+    if not relevant:
+        relevant = [messages[-1]]
+    max_chars = _chatplayground_audit_max_prompt_chars()
+    prompt_text = _messages_to_prompt(relevant)
+    if len(prompt_text) <= max_chars:
+        return prompt_text
+
+    selected: list[ChatMessage] = []
+    for message in reversed(relevant):
+        candidate = [message, *selected]
+        candidate_text = _messages_to_prompt(candidate)
+        if not selected and len(candidate_text) > max_chars:
+            return _truncate_middle(candidate_text, limit=max_chars)
+        if len(candidate_text) > max_chars:
+            break
+        selected = candidate
+
+    if not selected:
+        selected = [relevant[-1]]
+    compacted = _messages_to_prompt(selected)
+    if len(compacted) <= max_chars:
+        return compacted
+    return _truncate_middle(compacted, limit=max_chars)
+
+
 def _provider_candidates(
     requested_model: str,
     *,
@@ -2676,7 +2736,11 @@ def _normalize_chatplayground_audit_payload(payload: dict[str, Any] | None) -> t
     recommendation = str(normalized.get("recommendation") or consensus or "").strip()
     disagreements = [str(item) for item in _normalize_text_list(normalized.get("disagreements")) if str(item).strip()]
     risks = [str(item) for item in _normalize_text_list(normalized.get("risks")) if str(item).strip()]
-    model_deltas = [str(item) for item in _normalize_text_list(normalized.get("model_deltas")) if str(item).strip()]
+    model_deltas = [
+        str(item)
+        for item in _normalize_text_list(normalized.get("model_deltas") or normalized.get("model_delta"))
+        if str(item).strip()
+    ]
     instruction_trace = [str(item) for item in _normalize_text_list(normalized.get("instruction_trace")) if str(item).strip()]
     roles = _chatplayground_roles(normalized.get("roles"))
     return (
@@ -2763,7 +2827,12 @@ def _chatplayground_audit_disabled_payload(
         "model_deltas": [],
         "requested_models": list(requested_models),
         "requested_at": _now_iso(),
-        "raw_output": {"prompt": prompt, "reason": reason},
+        "raw_output": {
+            "reason": reason,
+            "prompt_chars": len(prompt),
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "prompt_preview": _compact_text_preview(prompt),
+        },
     }
 
 
@@ -2893,7 +2962,7 @@ def _call_chatplayground_audit(
     chatplayground_audit_principal_id: str = "",
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
-    prompt_text = _messages_to_prompt(normalized_messages)
+    prompt_text = _compact_chatplayground_audit_prompt(normalized_messages)
     if not prompt_text:
         raise ResponsesUpstreamError("chatplayground_prompt_required")
 
