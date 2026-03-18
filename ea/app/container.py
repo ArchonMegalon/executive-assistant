@@ -21,9 +21,10 @@ from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.relationships import InMemoryRelationshipRepository
-from app.repositories.provider_bindings import InMemoryProviderBindingRepository
+from app.repositories.provider_bindings import build_provider_binding_service_repo
 from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
+from app.services.brain_router import BrainRouterService
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
@@ -109,14 +110,16 @@ class AppContainer:
     skills: SkillCatalogService
     planner: PlannerService
     provider_registry: ProviderRegistryService
+    brain_router: BrainRouterService
     readiness: ReadinessService
 
 
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
-    provider_registry = ProviderRegistryService(provider_binding_repo=InMemoryProviderBindingRepository())
+    provider_registry = ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings))
+    brain_router = BrainRouterService(provider_registry=provider_registry)
     artifacts = build_artifact_repo(settings)
     task_contracts = build_task_contract_service(settings=settings)
-    planner = PlannerService(task_contracts, provider_registry=provider_registry)
+    planner = PlannerService(task_contracts, provider_registry=provider_registry, brain_router=brain_router)
     skills = SkillCatalogService(task_contracts)
     try:
         channel_runtime = build_channel_runtime(settings=settings)
@@ -160,6 +163,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         skills=skills,
         planner=planner,
         provider_registry=provider_registry,
+        brain_router=brain_router,
         readiness=ReadinessService(settings),
     )
 

@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Dict, List, Protocol
 
 from app.domain.models import ProviderBindingRecord, now_utc_iso
+from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 
 
 class ProviderBindingRepository(Protocol):
@@ -50,6 +51,13 @@ class InMemoryProviderBindingRepository:
     def __init__(self) -> None:
         self._rows: Dict[str, ProviderBindingRecord] = {}
         self._order: List[str] = []
+
+    def _touch_order(self, binding_id: str) -> None:
+        normalized = str(binding_id or "").strip()
+        if not normalized:
+            return
+        self._order = [key for key in self._order if key != normalized]
+        self._order.append(normalized)
 
     def get(self, binding_id: str) -> ProviderBindingRecord | None:
         return self._rows.get(str(binding_id or "").strip())
@@ -104,13 +112,8 @@ class InMemoryProviderBindingRepository:
         if not normalized_provider:
             raise ValueError("provider_key_required")
 
-        binding_id = (
-            f"{normalized_principal}:{normalized_provider}"
-            if f"{normalized_principal}:{normalized_provider}" in self._rows
-            else f"{normalized_principal}:{normalized_provider}:{len(self._rows) + 1}"
-        )
-
-        existing = self._rows.get(binding_id)
+        existing = self.get_for_provider(normalized_principal, normalized_provider)
+        binding_id = existing.binding_id if existing is not None else f"{normalized_principal}:{normalized_provider}"
         timestamp = now_utc_iso()
         normalized_status = str(status or "enabled").strip().lower() or "enabled"
         normalized_probe_state = str(probe_state or "unknown").strip() or "unknown"
@@ -127,9 +130,8 @@ class InMemoryProviderBindingRepository:
             created_at=existing.created_at if existing is not None else timestamp,
             updated_at=timestamp,
         )
-        if binding_id not in self._rows:
-            self._order.append(binding_id)
         self._rows[binding_id] = payload
+        self._touch_order(binding_id)
         return payload
 
     def set_status(self, binding_id: str, status: str) -> ProviderBindingRecord | None:
@@ -143,6 +145,7 @@ class InMemoryProviderBindingRepository:
             updated_at=now_utc_iso(),
         )
         self._rows[normalized_id] = updated
+        self._touch_order(normalized_id)
         return updated
 
     def set_probe(
@@ -162,4 +165,32 @@ class InMemoryProviderBindingRepository:
             updated_at=now_utc_iso(),
         )
         self._rows[normalized_id] = updated
+        self._touch_order(normalized_id)
         return updated
+
+
+def build_provider_binding_repo(settings: Settings):
+    backend = str(settings.storage.backend or "auto").strip().lower()
+    if backend == "memory":
+        ensure_storage_fallback_allowed(settings, "provider bindings configured for memory")
+        return InMemoryProviderBindingRepository()
+    if backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("EA_STORAGE_BACKEND=postgres requires DATABASE_URL")
+        from app.repositories.provider_bindings_postgres import PostgresProviderBindingRepository
+
+        return PostgresProviderBindingRepository(settings.database_url)
+    if settings.database_url:
+        try:
+            from app.repositories.provider_bindings_postgres import PostgresProviderBindingRepository
+
+            return PostgresProviderBindingRepository(settings.database_url)
+        except Exception as exc:
+            ensure_storage_fallback_allowed(settings, "provider bindings auto fallback", exc)
+    ensure_storage_fallback_allowed(settings, "provider bindings auto backend without DATABASE_URL")
+    return InMemoryProviderBindingRepository()
+
+
+def build_provider_binding_service_repo(settings: Settings | None = None):
+    resolved = settings or get_settings()
+    return build_provider_binding_repo(resolved)

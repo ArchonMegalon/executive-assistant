@@ -45,8 +45,15 @@ class PostgresTaskContractRepository:
                         evidence_requirements_json JSONB NOT NULL,
                         memory_write_policy TEXT NOT NULL,
                         budget_policy_json JSONB NOT NULL,
+                        runtime_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         updated_at TIMESTAMPTZ NOT NULL
                     )
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE task_contracts
+                    ADD COLUMN IF NOT EXISTS runtime_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb
                     """
                 )
                 cur.execute(
@@ -66,6 +73,7 @@ class PostgresTaskContractRepository:
             evidence_requirements_json,
             memory_write_policy,
             budget_policy_json,
+            runtime_policy_json,
             updated_at,
         ) = row
         return TaskContract(
@@ -78,6 +86,7 @@ class PostgresTaskContractRepository:
             memory_write_policy=str(memory_write_policy),
             budget_policy_json=dict(budget_policy_json or {}),
             updated_at=_to_iso(updated_at),
+            runtime_policy_json=dict(runtime_policy_json or {}),
         )
 
     def upsert(self, row: TaskContract) -> TaskContract:
@@ -94,6 +103,7 @@ class PostgresTaskContractRepository:
             memory_write_policy=str(row.memory_write_policy or "reviewed_only"),
             budget_policy_json=dict(row.budget_policy_json or {}),
             updated_at=now_utc_iso(),
+            runtime_policy_json=dict(row.runtime_policy_json or {}),
         )
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -101,8 +111,8 @@ class PostgresTaskContractRepository:
                     """
                     INSERT INTO task_contracts
                     (task_key, deliverable_type, default_risk_class, default_approval_class, allowed_tools_json,
-                     evidence_requirements_json, memory_write_policy, budget_policy_json, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     evidence_requirements_json, memory_write_policy, budget_policy_json, runtime_policy_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (task_key) DO UPDATE
                     SET deliverable_type = EXCLUDED.deliverable_type,
                         default_risk_class = EXCLUDED.default_risk_class,
@@ -111,9 +121,10 @@ class PostgresTaskContractRepository:
                         evidence_requirements_json = EXCLUDED.evidence_requirements_json,
                         memory_write_policy = EXCLUDED.memory_write_policy,
                         budget_policy_json = EXCLUDED.budget_policy_json,
+                        runtime_policy_json = EXCLUDED.runtime_policy_json,
                         updated_at = EXCLUDED.updated_at
                     RETURNING task_key, deliverable_type, default_risk_class, default_approval_class, allowed_tools_json,
-                              evidence_requirements_json, memory_write_policy, budget_policy_json, updated_at
+                              evidence_requirements_json, memory_write_policy, budget_policy_json, runtime_policy_json, updated_at
                     """,
                     (
                         updated.task_key,
@@ -124,6 +135,7 @@ class PostgresTaskContractRepository:
                         self._json_value(list(updated.evidence_requirements)),
                         updated.memory_write_policy,
                         self._json_value(updated.budget_policy_json),
+                        self._json_value(updated.runtime_policy_json),
                         updated.updated_at,
                     ),
                 )
@@ -141,7 +153,7 @@ class PostgresTaskContractRepository:
                 cur.execute(
                     """
                     SELECT task_key, deliverable_type, default_risk_class, default_approval_class, allowed_tools_json,
-                           evidence_requirements_json, memory_write_policy, budget_policy_json, updated_at
+                           evidence_requirements_json, memory_write_policy, budget_policy_json, runtime_policy_json, updated_at
                     FROM task_contracts
                     WHERE task_key = %s
                     """,
@@ -159,7 +171,7 @@ class PostgresTaskContractRepository:
                 cur.execute(
                     """
                     SELECT task_key, deliverable_type, default_risk_class, default_approval_class, allowed_tools_json,
-                           evidence_requirements_json, memory_write_policy, budget_policy_json, updated_at
+                           evidence_requirements_json, memory_write_policy, budget_policy_json, runtime_policy_json, updated_at
                     FROM task_contracts
                     ORDER BY updated_at DESC, task_key DESC
                     LIMIT %s

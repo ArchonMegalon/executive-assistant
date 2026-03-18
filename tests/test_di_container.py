@@ -509,6 +509,7 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
 
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
+        monkeypatch.setattr(app_container, "build_provider_binding_service_repo", lambda _settings: None)
         def _raise_runtime_failure(*args, **kwargs) -> None:
             raise RuntimeError("forced failure")
 
@@ -560,6 +561,7 @@ def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
 
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
+        monkeypatch.setattr(app_container, "build_provider_binding_service_repo", lambda _settings: None)
         monkeypatch.setattr(app_container, "build_channel_runtime", lambda **kwargs: _FakeChannelRuntime())
 
         def _raise_runtime_failure(*_args: object, **_kwargs: object) -> None:

@@ -14,6 +14,7 @@ from app.domain.models import (
     now_utc_iso,
     validate_plan_spec,
 )
+from app.services.brain_router import BrainRouterService
 from app.services.provider_registry import CapabilityRoute, ProviderRegistryService
 from app.services.task_contracts import TaskContractService
 from app.services.tool_execution_common import ToolExecutionError
@@ -39,9 +40,11 @@ class PlannerService:
         self,
         task_contracts: TaskContractService,
         provider_registry: ProviderRegistryService | None = None,
+        brain_router: BrainRouterService | None = None,
     ) -> None:
         self._task_contracts = task_contracts
         self._provider_registry = provider_registry or ProviderRegistryService()
+        self._brain_router = brain_router or BrainRouterService(provider_registry=self._provider_registry)
         self._workflow_template_builders: dict[
             str, Callable[[IntentSpecV3, TaskContract], tuple[PlanStepSpec, ...]]
         ] = {
@@ -55,41 +58,13 @@ class PlannerService:
         }
 
     def _collect_provider_hints(self, contract: TaskContract) -> tuple[str, ...]:
-        raw_hints = contract.runtime_policy().skill_catalog.provider_hints_json
-        values: list[str] = []
-
-        def _visit(value: object) -> None:
-            if isinstance(value, str):
-                normalized = str(value or "").strip()
-                if normalized:
-                    values.append(normalized)
-                return
-            if isinstance(value, dict):
-                for nested in value.values():
-                    _visit(nested)
-                return
-            if isinstance(value, (list, tuple, set)):
-                for nested in value:
-                    _visit(nested)
-
-        _visit(raw_hints)
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for value in values:
-            key = value.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(value)
-        return tuple(deduped)
+        return self._brain_router.provider_hints_for_contract(contract)
 
     def _route_tool_name(self, *, contract: TaskContract, capability_key: str) -> str:
         try:
-            route = self._provider_registry.route_tool_by_capability(
+            route = self._brain_router.route_capability_for_contract(
+                contract=contract,
                 capability_key=capability_key,
-                provider_hints=self._collect_provider_hints(contract),
-                allowed_tools=contract.allowed_tools,
-                require_executable=True,
             )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc
@@ -102,11 +77,9 @@ class PlannerService:
         capability_key: str,
     ) -> CapabilityRoute:
         try:
-            return self._provider_registry.route_tool_by_capability(
+            return self._brain_router.route_capability_for_contract(
+                contract=contract,
                 capability_key=capability_key,
-                provider_hints=self._collect_provider_hints(contract),
-                allowed_tools=contract.allowed_tools,
-                require_executable=True,
             )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc

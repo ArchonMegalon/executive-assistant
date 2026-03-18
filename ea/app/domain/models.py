@@ -629,8 +629,19 @@ class TaskContractRuntimePolicy:
 
 def parse_task_contract_runtime_policy(
     budget_policy_json: dict[str, Any] | None,
+    runtime_policy_json: dict[str, Any] | None = None,
 ) -> TaskContractRuntimePolicy:
-    metadata = dict(budget_policy_json or {})
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in override.items():
+            existing = merged.get(key)
+            if isinstance(existing, dict) and isinstance(value, dict):
+                merged[key] = _deep_merge(existing, value)
+                continue
+            merged[key] = value
+        return merged
+
+    metadata = _deep_merge(dict(budget_policy_json or {}), dict(runtime_policy_json or {}))
 
     def _retry(prefix: str) -> TaskContractRetryPolicy:
         failure_strategy = str(metadata.get(f"{prefix}_failure_strategy") or "fail").strip().lower() or "fail"
@@ -735,9 +746,10 @@ class TaskContract:
     memory_write_policy: str
     budget_policy_json: dict[str, Any]
     updated_at: str
+    runtime_policy_json: dict[str, Any] = field(default_factory=dict)
 
     def runtime_policy(self) -> TaskContractRuntimePolicy:
-        return parse_task_contract_runtime_policy(self.budget_policy_json)
+        return parse_task_contract_runtime_policy(self.budget_policy_json, self.runtime_policy_json)
 
 
 @dataclass(frozen=True)
