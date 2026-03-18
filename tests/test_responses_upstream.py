@@ -19,17 +19,12 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
     ]
 
     assert candidates == [
+        ("gemini_vortex", "gemini-3-flash-preview"),
         ("magixai", "mx-best"),
         ("magixai", "mx-fallback"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "inception/mercury-coder"),
-        ("gemini_vortex", "gemini-3-flash-preview"),
-        ("onemin", "review-best"),
-        ("onemin", "review-fallback"),
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("onemin", "gpt-4.1"),
     ]
 
 
@@ -44,19 +39,15 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
     ]
 
     assert candidates == [
+        ("gemini_vortex", "gemini-3-flash-preview"),
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "inception/mercury-coder"),
-        ("gemini_vortex", "gemini-3-flash-preview"),
-        ("onemin", "review-best"),
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("onemin", "gpt-4.1"),
     ]
 
 
-def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_public_model_falls_back_to_gemini_without_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
@@ -67,39 +58,24 @@ def test_default_public_model_can_fall_back_to_onemin_when_magicx_is_unavailable
         raise upstream.ResponsesUpstreamError("magicx_unavailable")
 
     def fake_call_gemini_vortex(*args: object, **kwargs: object) -> upstream.UpstreamResult:
-        raise upstream.ResponsesUpstreamError("gemini_vortex_unavailable")
-
-    def fake_call_onemin(
-        config: upstream.ProviderConfig,
-        *,
-        prompt: str,
-        messages: list[dict[str, str]],
-        model: str,
-        max_output_tokens: int | None,
-        lane: str,
-    ) -> upstream.UpstreamResult:
-        assert config.provider_key == "onemin"
-        assert model == "review-best"
-        assert lane == upstream._LANE_FAST
         return upstream.UpstreamResult(
             text="fallback ok",
-            provider_key="onemin",
-            model=model,
+            provider_key="gemini_vortex",
+            model="gemini-3-flash-preview",
             tokens_in=3,
             tokens_out=2,
         )
 
     monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
     monkeypatch.setattr(upstream, "_call_gemini_vortex", fake_call_gemini_vortex)
-    monkeypatch.setattr(upstream, "_call_onemin", fake_call_onemin)
 
     result = upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
-    assert result.provider_key == "onemin"
+    assert result.provider_key == "gemini_vortex"
     assert result.text == "fallback ok"
 
 
-def test_fast_public_model_candidates_prefer_magicx_then_gemini_then_onemin_review(
+def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
@@ -111,15 +87,11 @@ def test_fast_public_model_candidates_prefer_magicx_then_gemini_then_onemin_revi
     ]
 
     assert candidates == [
+        ("gemini_vortex", "gemini-3-flash-preview"),
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "inception/mercury-coder"),
-        ("gemini_vortex", "gemini-3-flash-preview"),
-        ("onemin", "review-best"),
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("onemin", "gpt-4.1"),
     ]
 
 
