@@ -301,7 +301,7 @@ def _render_chatplayground_workflow_prompt(
     ]
     if model_list:
         base_lines.append(f"Requested comparison models: {', '.join(model_list)}")
-        base_lines.extend(
+    base_lines.extend(
         [
             "Review the material and return exactly one JSON object with no markdown fences and no prose outside the JSON.",
             'Use this schema: {{"consensus":"pass|fail|needs_revision|unavailable","recommendation":"short verdict","disagreements":["..."],"risks":["..."],"model_deltas":["..."]}}',
