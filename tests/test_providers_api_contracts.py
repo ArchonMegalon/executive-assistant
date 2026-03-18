@@ -122,3 +122,138 @@ def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.Monk
     primary = next(slot for slot in body["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
     assert primary["owner_email"] == "probe@example.com"
     assert primary["result"] == "ok"
+
+
+def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "owner@example.com",
+            "scope_json": {"scopes": ["billing", "inventory"]},
+            "auth_metadata_json": {
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+                "onemin_members_run_url": "https://browseract.example/run/members",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+    binding_id = created.json()["binding_id"]
+
+    container = owner.app.state.container
+    container.tool_execution._browseract_onemin_billing_usage = lambda **_: {
+        "remaining_credits": "12345",
+        "max_credits": "20000",
+        "next_topup_at": "2026-03-31T00:00:00Z",
+        "topup_amount": "20000",
+        "used_percent": "38.3",
+    }
+    container.tool_execution._browseract_onemin_member_reconciliation = lambda **_: {
+        "members": [
+            {
+                "email": "owner@example.com",
+                "status": "active",
+                "credit_limit": "5000",
+            }
+        ]
+    }
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider_key"] == "onemin"
+    assert body["connector_binding_count"] == 1
+    assert body["billing_refresh_count"] == 1
+    assert body["member_reconciliation_count"] == 1
+    assert body["errors"] == []
+    assert body["billing_results"][0]["binding_id"] == binding_id
+    assert body["billing_results"][0]["account_label"] == "ONEMIN_AI_API_KEY"
+    assert body["billing_results"][0]["next_topup_at"] == "2026-03-31T00:00:00Z"
+    assert body["member_results"][0]["account_label"] == "ONEMIN_AI_API_KEY"
+    assert body["member_results"][0]["matched_owner_slots"] == 1
+
+
+def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(
+        providers_route,
+        "_refresh_onemin_via_provider_api",
+        lambda **_: (
+            [
+                {
+                    "refresh_backend": "onemin_api",
+                    "account_label": "ONEMIN_AI_API_KEY",
+                    "owner_email": "owner@example.com",
+                    "next_topup_at": "2026-03-19T22:00:00Z",
+                    "topup_amount": 15000.0,
+                    "basis": "actual_provider_api",
+                }
+            ],
+            [
+                {
+                    "refresh_backend": "onemin_api",
+                    "account_label": "ONEMIN_AI_API_KEY",
+                    "owner_email": "owner@example.com",
+                    "matched_owner_slots": 1,
+                    "basis": "actual_provider_api",
+                }
+            ],
+            [],
+            1,
+            0,
+            False,
+        ),
+    )
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": True})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider_key"] == "onemin"
+    assert body["connector_binding_count"] == 0
+    assert body["api_account_count"] == 1
+    assert body["billing_refresh_count"] == 1
+    assert body["member_reconciliation_count"] == 1
+    assert body["api_billing_refresh_count"] == 1
+    assert body["api_member_reconciliation_count"] == 1
+    assert body["billing_results"][0]["refresh_backend"] == "onemin_api"
+    assert body["member_results"][0]["refresh_backend"] == "onemin_api"
+    assert "direct 1min API" in body["note"]
