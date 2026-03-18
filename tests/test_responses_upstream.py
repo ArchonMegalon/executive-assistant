@@ -1204,6 +1204,41 @@ def test_chatplayground_audit_callback_errors_return_unavailable_payload(monkeyp
     assert "tool-unavailable" in payload["risks"]
 
 
+def test_chatplayground_audit_unavailable_payload_redacts_full_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_URLS", "https://web.chatplayground.ai/api/chat/lmsys")
+
+    long_prompt = (
+        "Conversation so far:\\n\\n"
+        + ("very long prior context " * 24)
+        + "\\n\\nReturn the next action as JSON only."
+    )
+
+    def bad_callback(**kwargs: object) -> object:
+        raise RuntimeError("connector_binding_required:browseract.chatplayground_audit")
+
+    result = upstream.generate_text(
+        requested_model=upstream.AUDIT_PUBLIC_MODEL,
+        prompt=long_prompt,
+        chatplayground_audit_callback=bad_callback,
+        chatplayground_audit_callback_only=True,
+    )
+
+    payload = json.loads(result.text)
+    raw_output = payload["raw_output"]
+    assert result.provider_key == "chatplayground"
+    assert payload["consensus"] == "unavailable"
+    assert raw_output["reason"] == "connector_binding_required:browseract.chatplayground_audit"
+    assert raw_output["prompt_chars"] == len(long_prompt)
+    assert raw_output["prompt_sha256"] == hashlib.sha256(long_prompt.encode("utf-8")).hexdigest()
+    assert raw_output["prompt_preview"].startswith("Conversation so far:")
+    assert len(raw_output["prompt_preview"]) <= 160
+    assert "very long prior context very long prior context" in raw_output["prompt_preview"]
+    assert raw_output.get("prompt") is None
+    assert long_prompt not in result.text
+
+
 def test_chatplayground_request_urls_prefers_web_with_app_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/")
     monkeypatch.delenv("EA_RESPONSES_CHATPLAYGROUND_URLS", raising=False)

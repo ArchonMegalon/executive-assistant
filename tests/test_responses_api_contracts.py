@@ -11,6 +11,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from app.services.responses_upstream import UpstreamResult
+from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -1205,6 +1206,134 @@ def test_codex_audit_smoke_uses_chatplayground_callback_path(monkeypatch: pytest
     assert payload["consensus"] == "pass"
     assert payload["recommendation"] == "ship it"
     assert payload["external_account_ref"] == "browseract-main"
+
+
+def test_codex_audit_smoke_uses_env_backed_backend_without_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+    monkeypatch.setenv("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/")
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("", ""),
+    )
+
+    from app.api.app import create_app
+
+    app = create_app()
+    calls: list[tuple[str, dict[str, object], int]] = []
+
+    def _fake_post_browseract_json(
+        self,
+        *,
+        run_url: str,
+        request_payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        calls.append((run_url, dict(request_payload), timeout_seconds))
+        assert run_url == "https://web.chatplayground.ai/api/chat/lmsys"
+        assert request_payload["prompt"] == "review the release plan"
+        assert request_payload["audit_scope"] == "jury"
+        assert request_payload["principal_id"] == "codex-audit-env"
+        assert request_payload["binding_id"] == ""
+        return {
+            "consensus": "pass",
+            "recommendation": "ship it",
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+            "roles": request_payload["roles"],
+            "requested_at": "2026-03-18T00:00:00Z",
+        }
+
+    monkeypatch.setattr(BrowserActToolAdapter, "_post_browseract_json", _fake_post_browseract_json)
+
+    client = TestClient(app)
+    client.headers.update({"X-EA-Principal-ID": "codex-audit-env"})
+
+    response = client.post("/v1/codex/audit", json={"input": "review the release plan"})
+    assert response.status_code == 200
+
+    body = response.json()
+    payload = json.loads(body["output"][0]["content"][0]["text"])
+    assert body["metadata"]["codex_profile"] == "audit"
+    assert body["metadata"]["provider_backend"] == "browseract"
+    assert payload["provider"] == "chatplayground"
+    assert payload["consensus"] == "pass"
+    assert calls[0][0] == "https://web.chatplayground.ai/api/chat/lmsys"
+
+
+def test_codex_audit_smoke_uses_browseract_workflow_api_without_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+
+    from app.api.app import create_app
+
+    app = create_app()
+    calls: list[tuple[str, str, dict[str, object] | None, dict[str, str] | None]] = []
+
+    def _fake_browseract_api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        calls.append((method, path, dict(payload or {}), dict(query or {})))
+        if path == "/run-task":
+            return {"task_id": "task-audit-1"}
+        if path == "/get-task-status":
+            return {"status": "finished"}
+        if path == "/get-task":
+            return {
+                "status": "finished",
+                "output": {
+                    "string": json.dumps(
+                        [
+                            {
+                                "audit_response": json.dumps(
+                                    {
+                                        "consensus": "pass",
+                                        "recommendation": "ship it",
+                                        "disagreements": [],
+                                        "risks": [],
+                                        "model_deltas": [],
+                                        "roles": ["factuality", "adversarial", "completeness", "risk"],
+                                    }
+                                )
+                            }
+                        ]
+                    )
+                },
+            }
+        raise AssertionError(f"unexpected BrowserAct API path: {path}")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_resolve_chatplayground_workflow",
+        lambda self, *, payload, binding_metadata: ("workflow-audit-1", "test-fixture"),
+    )
+    monkeypatch.setattr(BrowserActToolAdapter, "_browseract_api_request", _fake_browseract_api_request)
+
+    client = TestClient(app)
+    client.headers.update({"X-EA-Principal-ID": "codex-audit-workflow"})
+
+    response = client.post("/v1/codex/audit", json={"input": "review the release plan"})
+    assert response.status_code == 200
+
+    body = response.json()
+    payload = json.loads(body["output"][0]["content"][0]["text"])
+    run_task_payload = calls[0][2] or {}
+    rendered_prompt = str(((run_task_payload.get("input_parameters") or [{}])[0]).get("value") or "")
+    assert body["metadata"]["codex_profile"] == "audit"
+    assert body["metadata"]["provider_backend"] == "browseract"
+    assert payload["provider"] == "chatplayground"
+    assert payload["consensus"] == "pass"
+    assert payload["workflow_id"] == "workflow-audit-1"
+    assert payload["task_id"] == "task-audit-1"
+    assert calls[0][1] == "/run-task"
+    assert "review the release plan" in rendered_prompt
+    assert "return exactly one json object" in rendered_prompt.lower()
 
 
 def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
