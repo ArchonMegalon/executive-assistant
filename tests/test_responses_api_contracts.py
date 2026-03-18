@@ -1353,10 +1353,10 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["lane"] == "hard"
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
-    assert easy_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
+    assert easy_profile["provider_hint_order"] == ["gemini_vortex", "magixai"]
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
-    assert repair_profile["provider_hint_order"] == ["magixai", "gemini_vortex", "onemin"]
+    assert repair_profile["provider_hint_order"] == ["gemini_vortex", "magixai"]
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
     assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
