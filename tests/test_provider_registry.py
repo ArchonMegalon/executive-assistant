@@ -141,6 +141,48 @@ def test_provider_registry_onemin_secret_rotation_includes_declared_fallback_slo
     ]
 
 
+def test_provider_registry_exposes_executable_onemin_specialist_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("onemin")
+
+    assert state is not None
+    assert state.executable is True
+    assert state.auth_mode == "api_key"
+    assert state.state == "ready"
+    assert "code_generate" in state.capabilities
+    assert "reasoned_patch_review" in state.capabilities
+    assert "image_generate" in state.capabilities
+    assert "media_transform" in state.capabilities
+
+
+def test_provider_registry_routes_onemin_specialist_capability_with_aliases() -> None:
+    registry = ProviderRegistryService()
+
+    route = registry.route_tool_by_capability(
+        capability_key="codegen",
+        provider_hints=("1min.AI",),
+        allowed_tools=("provider.onemin.code_generate",),
+    )
+    assert route.provider_key == "onemin"
+    assert route.capability_key == "code_generate"
+    assert route.tool_name == "provider.onemin.code_generate"
+    assert route.executable is True
+
+    review_route = registry.route_tool_by_capability(
+        capability_key="patch_review",
+        provider_hints=("onemin",),
+        allowed_tools=("provider.onemin.reasoned_patch_review",),
+    )
+    assert review_route.provider_key == "onemin"
+    assert review_route.capability_key == "reasoned_patch_review"
+    assert review_route.tool_name == "provider.onemin.reasoned_patch_review"
+    assert review_route.executable is True
+
+
 def test_provider_registry_normalizes_chatplayground_aliases() -> None:
     registry = ProviderRegistryService()
 

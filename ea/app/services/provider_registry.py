@@ -230,16 +230,29 @@ class ProviderRegistryService:
             ProviderBinding(
                 provider_key="onemin",
                 display_name="1min.AI",
-                executable=False,
+                executable=True,
                 capabilities=(
+                    ProviderCapability(
+                        provider_key="onemin",
+                        capability_key="code_generate",
+                        tool_name="provider.onemin.code_generate",
+                    ),
+                    ProviderCapability(
+                        provider_key="onemin",
+                        capability_key="reasoned_patch_review",
+                        tool_name="provider.onemin.reasoned_patch_review",
+                    ),
                     ProviderCapability(
                         provider_key="onemin",
                         capability_key="image_generate",
                         tool_name="provider.onemin.image_generate",
-                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="onemin",
+                        capability_key="media_transform",
+                        tool_name="provider.onemin.media_transform",
                     ),
                 ),
-                source="catalog",
             ),
 
             ProviderBinding(
@@ -738,6 +751,12 @@ class ProviderRegistryService:
             "generate_json": "structured_generate",
             "json_generate": "structured_generate",
             "structured_generation": "structured_generate",
+            "codegen": "code_generate",
+            "code_generation": "code_generate",
+            "patch_review": "reasoned_patch_review",
+            "review_patch": "reasoned_patch_review",
+            "review_code": "reasoned_patch_review",
+            "media": "media_transform",
         }
         return aliases.get(normalized, normalized)
 
