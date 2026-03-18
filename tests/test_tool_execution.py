@@ -2299,7 +2299,7 @@ def test_tool_execution_service_uses_browseract_workflow_api_for_chatplayground_
             assert payload["input_parameters"][0]["name"] == "prompt"
             rendered_prompt = str(payload["input_parameters"][0]["value"] or "")
             assert "Validate migration plan for concurrency safety." in rendered_prompt
-            assert "return exactly one JSON object" in rendered_prompt.lower()
+            assert "return exactly one json object" in rendered_prompt.lower()
             assert '"consensus":"pass|fail|needs_revision|unavailable"' in rendered_prompt
             assert "<material>" in rendered_prompt
             return {"task_id": "task-456"}
