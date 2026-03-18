@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -18,7 +19,13 @@ from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
-from app.domain.models import ToolDefinition, ToolInvocationRequest
+from app.domain.models import (
+    ProviderBillingSnapshot,
+    ProviderMemberReconciliationSnapshot,
+    ToolDefinition,
+    ToolInvocationRequest,
+    now_utc_iso,
+)
 from app.services.brain_catalog import (
     AUDIT_PUBLIC_MODEL,
     AUDIT_PUBLIC_MODEL_ALIAS,
@@ -47,6 +54,8 @@ _ONEMIN_USAGE_EVENTS: deque[OneminUsageEvent] = deque(maxlen=512)
 _ONEMIN_REQUIRED_CREDIT_EVENTS: deque[OneminRequiredCreditObservation] = deque(maxlen=128)
 _ONEMIN_PROBE_EVENTS: deque[OneminProbeEvent] = deque(maxlen=512)
 _PROVIDER_BALANCE_SNAPSHOTS: deque[ProviderBalanceSnapshot] = deque(maxlen=512)
+_PROVIDER_BILLING_SNAPSHOTS: deque[ProviderBillingSnapshot] = deque(maxlen=512)
+_PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS: deque[ProviderMemberReconciliationSnapshot] = deque(maxlen=256)
 _PROVIDER_DISPATCH_EVENTS: deque[ProviderDispatchEvent] = deque(maxlen=1024)
 _ONEMIN_USAGE_LOCK = threading.Lock()
 _PROVIDER_LEDGER_LOADED = False
@@ -365,6 +374,8 @@ def _load_provider_ledgers_once() -> None:
         required_rows = _load_provider_ledger_records("onemin_required_credit_events.jsonl")
         probe_rows = _load_provider_ledger_records("onemin_probe_events.jsonl")
         balance_rows = _load_provider_ledger_records("provider_balance_snapshots.jsonl")
+        billing_rows = _load_provider_ledger_records("provider_billing_snapshots.jsonl")
+        member_rows = _load_provider_ledger_records("provider_member_reconciliation_snapshots.jsonl")
         dispatch_rows = _load_provider_ledger_records("provider_dispatch_events.jsonl")
         with _ONEMIN_USAGE_LOCK:
             for row in usage_rows[-_ONEMIN_USAGE_EVENTS.maxlen :]:
@@ -440,6 +451,46 @@ def _load_provider_ledgers_once() -> None:
                                 else None
                             ),
                             detail=str(row.get("detail") or ""),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in billing_rows[-_PROVIDER_BILLING_SNAPSHOTS.maxlen :]:
+                try:
+                    _PROVIDER_BILLING_SNAPSHOTS.append(
+                        ProviderBillingSnapshot(
+                            provider_key=str(row.get("provider_key") or ""),
+                            account_name=str(row.get("account_name") or ""),
+                            observed_at=str(row.get("observed_at") or now_utc_iso()),
+                            remaining_credits=float(row.get("remaining_credits")) if row.get("remaining_credits") is not None else None,
+                            max_credits=float(row.get("max_credits")) if row.get("max_credits") is not None else None,
+                            used_percent=float(row.get("used_percent")) if row.get("used_percent") is not None else None,
+                            next_topup_at=str(row.get("next_topup_at") or "") or None,
+                            cycle_start_at=str(row.get("cycle_start_at") or "") or None,
+                            cycle_end_at=str(row.get("cycle_end_at") or "") or None,
+                            topup_amount=float(row.get("topup_amount")) if row.get("topup_amount") is not None else None,
+                            rollover_enabled=bool(row.get("rollover_enabled")) if row.get("rollover_enabled") is not None else None,
+                            basis=str(row.get("basis") or "actual_billing_usage_page"),
+                            source_url=str(row.get("source_url") or ""),
+                            structured_output_json=dict(row.get("structured_output_json") or {}),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in member_rows[-_PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS.maxlen :]:
+                try:
+                    members = row.get("members_json") or []
+                    if not isinstance(members, list):
+                        members = []
+                    _PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS.append(
+                        ProviderMemberReconciliationSnapshot(
+                            provider_key=str(row.get("provider_key") or ""),
+                            account_name=str(row.get("account_name") or ""),
+                            observed_at=str(row.get("observed_at") or now_utc_iso()),
+                            basis=str(row.get("basis") or "actual_members_page"),
+                            source_url=str(row.get("source_url") or ""),
+                            members_json=tuple(dict(item) for item in members if isinstance(item, dict)),
+                            structured_output_json=dict(row.get("structured_output_json") or {}),
                         )
                     )
                 except Exception:
@@ -1515,6 +1566,69 @@ def _latest_provider_balance_snapshot(
     if not snapshots:
         return None
     return max(snapshots, key=lambda item: item.happened_at)
+
+
+def _iso_to_epoch(value: object) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _recent_provider_billing_snapshots(
+    *,
+    provider_key: str,
+    account_name: str | None = None,
+) -> list[ProviderBillingSnapshot]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = list(_PROVIDER_BILLING_SNAPSHOTS)
+    return [
+        item
+        for item in rows
+        if item.provider_key == provider_key and (account_name is None or item.account_name == account_name)
+    ]
+
+
+def _latest_provider_billing_snapshot(
+    *,
+    provider_key: str,
+    account_name: str,
+) -> ProviderBillingSnapshot | None:
+    snapshots = _recent_provider_billing_snapshots(provider_key=provider_key, account_name=account_name)
+    if not snapshots:
+        return None
+    return max(snapshots, key=lambda item: _iso_to_epoch(item.observed_at))
+
+
+def _recent_provider_member_reconciliation_snapshots(
+    *,
+    provider_key: str,
+    account_name: str | None = None,
+) -> list[ProviderMemberReconciliationSnapshot]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = list(_PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS)
+    return [
+        item
+        for item in rows
+        if item.provider_key == provider_key and (account_name is None or item.account_name == account_name)
+    ]
+
+
+def _latest_provider_member_reconciliation_snapshot(
+    *,
+    provider_key: str,
+    account_name: str,
+) -> ProviderMemberReconciliationSnapshot | None:
+    snapshots = _recent_provider_member_reconciliation_snapshots(provider_key=provider_key, account_name=account_name)
+    if not snapshots:
+        return None
+    return max(snapshots, key=lambda item: _iso_to_epoch(item.observed_at))
 
 
 def _observed_spend_since(
@@ -3809,6 +3923,8 @@ def _test_reset_onemin_states() -> None:
         _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
         _ONEMIN_PROBE_EVENTS.clear()
         _PROVIDER_BALANCE_SNAPSHOTS.clear()
+        _PROVIDER_BILLING_SNAPSHOTS.clear()
+        _PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS.clear()
         _PROVIDER_DISPATCH_EVENTS.clear()
     with _MAGIX_HEALTH_LOCK:
         _MAGIX_HEALTH_STATE.update(state="unknown", checked_at=0.0, detail="", provider_key="magixai")
@@ -3819,6 +3935,8 @@ def _test_reset_onemin_states() -> None:
         "onemin_required_credit_events.jsonl",
         "onemin_probe_events.jsonl",
         "provider_balance_snapshots.jsonl",
+        "provider_billing_snapshots.jsonl",
+        "provider_member_reconciliation_snapshots.jsonl",
         "provider_dispatch_events.jsonl",
     ):
         target = _provider_ledger_file(ledger_name)
@@ -3938,6 +4056,72 @@ def _recent_topup_events(*, provider_key: str, limit: int = 10) -> list[Provider
     return rows[: max(1, limit)]
 
 
+def estimate_credit_runway_with_topups(
+    *,
+    remaining_credits: float | None,
+    current_burn_per_hour: float | None,
+    burn_per_day_7d_avg: float | None,
+    next_topup_at: str | None,
+    topup_amount: float | None,
+    now: float | None = None,
+) -> dict[str, object]:
+    now_epoch = float(now if now is not None else _now_epoch())
+    remaining = float(remaining_credits) if remaining_credits not in (None, "") else None
+    current_burn = float(current_burn_per_hour) if current_burn_per_hour not in (None, "", 0) else None
+    burn_7d_hour = None
+    if burn_per_day_7d_avg not in (None, "", 0):
+        burn_7d_hour = float(burn_per_day_7d_avg) / 24.0
+    next_topup_epoch = _iso_to_epoch(next_topup_at)
+    hours_until_next_topup = None
+    if next_topup_epoch > 0:
+        hours_until_next_topup = round(max(0.0, next_topup_epoch - now_epoch) / 3600.0, 2)
+
+    def _hours_without_topup(burn_rate: float | None) -> float | None:
+        if remaining is None or burn_rate in (None, 0):
+            return None
+        return round(max(0.0, remaining / float(burn_rate)), 2)
+
+    def _hours_with_topup(burn_rate: float | None) -> tuple[float | None, float | None, bool | None]:
+        if remaining is None or burn_rate in (None, 0):
+            return None, None, None
+        no_topup_hours = max(0.0, remaining / float(burn_rate))
+        if hours_until_next_topup in (None,) or topup_amount in (None, ""):
+            return round(no_topup_hours, 2), None, None
+        burn_before = float(burn_rate) * float(hours_until_next_topup)
+        credits_at_topup = remaining - burn_before
+        depletes_before = credits_at_topup < 0
+        if depletes_before:
+            return round(no_topup_hours, 2), round(max(credits_at_topup, 0.0), 2), True
+        hours_after = (credits_at_topup + float(topup_amount)) / float(burn_rate)
+        return round(hours_until_next_topup + hours_after, 2), round(max(credits_at_topup, 0.0), 2), False
+
+    current_no_topup = _hours_without_topup(current_burn)
+    current_with_topup, credits_at_topup, depletes_before = _hours_with_topup(current_burn)
+    days_with_topup_7d = None
+    if burn_7d_hour not in (None, 0):
+        hours_with_topup_7d, _, _ = _hours_with_topup(burn_7d_hour)
+        if hours_with_topup_7d is not None:
+            days_with_topup_7d = round(hours_with_topup_7d / 24.0, 2)
+    blended_burn = None
+    if current_burn not in (None, 0) and burn_7d_hour not in (None, 0):
+        blended_burn = round((float(current_burn) * 0.7) + (float(burn_7d_hour) * 0.3), 2)
+    elif current_burn not in (None, 0):
+        blended_burn = round(float(current_burn), 2)
+    elif burn_7d_hour not in (None, 0):
+        blended_burn = round(float(burn_7d_hour), 2)
+
+    return {
+        "hours_remaining_at_current_pace_no_topup": current_no_topup,
+        "hours_until_next_topup": hours_until_next_topup,
+        "credits_at_next_topup_if_current_pace": credits_at_topup,
+        "hours_remaining_including_next_topup_at_current_pace": current_with_topup,
+        "days_remaining_including_next_topup_at_7d_avg": days_with_topup_7d,
+        "depletes_before_next_topup": depletes_before,
+        "blended_burn_credits_per_hour": blended_burn,
+        "basis": "billing_plus_observed_burn" if remaining is not None else "insufficient_billing_truth",
+    }
+
+
 def codex_status_report(*, window: str = "1h") -> dict[str, object]:
     provider_health = _provider_health_report()
     now = _now_epoch()
@@ -3950,6 +4134,30 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         provider_slots = list(provider_dict.get("slots") or [])
         if provider_key == "onemin":
             for slot in provider_slots:
+                selected_free_credits = (
+                    slot.get("billing_remaining_credits")
+                    if slot.get("billing_remaining_credits") is not None
+                    else slot.get("estimated_remaining_credits")
+                )
+                selected_max_credits = (
+                    slot.get("billing_max_credits")
+                    if slot.get("billing_max_credits") is not None
+                    else slot.get("max_credits")
+                )
+                selected_basis = (
+                    str(slot.get("billing_basis") or "").strip()
+                    or str(slot.get("estimated_credit_basis") or "").strip()
+                    or "unknown_unprobed"
+                )
+                selected_used_percent = slot.get("billing_used_percent")
+                if selected_used_percent is None and selected_free_credits is not None and selected_max_credits:
+                    try:
+                        selected_used_percent = round(
+                            (1.0 - (float(selected_free_credits) / float(selected_max_credits))) * 100.0,
+                            2,
+                        )
+                    except Exception:
+                        selected_used_percent = None
                 detail = (
                     str(slot.get("last_probe_detail") or "").strip()
                     or str(slot.get("last_error") or "").strip()
@@ -3967,17 +4175,10 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                         "owner_name": slot.get("owner_name"),
                         "owner_email": slot.get("owner_email"),
                         "state": slot.get("state"),
-                        "free_credits": slot.get("estimated_remaining_credits"),
-                        "max_credits": slot.get("max_credits"),
-                        "used_percent": (
-                            round(
-                                (1.0 - (float(slot.get("estimated_remaining_credits")) / float(slot.get("max_credits")))) * 100.0,
-                                2,
-                            )
-                            if slot.get("estimated_remaining_credits") is not None and slot.get("max_credits")
-                            else None
-                        ),
-                        "basis": slot.get("estimated_credit_basis"),
+                        "free_credits": selected_free_credits,
+                        "max_credits": selected_max_credits,
+                        "used_percent": selected_used_percent,
+                        "basis": selected_basis,
                         "detail": detail,
                         "last_error": slot.get("last_error"),
                         "quarantine_until": slot.get("quarantine_until"),
@@ -3986,7 +4187,12 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                         "last_probe_detail": slot.get("last_probe_detail"),
                         "last_probe_model": slot.get("last_probe_model"),
                         "last_probe_latency_ms": slot.get("last_probe_latency_ms"),
-                        "last_balance_observed_at": slot.get("last_balance_observed_at"),
+                        "last_balance_observed_at": slot.get("last_billing_snapshot_at") or slot.get("last_balance_observed_at"),
+                        "billing_next_topup_at": slot.get("billing_next_topup_at"),
+                        "billing_topup_amount": slot.get("billing_topup_amount"),
+                        "billing_rollover_enabled": slot.get("billing_rollover_enabled"),
+                        "member_reconciliation_at": slot.get("member_reconciliation_at"),
+                        "member_reconciliation_count": slot.get("member_reconciliation_count"),
                         "burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
                         "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
                     }
@@ -4062,6 +4268,86 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
     days_remaining_7d = None
     if remaining_total is not None and avg_daily_burn_7d not in (None, 0):
         days_remaining_7d = round(float(remaining_total) / float(avg_daily_burn_7d), 2)
+    billing_basis_counts: dict[str, int] = {}
+    selected_billing_free_total = 0
+    selected_billing_max_total = 0
+    selected_billing_free_known = 0
+    selected_billing_max_known = 0
+    slot_count_with_billing_snapshot = 0
+    next_topup_at = ""
+    next_topup_epoch = 0.0
+    topup_amount_at_next_window = 0.0
+    topup_amount_known = False
+    latest_member_reconciliation_at = None
+    slot_count_with_member_reconciliation = 0
+    for slot in slots:
+        billing_basis = str(slot.get("billing_basis") or "").strip()
+        estimated_basis = str(slot.get("estimated_credit_basis") or "").strip() or "unknown_unprobed"
+        selected_basis = billing_basis or estimated_basis
+        billing_basis_counts[selected_basis] = billing_basis_counts.get(selected_basis, 0) + 1
+
+        selected_free = slot.get("billing_remaining_credits")
+        if selected_free is None:
+            selected_free = slot.get("estimated_remaining_credits")
+        if selected_free is not None:
+            try:
+                selected_billing_free_total += int(round(float(selected_free)))
+                selected_billing_free_known += 1
+            except Exception:
+                pass
+
+        selected_max = slot.get("billing_max_credits")
+        if selected_max is None:
+            selected_max = slot.get("max_credits")
+        if selected_max is not None:
+            try:
+                selected_billing_max_total += int(round(float(selected_max)))
+                selected_billing_max_known += 1
+            except Exception:
+                pass
+
+        if slot.get("last_billing_snapshot_at"):
+            slot_count_with_billing_snapshot += 1
+
+        billing_topup_at = str(slot.get("billing_next_topup_at") or "").strip()
+        billing_topup_epoch = _iso_to_epoch(billing_topup_at)
+        if billing_topup_at and billing_topup_epoch > 0:
+            if not next_topup_at or next_topup_epoch <= 0 or billing_topup_epoch < next_topup_epoch:
+                next_topup_at = billing_topup_at
+                next_topup_epoch = billing_topup_epoch
+                topup_amount_at_next_window = 0.0
+                topup_amount_known = False
+            if billing_topup_at == next_topup_at and slot.get("billing_topup_amount") not in (None, ""):
+                try:
+                    topup_amount_at_next_window += float(slot.get("billing_topup_amount") or 0.0)
+                    topup_amount_known = True
+                except Exception:
+                    pass
+
+        member_reconciliation_at = _iso_to_epoch(slot.get("member_reconciliation_at"))
+        if member_reconciliation_at > 0:
+            slot_count_with_member_reconciliation += 1
+            latest_member_reconciliation_at = max(
+                latest_member_reconciliation_at or 0.0,
+                member_reconciliation_at,
+            )
+
+    billing_remaining_percent_total = None
+    if selected_billing_max_known > 0 and selected_billing_max_total > 0:
+        billing_remaining_percent_total = round((float(selected_billing_free_total) / float(selected_billing_max_total)) * 100.0, 2)
+    billing_basis_summary = (
+        ", ".join(f"{key} x{billing_basis_counts[key]}" for key in sorted(billing_basis_counts))
+        if billing_basis_counts
+        else "unknown_unprobed"
+    )
+    billing_runway = estimate_credit_runway_with_topups(
+        remaining_credits=selected_billing_free_total if selected_billing_free_known > 0 else remaining_total,
+        current_burn_per_hour=onemin.get("estimated_burn_credits_per_hour"),
+        burn_per_day_7d_avg=avg_daily_burn_7d,
+        next_topup_at=next_topup_at or None,
+        topup_amount=topup_amount_at_next_window if topup_amount_known else None,
+        now=now,
+    )
     onemin_aggregate = {
         "slot_count": len(slots),
         "slot_count_with_known_balance": sum(1 for slot in slots if slot.get("estimated_remaining_credits") is not None),
@@ -4089,6 +4375,22 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         "status_basis": onemin.get("credit_estimation_mode"),
         "incoming_topups_excluded": True,
     }
+    onemin_billing_aggregate = {
+        "slot_count": len(slots),
+        "slot_count_with_billing_snapshot": slot_count_with_billing_snapshot,
+        "slot_count_with_member_reconciliation": slot_count_with_member_reconciliation,
+        "sum_max_credits": selected_billing_max_total if selected_billing_max_known > 0 else onemin.get("max_credits_total"),
+        "sum_free_credits": selected_billing_free_total if selected_billing_free_known > 0 else onemin.get("estimated_remaining_credits_total"),
+        "remaining_percent_total": billing_remaining_percent_total if billing_remaining_percent_total is not None else onemin.get("remaining_percent_of_max"),
+        "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
+        "avg_daily_burn_credits_7d": avg_daily_burn_7d,
+        "next_topup_at": next_topup_at or None,
+        "topup_amount": round(topup_amount_at_next_window, 2) if topup_amount_known else None,
+        "latest_member_reconciliation_at": latest_member_reconciliation_at,
+        "basis_summary": billing_basis_summary,
+        "basis_counts": billing_basis_counts,
+        **billing_runway,
+    }
     return {
         "generated_at": now,
         "window": str(window or "1h"),
@@ -4097,6 +4399,7 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         "provider_health": provider_health,
         "providers_summary": providers_summary,
         "onemin_aggregate": onemin_aggregate,
+        "onemin_billing_aggregate": onemin_billing_aggregate,
         "fleet_burn": {
             "1h": burn_1h_summary,
             "24h": burn_24h_summary,
@@ -4127,6 +4430,18 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                 for item in topups
             ],
             "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+            "next_topup_at": onemin_billing_aggregate.get("next_topup_at"),
+            "topup_amount": onemin_billing_aggregate.get("topup_amount"),
+            "hours_until_next_topup": onemin_billing_aggregate.get("hours_until_next_topup"),
+            "hours_remaining_at_current_pace_no_topup": onemin_billing_aggregate.get("hours_remaining_at_current_pace_no_topup"),
+            "hours_remaining_including_next_topup_at_current_pace": onemin_billing_aggregate.get(
+                "hours_remaining_including_next_topup_at_current_pace"
+            ),
+            "days_remaining_including_next_topup_at_7d_avg": onemin_billing_aggregate.get(
+                "days_remaining_including_next_topup_at_7d_avg"
+            ),
+            "depletes_before_next_topup": onemin_billing_aggregate.get("depletes_before_next_topup"),
+            "billing_basis_summary": onemin_billing_aggregate.get("basis_summary"),
         },
         "status_basis": onemin.get("credit_estimation_mode"),
     }
@@ -4208,6 +4523,125 @@ def record_provider_balance_snapshot(
         "topup_detected": snapshot.topup_detected,
         "topup_delta": snapshot.topup_delta,
         "detail": snapshot.detail,
+    }
+
+
+def record_onemin_billing_snapshot(
+    *,
+    account_name: str,
+    snapshot_json: dict[str, object],
+    source: str = "browseract.onemin_billing_usage",
+) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    observed_at = str(snapshot_json.get("observed_at") or now_utc_iso()).strip() or now_utc_iso()
+    snapshot = ProviderBillingSnapshot(
+        provider_key="onemin",
+        account_name=str(account_name or "").strip() or "unknown",
+        observed_at=observed_at,
+        remaining_credits=float(snapshot_json.get("remaining_credits")) if snapshot_json.get("remaining_credits") is not None else None,
+        max_credits=float(snapshot_json.get("max_credits")) if snapshot_json.get("max_credits") is not None else None,
+        used_percent=float(snapshot_json.get("used_percent")) if snapshot_json.get("used_percent") is not None else None,
+        next_topup_at=str(snapshot_json.get("next_topup_at") or "").strip() or None,
+        cycle_start_at=str(snapshot_json.get("cycle_start_at") or "").strip() or None,
+        cycle_end_at=str(snapshot_json.get("cycle_end_at") or "").strip() or None,
+        topup_amount=float(snapshot_json.get("topup_amount")) if snapshot_json.get("topup_amount") is not None else None,
+        rollover_enabled=bool(snapshot_json.get("rollover_enabled")) if snapshot_json.get("rollover_enabled") is not None else None,
+        basis=str(snapshot_json.get("basis") or "actual_billing_usage_page").strip() or "actual_billing_usage_page",
+        source_url=str(snapshot_json.get("source_url") or "").strip(),
+        structured_output_json=dict(snapshot_json.get("structured_output_json") or {}),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _PROVIDER_BILLING_SNAPSHOTS.append(snapshot)
+    _append_provider_ledger_record(
+        "provider_billing_snapshots.jsonl",
+        {
+            "provider_key": snapshot.provider_key,
+            "account_name": snapshot.account_name,
+            "observed_at": snapshot.observed_at,
+            "remaining_credits": snapshot.remaining_credits,
+            "max_credits": snapshot.max_credits,
+            "used_percent": snapshot.used_percent,
+            "next_topup_at": snapshot.next_topup_at,
+            "cycle_start_at": snapshot.cycle_start_at,
+            "cycle_end_at": snapshot.cycle_end_at,
+            "topup_amount": snapshot.topup_amount,
+            "rollover_enabled": snapshot.rollover_enabled,
+            "basis": snapshot.basis,
+            "source_url": snapshot.source_url,
+            "structured_output_json": dict(snapshot.structured_output_json or {}),
+            "source": source,
+        },
+    )
+    if snapshot.remaining_credits is not None:
+        _record_provider_balance_snapshot(
+            provider_key="onemin",
+            account_name=snapshot.account_name,
+            remaining_credits=int(round(float(snapshot.remaining_credits))),
+            max_credits=int(round(float(snapshot.max_credits))) if snapshot.max_credits is not None else None,
+            basis=snapshot.basis,
+            source=source,
+            happened_at=_iso_to_epoch(snapshot.observed_at) or None,
+            detail="1min_billing_usage_page",
+        )
+    return {
+        "provider_key": snapshot.provider_key,
+        "account_name": snapshot.account_name,
+        "observed_at": snapshot.observed_at,
+        "remaining_credits": snapshot.remaining_credits,
+        "max_credits": snapshot.max_credits,
+        "used_percent": snapshot.used_percent,
+        "next_topup_at": snapshot.next_topup_at,
+        "cycle_start_at": snapshot.cycle_start_at,
+        "cycle_end_at": snapshot.cycle_end_at,
+        "topup_amount": snapshot.topup_amount,
+        "rollover_enabled": snapshot.rollover_enabled,
+        "basis": snapshot.basis,
+        "source_url": snapshot.source_url,
+    }
+
+
+def record_onemin_member_reconciliation_snapshot(
+    *,
+    account_name: str,
+    snapshot_json: dict[str, object],
+    source: str = "browseract.onemin_member_reconciliation",
+) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    observed_at = str(snapshot_json.get("observed_at") or now_utc_iso()).strip() or now_utc_iso()
+    members = snapshot_json.get("members_json") or []
+    if not isinstance(members, list):
+        members = []
+    snapshot = ProviderMemberReconciliationSnapshot(
+        provider_key="onemin",
+        account_name=str(account_name or "").strip() or "unknown",
+        observed_at=observed_at,
+        basis=str(snapshot_json.get("basis") or "actual_members_page").strip() or "actual_members_page",
+        source_url=str(snapshot_json.get("source_url") or "").strip(),
+        members_json=tuple(dict(item) for item in members if isinstance(item, dict)),
+        structured_output_json=dict(snapshot_json.get("structured_output_json") or {}),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS.append(snapshot)
+    _append_provider_ledger_record(
+        "provider_member_reconciliation_snapshots.jsonl",
+        {
+            "provider_key": snapshot.provider_key,
+            "account_name": snapshot.account_name,
+            "observed_at": snapshot.observed_at,
+            "basis": snapshot.basis,
+            "source_url": snapshot.source_url,
+            "members_json": [dict(item) for item in snapshot.members_json],
+            "structured_output_json": dict(snapshot.structured_output_json or {}),
+            "source": source,
+        },
+    )
+    return {
+        "provider_key": snapshot.provider_key,
+        "account_name": snapshot.account_name,
+        "observed_at": snapshot.observed_at,
+        "member_count": len(snapshot.members_json),
+        "basis": snapshot.basis,
+        "source_url": snapshot.source_url,
     }
 
 
@@ -4502,6 +4936,8 @@ def _provider_health_report() -> dict[str, object]:
             state=key_state,
         )
         latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+        latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
+        latest_members = _latest_provider_member_reconciliation_snapshot(provider_key="onemin", account_name=account_name)
         observed_spend = _observed_onemin_spend(api_key=key)
         observed_success_count = _observed_onemin_request_count(api_key=key)
         next_retry_at = 0.0
@@ -4537,6 +4973,16 @@ def _provider_health_report() -> dict[str, object]:
                 "last_balance_source": latest_balance.source if latest_balance is not None else None,
                 "topup_detected": bool(latest_balance.topup_detected) if latest_balance is not None else False,
                 "topup_delta": latest_balance.topup_delta if latest_balance is not None else None,
+                "last_billing_snapshot_at": latest_billing.observed_at if latest_billing is not None else None,
+                "billing_remaining_credits": latest_billing.remaining_credits if latest_billing is not None else None,
+                "billing_max_credits": latest_billing.max_credits if latest_billing is not None else None,
+                "billing_used_percent": latest_billing.used_percent if latest_billing is not None else None,
+                "billing_next_topup_at": latest_billing.next_topup_at if latest_billing is not None else None,
+                "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
+                "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
+                "billing_basis": latest_billing.basis if latest_billing is not None else None,
+                "member_reconciliation_at": latest_members.observed_at if latest_members is not None else None,
+                "member_reconciliation_count": len(latest_members.members_json) if latest_members is not None else 0,
                 "observed_consumed_credits": observed_spend,
                 "observed_success_count": observed_success_count,
                 "next_retry_at": next_retry_at or None,
@@ -4573,7 +5019,7 @@ def _provider_health_report() -> dict[str, object]:
         for snapshot in _PROVIDER_BALANCE_SNAPSHOTS:
             if snapshot.provider_key != "onemin":
                 continue
-            if snapshot.basis not in {"actual_ui_probe", "actual_provider_api"}:
+            if snapshot.basis not in {"actual_ui_probe", "actual_provider_api", "actual_billing_usage_page"}:
                 continue
             latest_actual_balance_at = max(latest_actual_balance_at or 0.0, snapshot.happened_at)
     balance_basis_counts: dict[str, int] = {}

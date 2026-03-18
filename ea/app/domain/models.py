@@ -203,6 +203,35 @@ class RunCost:
 
 
 @dataclass(frozen=True)
+class ProviderBillingSnapshot:
+    provider_key: str
+    account_name: str
+    observed_at: str
+    remaining_credits: float | None = None
+    max_credits: float | None = None
+    used_percent: float | None = None
+    next_topup_at: str | None = None
+    cycle_start_at: str | None = None
+    cycle_end_at: str | None = None
+    topup_amount: float | None = None
+    rollover_enabled: bool | None = None
+    basis: str = "actual_billing_usage_page"
+    source_url: str = ""
+    structured_output_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProviderMemberReconciliationSnapshot:
+    provider_key: str
+    account_name: str
+    observed_at: str
+    basis: str = "actual_members_page"
+    source_url: str = ""
+    members_json: tuple[dict[str, Any], ...] = ()
+    structured_output_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class MemoryCandidate:
     candidate_id: str
     principal_id: str

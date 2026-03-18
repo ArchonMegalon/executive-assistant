@@ -59,6 +59,8 @@ class ToolExecutionService:
             ("browseract", "workflow_spec_repair"): self._register_builtin_browseract_workflow_repair,
             ("browseract", "chatplayground_audit"): self._register_builtin_browseract_chatplayground_audit,
             ("browseract", "gemini_web_generate"): self._register_builtin_browseract_gemini_web_generate,
+            ("browseract", "onemin_billing_usage"): self._register_builtin_browseract_onemin_billing_usage,
+            ("browseract", "onemin_member_reconciliation"): self._register_builtin_browseract_onemin_member_reconciliation,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
         }
@@ -153,6 +155,12 @@ class ToolExecutionService:
     def _register_builtin_browseract_gemini_web_generate(self) -> None:
         self._browseract_module.register_gemini_web_generate(self.register_handler)
 
+    def _register_builtin_browseract_onemin_billing_usage(self) -> None:
+        self._browseract_module.register_onemin_billing_usage(self.register_handler)
+
+    def _register_builtin_browseract_onemin_member_reconciliation(self) -> None:
+        self._browseract_module.register_onemin_member_reconciliation(self.register_handler)
+
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
 
@@ -182,3 +190,19 @@ class ToolExecutionService:
     @_browseract_gemini_web_generate.setter
     def _browseract_gemini_web_generate(self, handler) -> None:
         self._browseract_module.gemini_web_generate = handler
+
+    @property
+    def _browseract_onemin_billing_usage(self):
+        return self._browseract_module.onemin_billing_usage
+
+    @_browseract_onemin_billing_usage.setter
+    def _browseract_onemin_billing_usage(self, handler) -> None:
+        self._browseract_module.onemin_billing_usage = handler
+
+    @property
+    def _browseract_onemin_member_reconciliation(self):
+        return self._browseract_module.onemin_member_reconciliation
+
+    @_browseract_onemin_member_reconciliation.setter
+    def _browseract_onemin_member_reconciliation(self, handler) -> None:
+        self._browseract_module.onemin_member_reconciliation = handler

@@ -18,7 +18,7 @@ def _load_module():
 
 
 class BrowserActContentTemplateTests(unittest.TestCase):
-    def test_catalog_includes_onemin_daily_bonus_and_billing_usage(self) -> None:
+    def test_catalog_includes_onemin_daily_bonus_billing_usage_and_members_reconciliation(self) -> None:
         module = _load_module()
         templates = {str(entry["slug"]): entry for entry in module.templates()}
 
@@ -34,6 +34,13 @@ class BrowserActContentTemplateTests(unittest.TestCase):
         self.assertEqual(billing_usage["tool_url"], "https://app.1min.ai/billing-usage")
         self.assertEqual(billing_usage["result_field_name"], "billing_usage_page")
         self.assertTrue(billing_usage["dismiss_selectors"])
+
+        members = templates["onemin_members_reconciliation_live"]
+        self.assertEqual(members["workflow_kind"], "page_extract")
+        self.assertEqual(members["login_url"], "https://app.1min.ai/login")
+        self.assertEqual(members["tool_url"], "https://app.1min.ai/members")
+        self.assertEqual(members["result_field_name"], "members_page")
+        self.assertTrue(members["dismiss_selectors"])
 
 
 if __name__ == "__main__":

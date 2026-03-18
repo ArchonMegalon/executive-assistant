@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -335,6 +336,8 @@ class BrowserActToolAdapter:
         self._connector_dispatch = connector_dispatch
         self._chatplayground_audit = None
         self._gemini_web_generate = None
+        self._onemin_billing_usage = None
+        self._onemin_member_reconciliation = None
 
     @staticmethod
     def _looks_like_cloudflare_challenge(payload: dict[str, object]) -> bool:
@@ -414,6 +417,423 @@ class BrowserActToolAdapter:
             or cls._looks_like_chatgpt_human_verification(payload)
         ):
             raise ToolExecutionError(f"ui_lane_failure:{backend}:challenge_required")
+
+    @staticmethod
+    def _normalize_lookup_key(value: object) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+    @classmethod
+    def _browseract_scalar_map(cls, value: object, *, limit: int = 512) -> dict[str, str]:
+        pairs: dict[str, str] = {}
+
+        def _visit(node: object) -> None:
+            if len(pairs) >= limit or node is None:
+                return
+            if isinstance(node, dict):
+                for raw_key, nested in node.items():
+                    if len(pairs) >= limit:
+                        break
+                    key = cls._normalize_lookup_key(raw_key)
+                    if isinstance(nested, (str, int, float, bool)):
+                        text = str(nested).strip()
+                        if key and text and key not in pairs:
+                            pairs[key] = text
+                    _visit(nested)
+                return
+            if isinstance(node, (list, tuple, set)):
+                for nested in node:
+                    if len(pairs) >= limit:
+                        break
+                    _visit(nested)
+
+        _visit(value)
+        return pairs
+
+    @classmethod
+    def _browseract_text_candidates(cls, value: object, *, limit: int = 32) -> list[str]:
+        candidates: list[str] = []
+
+        def _add(text: object) -> None:
+            normalized = str(text or "").strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+
+        def _visit(node: object) -> None:
+            if len(candidates) >= limit or node is None:
+                return
+            if isinstance(node, dict):
+                for raw_key, nested in node.items():
+                    if len(candidates) >= limit:
+                        break
+                    key = cls._normalize_lookup_key(raw_key)
+                    if key in {
+                        "raw_text",
+                        "text",
+                        "normalized_text",
+                        "page_body",
+                        "billing_usage_page",
+                        "daily_bonus_page",
+                        "members_page",
+                        "output_text",
+                        "content",
+                        "message",
+                        "result",
+                        "summary",
+                    }:
+                        _add(_extract_textish(nested))
+                    _visit(nested)
+                return
+            if isinstance(node, (list, tuple, set)):
+                for nested in node:
+                    if len(candidates) >= limit:
+                        break
+                    _visit(nested)
+                return
+            if isinstance(node, str):
+                _add(node)
+
+        _visit(value)
+        if not candidates:
+            _add(_extract_textish(value))
+        return candidates[:limit]
+
+    @classmethod
+    def _first_scalar_for_aliases(cls, scalar_map: dict[str, str], *aliases: str) -> str:
+        for alias in aliases:
+            value = scalar_map.get(cls._normalize_lookup_key(alias))
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _parse_number(value: object) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value or "").strip()
+        if not text:
+            return None
+        match = re.search(r"-?\d[\d,]*(?:\.\d+)?", text.replace(" ", ""))
+        if match is None:
+            return None
+        try:
+            return float(match.group(0).replace(",", ""))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _parse_credit_int(value: object) -> int | None:
+        parsed = BrowserActToolAdapter._parse_number(value)
+        if parsed is None:
+            return None
+        return max(0, int(round(parsed)))
+
+    @staticmethod
+    def _parse_percent(value: object) -> float | None:
+        parsed = BrowserActToolAdapter._parse_number(value)
+        if parsed is None:
+            return None
+        return max(0.0, min(100.0, round(float(parsed), 2)))
+
+    @staticmethod
+    def _parse_bool_text(value: object) -> bool | None:
+        text = str(value or "").strip().lower()
+        if not text:
+            return None
+        if any(marker in text for marker in ("rollover enabled", "rollover: yes", "lifetime credits roll over", "roll over")):
+            return True
+        if any(marker in text for marker in ("rollover disabled", "rollover: no", "no rollover")):
+            return False
+        if text in {"true", "yes", "enabled", "on"}:
+            return True
+        if text in {"false", "no", "disabled", "off"}:
+            return False
+        return None
+
+    @staticmethod
+    def _parse_datetime_text(value: object) -> str | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        normalized = text.replace("UTC", "+00:00").replace("Z", "+00:00")
+        candidates = [normalized]
+        if normalized.endswith("+00:00") and "T" not in normalized and " " in normalized:
+            candidates.append(normalized.replace(" ", "T", 1))
+        for candidate in candidates:
+            try:
+                parsed = datetime.fromisoformat(candidate)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            except Exception:
+                continue
+        for fmt in (
+            "%Y-%m-%d",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%b %d, %Y",
+            "%B %d, %Y",
+            "%b %d, %Y %I:%M %p",
+            "%B %d, %Y %I:%M %p",
+            "%b %d %Y",
+            "%B %d %Y",
+        ):
+            try:
+                parsed = datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+                return parsed.isoformat().replace("+00:00", "Z")
+            except Exception:
+                continue
+        return text
+
+    @classmethod
+    def _find_label_value(cls, raw_text: str, labels: tuple[str, ...]) -> str:
+        text = str(raw_text or "")
+        if not text:
+            return ""
+        for label in labels:
+            pattern = re.compile(
+                rf"{re.escape(label)}\s*(?:[:\-]|is)?\s*([^\n\r|]+)",
+                flags=re.IGNORECASE,
+            )
+            match = pattern.search(text)
+            if match is not None:
+                return str(match.group(1) or "").strip()
+        return ""
+
+    @classmethod
+    def _normalize_onemin_billing_payload(
+        cls,
+        *,
+        response: dict[str, object],
+        source_url: str,
+        account_label: str,
+    ) -> dict[str, object]:
+        scalar_map = cls._browseract_scalar_map(response)
+        raw_text = "\n\n".join(cls._browseract_text_candidates(response)).strip()
+        label_map = dict(scalar_map)
+
+        remaining_credits = cls._parse_credit_int(
+            cls._first_scalar_for_aliases(
+                scalar_map,
+                "remaining_credits",
+                "free_credits",
+                "credits_left",
+                "available_credits",
+                "credits_available",
+            )
+            or cls._find_label_value(
+                raw_text,
+                (
+                    "Remaining credits",
+                    "Credits left",
+                    "Available credits",
+                    "Credits available",
+                ),
+            )
+        )
+        max_credits = cls._parse_credit_int(
+            cls._first_scalar_for_aliases(
+                scalar_map,
+                "max_credits",
+                "total_credits",
+                "credits_total",
+                "plan_credits",
+                "monthly_credits",
+                "included_credits",
+            )
+            or cls._find_label_value(
+                raw_text,
+                (
+                    "Total credits",
+                    "Max credits",
+                    "Monthly credits",
+                    "Included credits",
+                    "Plan credits",
+                ),
+            )
+        )
+        used_percent = cls._parse_percent(
+            cls._first_scalar_for_aliases(scalar_map, "used_percent", "usage_percent", "percent_used")
+            or cls._find_label_value(raw_text, ("Used", "Usage", "Used percent", "Usage percent"))
+        )
+        next_topup_at = cls._parse_datetime_text(
+            cls._first_scalar_for_aliases(
+                scalar_map,
+                "next_topup_at",
+                "next_billing",
+                "next_renewal",
+                "renews_on",
+                "renewal_date",
+            )
+            or cls._find_label_value(raw_text, ("Next top-up", "Next billing", "Next renewal", "Renews on"))
+        )
+        cycle_start_at = cls._parse_datetime_text(
+            cls._first_scalar_for_aliases(scalar_map, "cycle_start_at", "period_start", "cycle_start")
+            or cls._find_label_value(raw_text, ("Cycle start", "Period start"))
+        )
+        cycle_end_at = cls._parse_datetime_text(
+            cls._first_scalar_for_aliases(scalar_map, "cycle_end_at", "period_end", "cycle_end")
+            or cls._find_label_value(raw_text, ("Cycle end", "Period end"))
+        )
+        topup_amount = cls._parse_credit_int(
+            cls._first_scalar_for_aliases(scalar_map, "topup_amount", "monthly_allocation", "included_credits")
+            or cls._find_label_value(raw_text, ("Top-up amount", "Monthly allocation", "Included credits", "Monthly credits"))
+        )
+        rollover_enabled = cls._parse_bool_text(
+            cls._first_scalar_for_aliases(scalar_map, "rollover_enabled", "rollover")
+            or raw_text
+        )
+        basis = "actual_billing_usage_page" if remaining_credits is not None else "page_seen_but_unparsed"
+        return {
+            "provider_backend": "onemin_billing_usage_page",
+            "account_label": account_label,
+            "remaining_credits": remaining_credits,
+            "max_credits": max_credits,
+            "used_percent": used_percent,
+            "next_topup_at": next_topup_at,
+            "cycle_start_at": cycle_start_at,
+            "cycle_end_at": cycle_end_at,
+            "topup_amount": topup_amount,
+            "rollover_enabled": rollover_enabled,
+            "source_url": source_url,
+            "basis": basis,
+            "structured_output_json": {
+                "raw_text": raw_text,
+                "label_map": label_map,
+            },
+        }
+
+    @classmethod
+    def _extract_member_rows(cls, response: dict[str, object]) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+
+        def _visit(node: object) -> None:
+            if isinstance(node, dict):
+                lowered = {cls._normalize_lookup_key(key): value for key, value in node.items()}
+                if any(key in lowered for key in ("email", "member_email", "owner_email", "account_email")):
+                    rows.append(
+                        {
+                            "name": str(
+                                lowered.get("name")
+                                or lowered.get("member_name")
+                                or lowered.get("full_name")
+                                or ""
+                            ).strip(),
+                            "email": str(
+                                lowered.get("email")
+                                or lowered.get("member_email")
+                                or lowered.get("owner_email")
+                                or lowered.get("account_email")
+                                or ""
+                            ).strip(),
+                            "status": str(lowered.get("status") or lowered.get("member_status") or "").strip(),
+                            "role": str(lowered.get("role") or lowered.get("member_role") or "").strip(),
+                            "credit_limit": cls._parse_credit_int(
+                                lowered.get("credit_limit")
+                                or lowered.get("member_credit_limit")
+                                or lowered.get("limit")
+                            ),
+                        }
+                    )
+                for nested in node.values():
+                    _visit(nested)
+            elif isinstance(node, (list, tuple, set)):
+                for nested in node:
+                    _visit(nested)
+
+        _visit(response)
+        if rows:
+            unique: list[dict[str, object]] = []
+            seen: set[str] = set()
+            for row in rows:
+                email = str(row.get("email") or "").strip().lower()
+                if not email or email in seen:
+                    continue
+                seen.add(email)
+                unique.append(row)
+            return unique
+
+        raw_text = "\n".join(cls._browseract_text_candidates(response)).strip()
+        if not raw_text:
+            return []
+        email_re = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", flags=re.IGNORECASE)
+        parsed_rows: list[dict[str, object]] = []
+        for line in raw_text.splitlines():
+            email_match = email_re.search(line)
+            if email_match is None:
+                continue
+            lowered = line.lower()
+            status = ""
+            for candidate in ("active", "deactivated", "inactive", "pending"):
+                if candidate in lowered:
+                    status = candidate
+                    break
+            parsed_rows.append(
+                {
+                    "name": line[: email_match.start()].strip(" -|:"),
+                    "email": email_match.group(0).strip(),
+                    "status": status,
+                    "role": "owner" if "owner" in lowered else ("member" if "member" in lowered else ""),
+                    "credit_limit": cls._parse_credit_int(line if "limit" in lowered else None),
+                }
+            )
+        return parsed_rows
+
+    @classmethod
+    def _normalize_onemin_member_reconciliation_payload(
+        cls,
+        *,
+        response: dict[str, object],
+        source_url: str,
+        account_label: str,
+    ) -> dict[str, object]:
+        from app.services import responses_upstream as upstream
+
+        members = cls._extract_member_rows(response)
+        owner_entries = list(upstream._onemin_owner_entries())
+        owner_emails = {
+            str(row.get("owner_email") or "").strip().lower()
+            for row in owner_entries
+            if str(row.get("owner_email") or "").strip()
+        }
+        if not owner_emails:
+            raw_owner_payload = upstream._load_onemin_owner_ledger_payload()
+            candidate_rows = []
+            if isinstance(raw_owner_payload, dict):
+                if isinstance(raw_owner_payload.get("slots"), list):
+                    candidate_rows = raw_owner_payload.get("slots") or []
+                elif isinstance(raw_owner_payload.get("owners"), list):
+                    candidate_rows = raw_owner_payload.get("owners") or []
+            elif isinstance(raw_owner_payload, list):
+                candidate_rows = raw_owner_payload
+            owner_emails = {
+                str((row or {}).get("owner_email") or (row or {}).get("email") or "").strip().lower()
+                for row in candidate_rows
+                if isinstance(row, dict) and str((row or {}).get("owner_email") or (row or {}).get("email") or "").strip()
+            }
+        member_emails = {str(row.get("email") or "").strip().lower() for row in members if str(row.get("email") or "").strip()}
+        missing_owner_emails = sorted(email for email in owner_emails if email not in member_emails)
+        owner_mismatches = [
+            row for row in members
+            if str(row.get("email") or "").strip().lower() not in owner_emails
+        ]
+        basis = "actual_members_page" if members else "page_seen_but_unparsed"
+        return {
+            "provider_backend": "onemin_members_page",
+            "account_label": account_label,
+            "member_count": len(members),
+            "matched_owner_slots": len(member_emails.intersection(owner_emails)),
+            "missing_owner_emails": missing_owner_emails,
+            "owner_mismatches": owner_mismatches,
+            "members_json": members,
+            "source_url": source_url,
+            "basis": basis,
+            "structured_output_json": {
+                "raw_text": "\n\n".join(cls._browseract_text_candidates(response)).strip(),
+                "label_map": cls._browseract_scalar_map(response),
+            },
+        }
 
     def execute_extract(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
@@ -557,6 +977,241 @@ class BrowserActToolAdapter:
                 "missing_services": missing_services,
                 "requested_run_url": structured_output_json["requested_run_url"],
                 "tool_version": definition.version,
+            },
+        )
+
+    def execute_onemin_billing_usage(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        from app.services import responses_upstream as upstream
+
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:browseract.onemin_billing_usage",
+            required_scopes=None,
+        )
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        run_url = str(
+            payload.get("run_url")
+            or binding_metadata.get("onemin_billing_usage_run_url")
+            or binding_metadata.get("browseract_onemin_billing_usage_run_url")
+            or binding_metadata.get("run_url")
+            or ""
+        ).strip()
+        if not run_url:
+            raise ToolExecutionError("run_url_required:browseract.onemin_billing_usage")
+        page_url = str(payload.get("page_url") or "https://app.1min.ai/billing-usage").strip() or "https://app.1min.ai/billing-usage"
+        account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
+        try:
+            timeout_seconds = max(30, min(1800, int(payload.get("timeout_seconds") or 180)))
+        except Exception:
+            timeout_seconds = 180
+
+        callback = getattr(self, "_onemin_billing_usage", None)
+        if callback is not None:
+            maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
+            if isinstance(maybe, dict):
+                response = maybe
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload={
+                        "page_url": page_url,
+                        "account_label": account_label,
+                        "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                        "principal_id": principal_id,
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                    },
+                    timeout_seconds=timeout_seconds,
+                )
+        else:
+            response = self._post_browseract_json(
+                run_url=run_url,
+                request_payload={
+                    "page_url": page_url,
+                    "account_label": account_label,
+                    "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                    "principal_id": principal_id,
+                    "binding_id": binding.binding_id,
+                    "external_account_ref": binding.external_account_ref,
+                },
+                timeout_seconds=timeout_seconds,
+            )
+        self._raise_for_ui_lane_failure(payload=response, backend="onemin_billing_usage")
+        normalized = self._normalize_onemin_billing_payload(
+            response=response,
+            source_url=page_url,
+            account_label=account_label,
+        )
+        snapshot = upstream.record_onemin_billing_snapshot(
+            account_name=account_label,
+            snapshot_json=normalized,
+            source="browseract.onemin_billing_usage",
+        )
+        action_kind = str(request.action_kind or "billing.inspect") or "billing.inspect"
+        normalized_text = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+        structured_output_json = dict(normalized.get("structured_output_json") or {})
+        structured_output_json["persisted_snapshot"] = snapshot
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"browseract:{binding.binding_id}:onemin_billing_usage:{account_label}",
+            output_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "account_label": account_label,
+                "provider_backend": normalized.get("provider_backend"),
+                "remaining_credits": normalized.get("remaining_credits"),
+                "max_credits": normalized.get("max_credits"),
+                "used_percent": normalized.get("used_percent"),
+                "next_topup_at": normalized.get("next_topup_at"),
+                "cycle_start_at": normalized.get("cycle_start_at"),
+                "cycle_end_at": normalized.get("cycle_end_at"),
+                "topup_amount": normalized.get("topup_amount"),
+                "rollover_enabled": normalized.get("rollover_enabled"),
+                "source_url": normalized.get("source_url"),
+                "basis": normalized.get("basis"),
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "mime_type": "application/json",
+                "structured_output_json": structured_output_json,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "principal_id": principal_id,
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": run_url,
+                "source_url": page_url,
+                "account_label": account_label,
+                "basis": normalized.get("basis"),
+            },
+        )
+
+    def execute_onemin_member_reconciliation(
+        self,
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+    ) -> ToolInvocationResult:
+        from app.services import responses_upstream as upstream
+
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:browseract.onemin_member_reconciliation",
+            required_scopes=None,
+        )
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        run_url = str(
+            payload.get("run_url")
+            or binding_metadata.get("onemin_members_run_url")
+            or binding_metadata.get("browseract_onemin_members_run_url")
+            or binding_metadata.get("run_url")
+            or ""
+        ).strip()
+        if not run_url:
+            raise ToolExecutionError("run_url_required:browseract.onemin_member_reconciliation")
+        page_url = str(payload.get("page_url") or "https://app.1min.ai/members").strip() or "https://app.1min.ai/members"
+        account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
+        try:
+            timeout_seconds = max(30, min(1800, int(payload.get("timeout_seconds") or 180)))
+        except Exception:
+            timeout_seconds = 180
+
+        callback = getattr(self, "_onemin_member_reconciliation", None)
+        if callback is not None:
+            maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
+            if isinstance(maybe, dict):
+                response = maybe
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload={
+                        "page_url": page_url,
+                        "account_label": account_label,
+                        "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                        "principal_id": principal_id,
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                    },
+                    timeout_seconds=timeout_seconds,
+                )
+        else:
+            response = self._post_browseract_json(
+                run_url=run_url,
+                request_payload={
+                    "page_url": page_url,
+                    "account_label": account_label,
+                    "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                    "principal_id": principal_id,
+                    "binding_id": binding.binding_id,
+                    "external_account_ref": binding.external_account_ref,
+                },
+                timeout_seconds=timeout_seconds,
+            )
+        self._raise_for_ui_lane_failure(payload=response, backend="onemin_members")
+        normalized = self._normalize_onemin_member_reconciliation_payload(
+            response=response,
+            source_url=page_url,
+            account_label=account_label,
+        )
+        snapshot = upstream.record_onemin_member_reconciliation_snapshot(
+            account_name=account_label,
+            snapshot_json=normalized,
+            source="browseract.onemin_member_reconciliation",
+        )
+        action_kind = str(request.action_kind or "billing.reconcile_members") or "billing.reconcile_members"
+        normalized_text = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+        structured_output_json = dict(normalized.get("structured_output_json") or {})
+        structured_output_json["persisted_snapshot"] = snapshot
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"browseract:{binding.binding_id}:onemin_member_reconciliation:{account_label}",
+            output_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "account_label": account_label,
+                "provider_backend": normalized.get("provider_backend"),
+                "member_count": normalized.get("member_count"),
+                "matched_owner_slots": normalized.get("matched_owner_slots"),
+                "missing_owner_emails": list(normalized.get("missing_owner_emails") or []),
+                "owner_mismatches": list(normalized.get("owner_mismatches") or []),
+                "members_json": list(normalized.get("members_json") or []),
+                "source_url": normalized.get("source_url"),
+                "basis": normalized.get("basis"),
+                "normalized_text": normalized_text,
+                "preview_text": artifact_preview_text(normalized_text),
+                "mime_type": "application/json",
+                "structured_output_json": structured_output_json,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "principal_id": principal_id,
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": run_url,
+                "source_url": page_url,
+                "account_label": account_label,
+                "basis": normalized.get("basis"),
             },
         )
 

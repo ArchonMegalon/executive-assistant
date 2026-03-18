@@ -143,6 +143,16 @@ class ProviderRegistryService:
                         capability_key="gemini_web_generate",
                         tool_name="browseract.gemini_web_generate",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="onemin_billing_usage",
+                        tool_name="browseract.onemin_billing_usage",
+                    ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="onemin_member_reconciliation",
+                        tool_name="browseract.onemin_member_reconciliation",
+                    ),
                 ),
             ),
             ProviderBinding(
