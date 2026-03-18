@@ -90,6 +90,8 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - if the reader can act, route them to the Chummer6 issue tracker, releases, or the owning repos as appropriate
 - do not send normal users to chummer6-design to propose features or clean up guide drift
 - do not open public pages with repo structure, split mechanics, blueprint talk, or architecture lectures
+- never invent or restate canonical mechanics, dice math, thresholds, DV/AP, or stat values unless they come from explicit core receipts
+- if a section needs rules truth, point to the core-backed receipt or outcome instead of recomputing mechanics in guide/help/media copy
 - use long-range plan instead of blueprint, and only mention code repos when the reader explicitly wants source or implementation detail
 - translate any internal term into a table-facing benefit the moment it appears
 - glossary terms must be things a player or GM can actually feel at the table
@@ -135,6 +137,25 @@ ARCHITECTURE_HEAVY_TERMS: tuple[str, ...] = (
     "worker",
     "orchestration",
     "node",
+)
+MECHANICS_RECEIPT_KEYS: tuple[str, ...] = (
+    "core_receipt_refs",
+    "mechanics_receipt_refs",
+    "receipt_refs",
+    "source_receipt_refs",
+)
+MECHANICS_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b\d+\s*d6(?:\s*(?:[+-]|plus|minus)\s*\d+)?\b", re.IGNORECASE), "dice_notation"),
+    (re.compile(r"\broll\s+\d+\s*d6\b", re.IGNORECASE), "roll_dice_notation"),
+    (re.compile(r"\b(?:\+\d+|-\d+)\s+dice\b", re.IGNORECASE), "dice_modifier"),
+    (
+        re.compile(
+            r"\b(?:threshold|initiative|dice pool|damage value|armor penetration|soak|drain|edge|essence)\b[^.!?\n]{0,32}\b(?:\+?\-?\d+(?:[ps])?)\b",
+            re.IGNORECASE,
+        ),
+        "named_mechanics_value",
+    ),
+    (re.compile(r"\b(?:dv|ap)\s*[:=]?\s*-?\d+(?:[ps])?\b", re.IGNORECASE), "dv_ap_value"),
 )
 
 
@@ -260,6 +281,71 @@ def _contains_forbidden_public_copy(text: str) -> str:
     return ""
 
 
+def _mechanics_receipt_refs(value: object) -> tuple[str, ...]:
+    refs: list[str] = []
+    if isinstance(value, dict):
+        for key in MECHANICS_RECEIPT_KEYS:
+            raw = value.get(key)
+            if isinstance(raw, str):
+                cleaned = raw.strip()
+                if cleaned:
+                    refs.append(cleaned)
+            elif isinstance(raw, list):
+                refs.extend(str(entry).strip() for entry in raw if str(entry).strip())
+    elif isinstance(value, list):
+        refs.extend(str(entry).strip() for entry in value if str(entry).strip())
+    elif isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            refs.append(cleaned)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        key = ref.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return tuple(deduped)
+
+
+def _mechanics_claim_reason(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    for pattern, label in MECHANICS_CLAIM_PATTERNS:
+        if pattern.search(cleaned):
+            return label
+    return ""
+
+
+def _mechanics_boundary_issues(
+    value: object,
+    *,
+    scope: str,
+    receipt_refs: tuple[str, ...] = (),
+) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    if isinstance(value, dict):
+        local_receipts = receipt_refs + _mechanics_receipt_refs(value)
+        for key, entry in value.items():
+            lowered_key = str(key or "").strip().lower()
+            if lowered_key in MECHANICS_RECEIPT_KEYS:
+                continue
+            child_scope = f"{scope}.{key}" if scope else str(key)
+            issues.extend(_mechanics_boundary_issues(entry, scope=child_scope, receipt_refs=local_receipts))
+        return issues
+    if isinstance(value, list):
+        for index, entry in enumerate(value):
+            issues.extend(_mechanics_boundary_issues(entry, scope=f"{scope}[{index}]", receipt_refs=receipt_refs))
+        return issues
+    if isinstance(value, str) and not receipt_refs:
+        reason = _mechanics_claim_reason(value)
+        if reason:
+            issues.append({"scope": scope, "reason": reason})
+    return issues
+
+
 def editorial_self_audit_text(
     text: str,
     *,
@@ -288,40 +374,39 @@ def editorial_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
     issues: list[dict[str, str]] = []
     checked = 0
 
-    def audit_mapping(scope: str, mapping: object) -> None:
+    def audit_mapping(scope: str, mapping: object, *, inherited_receipts: tuple[str, ...] = ()) -> None:
         nonlocal checked
         if not isinstance(mapping, dict):
             return
+        local_receipts = inherited_receipts + _mechanics_receipt_refs(mapping)
         for key, value in mapping.items():
             lowered_key = str(key or "").strip().lower()
             if lowered_key.startswith("banned_") or lowered_key == "banned_terms":
                 continue
             if isinstance(value, dict):
-                audit_mapping(f"{scope}.{key}", value)
+                audit_mapping(f"{scope}.{key}", value, inherited_receipts=local_receipts)
                 continue
             if isinstance(value, list):
                 for index, entry in enumerate(value):
+                    entry_scope = f"{scope}.{key}[{index}]"
+                    if isinstance(entry, dict):
+                        audit_mapping(entry_scope, entry, inherited_receipts=local_receipts)
+                        continue
                     if isinstance(entry, str):
                         checked += 1
                         forbidden = _contains_forbidden_public_copy(entry)
                         if forbidden:
-                            issues.append(
-                                {
-                                    "scope": f"{scope}.{key}[{index}]",
-                                    "reason": forbidden,
-                                }
-                            )
+                            issues.append({"scope": entry_scope, "reason": forbidden})
+                        for mechanics_issue in _mechanics_boundary_issues(entry, scope=entry_scope, receipt_refs=local_receipts):
+                            issues.append(mechanics_issue)
                 continue
             if isinstance(value, str):
                 checked += 1
                 forbidden = _contains_forbidden_public_copy(value)
                 if forbidden:
-                    issues.append(
-                        {
-                            "scope": f"{scope}.{key}",
-                            "reason": forbidden,
-                        }
-                    )
+                    issues.append({"scope": f"{scope}.{key}", "reason": forbidden})
+                for mechanics_issue in _mechanics_boundary_issues(value, scope=f"{scope}.{key}", receipt_refs=local_receipts):
+                    issues.append(mechanics_issue)
 
     for section in ("pages", "parts", "horizons", "ooda", "section_ooda"):
         audit_mapping(section, overrides.get(section))
@@ -411,6 +496,10 @@ def assert_public_reader_safe(mapping: dict[str, object], *, context: str) -> No
         forbidden = _contains_forbidden_public_copy(value)
         if forbidden:
             raise ValueError(f"forbidden public-copy phrase in {context}:{key}:{forbidden}")
+    issues = _mechanics_boundary_issues(mapping, scope=context, receipt_refs=_mechanics_receipt_refs(mapping))
+    if issues:
+        first = issues[0]
+        raise ValueError(f"unbacked mechanics claim in {first['scope']}:{first['reason']}")
 
 
 def shlex_command(env_name: str) -> list[str]:
@@ -2262,6 +2351,14 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             scene_contract=normalized["scene_contract"],
             overlay_hint=str(normalized["overlay_hint"]),
         )
+        issues = _mechanics_boundary_issues(
+            normalized,
+            scope="hero_media:hero",
+            receipt_refs=_mechanics_receipt_refs(item),
+        )
+        if issues:
+            first = issues[0]
+            raise ValueError(f"unbacked mechanics claim in {first['scope']}:{first['reason']}")
         return normalized
     for field in ("badge", "title", "subtitle", "kicker", "note", "overlay_hint", "visual_prompt"):
         value = str(normalized.get(field, "")).strip()
@@ -2288,6 +2385,14 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         scene_contract=normalized["scene_contract"],
         overlay_hint=str(normalized["overlay_hint"]),
     )
+    issues = _mechanics_boundary_issues(
+        normalized,
+        scope=f"{kind}_media:{item.get('slug', item.get('title', kind))}",
+        receipt_refs=_mechanics_receipt_refs(item),
+    )
+    if issues:
+        first = issues[0]
+        raise ValueError(f"unbacked mechanics claim in {first['scope']}:{first['reason']}")
     return normalized
 
 

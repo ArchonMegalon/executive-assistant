@@ -1486,6 +1486,84 @@
       "notes": "When an `evidence_pack` artifact flows into `artifact_then_memory_candidate`, the staged memory candidate now also preserves `claims`, `evidence_refs`, `open_questions`, and the full evidence envelope inside `fact_json`, so downstream executive workflows can reuse the supporting facts without reparsing freeform artifact text."
     },
     {
+      "name": "knowledge_fabric_projection_slice",
+      "status": "planned",
+      "scope": [
+        "knowledge_projection_pipeline",
+        "rules_receipt_indexing",
+        "queryable_fabric_for_help_and_explain",
+        "build_time_vectorized_rule_inputs",
+        "citations_surface_in_answers"
+      ],
+      "notes": "Add a non-canonical knowledge-fabric lane: generate build-time vector/graph artifacts from core rule sources, persist citations and receipts for explainability, and expose a cited query interface for help/explain flows without treating the projection as source-of-truth."
+    },
+    {
+      "name": "ai_mechanics_boundary_enforcement",
+      "status": "released",
+      "scope": [
+        "mechanics_only_from_core_output",
+        "mechanics_claim_source_gate",
+        "rule_math_not_recomputed_in_assistants",
+        "mechanics_claim_receipt_requirement"
+      ],
+      "notes": "Runtime/docs guardrails now reject unbacked mechanical claims in the Chummer public writer/media pipeline, require explicit core receipt refs before DV/AP/dice-threshold language can pass, and stamp the guide skill runtime policy with `core_receipts_only` mechanics-boundary metadata so assistant/help/media lanes cannot recompute canonical rule math."
+    },
+    {
+      "name": "append_only_session_ledger_and_delta_sync_slice",
+      "status": "planned",
+      "scope": [
+        "append_only_session_events",
+        "replay_friendly_session_projections",
+        "delta_sync_for_offline_clients",
+        "hard_truth_vs_soft_crdt_boundaries"
+      ],
+      "notes": "Keep session truth append-only and ledger-backed, with explicit delta-replay projections for resume/reconnect and bounded soft-merge surfaces for notes/plans only; prevent CRDT patterns from becoming the canonical mechanics or session-truth path."
+    },
+    {
+      "name": "portable_engine_host_posture",
+      "status": "planned",
+      "scope": [
+        "deterministic_engine_host_profiles",
+        "host_portability_contract",
+        "runtime_surface_compatibility_planning",
+        "non_committal_technology_selection"
+      ],
+      "notes": "Define a portability posture for the deterministic core (server, browser, or embed path where practical) so host strategy is explicit but technology choice (e.g., rewrite language or runtime) remains implementation-level, not architectural doctrine."
+    },
+    {
+      "name": "local_coprocessor_optional_lane",
+      "status": "planned",
+      "scope": [
+        "optional_user_owned_compute",
+        "non_mandatory_client_compute_gate",
+        "local_acceleration_evidence_path",
+        "feature_flagged_local_runtime"
+      ],
+      "notes": "Add an optional local co-processor lane for byoc/optional acceleration use-cases while keeping it advisory and non-blocking; no shipped behavior should require local compute to function."
+    },
+    {
+      "name": "codex_onemin_specialist_router_admission",
+      "status": "planned",
+      "scope": [
+        "onemin_capacity_gating",
+        "core_lane_admission_rules",
+        "specialist_capability_bindings",
+        "proofbacked_topup_integration"
+      ],
+      "notes": "Keep 1min usage as specialist escalation only: add admission checks before core lane use and make specialist capabilities explicit (`code_generate`, `reasoned_patch_review`, etc.) while preserving existing billing/observability truth from BrowserAct billing snapshots."
+    },
+    {
+      "name": "replay_forensics_horizon_bootstrap",
+      "status": "planned",
+      "scope": [
+        "session_replay_slice",
+        "what_if_comparison_preparation",
+        "forensics_receipt_exports",
+        "runway_projection_from_event_history"
+      ],
+      "notes": "Create bootstrap artifacts and ownership for a replay/forensics lane so session history can drive explainable recaps and bounded what-if analysis without making it a release-blocking blocker in vnext-foundation."
+    },
+    {
       "name": "evidence_object_ledger_api",
       "status": "released",
       "scope": [

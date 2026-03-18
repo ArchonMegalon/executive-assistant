@@ -33,9 +33,12 @@ STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
 MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
+MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
+MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
     "magixai",
+    "media_factory",
     "onemin",
     "browseract_magixai",
     "browseract_prompting_systems",
@@ -257,11 +260,11 @@ HORIZON_MEDIA_FALLBACKS: dict[str, dict[str, object]] = {
 
 
 def provider_order() -> list[str]:
-    preferred = ["magixai", "onemin", "browseract_magixai", "browseract_prompting_systems"]
+    preferred = ["magixai", "media_factory", "onemin", "browseract_magixai", "browseract_prompting_systems"]
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
         return list(preferred)
-    values = [part.strip().lower() for part in raw.split(",") if part.strip()]
+    values = [part.strip().lower().replace("-", "_") for part in raw.split(",") if part.strip()]
     filtered: list[str] = []
     for value in values:
         if value in {"markupgo", "pollinations", "ooda_compositor", "scene_contract_renderer", "local_raster"}:
@@ -269,6 +272,26 @@ def provider_order() -> list[str]:
         if value not in filtered:
             filtered.append(value)
     return filtered or list(preferred)
+
+
+def media_factory_render_command() -> list[str]:
+    configured = shlex_command("CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND")
+    if configured:
+        return configured
+    if MEDIA_FACTORY_RENDER_SCRIPT.exists():
+        return [
+            "python3",
+            str(MEDIA_FACTORY_RENDER_SCRIPT),
+            "--prompt",
+            "{prompt}",
+            "--output",
+            "{output}",
+            "--width",
+            "{width}",
+            "--height",
+            "{height}",
+        ]
+    return []
 
 
 def is_credit_exhaustion_message(text: str) -> bool:
@@ -1788,6 +1811,15 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         if normalized == "pollinations":
             safe_prompt = build_safe_pollinations_prompt(prompt=prompt, spec=spec)
             ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
+        elif normalized in {"media_factory", "media-factory"}:
+            ok, detail = run_command_provider(
+                "media_factory",
+                media_factory_render_command(),
+                prompt=prompt,
+                output_path=output_path,
+                width=width,
+                height=height,
+            )
         elif normalized == "magixai":
             safe_prompt = sanitize_prompt_for_provider(prompt, provider=normalized)
             ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)

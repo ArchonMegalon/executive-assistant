@@ -83,6 +83,11 @@ def _common_skill_fields() -> dict[str, object]:
             "output_mode": "json",
         },
         "tool_policy_json": {"allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"]},
+        "runtime_policy_json": {
+            "mechanics_boundary": "core_receipts_only",
+            "mechanics_claim_receipt_required": True,
+            "rule_math_recompute_forbidden": True,
+        },
         "human_policy_json": {"review_roles": ["guide_reviewer"]},
         "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
         "budget_policy_json": {
@@ -135,8 +140,8 @@ def build_visual_director_skill_payload() -> dict[str, object]:
             "provider_hints_json": {
                 "primary": ["Gemini Vortex"],
                 "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "AI Magicx", "Prompting Systems", "BrowserAct"],
-                "media": ["AI Magicx", "Prompting Systems", "BrowserAct"],
+                "output": ["Gemini Vortex", "Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct"],
+                "media": ["Media Factory", "AI Magicx", "Prompting Systems", "BrowserAct"],
                 "style": ["Gemini Vortex"],
             },
         }

@@ -187,6 +187,28 @@ def test_public_reader_guard_rejects_maintainer_imperatives() -> None:
         )
 
 
+def test_public_reader_guard_rejects_unbacked_mechanics_claims() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="unbacked mechanics claim"):
+        worker.assert_public_reader_safe(
+            {"body": "Roll 8d6 here and beat threshold 3 before the scene advances."},
+            context="page:current_status",
+        )
+
+
+def test_public_reader_guard_allows_mechanics_claims_with_receipts() -> None:
+    worker = _load_worker_module()
+
+    worker.assert_public_reader_safe(
+        {
+            "body": "The core receipt shows DV 6P and AP -2 for this outcome.",
+            "core_receipt_refs": ["core://receipts/demo-1"],
+        },
+        context="page:current_status",
+    )
+
+
 def test_editorial_self_audit_rewrites_machine_room_phrases() -> None:
     worker = _load_worker_module()
 
@@ -243,8 +265,76 @@ def test_editorial_pack_audit_ignores_banned_term_lists() -> None:
     assert result["status"] == "ok"
 
 
+def test_editorial_pack_audit_rejects_unbacked_mechanics_claims() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(RuntimeError, match="named_mechanics_value|dice_notation|dv_ap_value"):
+        worker.editorial_pack_audit(
+            {
+                "horizons": {
+                    "ghostwire": {
+                        "copy": {
+                            "table_scene": "Roll 8d6, beat threshold 3, and the replay branch opens."
+                        }
+                    }
+                }
+            }
+        )
+
+
 def test_normalize_pages_bundle_requires_real_page_rows() -> None:
     worker = _load_worker_module()
 
     with pytest.raises(ValueError, match="missing page bundle row: horizons_index"):
         worker.normalize_pages_bundle({}, items={"horizons_index": worker.PAGE_PROMPTS["horizons_index"]})
+
+
+def test_normalize_media_override_rejects_unbacked_mechanics_claims() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="unbacked mechanics claim"):
+        worker.normalize_media_override(
+            "horizon",
+            {
+                "badge": "GHOSTWIRE",
+                "title": "Replay ledger",
+                "subtitle": "Find the truth trail",
+                "kicker": "Receipts, not vibes",
+                "note": "Forensics first.",
+                "meta": "preview",
+                "visual_prompt": "show DV 6P and AP -2 on the wall beside the operator",
+                "overlay_hint": "branch the replay",
+                "visual_motifs": ["receipt wall"],
+                "overlay_callouts": ["diegetic HUD traces"],
+                "scene_contract": {"composition": "over_shoulder_receipt"},
+            },
+            {"slug": "ghostwire", "title": "GHOSTWIRE"},
+        )
+
+
+def test_normalize_media_override_allows_receipt_backed_mechanics_claims() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "GHOSTWIRE",
+            "title": "Replay ledger",
+            "subtitle": "Find the truth trail",
+            "kicker": "Receipts, not vibes",
+            "note": "Forensics first.",
+            "meta": "preview",
+            "visual_prompt": "show DV 6P and AP -2 on the wall beside the operator",
+            "overlay_hint": "branch the replay",
+            "visual_motifs": ["receipt wall"],
+            "overlay_callouts": ["diegetic HUD traces"],
+            "scene_contract": {"composition": "over_shoulder_receipt"},
+        },
+        {
+            "slug": "ghostwire",
+            "title": "GHOSTWIRE",
+            "core_receipt_refs": ["core://receipts/demo-2"],
+        },
+    )
+
+    assert normalized["title"] == "Replay ledger"

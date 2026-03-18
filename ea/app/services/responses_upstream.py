@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
 from datetime import datetime, timezone
 import hashlib
@@ -1362,6 +1363,10 @@ def _onemin_probe_model() -> str:
 
 def _onemin_probe_timeout_seconds() -> int:
     return _to_int(_env("EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS", "15"), 15, minimum=1, maximum=60)
+
+
+def _onemin_probe_parallelism() -> int:
+    return _to_int(_env("EA_RESPONSES_ONEMIN_PROBE_PARALLELISM", "8"), 8, minimum=1, maximum=32)
 
 
 def _onemin_probe_prompt() -> str:
@@ -4900,18 +4905,72 @@ def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]
     model = _onemin_probe_model()
     prompt = _onemin_probe_prompt()
     timeout_seconds = _onemin_probe_timeout_seconds()
-    rows = [
-        _probe_onemin_slot(
-            api_key=api_key,
-            key_names=key_names,
-            active_keys=active_keys,
-            reserve_keys=reserve_keys,
-            model=model,
-            prompt=prompt,
-            timeout_seconds=timeout_seconds,
-        )
-        for api_key in selected_keys
-    ]
+    max_workers = min(len(selected_keys), _onemin_probe_parallelism())
+
+    def run_probe(api_key: str) -> dict[str, object]:
+        try:
+            return _probe_onemin_slot(
+                api_key=api_key,
+                key_names=key_names,
+                active_keys=active_keys,
+                reserve_keys=reserve_keys,
+                model=model,
+                prompt=prompt,
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception as exc:
+            account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+            slot = _onemin_key_slot(api_key, key_names=key_names)
+            owner = _onemin_owner_record_for_slot(api_key=api_key, account_name=account_name, slot=slot)
+            detail = f"probe_exception:{type(exc).__name__}:{exc}"
+            _mark_onemin_failure(api_key, detail, temporary_quarantine=False)
+            state = _onemin_key_state_label(
+                _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key)),
+                now=_now_epoch(),
+            )
+            event = _record_onemin_probe_event(
+                account_name=account_name,
+                slot=slot,
+                result="unknown_error",
+                detail=detail,
+                model=model,
+                latency_ms=0,
+                source="probe_all_api",
+            )
+            latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+            estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
+                state_label=state,
+                state=_onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key)),
+            )
+            return {
+                "slot": slot,
+                "account_name": account_name,
+                "slot_env_name": account_name,
+                "slot_role": _onemin_slot_role_for_key(api_key, active_keys=active_keys, reserve_keys=reserve_keys),
+                "owner_label": str(owner.get("owner_label") or ""),
+                "owner_name": str(owner.get("owner_name") or ""),
+                "owner_email": str(owner.get("owner_email") or ""),
+                "result": "unknown_error",
+                "state": state,
+                "detail": detail,
+                "model": model,
+                "latency_ms": event.latency_ms,
+                "last_probe_at": event.happened_at,
+                "estimated_remaining_credits": estimated_remaining_credits,
+                "estimated_credit_basis": estimated_credit_basis,
+                "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
+            }
+
+    if max_workers <= 1:
+        rows = [run_probe(api_key) for api_key in selected_keys]
+    else:
+        rows_by_key: dict[str, dict[str, object]] = {}
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="onemin-probe") as executor:
+            futures = {executor.submit(run_probe, api_key): api_key for api_key in selected_keys}
+            for future in as_completed(futures):
+                api_key = futures[future]
+                rows_by_key[api_key] = future.result()
+        rows = [rows_by_key[api_key] for api_key in selected_keys]
     result_counts: dict[str, int] = {}
     for row in rows:
         result = str(row.get("result") or "unknown")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import pytest
 
 from app.domain.models import ToolInvocationResult
@@ -1041,6 +1042,35 @@ def test_probe_all_onemin_slots_maps_owner_fallbacks_by_slot_and_account(monkeyp
 
     health = upstream._provider_health_report()
     assert health["providers"]["onemin"]["owner_mapped_slots"] == 2
+
+
+def test_probe_all_onemin_slots_preserves_slot_order_when_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "slow-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fast-fallback")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_PROBE_PARALLELISM", "2")
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        if headers["API-KEY"] == "slow-primary":
+            time.sleep(0.02)
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {"resultObject": "OK"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    probe = upstream.probe_all_onemin_slots(include_reserve=True)
+
+    assert [slot["account_name"] for slot in probe["slots"]] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+    ]
 
 
 def test_onemin_provider_health_reports_burn_rate_from_recent_successes(monkeypatch: pytest.MonkeyPatch) -> None:
