@@ -95,6 +95,19 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
 
+def test_repair_gemini_public_model_uses_gemini_only_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.REPAIR_GEMINI_PUBLIC_MODEL)
+    ]
+
+    assert candidates == [("gemini_vortex", "gemini-repair")]
+
+
 def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS", raising=False)

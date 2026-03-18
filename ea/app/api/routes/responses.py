@@ -18,12 +18,15 @@ from starlette.responses import Response
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.domain.models import ToolInvocationRequest
 from app.services.tool_execution_common import ToolExecutionError
-from app.services.responses_upstream import (
+from app.services.brain_catalog import (
     DEFAULT_PUBLIC_MODEL,
     FAST_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
+    list_brain_profiles,
+)
+from app.services.responses_upstream import (
     ResponsesUpstreamError,
     UpstreamResult,
     codex_status_report,
@@ -228,77 +231,18 @@ _RESPONSE_REPOSITORY_LOCK = threading.Lock()
 _MEMORY_RESPONSE_REPOSITORY = _MemoryResponseRecordRepository()
 _POSTGRES_RESPONSE_REPOSITORIES: dict[str, _PostgresResponseRecordRepository] = {}
 
-_CODEx_PROFILES = (
+_CODEx_PROFILES = tuple(
     {
-        "profile": "core",
-        "lane": "hard",
-        "model": "ea-coder-hard",
-        "provider_hint_order": ("onemin",),
-        "review_required": True,
-        "needs_review": True,
-        "risk_labels": ["high_impact", "code_change"],
-        "merge_policy": "require_review",
-    },
-    {
-        "profile": "easy",
-        "lane": "fast",
-        "model": FAST_PUBLIC_MODEL,
-        "provider_hint_order": ("gemini_vortex", "magixai"),
-        "review_required": False,
-        "needs_review": False,
-        "risk_labels": ["low_impact", "assist"],
-        "merge_policy": "auto",
-    },
-    {
-        "profile": "repair",
-        "lane": "repair",
-        "model": FAST_PUBLIC_MODEL,
-        "provider_hint_order": ("gemini_vortex", "magixai"),
-        "review_required": False,
-        "needs_review": False,
-        "risk_labels": ["bounded_patch", "code_change", "follow_up"],
-        "merge_policy": "auto_if_low_risk",
-    },
-    {
-        "profile": "groundwork",
-        "lane": "groundwork",
-        "model": GROUNDWORK_PUBLIC_MODEL,
-        "provider_hint_order": ("gemini_vortex",),
-        "review_required": False,
-        "needs_review": False,
-        "risk_labels": ["non_urgent", "analysis", "design"],
-        "merge_policy": "auto",
-    },
-    {
-        "profile": "review_light",
-        "lane": "review",
-        "model": REVIEW_LIGHT_PUBLIC_MODEL,
-        "provider_hint_order": ("chatplayground",),
-        "review_required": False,
-        "needs_review": False,
-        "risk_labels": ["posthoc", "light_review", "diff_review"],
-        "merge_policy": "auto_if_low_risk",
-    },
-    {
-        "profile": "audit",
-        "lane": "audit",
-        "model": "ea-audit-jury",
-        "provider_hint_order": ("chatplayground",),
-        "review_required": True,
-        "needs_review": True,
-        "risk_labels": ["publish", "high_risk", "multi_view"],
-        "merge_policy": "require_review",
-    },
-    {
-        "profile": "survival",
-        "lane": "survival",
-        "model": SURVIVAL_PUBLIC_MODEL,
-        "provider_hint_order": ("gemini_vortex", "browseract"),
-        "review_required": False,
-        "needs_review": False,
-        "risk_labels": ["budget_exhausted", "backup", "slow_path"],
-        "merge_policy": "auto_if_low_risk",
-    },
+        "profile": profile.profile,
+        "lane": profile.lane,
+        "model": profile.public_model,
+        "provider_hint_order": profile.provider_hint_order,
+        "review_required": bool(profile.review_required),
+        "needs_review": bool(profile.needs_review),
+        "risk_labels": list(profile.risk_labels),
+        "merge_policy": str(profile.merge_policy or "auto"),
+    }
+    for profile in list_brain_profiles()
 )
 
 
