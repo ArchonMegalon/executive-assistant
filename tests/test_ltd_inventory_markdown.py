@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 import subprocess
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from app.services.ltd_inventory_markdown import (
     build_discovery_updates,
+    refresh_inventory_markdown,
     update_discovery_tracking_table,
 )
 
@@ -14,16 +16,35 @@ from app.services.ltd_inventory_markdown import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services() -> None:
+def test_refresh_inventory_markdown_updates_rows_and_syncs_metadata() -> None:
     markdown = """# LTDs
+
+Updated: 2026-03-01
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | adapter | ready |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | projection | ready |
+| `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | strategy |
+
+## Summary
+
+- `99` total LTD products tracked
 
 ## Discovery Tracking
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_inventory` |  | waiting |
-| `Teable` |  | `missing` | `manual_inventory` |  | stale |
-| `Vizologi` |  | `missing` | `manual_inventory` |  | keep me |
+| `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_inventory` |  | inventory refresh pending |
+| `Teable` |  | `missing` | `manual_inventory` |  | account details still missing |
+| `Vizologi` |  | `missing` | `manual_inventory` |  | retain existing manual note |
 
 ## Attention Items
 """
@@ -60,16 +81,51 @@ def test_update_discovery_tracking_table_updates_known_rows_and_appends_new_serv
         ]
     }
 
-    updated = update_discovery_tracking_table(markdown, inventory_output_json)
+    updated = refresh_inventory_markdown(
+        markdown,
+        inventory_output_json,
+        refresh_date="2026-03-18",
+    )
 
+    assert "Updated: 2026-03-18" in updated
+    assert "- `3` total LTD products tracked" in updated
     assert "| `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T12:00:00Z | Plan/Tier: Tier 3; Status: activated |" in updated
     assert "| `Teable` | ops@teable.example | `complete` | `connector_metadata` | 2026-03-07T12:01:00Z | Plan/Tier: License Tier 4; Status: activated |" in updated
-    assert "| `Vizologi` |  | `missing` | `manual_inventory` |  | keep me |" in updated
+    assert "| `Vizologi` |  | `missing` | `manual_inventory` |  | retain existing manual note |" in updated
     assert "| `UnknownService` |  | `missing` | `missing` | 2026-03-07T12:02:00Z | Missing fields: tier, account_email |" in updated
 
 
 def test_update_discovery_tracking_table_rewrites_matching_services_only() -> None:
-    test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services()
+    markdown = """# LTDs
+
+## Discovery Tracking
+
+| Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
+|---|---|---|---|---|---|
+| `BrowserAct` |  | `runtime_ready` | `browseract.extract_account_inventory` |  | waiting |
+| `Vizologi` |  | `missing` | `manual_inventory` |  | preserve me |
+
+## Attention Items
+"""
+    inventory_output_json = {
+        "services_json": [
+            {
+                "service_name": "BrowserAct",
+                "account_email": "ops@example.com",
+                "discovery_status": "complete",
+                "verification_source": "browseract_live",
+                "last_verified_at": "2026-03-07T12:00:00Z",
+                "plan_tier": "Tier 3",
+                "facts_json": {"status": "activated"},
+                "missing_fields": [],
+            }
+        ]
+    }
+
+    updated = update_discovery_tracking_table(markdown, inventory_output_json)
+
+    assert "| `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T12:00:00Z | Plan/Tier: Tier 3; Status: activated |" in updated
+    assert "| `Vizologi` |  | `missing` | `manual_inventory` |  | preserve me |" in updated
 
 
 def test_build_discovery_updates_accepts_artifact_envelope_shape() -> None:
@@ -107,6 +163,24 @@ def test_refresh_ltds_script_can_write_updated_markdown(tmp_path: Path) -> None:
     markdown_path = tmp_path / "LTDs.md"
     markdown_path.write_text(
         """# LTDs
+
+Updated: 2026-03-01
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | adapter | ready |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | projection | ready |
+
+## Summary
+
+- `99` total LTD products tracked
 
 ## Discovery Tracking
 
@@ -157,5 +231,7 @@ def test_refresh_ltds_script_can_write_updated_markdown(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     updated = markdown_path.read_text(encoding="utf-8")
+    assert f"Updated: {date.today().isoformat()}" in updated
+    assert "- `2` total LTD products tracked" in updated
     assert "ops@example.com" in updated
     assert "Plan/Tier: Tier 3; Status: activated" in updated

@@ -1163,9 +1163,10 @@ def test_ltd_discovery_markdown_refresh_is_documented_and_guarded() -> None:
     assert "DISCOVERY_TRACKING_HEADING" in service
     assert "build_discovery_updates" in service
     assert "update_discovery_tracking_table" in service
+    assert "refresh_inventory_markdown" in service
     assert "refresh_ltds_from_inventory.py" in shell_script
-    assert "update_discovery_tracking_table" in script
-    assert "test_update_discovery_tracking_table_updates_known_rows_and_appends_new_services" in test_file
+    assert "refresh_inventory_markdown" in script
+    assert "test_refresh_inventory_markdown_updates_rows_and_syncs_metadata" in test_file
     assert "test_refresh_ltds_script_can_write_updated_markdown" in test_file
     assert "refresh_ltds_from_inventory.sh" in readme
     assert "refresh_ltds_from_inventory.sh" in runbook
@@ -1192,7 +1193,7 @@ def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
     assert "extract_inventory_output_json" in service
     assert "refresh_ltds_via_api.py" in shell_script
     assert "/v1/plans/execute" in script
-    assert "update_discovery_tracking_table" in script
+    assert "refresh_inventory_markdown" in script
     assert "test_refresh_ltds_via_api_script_executes_skill_and_updates_markdown" in test_file
     assert "refresh_ltds_via_api.sh" in smoke_script
     assert "refresh_ltds_via_api.sh" in readme

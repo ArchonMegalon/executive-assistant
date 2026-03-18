@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 
 DISCOVERY_TRACKING_HEADING = "## Discovery Tracking"
+SUMMARY_HEADING = "## Summary"
+UPDATED_PREFIX = "Updated:"
+SUMMARY_TOTAL_SUFFIX = "total LTD products tracked"
+INVENTORY_SECTION_HEADINGS = (
+    "## Non-AppSumo / Other LTDs",
+    "## AppSumo LTDs",
+)
 
 
 def _normalize_service_name(value: object) -> str:
@@ -63,30 +71,29 @@ def build_discovery_updates(inventory_output_json: dict[str, Any]) -> dict[str, 
     return updates
 
 
-def _parse_table_row(line: str) -> list[str] | None:
+def _parse_table_row(line: str, *, minimum_columns: int = 6) -> list[str] | None:
     stripped = line.strip()
     if not stripped.startswith("|") or not stripped.endswith("|"):
         return None
     parts = [part.strip() for part in stripped.strip("|").split("|")]
-    if len(parts) < 6:
+    if len(parts) < minimum_columns:
         return None
-    return parts[:6]
+    return parts[:minimum_columns]
 
 
 def _format_row(parts: list[str]) -> str:
     return "| " + " | ".join(parts[:6]) + " |"
 
 
-def update_discovery_tracking_table(markdown_text: str, inventory_output_json: dict[str, Any]) -> str:
-    lines = markdown_text.splitlines()
+def _table_bounds(lines: list[str], *, heading: str) -> tuple[int, int]:
     try:
         heading_index = next(
             index
             for index, value in enumerate(lines)
-            if value.strip() == DISCOVERY_TRACKING_HEADING
+            if value.strip() == heading
         )
     except StopIteration as exc:
-        raise ValueError("discovery_tracking_heading_not_found") from exc
+        raise ValueError(f"{heading}_not_found") from exc
 
     try:
         table_start = next(
@@ -95,15 +102,74 @@ def update_discovery_tracking_table(markdown_text: str, inventory_output_json: d
             if lines[index].strip().startswith("|")
         )
     except StopIteration as exc:
-        raise ValueError("discovery_tracking_table_not_found") from exc
+        raise ValueError(f"{heading}_table_not_found") from exc
 
     table_end = table_start
     while table_end < len(lines) and lines[table_end].strip().startswith("|"):
         table_end += 1
 
     if table_end - table_start < 2:
-        raise ValueError("discovery_tracking_table_invalid")
+        raise ValueError(f"{heading}_table_invalid")
+    return table_start, table_end
 
+
+def _updated_markdown(updated_lines: list[str], *, trailing_newline: bool) -> str:
+    return "\n".join(updated_lines) + ("\n" if trailing_newline else "")
+
+
+def _replace_updated_stamp(markdown_text: str, *, refresh_date: str | None = None) -> str:
+    updated_value = str(refresh_date or date.today().isoformat()).strip()
+    if not updated_value:
+        raise ValueError("refresh_date_required")
+    lines = markdown_text.splitlines()
+    try:
+        updated_index = next(
+            index
+            for index, value in enumerate(lines)
+            if value.strip().startswith(UPDATED_PREFIX)
+        )
+    except StopIteration as exc:
+        raise ValueError("updated_line_not_found") from exc
+    lines[updated_index] = f"{UPDATED_PREFIX} {updated_value}"
+    return _updated_markdown(lines, trailing_newline=markdown_text.endswith("\n"))
+
+
+def _count_inventory_rows(markdown_text: str) -> int:
+    lines = markdown_text.splitlines()
+    total = 0
+    for heading in INVENTORY_SECTION_HEADINGS:
+        table_start, table_end = _table_bounds(lines, heading=heading)
+        for line in lines[table_start + 2 : table_end]:
+            if _parse_table_row(line, minimum_columns=8) is not None:
+                total += 1
+    return total
+
+
+def _replace_summary_total(markdown_text: str, *, total_count: int) -> str:
+    lines = markdown_text.splitlines()
+    try:
+        summary_index = next(
+            index
+            for index, value in enumerate(lines)
+            if value.strip() == SUMMARY_HEADING
+        )
+    except StopIteration as exc:
+        raise ValueError("summary_heading_not_found") from exc
+    try:
+        total_index = next(
+            index
+            for index in range(summary_index + 1, len(lines))
+            if SUMMARY_TOTAL_SUFFIX in lines[index]
+        )
+    except StopIteration as exc:
+        raise ValueError("summary_total_line_not_found") from exc
+    lines[total_index] = f"- `{total_count}` {SUMMARY_TOTAL_SUFFIX}"
+    return _updated_markdown(lines, trailing_newline=markdown_text.endswith("\n"))
+
+
+def update_discovery_tracking_table(markdown_text: str, inventory_output_json: dict[str, Any]) -> str:
+    lines = markdown_text.splitlines()
+    table_start, table_end = _table_bounds(lines, heading=DISCOVERY_TRACKING_HEADING)
     header_line = lines[table_start]
     separator_line = lines[table_start + 1]
     updates = build_discovery_updates(inventory_output_json)
@@ -137,4 +203,16 @@ def update_discovery_tracking_table(markdown_text: str, inventory_output_json: d
         + rebuilt_rows
         + lines[table_end:]
     )
-    return "\n".join(updated_lines) + ("\n" if markdown_text.endswith("\n") else "")
+    return _updated_markdown(updated_lines, trailing_newline=markdown_text.endswith("\n"))
+
+
+def refresh_inventory_markdown(
+    markdown_text: str,
+    inventory_output_json: dict[str, Any],
+    *,
+    refresh_date: str | None = None,
+) -> str:
+    updated = update_discovery_tracking_table(markdown_text, inventory_output_json)
+    updated = _replace_updated_stamp(updated, refresh_date=refresh_date)
+    total_count = _count_inventory_rows(updated)
+    return _replace_summary_total(updated, total_count=total_count)
