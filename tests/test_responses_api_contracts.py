@@ -1346,6 +1346,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
 
     response = client.get("/v1/codex/profiles")
     assert response.status_code == 200
@@ -1353,17 +1356,19 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["lane"] == "hard"
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
-    assert easy_profile["provider_hint_order"] == ["gemini_vortex", "magixai"]
+    assert easy_profile["provider_hint_order"] == ["gemini_vortex"]
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
-    assert repair_profile["provider_hint_order"] == ["gemini_vortex", "magixai"]
+    assert repair_profile["provider_hint_order"] == ["gemini_vortex"]
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
     assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
     assert groundwork_profile["model"] == "ea-groundwork-gemini"
+    assert groundwork_profile["provider_slot_pool"]["selection_mode"] in {"fallback", "round_robin"}
+    assert [slot["slot_owner"] for slot in groundwork_profile["provider_slots"]] == ["fleet-primary", "fleet-shadow"]
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
-    assert review_light_profile["provider_hint_order"] == ["chatplayground"]
+    assert review_light_profile["provider_hint_order"] == ["browseract"]
     assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
@@ -1779,13 +1784,30 @@ def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.Mon
 
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-3-flash-preview")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SELECTION_MODE", "round_robin")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
 
     response = client.get("/v1/responses/_provider_health")
     assert response.status_code == 200
     body = response.json()
     assert body["providers"]["gemini_vortex"]["state"] == "ready"
     assert "gemini-3-flash-preview" in body["providers"]["gemini_vortex"]["models"]
+    assert body["providers"]["gemini_vortex"]["selection_mode"] == "round_robin"
+    assert [slot["account_name"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
+        "EA_GEMINI_VORTEX_DEFAULT_AUTH",
+        "GOOGLE_API_KEY_FALLBACK_1",
+    ]
+    assert [slot["slot_owner"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
+        "fleet-primary",
+        "fleet-shadow",
+    ]
     assert body["provider_config"]["gemini_vortex_command"] == "sh"
+    assert body["provider_config"]["gemini_vortex_accounts"] == [
+        "EA_GEMINI_VORTEX_DEFAULT_AUTH",
+        "GOOGLE_API_KEY_FALLBACK_1",
+    ]
 
 
 def test_stream_events_include_sequence_number_and_failed_terminal(monkeypatch: pytest.MonkeyPatch) -> None:

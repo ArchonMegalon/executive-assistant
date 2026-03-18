@@ -321,6 +321,8 @@ def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
                 "normalized_text": '{\n  "text": "gemini ok"\n}',
                 "structured_output_json": {"text": "gemini ok"},
                 "model": "gemini-3-flash-preview",
+                "provider_key_slot": "fallback_1",
+                "provider_account_name": "GOOGLE_API_KEY_FALLBACK_1",
             },
             receipt_json={},
             model_name="gemini-3-flash-preview",
@@ -335,6 +337,8 @@ def test_call_gemini_vortex_uses_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result.provider_key == "gemini_vortex"
     assert result.provider_backend == "gemini_vortex_cli"
     assert result.model == "gemini-3-flash-preview"
+    assert result.provider_key_slot == "fallback_1"
+    assert result.provider_account_name == "GOOGLE_API_KEY_FALLBACK_1"
     assert result.text == "gemini ok"
     assert result.tokens_in == 5
     assert result.tokens_out == 3
