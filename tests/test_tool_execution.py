@@ -17,6 +17,7 @@ from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
 from app.services.provider_registry import ProviderBinding, ProviderCapability, ProviderRegistryService
+from app.services.responses_upstream import UpstreamResult
 from app.services.tool_execution import (
     CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
     CONNECTOR_DISPATCH_OPTIONAL_INPUT_FIELDS,
@@ -2800,6 +2801,127 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_mem
     assert result.output_json["owner_mismatches"][0]["email"] == "other@example.com"
     assert result.output_json["structured_output_json"]["persisted_snapshot"]["member_count"] == 2
     assert tool_runtime.get_tool("browseract.onemin_member_reconciliation") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_onemin_code_generate_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-code-key")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_call_text(self, *, prompt: str, model: str, lane: str):
+        assert "Implement a safe parser" in prompt
+        assert lane == "hard"
+        return UpstreamResult(
+            text='{"patch":"safe parser","notes":["bounded change"]}',
+            provider_key="onemin",
+            model=model,
+            provider_key_slot="primary",
+            provider_backend="1min",
+            provider_account_name="ONEMIN_AI_API_KEY",
+            tokens_in=111,
+            tokens_out=37,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter._call_text",
+        _fake_call_text,
+    )
+    registry._rows.pop("provider.onemin.code_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "provider.onemin.code_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-onemin-code-1",
+            step_id="step-onemin-code-1",
+            tool_name="provider.onemin.code_generate",
+            action_kind="code.generate",
+            payload_json={
+                "prompt": "Implement a safe parser for the billing payload.",
+                "instructions": "Return a compact patch summary.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.onemin.code_generate"
+    assert result.tokens_in == 111
+    assert result.tokens_out == 37
+    assert result.output_json["mime_type"] == "application/json"
+    assert result.output_json["structured_output_json"]["patch"] == "safe parser"
+    assert result.output_json["provider_backend"] == "1min"
+    assert result.receipt_json["provider_key"] == "onemin"
+    assert tool_runtime.get_tool("provider.onemin.code_generate") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-image-key")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_call_feature(self, *, feature_payload: dict[str, object], lane: str):
+        assert feature_payload["type"] == "IMAGE_GENERATOR"
+        assert lane == "hard"
+        return (
+            {
+                "aiRecord": {
+                    "aiRecordDetail": {
+                        "resultObject": {
+                            "url": "https://cdn.1min.ai/generated/test-image.png",
+                        }
+                    }
+                }
+            },
+            "ONEMIN_AI_API_KEY",
+            "primary",
+            str(feature_payload.get("model") or "gpt-image-1-mini"),
+            0,
+            0,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter._call_feature",
+        _fake_call_feature,
+    )
+    registry._rows.pop("provider.onemin.image_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "provider.onemin.image_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-onemin-image-1",
+            step_id="step-onemin-image-1",
+            tool_name="provider.onemin.image_generate",
+            action_kind="image.generate",
+            payload_json={
+                "prompt": "Render a neon-lit operator dashboard banner.",
+                "size": "1024x1024",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.onemin.image_generate"
+    assert result.output_json["asset_urls"] == ["https://cdn.1min.ai/generated/test-image.png"]
+    assert result.output_json["provider_backend"] == "1min"
+    assert result.receipt_json["feature_type"] == "IMAGE_GENERATOR"
+    assert tool_runtime.get_tool("provider.onemin.image_generate") is not None
 
 
 def test_tool_execution_service_detects_gemini_web_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
