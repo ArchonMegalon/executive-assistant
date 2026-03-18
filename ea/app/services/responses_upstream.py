@@ -19,21 +19,22 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest
+from app.services.brain_catalog import (
+    AUDIT_PUBLIC_MODEL,
+    AUDIT_PUBLIC_MODEL_ALIAS,
+    DEFAULT_PUBLIC_MODEL,
+    FAST_PUBLIC_MODEL,
+    GEMINI_VORTEX_PUBLIC_MODEL,
+    GROUNDWORK_PUBLIC_MODEL,
+    GROUNDWORK_PUBLIC_MODEL_ALIAS,
+    MAGICX_PUBLIC_MODEL,
+    ONEMIN_PUBLIC_MODEL,
+    REPAIR_GEMINI_PUBLIC_MODEL,
+    REVIEW_LIGHT_PUBLIC_MODEL,
+    SURVIVAL_PUBLIC_MODEL,
+)
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter
-
-
-DEFAULT_PUBLIC_MODEL = "ea-coder-best"
-FAST_PUBLIC_MODEL = "ea-coder-fast"
-GROUNDWORK_PUBLIC_MODEL = "ea-groundwork-gemini"
-GROUNDWORK_PUBLIC_MODEL_ALIAS = "ea-groundwork"
-REVIEW_LIGHT_PUBLIC_MODEL = "ea-review-light"
-MAGICX_PUBLIC_MODEL = "ea-magicx-coder"
-ONEMIN_PUBLIC_MODEL = "ea-onemin-coder"
-SURVIVAL_PUBLIC_MODEL = "ea-coder-survival"
-AUDIT_PUBLIC_MODEL = "ea-audit-jury"
-AUDIT_PUBLIC_MODEL_ALIAS = "ea-audit"
-GEMINI_VORTEX_PUBLIC_MODEL = "ea-gemini-flash"
 ChatMessage = dict[str, str]
 
 _LOG = logging.getLogger("ea.responses.upstream")
@@ -1816,6 +1817,8 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_FAST
     if normalized == FAST_PUBLIC_MODEL:
         return _LANE_FAST
+    if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
+        return _LANE_FAST
     if normalized == "ea-overflow":
         return _LANE_OVERFLOW
     if normalized == DEFAULT_PUBLIC_MODEL:
@@ -2061,6 +2064,7 @@ def list_response_models() -> list[dict[str, object]]:
         REVIEW_LIGHT_PUBLIC_MODEL,
         ONEMIN_PUBLIC_MODEL,
         GEMINI_VORTEX_PUBLIC_MODEL,
+        REPAIR_GEMINI_PUBLIC_MODEL,
         GROUNDWORK_PUBLIC_MODEL,
         GROUNDWORK_PUBLIC_MODEL_ALIAS,
         SURVIVAL_PUBLIC_MODEL,
@@ -2391,6 +2395,13 @@ def _provider_candidates(
         return [
             (configs["magixai"], model_name)
             for model_name in _magicx_lane_models()
+        ]
+
+    if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
+        return [
+            (configs["gemini_vortex"], model_name)
+            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
+            or _gemini_vortex_models()
         ]
 
     if normalized == ONEMIN_PUBLIC_MODEL:
