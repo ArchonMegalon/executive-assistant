@@ -29,6 +29,13 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
     ]
 
 
+def test_principal_identity_summary_includes_lane_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PRINCIPAL_LANE_ROLE_OVERRIDES_JSON", json.dumps({"participant-review-1": "review"}))
+    summary = upstream.principal_identity_summary("participant-review-1")
+
+    assert summary["lane_role"] == "review"
+
+
 def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")

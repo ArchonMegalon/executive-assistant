@@ -93,15 +93,23 @@ def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monke
     assert result["status"] == "media_factory:rendered"
 
 
-def test_fallback_horizon_media_row_covers_new_canonical_horizons() -> None:
+def test_canonical_horizon_visual_contract_uses_canon_not_bespoke_fallback_map() -> None:
     media = _load_module()
 
-    row = media.fallback_horizon_media_row("runsite", media.CANON_HORIZONS["runsite"])
+    row = media.canonical_horizon_visual_contract("runsite", media.CANON_HORIZONS["runsite"])
 
+    assert media.HORIZON_MEDIA_FALLBACKS == {}
     assert row["title"] == "RUNSITE"
     assert row["visual_prompt"]
     assert row["scene_contract"]["composition"] == "district_map"
     assert row["overlay_callouts"]
+
+
+def test_forbid_legacy_svg_fallback_rejects_svg_targets(tmp_path: Path) -> None:
+    media = _load_module()
+
+    with pytest.raises(RuntimeError, match="legacy_svg_fallback_forbidden"):
+        media.forbid_legacy_svg_fallback(tmp_path / "old-fallback.svg")
 
 
 def test_is_credit_exhaustion_message_matches_common_provider_failures() -> None:
