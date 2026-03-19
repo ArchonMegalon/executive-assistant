@@ -115,6 +115,17 @@ def resolve_workflow() -> tuple[str, str]:
     raise RuntimeError("browseract:humanizer_workflow_not_found")
 
 
+def probe_text() -> str:
+    return (
+        "In the ever-evolving landscape of Shadowrun play, Chummer6 represents a comprehensive and potentially "
+        "transformative solution for users who are seeking a more transparent, more efficient, and more future-ready "
+        "experience for character management, rules support, and session preparation. By combining local-first "
+        "continuity, deterministic rules truth, and a growing ecosystem of tools, Chummer6 aims to empower players "
+        "and game masters with a uniquely reliable foundation that can support both current table needs and emerging "
+        "creative workflows."
+    )
+
+
 def run_task(*, workflow_id: str, text: str, target: str) -> dict[str, object]:
     payloads = [
         {"workflow_id": workflow_id, "input_parameters": [{"name": "text", "value": text}, {"name": "target", "value": target}]},
@@ -289,6 +300,21 @@ def _persist_repair_packet(packet: dict[str, object], *, workflow_name: str) -> 
     return packet_path, spec_path
 
 
+def _emit_builder_packet(spec_path: Path) -> Path | None:
+    try:
+        import browseract_architect as architect
+    except Exception:
+        return None
+    try:
+        spec = architect.normalize_spec(architect.load_spec(spec_path))
+        packet = architect.builder_packet(spec)
+    except Exception:
+        return None
+    output_path = spec_path.with_name(spec_path.name.replace(".workflow.json", ".builder.packet.json"))
+    output_path.write_text(json.dumps(packet, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return output_path
+
+
 def request_workflow_repair(*, workflow_name: str, purpose: str, tool_url: str, failure_summary: str, failure_goals: list[str], current_spec: dict[str, object], login_url: str = "public") -> dict[str, object]:
     app_root = str(EA_ROOT / "ea")
     if app_root not in sys.path:
@@ -319,8 +345,11 @@ def request_workflow_repair(*, workflow_name: str, purpose: str, tool_url: str, 
     if "workflow_spec" not in packet:
         raise RuntimeError("browseract:repair_missing_workflow_spec")
     packet_path, spec_path = _persist_repair_packet(packet, workflow_name=workflow_name)
+    builder_path = _emit_builder_packet(spec_path)
     print(f"browseract_repair_packet={packet_path}", file=sys.stderr)
     print(f"browseract_repair_spec={spec_path}", file=sys.stderr)
+    if builder_path is not None:
+        print(f"browseract_repair_builder={builder_path}", file=sys.stderr)
     return packet
 
 
@@ -420,16 +449,66 @@ def _collect_humanized_candidates(body: dict[str, object]) -> list[str]:
             if isinstance(parsed, list):
                 for item in parsed:
                     if isinstance(item, dict):
-                        value = str(
-                            item.get("humanized_text")
-                            or item.get("rewritten_text")
-                            or item.get("result")
-                            or item.get("output")
-                            or ""
-                        ).strip()
-                        if value:
-                            candidates.append(value)
-    return candidates
+                        for field in (
+                            "humanized_text",
+                            "rewritten_text",
+                            "result",
+                            "output",
+                            "output_text",
+                            "text",
+                        ):
+                            value = str(item.get(field) or "").strip()
+                            if value:
+                                candidates.append(value)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in candidates:
+        key = re.sub(r"\s+", " ", value).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
+def _collect_humanizer_rows(body: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    output = body.get("output")
+    if not isinstance(output, dict):
+        return rows
+    raw = output.get("string")
+    if not isinstance(raw, str) or not raw.strip():
+        return rows
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return rows
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list):
+        return rows
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        original = str(
+            entry.get("original_text")
+            or entry.get("input_text")
+            or entry.get("source_text")
+            or entry.get("input")
+            or entry.get("source")
+            or ""
+        ).strip()
+        humanized = str(
+            entry.get("humanized_text")
+            or entry.get("rewritten_text")
+            or entry.get("result")
+            or entry.get("output")
+            or entry.get("output_text")
+            or ""
+        ).strip()
+        if original or humanized:
+            rows.append({"original_text": original, "humanized_text": humanized})
+    return rows
 
 
 def _token_set(text: str) -> set[str]:
@@ -470,12 +549,52 @@ def _token_set(text: str) -> set[str]:
     }
 
 
+def _token_overlap_score(left: str, right: str) -> tuple[int, float]:
+    left_tokens = _token_set(left)
+    right_tokens = _token_set(right)
+    if not left_tokens or not right_tokens:
+        return 0, 0.0
+    overlap = len(left_tokens & right_tokens)
+    ratio = overlap / max(1, len(left_tokens))
+    return overlap, ratio
+
+
+def _normalized_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
 def extract_humanized_text(body: dict[str, object], original_text: str) -> str:
+    rows = _collect_humanizer_rows(body)
     candidates = _collect_humanized_candidates(body)
     original_tokens = _token_set(original_text)
+    normalized_original = _normalized_text(original_text)
+    if rows:
+        scored_rows: list[tuple[int, float, int, float, str]] = []
+        for row in rows:
+            source = str(row.get("original_text") or "").strip()
+            value = str(row.get("humanized_text") or "").strip()
+            lowered = value.lower()
+            if _normalized_text(value) == normalized_original:
+                continue
+            if len(value) <= 40 or "http" in lowered or lowered.startswith("task_") or "workflow" in lowered:
+                continue
+            source_overlap, source_ratio = _token_overlap_score(original_text, source)
+            candidate_overlap = len(_token_set(value) & original_tokens)
+            candidate_ratio = candidate_overlap / max(1, len(original_tokens))
+            scored_rows.append((source_overlap, source_ratio, candidate_overlap, candidate_ratio, value))
+        if scored_rows:
+            scored_rows.sort(reverse=True)
+            best_source_overlap, best_source_ratio, best_candidate_overlap, best_candidate_ratio, best_value = scored_rows[0]
+            if best_source_overlap < 3 or best_source_ratio < 0.35:
+                raise RuntimeError("browseract:input_binding_mismatch")
+            if best_candidate_overlap < 2 or best_candidate_ratio < 0.12:
+                raise RuntimeError("browseract:humanizer_output_mismatch")
+            return best_value
     scored: list[tuple[int, int, str]] = []
     for value in candidates:
         lowered = value.lower()
+        if _normalized_text(value) == normalized_original:
+            continue
         if len(value) <= 40 or "http" in lowered or lowered.startswith("task_") or "workflow" in lowered:
             continue
         overlap = len(_token_set(value) & original_tokens)
@@ -483,7 +602,7 @@ def extract_humanized_text(body: dict[str, object], original_text: str) -> str:
     if scored:
         scored.sort(reverse=True)
         best_overlap, _best_len, best_value = scored[0]
-        if best_overlap > 0:
+        if best_overlap >= 2:
             return best_value
         raise RuntimeError("browseract:humanizer_output_mismatch")
     raise RuntimeError("browseract:no_humanized_text")
@@ -500,8 +619,37 @@ def cmd_list_workflows() -> int:
 
 def cmd_check() -> int:
     workflow_id, name = resolve_workflow()
-    print(json.dumps({"status": "ready", "workflow_id": workflow_id, "workflow_name": name}, ensure_ascii=True))
-    return 0
+    try:
+        task = run_task(workflow_id=workflow_id, text=probe_text(), target="guide:probe:intro")
+        task_id = _task_id(task)
+        body = wait_for_task(task_id, timeout_seconds=humanizer_timeout_seconds())
+        humanized = extract_humanized_text(body, probe_text())
+        print(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "workflow_id": workflow_id,
+                    "workflow_name": name,
+                    "task_id": task_id,
+                    "sample_words": word_count(humanized),
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 0
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "unhealthy",
+                    "workflow_id": workflow_id,
+                    "workflow_name": name,
+                    "error": str(exc),
+                },
+                ensure_ascii=True,
+            )
+        )
+        return 1
 
 
 def cmd_humanize(text: str, target: str) -> int:
@@ -527,7 +675,12 @@ def cmd_humanize(text: str, target: str) -> int:
         detail = f"browseract:incomplete_workflow:{' | '.join(goals) or 'no_steps'}"
         maybe_request_workflow_repair(failure_summary=detail, failure_goals=goals)
         raise RuntimeError(detail)
-    print(extract_humanized_text(body, text))
+    try:
+        humanized = extract_humanized_text(body, text)
+    except RuntimeError as exc:
+        maybe_request_workflow_repair(failure_summary=str(exc), failure_goals=goals)
+        raise
+    print(humanized)
     return 0
 
 
