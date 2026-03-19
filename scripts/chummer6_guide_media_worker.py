@@ -52,6 +52,68 @@ PALETTES = [
     ("#4338ca", "#818cf8"),
 ]
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
+SPARSE_EASTER_EGG_TARGETS = frozenset(
+    {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/start-here.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
+SPARSE_HUMOR_TARGETS = frozenset(
+    {
+        "assets/hero/poc-warning.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
+EASTER_EGG_FIELDS = (
+    "easter_egg_kind",
+    "easter_egg_placement",
+    "easter_egg_detail",
+    "easter_egg_visibility",
+    "troll_postpass",
+)
+EASTER_EGG_OBJECT_HINTS = (
+    "sticker",
+    "tattoo",
+    "patch",
+    "decal",
+    "doodle",
+    "mascot",
+    "motif",
+    "mark",
+    "charm",
+    "stamp",
+    "seal",
+    "pin",
+    "pictogram",
+    "figurine",
+    "patch",
+)
+META_HUMOR_TOKENS = (
+    " dev ",
+    " developer",
+    " maintainer",
+    " sysadmin",
+    " admin ",
+    " cleanup pass",
+    " growth funnel",
+    " repo ",
+    " repo-",
+    " vibe-based",
+    " clean code",
+    " not my bug",
+    " one-liner",
+    " roast",
+    " roasting",
+)
+READABLE_JOKE_TOKENS = (
+    "reads:",
+    "says:",
+    "sign reads",
+    "sticker reads",
+    "placard reads",
+    "quote:",
+)
 
 
 LOCAL_ENV = load_local_env()
@@ -61,6 +123,34 @@ FFMPEG_BIN = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def easter_egg_allowed_for_target(target: str) -> bool:
+    return str(target or "").replace("\\", "/").strip() in SPARSE_EASTER_EGG_TARGETS
+
+
+def scene_contract_requests_easter_egg(contract: dict[str, object] | None) -> bool:
+    data = contract if isinstance(contract, dict) else {}
+    if any(str(data.get(field) or "").strip() for field in EASTER_EGG_FIELDS):
+        return True
+    policy = str(data.get("easter_egg_policy") or "").strip().lower()
+    return policy in {"allow", "allowed", "showcase", "force"}
+
+
+def media_row_requests_easter_egg(*, target: str, row: dict[str, object] | None) -> bool:
+    if not easter_egg_allowed_for_target(target):
+        return False
+    data = row if isinstance(row, dict) else {}
+    contract = data.get("scene_contract") if isinstance(data.get("scene_contract"), dict) else {}
+    return scene_contract_requests_easter_egg(contract)
+
+
+def humor_allowed_for_target(*, target: str, contract: dict[str, object] | None) -> bool:
+    data = contract if isinstance(contract, dict) else {}
+    policy = str(data.get("humor_policy") or "").strip().lower()
+    if policy in {"allow", "allowed", "showcase", "force"}:
+        return True
+    return str(target or "").replace("\\", "/").strip() in SPARSE_HUMOR_TARGETS
 
 
 def load_json_file(path: Path) -> dict[str, object]:
@@ -368,7 +458,7 @@ def canonical_horizon_visual_contract(slug: str, item: dict[str, object]) -> dic
             "composition": composition,
             "palette": "petrol cyan, rust amber, wet charcoal",
             "mood": "grounded, cinematic, specific",
-            "humor": "the design canon moved first, so the art direction is catching up without inventing nonsense",
+            "humor": "",
         },
     }
 
@@ -384,6 +474,110 @@ def deep_merge(base: object, override: object) -> object:
             merged[key] = deep_merge(merged.get(key), value)
         return merged
     return override if override is not None else base
+
+
+def clause_mentions_easter_egg(text: str) -> bool:
+    lowered = " ".join(str(text or "").split()).strip().lower()
+    if "troll" not in lowered:
+        return False
+    return any(token in lowered for token in EASTER_EGG_OBJECT_HINTS)
+
+
+def strip_easter_egg_clauses(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    parts = re.split(r"(?<=[,.;])\s+", cleaned)
+    kept = [part.strip() for part in parts if part.strip() and not clause_mentions_easter_egg(part)]
+    if kept:
+        normalized = " ".join(kept)
+        normalized = re.sub(r"\s+,", ",", normalized)
+        normalized = re.sub(r"\s+\.", ".", normalized)
+        normalized = re.sub(r"\s+;", ";", normalized)
+        return normalized.strip(" ,;")
+    return cleaned
+
+
+def sanitize_scene_humor(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    lowered = f" {cleaned.lower()} "
+    if any(token in lowered for token in META_HUMOR_TOKENS):
+        return ""
+    if any(token in lowered for token in READABLE_JOKE_TOKENS):
+        return ""
+    if ("'" in cleaned or '"' in cleaned) and any(
+        token in lowered for token in ("sticker", "sign", "placard", "shirt", "patch", "note", "label", "reads", "says")
+    ):
+        return ""
+    if len(cleaned) > 140:
+        return ""
+    return cleaned
+
+
+def sanitize_text_list(values: object, *, allow_easter_egg: bool) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    cleaned_values: list[str] = []
+    for value in values:
+        text = " ".join(str(value or "").split()).strip()
+        if not text:
+            continue
+        if not allow_easter_egg and clause_mentions_easter_egg(text):
+            continue
+        cleaned_values.append(text)
+    return cleaned_values
+
+
+def sanitize_scene_contract(*, contract: dict[str, object], target: str) -> dict[str, object]:
+    cleaned = copy.deepcopy(contract)
+    allow_easter_egg = easter_egg_allowed_for_target(target) and scene_contract_requests_easter_egg(cleaned)
+    for key in ("subject", "environment", "action", "metaphor", "palette", "mood"):
+        value = " ".join(str(cleaned.get(key) or "").split()).strip()
+        if not allow_easter_egg and clause_mentions_easter_egg(value):
+            value = strip_easter_egg_clauses(value)
+        cleaned[key] = value
+    humor = sanitize_scene_humor(cleaned.get("humor"))
+    cleaned["humor"] = humor if humor_allowed_for_target(target=target, contract=cleaned) else ""
+    cleaned["props"] = sanitize_text_list(cleaned.get("props"), allow_easter_egg=allow_easter_egg)
+    cleaned["overlays"] = sanitize_text_list(cleaned.get("overlays"), allow_easter_egg=allow_easter_egg)
+    if not allow_easter_egg:
+        for field in EASTER_EGG_FIELDS:
+            cleaned.pop(field, None)
+    return cleaned
+
+
+def sanitize_media_row(*, target: str, row: dict[str, object]) -> dict[str, object]:
+    cleaned = copy.deepcopy(row)
+    contract = cleaned.get("scene_contract") if isinstance(cleaned.get("scene_contract"), dict) else {}
+    if isinstance(contract, dict):
+        cleaned["scene_contract"] = sanitize_scene_contract(contract=contract, target=target)
+    allow_easter_egg = media_row_requests_easter_egg(target=target, row=cleaned)
+    visual_prompt = " ".join(str(cleaned.get("visual_prompt") or "").split()).strip()
+    if visual_prompt and not allow_easter_egg:
+        cleaned["visual_prompt"] = strip_easter_egg_clauses(visual_prompt)
+    cleaned["visual_motifs"] = sanitize_text_list(cleaned.get("visual_motifs"), allow_easter_egg=allow_easter_egg)
+    cleaned["overlay_callouts"] = sanitize_text_list(cleaned.get("overlay_callouts"), allow_easter_egg=allow_easter_egg)
+    return cleaned
+
+
+def easter_egg_payload(contract: dict[str, object] | None) -> dict[str, str] | None:
+    data = contract if isinstance(contract, dict) else {}
+    if not scene_contract_requests_easter_egg(data):
+        return None
+    return {
+        "kind": str(data.get("easter_egg_kind") or "pin").strip(),
+        "placement": str(data.get("easter_egg_placement") or "inside the safe crop").strip(),
+        "detail": str(
+            data.get("easter_egg_detail")
+            or "a small recurring Chummer troll motif in the classic horned squat stance"
+        ).strip(),
+        "visibility": str(
+            data.get("easter_egg_visibility")
+            or "secondary but clearly visible on a README banner"
+        ).strip(),
+    }
 
 
 def load_visual_overrides() -> dict[str, dict[str, object]]:
@@ -1571,7 +1765,12 @@ def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
     additions: list[str] = []
     if "keep it as a lived moment, not a poster or title card" not in lowered:
         additions.append(scene_integrity_instruction_set(contract, target=target))
-    if "chummer troll motif" not in lowered and "diegetic troll motif" not in lowered and "horned squat stance" not in lowered:
+    if (
+        media_row_requests_easter_egg(target=target, row=row)
+        and "chummer troll motif" not in lowered
+        and "diegetic troll motif" not in lowered
+        and "horned squat stance" not in lowered
+    ):
         additions.append(easter_egg_clause(contract))
         additions.append(easter_egg_instruction_set(contract))
     if not additions:
@@ -1927,9 +2126,10 @@ def asset_specs() -> list[dict[str, object]]:
     def apply_visual_override(target: str, row: dict[str, object]) -> dict[str, object]:
         override = visual_overrides.get(target)
         if not isinstance(override, dict):
-            return row
+            return sanitize_media_row(target=target, row=row)
         merged = deep_merge(row, override)
-        return merged if isinstance(merged, dict) else row
+        normalized = merged if isinstance(merged, dict) else row
+        return sanitize_media_row(target=target, row=normalized)
 
     def render_prompt_from_row(row: dict[str, object], *, role: str, target: str) -> str:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
@@ -1940,7 +2140,7 @@ def asset_specs() -> list[dict[str, object]]:
         composition = str(contract.get("composition", "")).strip()
         palette = str(contract.get("palette", "")).strip()
         mood = str(contract.get("mood", "")).strip()
-        humor = str(contract.get("humor", "")).strip()
+        humor = sanitize_scene_humor(contract.get("humor"))
         props = ", ".join(str(entry).strip() for entry in (contract.get("props") or []) if str(entry).strip())
         overlays = ", ".join(str(entry).strip() for entry in (contract.get("overlays") or []) if str(entry).strip())
         motifs = ", ".join(str(entry).strip() for entry in (row.get("visual_motifs") or []) if str(entry).strip())
@@ -1976,7 +2176,7 @@ def asset_specs() -> list[dict[str, object]]:
             f"Overlay ideas to imply, not print literally: {callouts}." if callouts else "",
             f"Style epoch to keep consistent across this pass: {style_bits}." if style_bits else "",
             "Variation rules: " + " ".join(guardrails) if guardrails else "",
-            easter_egg_clause(contract),
+            easter_egg_clause(contract) if scene_contract_requests_easter_egg(contract) else "",
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
@@ -2025,7 +2225,7 @@ def asset_specs() -> list[dict[str, object]]:
                 "composition": composition_hint,
                 "palette": str(orient.get("visual_devices", "")).strip(),
                 "mood": str(orient.get("emotional_goal", "")).strip(),
-                "humor": str(orient.get("tone_rule", "")).strip(),
+                "humor": "",
             },
         }
 
@@ -2390,6 +2590,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         composition = str(contract.get("composition") or "").strip()
         block_reason = repetition_block_reason(target=target, composition=composition, ledger={"assets": accepted_rows})
         if block_reason:
+            egg_payload = easter_egg_payload(contract)
             return {
                 "target": target,
                 "output": "",
@@ -2397,18 +2598,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "status": f"rejected:{block_reason}",
                 "attempts": [f"variation_guard:{block_reason}"],
                 "prompt": str(spec.get("prompt") or ""),
-                "easter_egg": {
-                    "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
-                    "placement": str(contract.get("easter_egg_placement") or "inside the safe crop").strip(),
-                    "detail": str(
-                        contract.get("easter_egg_detail")
-                        or "a small recurring Chummer troll motif in the classic horned squat stance"
-                    ).strip(),
-                    "visibility": str(
-                        contract.get("easter_egg_visibility")
-                        or "secondary but clearly visible on a README banner"
-                    ).strip(),
-                },
+                "easter_egg": egg_payload,
             }
         prompt = refine_prompt_with_ooda(prompt=str(spec["prompt"]), target=target)
         prompt = ensure_troll_clause(prompt=prompt, spec=spec)
@@ -2419,7 +2609,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         result = render_with_ooda(prompt=prompt, output_path=out_path, width=width, height=height, spec=spec)
         normalize_status = normalize_banner_size(image_path=out_path, width=width, height=height)
         postpass_attempts: list[str] = []
-        if troll_postpass_enabled():
+        if troll_postpass_enabled() and scene_contract_requests_easter_egg(contract):
             postpass_attempts.append(
                 apply_troll_postpass(image_path=out_path, spec=spec, width=width, height=height)
             )
@@ -2431,12 +2621,13 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "cast_signature": infer_cast_signature(contract),
                 "subject": str(contract.get("subject") or "").strip(),
                 "mood": str(contract.get("mood") or "").strip(),
-                "easter_egg_kind": str(contract.get("easter_egg_kind") or "pin").strip(),
+                "easter_egg_kind": str(contract.get("easter_egg_kind") or "").strip(),
                 "provider": result["provider"],
                 "prompt_hash": prompt_hash,
                 "style_epoch": dict(spec.get("style_epoch") or {}) if isinstance(spec.get("style_epoch"), dict) else {},
             }
         )
+        egg_payload = easter_egg_payload(contract)
         return {
             "target": target,
             "output": str(out_path),
@@ -2445,18 +2636,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
             "attempts": list(result["attempts"]) + [normalize_status] + postpass_attempts,
             "prompt": prompt,
             "scene_audit": list(spec.get("scene_audit") or []),
-            "easter_egg": {
-                "kind": str(contract.get("easter_egg_kind") or "pin").strip(),
-                "placement": str(contract.get("easter_egg_placement") or "inside the safe crop").strip(),
-                "detail": str(
-                    contract.get("easter_egg_detail")
-                    or "a small recurring Chummer troll motif in the classic horned squat stance"
-                ).strip(),
-                "visibility": str(
-                    contract.get("easter_egg_visibility")
-                    or "secondary but clearly visible on a README banner"
-                ).strip(),
-            },
+            "easter_egg": egg_payload,
         }
     assets = [_render_spec(spec) for spec in specs]
     manifest = {
