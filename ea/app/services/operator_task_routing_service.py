@@ -18,6 +18,7 @@ AppendEventFn = Callable[[str, str, dict[str, object]], object]
 DecorateHumanTaskFn = Callable[[HumanTask], HumanTask]
 QueueNextStepAfterFn = Callable[[str, str, str], object]
 DrainSessionInlineFn = Callable[[str], object]
+AfterHumanTaskReturnFn = Callable[[HumanTask, ExecutionStep], object]
 
 
 class OperatorTaskRoutingService:
@@ -36,6 +37,7 @@ class OperatorTaskRoutingService:
         queue_next_step_after: QueueNextStepAfterFn | None = None,
         drain_session_inline: DrainSessionInlineFn | None = None,
         decorate_human_task: DecorateHumanTaskFn | None = None,
+        after_human_task_return: AfterHumanTaskReturnFn | None = None,
     ) -> None:
         self._fetch_human_task = fetch_human_task
         self._claim_human_task = claim_human_task
@@ -49,6 +51,7 @@ class OperatorTaskRoutingService:
         self._queue_next_step_after = queue_next_step_after
         self._drain_session_inline = drain_session_inline
         self._decorate_human_task = decorate_human_task
+        self._after_human_task_return = after_human_task_return
 
     def claim_human_task(
         self,
@@ -192,6 +195,9 @@ class OperatorTaskRoutingService:
             error_json={},
             attempt_count=step.attempt_count,
         )
+        refreshed_step = self._get_step(updated.step_id) or step
+        if self._after_human_task_return is not None:
+            self._after_human_task_return(updated, refreshed_step)
         self._set_session_status(updated.session_id, "running")
         self._append_event(
             updated.session_id,

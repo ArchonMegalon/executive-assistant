@@ -139,3 +139,19 @@ class PolicyDecisionService:
             authority_class="draft",
             review_class="none",
         )
+
+    def should_defer_delivery(
+        self,
+        *,
+        principal_id: str,
+        priority: str,
+        interruption_budget_state: str,
+    ) -> bool:
+        if not str(principal_id or "").strip():
+            return False
+        if str(interruption_budget_state or "").strip().lower() != "exhausted":
+            return False
+        normalized_priority = str(priority or "normal").strip().lower() or "normal"
+        if normalized_priority in {"critical", "urgent", "high", "immediate"}:
+            return False
+        return True

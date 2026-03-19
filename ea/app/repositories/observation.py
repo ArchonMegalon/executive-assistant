@@ -25,6 +25,12 @@ class ObservationEventRepository(Protocol):
     def list_recent(self, limit: int = 50) -> list[ObservationEvent]:
         ...
 
+    def get_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+        ...
+
+    def count_recent_for_principal(self, principal_id: str, *, since: str) -> int:
+        ...
+
 
 class InMemoryObservationEventRepository:
     def __init__(self) -> None:
@@ -73,3 +79,25 @@ class InMemoryObservationEventRepository:
         n = max(1, min(500, int(limit or 50)))
         ids = list(reversed(self._order[-n:]))
         return [self._rows[i] for i in ids if i in self._rows]
+
+    def get_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+        key = str(dedupe_key or "").strip()
+        if not key:
+            return None
+        found_id = self._dedupe_to_id.get(key)
+        if not found_id:
+            return None
+        return self._rows.get(found_id)
+
+    def count_recent_for_principal(self, principal_id: str, *, since: str) -> int:
+        principal = str(principal_id or "").strip()
+        cutoff = str(since or "").strip()
+        if not principal or not cutoff:
+            return 0
+        return sum(
+            1
+            for observation_id in self._order
+            if observation_id in self._rows
+            and self._rows[observation_id].principal_id == principal
+            and str(self._rows[observation_id].created_at or "") >= cutoff
+        )

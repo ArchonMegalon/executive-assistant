@@ -65,7 +65,9 @@ from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.operator_task_routing_service import OperatorTaskRoutingService
 from app.services.policy import ApprovalRequiredError, PolicyDecisionService, PolicyDeniedError
 from app.services.provider_registry import ProviderRegistryService
+from app.services.replanning import ReplanningService
 from app.services.skills import SkillCatalogService
+from app.services.style_reflection import ReflectionRequest, StyleReflectionService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
 from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
@@ -124,6 +126,7 @@ class RewriteOrchestrator:
         skills: SkillCatalogService | None = None,
         planner: PlannerService | None = None,
         memory_runtime: MemoryRuntimeService | None = None,
+        provider_registry: ProviderRegistryService | None = None,
         tool_execution: ToolExecutionService | None = None,
         tool_runtime: ToolRuntimeService | None = None,
         queue_service: ExecutionQueueService | None = None,
@@ -140,14 +143,18 @@ class RewriteOrchestrator:
         self._skills = skills
         self._planner = planner
         self._memory_runtime = memory_runtime
+        self._provider_registry = provider_registry or ProviderRegistryService()
         self._memory_reasoning_service = (
             MemoryReasoningService(self._memory_runtime) if self._memory_runtime is not None else None
+        )
+        self._style_reflection_service = (
+            StyleReflectionService(self._memory_runtime) if self._memory_runtime is not None else None
         )
         self._tool_execution = tool_execution or _UnconfiguredToolExecutionService()
         runtime_tool_execution = tool_execution or ToolExecutionService(
             tool_runtime=tool_runtime or build_tool_runtime(),
             artifacts=self._artifacts,
-            provider_registry=ProviderRegistryService(),
+            provider_registry=self._provider_registry,
         )
         self._queue_runtime = ExecutionQueueRuntimeService(
             enqueue_step=self._ledger.enqueue_step,
@@ -156,6 +163,15 @@ class RewriteOrchestrator:
             set_session_status=self._ledger.set_session_status,
             append_event=self._ledger.append_event,
             step_id_to_retry_key=ExecutionQueueRuntimeService.default_step_id_to_retry_key,
+        )
+        self._replanning_service = ReplanningService(
+            get_session=self._ledger.get_session,
+            get_step=self._ledger.get_step,
+            start_step=self._ledger.start_step,
+            enqueue_step=self._ledger.enqueue_step,
+            set_session_status=self._ledger.set_session_status,
+            append_event=self._ledger.append_event,
+            provider_registry=self._provider_registry,
         )
         self._queue_service = queue_service or ExecutionQueueService(
             lease_queue_item=self._ledger.lease_queue_item,
@@ -179,6 +195,7 @@ class RewriteOrchestrator:
                 stop_before_step_id=stop_before_step_id,
             ),
             schedule_retry=self._queue_runtime.schedule_step_retry,
+            schedule_replan=lambda queue_item, step, exc: self._schedule_step_replan(queue_item, step, exc),
         )
         self._queue_runtime_facade = ExecutionQueueRuntimeFacade(
             queue_service=self._queue_service,
@@ -208,6 +225,7 @@ class RewriteOrchestrator:
             queue_next_step_after=self._queue_runtime_facade.queue_next_step_after,
             drain_session_inline=self._queue_runtime_facade.drain_session_inline,
             decorate_human_task=human_task_routing_service.decorate_human_task,
+            after_human_task_return=self._after_human_task_return,
         )
         self._human_task_routing_service = human_task_routing_service
         self._operator_task_routing_service = operator_task_routing_service
@@ -304,6 +322,50 @@ class RewriteOrchestrator:
             async_state_service=self._async_state_service,
             memory_reasoning_service=self._memory_reasoning_service,
             skills=self._skills,
+        )
+
+    def _schedule_step_replan(
+        self,
+        queue_item: ExecutionQueueItem,
+        rewrite_step: ExecutionStep,
+        exc: Exception,
+    ) -> bool:
+        failure_strategy = str((rewrite_step.input_json or {}).get("failure_strategy") or "fail").strip().lower() or "fail"
+        if failure_strategy != "replan":
+            return False
+        result = self._replanning_service.request_replan(queue_item, rewrite_step, exc)
+        return result is not None
+
+    def _after_human_task_return(self, human_task: HumanTask, rewrite_step: ExecutionStep) -> None:
+        if self._style_reflection_service is None:
+            return
+        original_text = str((human_task.input_json or {}).get("normalized_text") or (human_task.input_json or {}).get("source_text") or "").strip()
+        returned_payload = dict(human_task.returned_payload_json or {})
+        edited_text = str(
+            returned_payload.get("final_text")
+            or returned_payload.get("normalized_text")
+            or returned_payload.get("text")
+            or returned_payload.get("content")
+            or ""
+        ).strip()
+        if not original_text or not edited_text:
+            return
+        context_refs = (
+            f"human_task:{human_task.human_task_id}",
+            f"session:{human_task.session_id}",
+            f"step:{rewrite_step.step_id}",
+        )
+        _ = self._style_reflection_service.maybe_stage_reflection(
+            ReflectionRequest(
+                principal_id=human_task.principal_id,
+                source_session_id=human_task.session_id,
+                source_step_id=rewrite_step.step_id,
+                human_task_id=human_task.human_task_id,
+                original_text=original_text,
+                edited_text=edited_text,
+                context_refs=context_refs,
+                stakeholder_hint=str(human_task.role_required or "").strip(),
+            )
         )
 
     def _default_goal_for_task(self, task_key: str) -> str:
@@ -1045,6 +1107,7 @@ def build_default_orchestrator(
     planner: PlannerService | None = None,
     evidence_runtime: EvidenceRuntimeService | None = None,
     memory_runtime: MemoryRuntimeService | None = None,
+    provider_registry: ProviderRegistryService | None = None,
     tool_execution: ToolExecutionService | None = None,
 ) -> RewriteOrchestrator:
     resolved = settings or get_settings()
@@ -1075,5 +1138,6 @@ def build_default_orchestrator(
         skills=skill_service,
         planner=planner_service,
         memory_runtime=memory_service,
+        provider_registry=provider_registry,
         tool_execution=tool_execution,
     )

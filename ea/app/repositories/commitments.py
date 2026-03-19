@@ -27,7 +27,7 @@ class CommitmentRepository(Protocol):
     def list_commitments(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[Commitment]:
@@ -101,7 +101,7 @@ class InMemoryCommitmentRepository:
     def list_commitments(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[Commitment]:
@@ -109,7 +109,8 @@ class InMemoryCommitmentRepository:
         principal = str(principal_id or "").strip()
         status_filter = str(status or "").strip().lower()
         rows = [self._rows[cid] for cid in reversed(self._order) if cid in self._rows]
-        rows = [row for row in rows if row.principal_id == principal]
+        if principal:
+            rows = [row for row in rows if row.principal_id == principal]
         if status_filter:
             rows = [row for row in rows if row.status == status_filter]
         return rows[:n]

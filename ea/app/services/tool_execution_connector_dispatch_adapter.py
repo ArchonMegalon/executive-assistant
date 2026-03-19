@@ -41,11 +41,17 @@ class ConnectorDispatchToolAdapter:
             required_input_error="connector_binding_required:connector.dispatch",
             required_scopes=self._channel_dispatch_scopes(normalized_channel),
         )
+        metadata = dict(payload.get("metadata") or {})
+        if "principal_id" not in metadata:
+            metadata["principal_id"] = str(binding.principal_id or "").strip()
+        if "priority" not in metadata:
+            metadata["priority"] = str(payload.get("priority") or metadata.get("priority") or "normal").strip() or "normal"
+        metadata.setdefault("defer_if_focus", True)
         delivery = self.channel_runtime.queue_delivery(
             channel=normalized_channel,
             recipient=str(payload.get("recipient") or "").strip(),
             content=str(payload.get("content") or ""),
-            metadata=dict(payload.get("metadata") or {}),
+            metadata=metadata,
             idempotency_key=str(payload.get("idempotency_key") or "").strip(),
         )
         action_kind = str(request.action_kind or "delivery.send") or "delivery.send"

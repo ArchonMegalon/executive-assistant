@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from app.domain.models import DeliveryOutboxItem, ObservationEvent
 from app.repositories.delivery_outbox import DeliveryOutboxRepository, InMemoryDeliveryOutboxRepository
 from app.repositories.delivery_outbox_postgres import PostgresDeliveryOutboxRepository
 from app.repositories.observation import ObservationEventRepository, InMemoryObservationEventRepository
 from app.repositories.observation_postgres import PostgresObservationEventRepository
+from app.services.cognitive_load import CognitiveLoadService
+from app.services.policy import PolicyDecisionService
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 
 
@@ -15,9 +18,14 @@ class ChannelRuntimeService:
         self,
         observations: ObservationEventRepository,
         outbox: DeliveryOutboxRepository,
+        *,
+        cognitive_load: CognitiveLoadService | None = None,
+        policy: PolicyDecisionService | None = None,
     ) -> None:
         self._observations = observations
         self._outbox = outbox
+        self._cognitive_load = cognitive_load
+        self._policy = policy
 
     def ingest_observation(
         self,
@@ -32,7 +40,7 @@ class ChannelRuntimeService:
         auth_context_json: dict[str, object] | None = None,
         raw_payload_uri: str = "",
     ) -> ObservationEvent:
-        return self._observations.append(
+        event = self._observations.append(
             principal_id=principal_id,
             channel=channel,
             event_type=event_type,
@@ -43,9 +51,25 @@ class ChannelRuntimeService:
             auth_context_json=auth_context_json,
             raw_payload_uri=raw_payload_uri,
         )
+        if self._cognitive_load is not None and self._is_principal_originated(
+            event_type=event_type,
+            payload=payload,
+            auth_context_json=auth_context_json,
+        ):
+            self._cognitive_load.refresh_for_principal(principal_id)
+        return event
 
     def list_recent_observations(self, limit: int = 50) -> list[ObservationEvent]:
         return self._observations.list_recent(limit=limit)
+
+    def find_observation_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+        normalized = str(dedupe_key or "").strip()
+        if not normalized:
+            return None
+        return self._observations.get_by_dedupe(normalized)
+
+    def count_recent_observations_for_principal(self, principal_id: str, *, since: str) -> int:
+        return self._observations.count_recent_for_principal(str(principal_id or "").strip(), since=since)
 
     def queue_delivery(
         self,
@@ -56,13 +80,24 @@ class ChannelRuntimeService:
         *,
         idempotency_key: str = "",
     ) -> DeliveryOutboxItem:
-        return self._outbox.enqueue(
+        normalized_metadata = dict(metadata or {})
+        row = self._outbox.enqueue(
             channel=channel,
             recipient=recipient,
             content=content,
-            metadata=metadata,
+            metadata=normalized_metadata,
             idempotency_key=idempotency_key,
         )
+        if self._should_defer_delivery(normalized_metadata):
+            deferred = self._outbox.mark_failed(
+                row.delivery_id,
+                error="deferred_by_interruption_budget",
+                next_attempt_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+                dead_letter=False,
+            )
+            if deferred is not None:
+                return deferred
+        return row
 
     def mark_delivery_sent(
         self,
@@ -89,6 +124,40 @@ class ChannelRuntimeService:
 
     def list_pending_delivery(self, limit: int = 50) -> list[DeliveryOutboxItem]:
         return self._outbox.list_pending(limit=limit)
+
+    def _is_principal_originated(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object] | None,
+        auth_context_json: dict[str, object] | None,
+    ) -> bool:
+        auth = dict(auth_context_json or {})
+        if bool(auth.get("principal_originated")):
+            return True
+        if str(auth.get("actor_type") or "").strip().lower() == "principal":
+            return True
+        event_name = str(event_type or "").strip().lower()
+        if event_name.startswith("principal.") or event_name.startswith("user."):
+            return True
+        body = dict(payload or {})
+        return bool(body.get("principal_originated") or body.get("user_originated"))
+
+    def _should_defer_delivery(self, metadata: dict[str, object]) -> bool:
+        if self._cognitive_load is None or self._policy is None:
+            return False
+        principal_id = str(metadata.get("principal_id") or "").strip()
+        if not principal_id:
+            return False
+        if metadata.get("defer_if_focus") is False:
+            return False
+        state = self._cognitive_load.refresh_for_principal(principal_id)
+        priority = str(metadata.get("priority") or "normal").strip().lower() or "normal"
+        return self._policy.should_defer_delivery(
+            principal_id=principal_id,
+            priority=priority,
+            interruption_budget_state=state.interruption_budget_state,
+        )
 
 
 def _build_observation_repo(settings: Settings) -> ObservationEventRepository:
@@ -131,9 +200,16 @@ def _build_outbox_repo(settings: Settings) -> DeliveryOutboxRepository:
     return InMemoryDeliveryOutboxRepository()
 
 
-def build_channel_runtime(settings: Settings | None = None) -> ChannelRuntimeService:
+def build_channel_runtime(
+    settings: Settings | None = None,
+    *,
+    cognitive_load: CognitiveLoadService | None = None,
+    policy: PolicyDecisionService | None = None,
+) -> ChannelRuntimeService:
     resolved = settings or get_settings()
     return ChannelRuntimeService(
         observations=_build_observation_repo(resolved),
         outbox=_build_outbox_repo(resolved),
+        cognitive_load=cognitive_load,
+        policy=policy,
     )

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,18 @@ from fastapi.testclient import TestClient
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
+
+
+DESIGN_SKILL_BOOTSTRAP_PATH = Path("/docker/EA/scripts/bootstrap_design_governance_skills.py")
+
+
+def load_design_skill_bootstrap_module():
+    spec = importlib.util.spec_from_file_location("design_governance_skill_bootstrap", DESIGN_SKILL_BOOTSTRAP_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load module from {DESIGN_SKILL_BOOTSTRAP_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _client() -> TestClient:
@@ -97,11 +111,14 @@ def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> No
 
     contract = client.get("/v1/tasks/contracts/meeting_prep")
     assert contract.status_code == 200
-    budget = contract.json()["budget_policy_json"]
-    assert budget["workflow_template"] == "artifact_then_memory_candidate"
-    assert budget["skill_catalog_json"]["skill_key"] == "meeting_prep"
-    assert budget["skill_catalog_json"]["name"] == "Meeting Prep"
-    assert budget["skill_catalog_json"]["provider_hints_json"]["output"] == ["MarkupGo"]
+    contract_body = contract.json()
+    budget = contract_body["budget_policy_json"]
+    runtime_policy = contract_body["runtime_policy_json"]
+    assert runtime_policy["workflow_template"] == "artifact_then_memory_candidate"
+    assert runtime_policy["skill_catalog_json"]["skill_key"] == "meeting_prep"
+    assert runtime_policy["skill_catalog_json"]["name"] == "Meeting Prep"
+    assert runtime_policy["skill_catalog_json"]["provider_hints_json"]["output"] == ["MarkupGo"]
+    assert budget["memory_candidate_category"] == "meeting_pack_fact"
 
     compiled = client.post(
         "/v1/plans/compile",
@@ -214,6 +231,38 @@ def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> 
     )
     assert compiled.status_code == 200
     assert compiled.json()["skill_key"] == "stakeholder_briefing"
+
+
+def test_design_governance_skills_round_trip_through_catalog() -> None:
+    client = _client()
+    module = load_design_skill_bootstrap_module()
+
+    for skill in module.SKILLS:
+        created = client.post("/v1/skills", json=skill)
+        assert created.status_code == 200
+        body = created.json()
+        assert body["skill_key"] == skill["skill_key"]
+        assert body["task_key"] == skill["task_key"]
+        assert body["workflow_template"] == skill["workflow_template"]
+
+    petition = client.get("/v1/skills/design_petition")
+    assert petition.status_code == 200
+    assert petition.json()["model_policy_json"]["brain_profile"] == "review_light"
+    assert petition.json()["memory_writes"] == ["design_petition_fact"]
+
+    synthesis = client.get("/v1/skills/design_synthesis")
+    assert synthesis.status_code == 200
+    assert synthesis.json()["model_policy_json"]["brain_profile"] == "groundwork"
+    assert synthesis.json()["provider_hints_json"]["primary"] == ["Gemini Vortex"]
+
+    mirror_brief = client.get("/v1/skills/mirror_status_brief")
+    assert mirror_brief.status_code == 200
+    assert mirror_brief.json()["memory_writes"] == []
+    assert mirror_brief.json()["workflow_template"] == "rewrite"
+
+    filtered = client.get("/v1/skills", params={"provider_hint": "Gemini Vortex", "limit": 20})
+    assert filtered.status_code == 200
+    assert {row["skill_key"] for row in filtered.json()} >= {"design_petition", "design_synthesis"}
 
 
 def test_skill_catalog_service_exposes_typed_skill_records() -> None:

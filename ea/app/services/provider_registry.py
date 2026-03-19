@@ -1272,6 +1272,50 @@ class ProviderRegistryService:
             principal_id=principal_id,
         )
 
+    def candidate_routes_by_capability_with_context(
+        self,
+        *,
+        capability_key: str,
+        principal_id: str | None = None,
+        provider_hints: tuple[str, ...] = (),
+        allowed_tools: tuple[str, ...] = (),
+        require_executable: bool = True,
+    ) -> tuple[CapabilityRoute, ...]:
+        normalized_capability = self._normalize_capability_key(capability_key)
+        if not normalized_capability:
+            raise ToolExecutionError("provider_capability_required")
+        normalized_hints = tuple(
+            hint
+            for hint in (self._normalize_provider_key(value) for value in provider_hints)
+            if hint
+        )
+        allowed_tool_set = {str(value or "").strip() for value in allowed_tools if str(value or "").strip()}
+        hint_priority = {provider: index for index, provider in enumerate(normalized_hints)}
+        candidates: list[tuple[int, str, CapabilityRoute]] = []
+        for binding in self._bindings:
+            record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
+            if record is not None and str(record.status or "").strip().lower() == "disabled":
+                continue
+            if require_executable and not binding.executable:
+                continue
+            for capability in binding.capabilities:
+                if self._normalize_capability_key(capability.capability_key) != normalized_capability:
+                    continue
+                if require_executable and not capability.executable:
+                    continue
+                if allowed_tool_set and capability.tool_name not in allowed_tool_set:
+                    continue
+                priority = hint_priority.get(self._normalize_provider_key(binding.provider_key), len(normalized_hints))
+                route = CapabilityRoute(
+                    provider_key=binding.provider_key,
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                    executable=binding.executable and capability.executable,
+                )
+                candidates.append((priority, str(route.tool_name or ""), route))
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return tuple(route for _, _, route in candidates)
+
     def _normalize_capability_key(self, value: object) -> str:
         normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
         aliases = {

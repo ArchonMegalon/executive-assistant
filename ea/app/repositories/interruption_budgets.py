@@ -29,7 +29,7 @@ class InterruptionBudgetRepository(Protocol):
     def list_budgets(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[InterruptionBudget]:
@@ -108,7 +108,7 @@ class InMemoryInterruptionBudgetRepository:
     def list_budgets(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[InterruptionBudget]:
@@ -116,7 +116,8 @@ class InMemoryInterruptionBudgetRepository:
         principal = str(principal_id or "").strip()
         status_filter = str(status or "").strip().lower()
         rows = [self._rows[bid] for bid in reversed(self._order) if bid in self._rows]
-        rows = [row for row in rows if row.principal_id == principal]
+        if principal:
+            rows = [row for row in rows if row.principal_id == principal]
         if status_filter:
             rows = [row for row in rows if row.status == status_filter]
         return rows[:n]
