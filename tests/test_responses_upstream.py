@@ -815,6 +815,7 @@ def test_call_magicx_probe_marks_degraded_when_api_not_available(monkeypatch: py
 
 def test_provider_health_estimates_onemin_remaining_from_observed_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "observed-key")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "100")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "0")
@@ -833,6 +834,38 @@ def test_provider_health_estimates_onemin_remaining_from_observed_usage(monkeypa
     assert slot["estimated_credit_basis"] == "max_minus_observed_usage"
     assert slot["observed_consumed_credits"] == 30
     assert slot["observed_success_count"] == 1
+
+
+def test_provider_health_includes_fleet_jury_service_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
+    monkeypatch.setenv("EA_FLEET_STATUS_BASE_URL", "http://fleet.example")
+    monkeypatch.setenv("EA_FLEET_STATUS_API_TOKEN", "fleet-token")
+
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def fake_get_json(*, url: str, headers: dict[str, str], timeout_seconds: float):
+        calls.append((url, headers))
+        return (
+            200,
+            {
+                "active_jury_jobs": 1,
+                "queued_jury_jobs": 2,
+                "blocked_total_workers": 3,
+                "jury_lane_state": "degraded",
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_get_json", fake_get_json)
+
+    health = upstream._provider_health_report()
+
+    assert calls == [("http://fleet.example/api/cockpit/jury-telemetry", {"Authorization": "Bearer fleet-token"})]
+    assert health["jury_service"]["configured"] is True
+    assert health["jury_service"]["state"] == "ok"
+    assert health["jury_service"]["active_jury_jobs"] == 1
+    assert health["jury_service"]["queued_jury_jobs"] == 2
+    assert health["jury_service"]["blocked_total_workers"] == 3
 
 
 def test_magicx_probe_marks_ready_when_probe_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:

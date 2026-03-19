@@ -1617,6 +1617,7 @@ def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPa
     from app.services import responses_upstream as upstream
 
     upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "savings-key")
 
     upstream._record_onemin_usage_event(
@@ -1647,6 +1648,37 @@ def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPa
     assert avoided["jury_lane"]["avoided_credits"] == 150
     assert "Without the easy lane" in body["avoided_credits"]["selected_window_text"]["easy"]
     assert "Without the jury lane" in body["avoided_credits"]["selected_window_text"]["jury"]
+
+
+def test_codex_status_endpoint_exposes_fleet_jury_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-status")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
+    monkeypatch.setenv("EA_FLEET_STATUS_BASE_URL", "http://fleet.example")
+
+    def fake_get_json(*, url: str, headers: dict[str, str], timeout_seconds: float):
+        assert url == "http://fleet.example/api/cockpit/jury-telemetry"
+        return (
+            200,
+            {
+                "active_jury_jobs": 2,
+                "queued_jury_jobs": 1,
+                "blocked_total_workers": 4,
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_get_json", fake_get_json)
+
+    response = client.get("/v1/codex/status?window=1h")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["jury_service"]["configured"] is True
+    assert body["jury_service"]["state"] == "ok"
+    assert body["jury_service"]["active_jury_jobs"] == 2
+    assert body["jury_service"]["queued_jury_jobs"] == 1
+    assert body["provider_health"]["jury_service"]["blocked_total_workers"] == 4
 
 
 def test_codex_status_endpoint_exposes_onemin_probe_aggregate(monkeypatch: pytest.MonkeyPatch) -> None:
