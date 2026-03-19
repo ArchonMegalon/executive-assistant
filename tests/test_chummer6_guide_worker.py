@@ -160,6 +160,89 @@ def test_ea_json_retries_writer_skill_after_bootstrap(monkeypatch) -> None:
     assert bootstrap_calls == [True]
 
 
+def test_humanize_text_falls_back_to_brain_when_external_humanizer_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    source = (
+        "Chummer6 is pre-alpha. The proof shelf is real, the limits are real, and the next step should be honest "
+        "instead of dressed up like a finished product."
+    )
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_SENTENCES", "1")
+    monkeypatch.setenv(
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
+        "python3 -c \"import sys; sys.exit(1)\""
+    )
+    monkeypatch.setattr(
+        worker,
+        "chat_json",
+        lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+            "humanized": "Chummer6 is still pre-alpha. What matters is that the proof shelf is real, the limits are visible, and the next step is stated plainly instead of pretending the product is finished."
+        },
+    )
+
+    result = worker.humanize_text(source, target="guide:start_here:intro")
+
+    assert "proof shelf" in result.lower()
+    assert "pre-alpha" in result.lower()
+    assert worker.HUMANIZER_EXTERNAL_LOCKED_OUT is True
+
+
+def test_humanize_text_rejects_aiish_external_output_before_brain_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    source = (
+        "Chummer6 is pre-alpha, rough, and inspectable. The point is to show real receipts now, not sell a seamless journey."
+    )
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_SENTENCES", "1")
+    monkeypatch.setenv(
+        "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
+        "python3 -c \"print('A seamless toolkit for an ever-evolving journey into dynamic Shadowrun innovation.')\""
+    )
+    monkeypatch.setattr(
+        worker,
+        "chat_json",
+        lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+            "humanized": "Chummer6 is still rough and pre-alpha. The useful part is that the receipts are real now, and the copy does not pretend this thing is polished."
+        },
+    )
+
+    result = worker.humanize_text(source, target="guide:start_here:intro")
+
+    assert "seamless toolkit" not in result.lower()
+    assert "receipts" in result.lower()
+
+
+def test_humanize_text_uses_brain_when_required_without_external_humanizer(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    source = (
+        "The current build is pre-alpha, but a player can still inspect what the math did and where the numbers came from."
+    )
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "1")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_SENTENCES", "1")
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_COMMAND", raising=False)
+    monkeypatch.delenv("CHUMMER6_TEXT_HUMANIZER_COMMAND", raising=False)
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_URL_TEMPLATE", raising=False)
+    monkeypatch.delenv("CHUMMER6_TEXT_HUMANIZER_URL_TEMPLATE", raising=False)
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", raising=False)
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY", raising=False)
+    monkeypatch.setattr(worker, "external_humanizer_ready", lambda: False)
+    monkeypatch.setattr(
+        worker,
+        "chat_json",
+        lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
+            "humanized": "The current build is still pre-alpha, but a player can already inspect the math and see where the numbers came from."
+        },
+    )
+
+    result = worker.humanize_text(source, target="guide:start_here:intro")
+
+    assert "pre-alpha" in result.lower()
+    assert "inspect the math" in result.lower()
+
+
 def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults() -> None:
     worker = _load_worker_module()
 
@@ -492,6 +575,42 @@ def test_collect_interest_signals_prefers_public_safe_sources() -> None:
     assert "design_architecture" not in joined
     assert "design_milestones" not in joined
     assert "hub_readme" not in joined
+    assert "help:booster_lane" not in joined
+
+
+def test_page_supporting_context_does_not_globalize_booster_copy() -> None:
+    worker = _load_worker_module()
+
+    for page_id in ("start_here", "public_surfaces", "where_to_go_deeper"):
+        joined = "\n".join(worker.page_supporting_context(page_id)).lower()
+        assert "booster" not in joined
+
+
+def test_copy_quality_findings_requires_pre_alpha_posture_on_first_contact_pages() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "start_here",
+        {
+            "title": "Start Here",
+            "lead": "Chummer6 is the clean answer to Shadowrun math chaos.",
+            "body": "Everything is ready for your next session and the future is already lined up.",
+            "cta": "Jump in.",
+        },
+        {"title": "Start Here"},
+    )
+
+    joined = " ".join(findings).lower()
+    assert "pre-alpha" in joined
+
+
+def test_part_supporting_context_does_not_inject_booster_copy_into_hub() -> None:
+    worker = _load_worker_module()
+
+    joined = "\n".join(worker.part_supporting_context("hub")).lower()
+    assert "booster" not in joined
+    assert "participate" not in joined
 
 
 def test_build_page_prompt_includes_supporting_public_context() -> None:
@@ -511,6 +630,23 @@ def test_build_horizon_prompt_includes_rollout_access_canon() -> None:
     assert "Access posture:" in prompt
     assert "Booster nudge:" in prompt
     assert "Free-later intent:" in prompt
+    assert "Booster API scope note:" in prompt
+    assert "Booster outcome note:" in prompt
+
+
+def test_non_karma_horizons_do_not_carry_booster_rollout_context() -> None:
+    worker = _load_worker_module()
+
+    rollout = worker.horizon_rollout_context("jackpoint", worker.HORIZONS["jackpoint"])
+
+    assert rollout == {
+        "access_posture": "",
+        "resource_burden": "",
+        "booster_nudge": "",
+        "free_later_intent": "",
+        "booster_api_scope_note": "",
+        "booster_outcome_note": "",
+    }
 
 
 def test_copy_quality_findings_flags_generic_copy_and_missing_booster_posture() -> None:
@@ -534,10 +670,43 @@ def test_copy_quality_findings_flags_generic_copy_and_missing_booster_posture() 
         },
     )
 
-    joined = " ".join(findings)
+    joined = " ".join(findings).lower()
     assert "generic filler" in joined
     assert "booster-first preview posture" in joined
     assert "broad-access or free-later intent" in joined
+    assert "api-side consumption for development" in joined
+    assert "does not promise a useful or shippable result" in joined
+
+
+def test_copy_quality_findings_does_not_force_booster_copy_for_non_karma_horizons() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "horizon",
+        "jackpoint",
+        {
+            "hook": "Finished briefings that keep their receipts.",
+            "problem": "I want dossiers and recaps that do not lie to me.",
+            "table_scene": "\n".join(
+                [
+                    "GM: The packet lands before the van does.",
+                    "Face: Good. I need the lie polished, not invented.",
+                    "Rigger: The route overlay finally reads like a real plan.",
+                    "Decker: And the citations still point back to the real evidence.",
+                    "GM: That is the whole point.",
+                ]
+            ),
+            "meanwhile": "- Proof stays attached to the pretty version.\n- The brief reads fast without losing receipts.",
+            "why_great": "It turns grim notes into artifacts people can actually use at the table.",
+            "why_waits": "The packaging only matters if provenance survives the polish.",
+            "pitch_line": "Make the packet look finished without making the facts up.",
+        },
+        worker.HORIZONS["jackpoint"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "booster-first preview posture" not in joined
+    assert "free-later" not in joined
 
 
 def test_copy_quality_findings_flags_horizon_shape_drift() -> None:

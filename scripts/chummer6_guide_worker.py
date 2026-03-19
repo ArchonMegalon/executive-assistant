@@ -35,6 +35,9 @@ SCENE_LEDGER_PATH = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 DEFAULT_MODEL = "ea-groundwork"
 WORKING_VARIANT: dict[str, object] | None = None
 TEXT_PROVIDER_USED: str = ""
+HUMANIZER_EXTERNAL_LOCKED_OUT: bool = False
+HUMANIZER_EXTERNAL_LOCKOUT_REASON: str = ""
+HUMANIZER_EXTERNAL_READY: bool | None = None
 EA_ORCHESTRATOR = None
 EA_CONTAINER = None
 PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
@@ -109,13 +112,21 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - if the reader can act, route them to the Chummer6 issue tracker, releases, or the owning repos as appropriate
 - do not send normal users to chummer6-design to propose features or clean up guide drift
 - do not open public pages with repo structure, split mechanics, blueprint talk, or architecture lectures
+- on first-contact pages, prioritize: what works today, why to trust it, how rough it still is, and what the reader can try next
+- give the reader at least one concrete table win or proof point instead of only product framing
 - never invent or restate canonical mechanics, dice math, thresholds, DV/AP, or stat values unless they come from explicit core receipts
 - if a section needs rules truth, point to the core-backed receipt or outcome instead of recomputing mechanics in guide/help/media copy
 - use long-range plan instead of blueprint, and only mention code repos when the reader explicitly wants source or implementation detail
 - translate any internal term into a table-facing benefit the moment it appears
 - glossary terms must be things a player or GM can actually feel at the table
 - translate internal jargon immediately or avoid it
+- this is pre-alpha: current proof surfaces may be real, but they are still rough, and future lanes are contingent rather than promised
+- when describing the future, write like there is a nonzero chance some of it never fully lands
 - humor should be sparse, dry, and useful; if the joke is not better than clear prose, skip it
+- a rare Shadowrun-lore jab at cursed code, corp-grade UX, busted patch rituals, or an overpriced cerebral-booster tier mindset is fine if it sharpens the point
+- sparse lore-bound vice metaphors like cram, jazz, novacoke, or stim-burnout are fine when they read like world flavor rather than real-world shock bait
+- keep that sharper lore-roast energy mostly to core, UI, or KARMA FORGE style material; keep FAQ, help, account, and participation copy cleaner
+- never make the reader, their body, or private real-life circumstances the target of the joke
 """
 FORBIDDEN_PUBLIC_COPY_PHRASES: tuple[str, ...] = (
     "fix chummer6 first",
@@ -169,6 +180,7 @@ SPARSE_HUMOR_ASSET_TARGETS: frozenset[str] = frozenset(
         "assets/horizons/karma-forge.png",
     }
 )
+BOOSTER_REFERENCE_HORIZON = "karma-forge"
 MEDIA_META_HUMOR_TOKENS: tuple[str, ...] = (
     " dev ",
     " developer",
@@ -728,6 +740,10 @@ WEAK_COPY_PHRASES: tuple[str, ...] = (
     "we are building",
     "we're building",
     "long-range plans ready",
+    "works perfectly",
+    "absolute rules-certainty",
+    "absolute rules certainty",
+    "guaranteed",
 )
 
 
@@ -766,11 +782,6 @@ def _public_card_buckets(*bucket_names: str, audience: str = "public", limit: in
 
 def page_supporting_context(page_id: str) -> list[str]:
     page = str(page_id or "").strip()
-    help_snippets = [
-        str(HELP.get("booster_lane") or "").strip(),
-        str(HELP.get("free_later_note") or "").strip(),
-    ]
-    help_snippets.extend(str(line).strip() for line in (HELP.get("privacy_and_review_safety") or []) if str(line).strip())
     faq_questions = []
     for section in FAQ.values():
         if not isinstance(section, dict):
@@ -787,14 +798,12 @@ def page_supporting_context(page_id: str) -> list[str]:
         "what_chummer6_is": ("what_you_can_do_today", "why_this_feels_different"),
         "current_phase": ("whats_real_now", "coming_next"),
         "current_status": ("whats_real_now", "release_shelf"),
-        "public_surfaces": ("what_you_can_do_today", "release_shelf", "participate"),
+        "public_surfaces": ("what_you_can_do_today", "release_shelf"),
         "parts_index": ("choose_your_lane",),
         "horizons_index": ("coming_next",),
-        "where_to_go_deeper": ("participate", "release_shelf"),
+        "where_to_go_deeper": ("release_shelf",),
     }
     snippets = _public_card_buckets(*buckets_map.get(page, ()), limit=6)
-    if page in {"start_here", "public_surfaces", "where_to_go_deeper"}:
-        snippets.extend([value for value in help_snippets if value][:3])
     if page in {"public_surfaces", "where_to_go_deeper"}:
         snippets.extend(f"FAQ: {question}" for question in faq_questions[:3])
     return snippets[:8]
@@ -806,22 +815,13 @@ def part_supporting_context(part_id: str) -> list[str]:
         "core": ("why_this_feels_different", "whats_real_now"),
         "ui": ("what_you_can_do_today", "release_shelf"),
         "mobile": ("what_you_can_do_today", "whats_real_now"),
-        "hub": ("what_you_can_do_today", "participate", "release_shelf"),
+        "hub": ("what_you_can_do_today", "release_shelf"),
         "design": ("coming_next",),
         "ui-kit": ("what_you_can_do_today",),
         "hub-registry": ("featured_artifacts", "release_shelf"),
         "media-factory": ("featured_artifacts",),
     }
     snippets = _public_card_buckets(*buckets_map.get(part, ()), limit=6)
-    if part == "hub":
-        snippets.extend(
-            value
-            for value in (
-                str(HELP.get("booster_lane") or "").strip(),
-                *[str(line).strip() for line in (HELP.get("privacy_and_review_safety") or [])[:2]],
-            )
-            if value
-        )
     return snippets[:8]
 
 
@@ -855,6 +855,26 @@ def read_markdown_excerpt(relative_path: str, *, limit: int = 360) -> str:
         if sum(len(row) for row in lines) >= limit:
             break
     return " ".join(lines)[:limit].strip()
+
+
+def horizon_rollout_context(name: str, item: dict[str, object]) -> dict[str, str]:
+    if name != BOOSTER_REFERENCE_HORIZON:
+        return {
+            "access_posture": "",
+            "resource_burden": "",
+            "booster_nudge": "",
+            "free_later_intent": "",
+            "booster_api_scope_note": "",
+            "booster_outcome_note": "",
+        }
+    return {
+        "access_posture": str(item.get("access_posture", "")).strip(),
+        "resource_burden": str(item.get("resource_burden", "")).strip(),
+        "booster_nudge": str(item.get("booster_nudge", "")).strip(),
+        "free_later_intent": str(item.get("free_later_intent", "")).strip(),
+        "booster_api_scope_note": "Booster here means we may consume your API-backed capacity for development work. Normal product/UI use on your account stays unaffected unless you built your own API-side tooling around that same capacity.",
+        "booster_outcome_note": "The promise is that we may spend the API capacity on this expensive lane, not that it will reliably produce something useful or shippable.",
+    }
 
 
 def short_sentence(text: str, *, limit: int = 160) -> str:
@@ -1055,6 +1075,54 @@ def humanizer_required() -> bool:
     return False
 
 
+def _browseract_humanizer_script_path() -> str:
+    return str(EA_ROOT / "scripts" / "chummer6_browseract_humanizer.py")
+
+
+def external_humanizer_ready() -> bool:
+    global HUMANIZER_EXTERNAL_READY
+    if HUMANIZER_EXTERNAL_LOCKED_OUT:
+        return False
+    if HUMANIZER_EXTERNAL_READY is not None:
+        return HUMANIZER_EXTERNAL_READY
+    if not humanizer_available():
+        HUMANIZER_EXTERNAL_READY = False
+        return False
+    command = shlex_command("CHUMMER6_BROWSERACT_HUMANIZER_COMMAND")
+    script_path = _browseract_humanizer_script_path()
+    if command[:2] == ["python3", script_path]:
+        try:
+            completed = subprocess.run(
+                ["python3", script_path, "check"],
+                check=False,
+                text=True,
+                capture_output=True,
+                timeout=min(60, humanizer_timeout_seconds()),
+            )
+            if completed.returncode == 0:
+                HUMANIZER_EXTERNAL_READY = True
+                return True
+            detail = (completed.stdout or completed.stderr or "browseract_humanizer_unhealthy").strip()
+            lock_out_external_humanizer(detail[:400])
+            return False
+        except Exception as exc:
+            lock_out_external_humanizer(str(exc))
+            return False
+    HUMANIZER_EXTERNAL_READY = True
+    return True
+
+
+def humanizer_lockout_reason() -> str:
+    return HUMANIZER_EXTERNAL_LOCKOUT_REASON
+
+
+def lock_out_external_humanizer(reason: str) -> None:
+    global HUMANIZER_EXTERNAL_LOCKED_OUT, HUMANIZER_EXTERNAL_LOCKOUT_REASON, HUMANIZER_EXTERNAL_READY
+    HUMANIZER_EXTERNAL_LOCKED_OUT = True
+    HUMANIZER_EXTERNAL_READY = False
+    HUMANIZER_EXTERNAL_LOCKOUT_REASON = str(reason or "external_humanizer_failed").strip() or "external_humanizer_failed"
+
+
 def humanize_text_local(text: str, *, target: str) -> str:
     raw = str(text or "")
     if not raw.strip():
@@ -1110,6 +1178,139 @@ def word_count(text: str) -> int:
     return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'\\-]*", str(text or "")))
 
 
+def _humanizer_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]{2,}", str(text or "").lower())
+        if len(token) >= 4
+        and token
+        not in {
+            "about",
+            "after",
+            "again",
+            "being",
+            "could",
+            "first",
+            "from",
+            "into",
+            "just",
+            "more",
+            "over",
+            "their",
+            "there",
+            "these",
+            "this",
+            "those",
+            "very",
+            "while",
+            "with",
+            "your",
+        }
+    }
+
+
+def humanizer_overlap_score(source: str, candidate: str) -> tuple[int, float]:
+    source_tokens = _humanizer_tokens(source)
+    candidate_tokens = _humanizer_tokens(candidate)
+    if not source_tokens or not candidate_tokens:
+        return 0, 0.0
+    overlap = len(source_tokens & candidate_tokens)
+    ratio = overlap / max(1, len(source_tokens))
+    return overlap, ratio
+
+
+def humanizer_ai_tells(text: str) -> list[str]:
+    lowered = str(text or "").lower()
+    phrases = (
+        "seamless",
+        "unlock",
+        "ever-evolving",
+        "in today's",
+        "dynamic landscape",
+        "not just ",
+        "more than just",
+        "journey",
+        "delve into",
+        "toolkit",
+        "foundation",
+        "elevate",
+        "next-level",
+        "game-changer",
+        "transformative",
+        "empowering",
+        "streamlined",
+    )
+    return [phrase for phrase in phrases if phrase in lowered]
+
+
+def humanized_candidate_findings(source: str, candidate: str) -> list[str]:
+    findings: list[str] = []
+    cleaned_source = str(source or "").strip()
+    cleaned_candidate = str(candidate or "").strip()
+    if not cleaned_candidate:
+        return ["empty_output"]
+    overlap, ratio = humanizer_overlap_score(cleaned_source, cleaned_candidate)
+    if overlap < 2 or ratio < 0.12:
+        findings.append("low_source_overlap")
+    if word_count(cleaned_candidate) < max(12, int(word_count(cleaned_source) * 0.35)):
+        findings.append("collapsed_too_far")
+    ai_tells = humanizer_ai_tells(cleaned_candidate)
+    if len(ai_tells) >= 2:
+        findings.append("ai_tells:" + ",".join(ai_tells[:4]))
+    if "pre-alpha" in cleaned_source.lower() and "pre-alpha" not in cleaned_candidate.lower():
+        findings.append("dropped_pre_alpha")
+    return findings
+
+
+def humanized_candidate_ok(source: str, candidate: str) -> bool:
+    return not humanized_candidate_findings(source, candidate)
+
+
+def _humanizer_prompt(text: str, *, target: str, retry_reason: str = "") -> str:
+    retry_block = f"\nPrevious rewrite failed because: {retry_reason}\nTighten it.\n" if retry_reason else ""
+    return f"""You are the final human editorial pass for public-facing Chummer6 copy.
+
+Task: rewrite the source text so it reads like a sharp human editor wrote it.
+
+Return JSON only with one key: `humanized`.
+
+Rules:
+- preserve factual meaning, caveats, limits, route names, product names, and uncertainty
+- do not add new claims, features, promises, or mechanics
+- keep the same overall point and roughly similar density
+- prefer concrete language over abstract product mush
+- keep the existing tone grounded, adult, and dry; do not add jokes unless the source already has one
+- if the source sounds pre-alpha, keep it pre-alpha
+- if the source warns that something may fail or never fully land, keep that warning explicit
+- avoid synthetic phrases like seamless, unlock, journey, toolkit, foundation, or more-than-just framing
+- do not sound like marketing copy, investor copy, or AI filler
+- profanity is allowed only when it already fits the source naturally
+
+Target: {target}
+{retry_block}
+Source text:
+\"\"\"{text}\"\"\"
+"""
+
+
+def humanize_text_brain(text: str, *, target: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    retry_reason = ""
+    for _attempt in range(2):
+        payload = chat_json(
+            _humanizer_prompt(cleaned, target=target, retry_reason=retry_reason),
+            model=default_text_model(),
+            skill_key=PUBLIC_WRITER_SKILL_KEY,
+        )
+        humanized = str(payload.get("humanized") or payload.get("result") or "").strip()
+        if humanized_candidate_ok(cleaned, humanized):
+            return humanized
+        retry_reason = " | ".join(humanized_candidate_findings(cleaned, humanized)) or "invalid_rewrite"
+    raise RuntimeError(f"brain_humanizer_failed:{retry_reason or 'invalid_rewrite'}")
+
+
 def humanize_text(text: str, *, target: str) -> str:
     cleaned = str(text or "").strip()
     if not cleaned:
@@ -1125,45 +1326,65 @@ def humanize_text(text: str, *, target: str) -> str:
         "CHUMMER6_TEXT_HUMANIZER_URL_TEMPLATE",
     ]
     attempted: list[str] = []
-    external_expected = humanizer_available()
-    for env_name in command_names:
-        command = shlex_command(env_name)
-        if not command:
-            continue
-        try:
-            completed = subprocess.run(
-                [part.format(text=cleaned, prompt=cleaned, target=target) for part in command],
-                check=True,
-                text=True,
-                capture_output=True,
-                timeout=humanizer_timeout_seconds(),
+    external_expected = external_humanizer_ready()
+    if external_expected:
+        for env_name in command_names:
+            command = shlex_command(env_name)
+            if not command:
+                continue
+            try:
+                completed = subprocess.run(
+                    [part.format(text=cleaned, prompt=cleaned, target=target) for part in command],
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                    timeout=humanizer_timeout_seconds(),
+                )
+                humanized = (completed.stdout or "").strip()
+                if humanized and humanized_candidate_ok(cleaned, humanized):
+                    return humanized
+                if humanized:
+                    attempted.append(
+                        f"{env_name}:invalid_output:{'|'.join(humanized_candidate_findings(cleaned, humanized))}"
+                    )
+                else:
+                    attempted.append(f"{env_name}:empty_output")
+            except Exception as exc:
+                attempted.append(f"{env_name}:{exc}")
+        for env_name in template_names:
+            template = url_template(env_name)
+            if not template:
+                continue
+            url = template.format(
+                text=urllib.parse.quote(cleaned, safe=""),
+                prompt=urllib.parse.quote(cleaned, safe=""),
+                target=urllib.parse.quote(target, safe=""),
             )
-            humanized = (completed.stdout or "").strip()
-            if humanized:
-                return humanized
-            attempted.append(f"{env_name}:empty_output")
-        except Exception as exc:
-            attempted.append(f"{env_name}:{exc}")
-    for env_name in template_names:
-        template = url_template(env_name)
-        if not template:
-            continue
-        url = template.format(
-            text=urllib.parse.quote(cleaned, safe=""),
-            prompt=urllib.parse.quote(cleaned, safe=""),
-            target=urllib.parse.quote(target, safe=""),
-        )
-        request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-Humanizer/1.0"})
-        try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                humanized = response.read().decode("utf-8", errors="replace").strip()
-            if humanized:
-                return humanized
-            attempted.append(f"{env_name}:empty_output")
-        except Exception as exc:
-            attempted.append(f"{env_name}:{exc}")
+            request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-Humanizer/1.0"})
+            try:
+                with urllib.request.urlopen(request, timeout=90) as response:
+                    humanized = response.read().decode("utf-8", errors="replace").strip()
+                if humanized and humanized_candidate_ok(cleaned, humanized):
+                    return humanized
+                if humanized:
+                    attempted.append(
+                        f"{env_name}:invalid_output:{'|'.join(humanized_candidate_findings(cleaned, humanized))}"
+                    )
+                else:
+                    attempted.append(f"{env_name}:empty_output")
+            except Exception as exc:
+                attempted.append(f"{env_name}:{exc}")
+    if attempted:
+        lock_out_external_humanizer(" || ".join(attempted))
+    try:
+        brain_humanized = humanize_text_brain(cleaned, target=target)
+        if humanized_candidate_ok(cleaned, brain_humanized):
+            return brain_humanized
+        attempted.append("brain_humanizer_invalid")
+    except Exception as exc:
+        attempted.append(str(exc))
     if humanizer_required():
-        detail = " || ".join(attempted) if attempted else "no_external_humanizer_succeeded"
+        detail = " || ".join(attempted) if attempted else humanizer_lockout_reason() or "no_humanizer_succeeded"
         raise RuntimeError(f"text_humanizer_failed:{detail}")
     return humanize_text_local(cleaned, target=target)
 
@@ -1253,6 +1474,7 @@ def build_horizon_prompt(
     foundations = "\n".join(f"- {line}" for line in item.get("foundations", []))
     repos = ", ".join(str(repo) for repo in item.get("repos", []))
     current_page = read_markdown_excerpt(f"HORIZONS/{name}.md", limit=360)
+    rollout = horizon_rollout_context(name, item)
     return f"""You are writing downstream-only horizon copy for the human-facing Chummer6 guide.
 
 Task: return a JSON object only with keys hook, problem, table_scene, meanwhile, why_great, why_waits, pitch_line.
@@ -1294,16 +1516,22 @@ Touched repos later:
 {repos}
 
 Access posture:
-{item.get("access_posture", "")}
+{rollout["access_posture"]}
 
 Resource burden:
-{item.get("resource_burden", "")}
+{rollout["resource_burden"]}
 
 Booster nudge:
-{item.get("booster_nudge", "")}
+{rollout["booster_nudge"]}
 
 Free-later intent:
-{item.get("free_later_intent", "")}
+{rollout["free_later_intent"]}
+
+Booster API scope note:
+{rollout["booster_api_scope_note"]}
+
+Booster outcome note:
+{rollout["booster_outcome_note"]}
 
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
@@ -1462,6 +1690,7 @@ def build_section_oodas_bundle_prompt(
                 "go_deeper_links": item.get("go_deeper_links", []),
             }
         else:
+            rollout = horizon_rollout_context(name, item)
             payload[name] = {
                 "title": title,
                 "hook": item.get("hook", ""),
@@ -1471,10 +1700,12 @@ def build_section_oodas_bundle_prompt(
                 "foundations": item.get("foundations", []),
                 "repos": item.get("repos", []),
                 "not_now": item.get("not_now", ""),
-                "access_posture": item.get("access_posture", ""),
-                "resource_burden": item.get("resource_burden", ""),
-                "booster_nudge": item.get("booster_nudge", ""),
-                "free_later_intent": item.get("free_later_intent", ""),
+                "access_posture": rollout["access_posture"],
+                "resource_burden": rollout["resource_burden"],
+                "booster_nudge": rollout["booster_nudge"],
+                "free_later_intent": rollout["free_later_intent"],
+                "booster_api_scope_note": rollout["booster_api_scope_note"],
+                "booster_outcome_note": rollout["booster_outcome_note"],
                 "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=220),
             }
     return f"""You are doing section-level OODA for multiple human-facing Chummer6 guide sections.
@@ -1842,6 +2073,7 @@ def build_horizons_bundle_prompt(
 ) -> str:
     horizons_payload: dict[str, object] = {}
     for name, item in items.items():
+        rollout = horizon_rollout_context(name, item)
         horizons_payload[name] = {
             "title": item.get("title", ""),
             "hook": item.get("hook", ""),
@@ -1851,10 +2083,12 @@ def build_horizons_bundle_prompt(
             "foundations": item.get("foundations", []),
             "repos": item.get("repos", []),
             "not_now": item.get("not_now", ""),
-            "access_posture": item.get("access_posture", ""),
-            "resource_burden": item.get("resource_burden", ""),
-            "booster_nudge": item.get("booster_nudge", ""),
-            "free_later_intent": item.get("free_later_intent", ""),
+            "access_posture": rollout["access_posture"],
+            "resource_burden": rollout["resource_burden"],
+            "booster_nudge": rollout["booster_nudge"],
+            "free_later_intent": rollout["free_later_intent"],
+            "booster_api_scope_note": rollout["booster_api_scope_note"],
+            "booster_outcome_note": rollout["booster_outcome_note"],
             "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=260),
             "section_ooda": section_oodas.get(name, {}),
             "asset_target": f"assets/horizons/{name}.png",
@@ -2232,12 +2466,25 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append("Name at least one concrete proof surface or public action instead of describing the project only in abstract terms.")
+        if name in {"readme", "start_here", "current_phase", "current_status"} and not any(
+            token in lowered
+            for token in (
+                "pre-alpha",
+                "proof shelf",
+                "poc",
+                "rough edge",
+                "early build",
+                "not a promise",
+            )
+        ):
+            findings.append("Make the pre-alpha and proof-first posture explicit so the guide does not sound like a finished-product pitch.")
     if section_type == "part":
         if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
             findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
     if section_type == "horizon":
-        access_posture = str(item.get("access_posture") or "").strip().lower()
-        free_later_intent = str(item.get("free_later_intent") or "").strip()
+        rollout = horizon_rollout_context(name, item)
+        access_posture = rollout["access_posture"].lower()
+        free_later_intent = rollout["free_later_intent"]
         table_scene_lines = [
             line.strip()
             for line in str(row.get("table_scene", "")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -2259,6 +2506,11 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             for token in ("wider access", "broader access", "not a permanent paywall", "free later", "free baseline")
         ):
             findings.append("State the broad-access or free-later intent when canon provides it.")
+        if name == BOOSTER_REFERENCE_HORIZON:
+            if not ("api" in lowered and ("ui" in lowered or "account" in lowered)):
+                findings.append("Explain that the booster promise is API-side consumption for development and does not restrict normal UI/account use.")
+            if not any(token in lowered for token in ("no promise", "not promise", "might get nothing", "may get nothing", "nothing useful", "not guaranteed")):
+                findings.append("Say plainly that spending the API capacity does not promise a useful or shippable result.")
     for phrase in WEAK_COPY_PHRASES:
         if phrase in lowered:
             findings.append(f"Replace generic filler like '{phrase}' with a sharper table-facing, proof-facing, or user-action detail.")
@@ -2296,14 +2548,17 @@ def build_copy_polish_prompt(
         context_payload["go_deeper_links"] = list(item.get("go_deeper_links") or [])
         context_payload["supporting_public_context"] = part_supporting_context(name)
     else:
+        rollout = horizon_rollout_context(name, item)
         context_payload["title"] = str(item.get("title", "")).strip()
         context_payload["hook"] = str(item.get("hook", "")).strip()
         context_payload["problem"] = str(item.get("problem", "")).strip()
         context_payload["use_case"] = str(item.get("use_case", "")).strip()
-        context_payload["access_posture"] = str(item.get("access_posture", "")).strip()
-        context_payload["resource_burden"] = str(item.get("resource_burden", "")).strip()
-        context_payload["booster_nudge"] = str(item.get("booster_nudge", "")).strip()
-        context_payload["free_later_intent"] = str(item.get("free_later_intent", "")).strip()
+        context_payload["access_posture"] = rollout["access_posture"]
+        context_payload["resource_burden"] = rollout["resource_burden"]
+        context_payload["booster_nudge"] = rollout["booster_nudge"]
+        context_payload["free_later_intent"] = rollout["free_later_intent"]
+        context_payload["booster_api_scope_note"] = rollout["booster_api_scope_note"]
+        context_payload["booster_outcome_note"] = rollout["booster_outcome_note"]
         context_payload["foundations"] = list(item.get("foundations") or [])
     return f"""You are revising downstream-only {section_type} copy for the human-facing Chummer6 guide.
 
@@ -2425,14 +2680,15 @@ def collect_interest_signals() -> dict[str, object]:
         row = HORIZONS.get(slug)
         if not isinstance(row, dict):
             continue
+        rollout = horizon_rollout_context(slug, row)
         text = " ".join(
             part
             for part in (
                 str(row.get("title") or "").strip(),
                 str(row.get("hook") or "").strip(),
                 str(row.get("problem") or "").strip(),
-                str(row.get("booster_nudge") or "").strip(),
-                str(row.get("free_later_intent") or "").strip(),
+                rollout["booster_nudge"],
+                rollout["free_later_intent"],
             )
             if part
         )
@@ -2440,14 +2696,10 @@ def collect_interest_signals() -> dict[str, object]:
             f"horizon:{slug}",
             text,
             extra_tags=[
-                str(row.get("access_posture") or "").strip(),
+                rollout["access_posture"],
                 "future_horizons",
             ],
         )
-    add_snippet("help:booster_lane", str(HELP.get("booster_lane") or "").strip(), extra_tags=["booster_participation"])
-    add_snippet("help:free_later", str(HELP.get("free_later_note") or "").strip(), extra_tags=["free_later_intent"])
-    for line in (HELP.get("privacy_and_review_safety") or [])[:4]:
-        add_snippet("help:safety", str(line).strip(), extra_tags=["review_safety"])
     for section_id, section in FAQ.items():
         if not isinstance(section, dict):
             continue
@@ -2631,10 +2883,10 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
         },
         "act": {
             "landing_tagline": "Shadowrun rules truth, with receipts.",
-            "landing_intro": "Chummer6 is trying to make Shadowrun rulings faster, clearer, and easier to trust when the table is loud and the stakes are dumb.",
+            "landing_intro": "Chummer6 is a pre-alpha attempt to make Shadowrun rulings faster, clearer, and easier to trust when the table is loud and the stakes are dumb.",
             "what_it_is": "Chummer6 is a local-first, multi-era Shadowrun rules engine and prep surface that shows its work instead of asking you to trust mystery math.",
-            "watch_intro": "If you care about receipts, recoverable sessions, and future tools that feel useful instead of decorative, this is the version worth watching.",
-            "horizon_intro": "Horizons are future lanes worth watching once the current proof surfaces are solid enough to carry them.",
+            "watch_intro": "If you care about receipts, recoverable sessions, and future tools that might become useful instead of decorative, this is the rough version worth watching.",
+            "horizon_intro": "Horizons are contingent future lanes worth watching only after the current proof surfaces are solid enough to carry them.",
         },
     }
 
@@ -2781,7 +3033,9 @@ Requirements:
   - palette
   - mood
   - humor
-- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a personal roast, quoted joke, or readable sign
+- a sparse Shadowrun-lore jab at cursed code, corp UX, wage-mage patch rituals, or cerebral-booster bravado is fine when the scene earns it
+- sparse Shadowrun vice cues like cram haze, jazz crash, or novacoke bravado are fine when they stay clearly fictional and scene-bound
 - scene_contract.subject should name the focal subject in plain language
 - scene_contract.metaphor should name the strongest visual metaphor if one exists
 - scene_contract.props should be a short list of concrete visible things
@@ -2863,7 +3117,9 @@ Requirements:
   - palette
   - mood
   - humor
-- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a personal roast, quoted joke, or readable sign
+- a sparse Shadowrun-lore jab at cursed code, corp UX, wage-mage patch rituals, or cerebral-booster bravado is fine when the scene earns it
+- sparse Shadowrun vice cues like cram haze, jazz crash, or novacoke bravado are fine when they stay clearly fictional and scene-bound
 
 Return valid JSON only.
 """
@@ -2949,7 +3205,9 @@ Requirements:
   - palette
   - mood
   - humor
-- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a personal roast, quoted joke, or readable sign
+- a sparse Shadowrun-lore jab at cursed code, corp UX, wage-mage patch rituals, or cerebral-booster bravado is fine when the scene earns it
+- sparse Shadowrun vice cues like cram haze, jazz crash, or novacoke bravado are fine when they stay clearly fictional and scene-bound
 - if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline or dashboard
 - if the metaphor is x-ray / dossier / forge / ghost / heat web / mirror / passport / blackbox / simulation, make scene_contract.metaphor explicit
 
