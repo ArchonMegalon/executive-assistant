@@ -538,7 +538,14 @@ HORIZONS = load_horizon_canon()
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
 
 
+def guide_excerpt_context_enabled() -> bool:
+    raw = str(os.environ.get("CHUMMER6_GUIDE_INCLUDE_EXISTING_EXCERPTS") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def read_markdown_excerpt(relative_path: str, *, limit: int = 360) -> str:
+    if not guide_excerpt_context_enabled():
+        return ""
     path = GUIDE_ROOT / relative_path
     if not path.exists():
         return ""
@@ -858,11 +865,11 @@ def build_part_prompt(
     *,
     section_ooda: dict[str, object] | None = None,
 ) -> str:
-    owns = "\n".join(f"- {line}" for line in item.get("owns", []))
-    not_owns = "\n".join(f"- {line}" for line in item.get("not_owns", []))
+    notice = "\n".join(f"- {line}" for line in item.get("notice", item.get("owns", [])))
+    limits = "\n".join(f"- {line}" for line in item.get("limits", item.get("not_owns", [])))
     return f"""You are writing downstream-only copy for the human-facing Chummer6 guide.
 
-Task: return a JSON object only with keys intro, why, now.
+Task: return a JSON object only with keys when, why, now.
 
 Voice rules:
 - clear, slightly playful, Shadowrun-flavored
@@ -880,17 +887,17 @@ Voice rules:
 Part id: {name}
 Title: {item.get("title", "")}
 Tagline: {item.get("tagline", "")}
-Current intro:
-{item.get("intro", "")}
+When you touch this:
+{item.get("when", "")}
 
 Why it matters:
 {item.get("why", "")}
 
-What it owns:
-{owns}
+What you notice first:
+{notice}
 
-What it does not own:
-{not_owns}
+What you do not need to care about yet:
+{limits}
 
 Current now-text:
 {item.get("now", "")}
@@ -997,10 +1004,10 @@ def build_section_ooda_prompt(
             "source": "\n\n".join(
                 [
                     f"Tagline: {item.get('tagline', '')}",
-                    f"Intro: {item.get('intro', '')}",
+                    f"When you touch this: {item.get('when', item.get('intro', ''))}",
                     f"Why: {item.get('why', '')}",
-                    "Owns:\n" + "\n".join(f"- {line}" for line in item.get("owns", [])),
-                    "Does not own:\n" + "\n".join(f"- {line}" for line in item.get("not_owns", [])),
+                    "What you notice:\n" + "\n".join(f"- {line}" for line in item.get("notice", item.get("owns", []))),
+                    "What you do not need to care about yet:\n" + "\n".join(f"- {line}" for line in item.get("limits", item.get("not_owns", []))),
                     f"Now: {item.get('now', '')}",
                 ]
             ),
@@ -1095,11 +1102,11 @@ def build_section_oodas_bundle_prompt(
             payload[name] = {
                 "title": title,
                 "tagline": item.get("tagline", ""),
-                "intro": item.get("intro", ""),
+                "when": item.get("when", item.get("intro", "")),
                 "why": item.get("why", ""),
                 "now": item.get("now", ""),
-                "owns": item.get("owns", []),
-                "not_owns": item.get("not_owns", []),
+                "notice": item.get("notice", item.get("owns", [])),
+                "limits": item.get("limits", item.get("not_owns", [])),
             }
         else:
             payload[name] = {
@@ -1403,18 +1410,18 @@ def build_parts_bundle_prompt(
         parts_payload[name] = {
             "title": item.get("title", ""),
             "tagline": item.get("tagline", ""),
-            "intro": item.get("intro", ""),
+            "when": item.get("when", item.get("intro", "")),
             "why": item.get("why", ""),
             "now": item.get("now", ""),
-            "owns": item.get("owns", []),
-            "not_owns": item.get("not_owns", []),
+            "notice": item.get("notice", item.get("owns", [])),
+            "limits": item.get("limits", item.get("not_owns", [])),
             "section_ooda": section_oodas.get(name, {}),
         }
     return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 part pages.
 
 Task: return one JSON object keyed by part id.
 Each part id must map to:
-- copy: object with intro, why, now
+- copy: object with when, why, now
 - media: object with badge, title, subtitle, kicker, note, meta, visual_prompt, overlay_hint, visual_motifs, overlay_callouts, scene_contract
 
 Rules:
@@ -1549,7 +1556,7 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
                 str(copy.get(key, "")).strip(),
                 context=f"part:{name}:{key}",
             )
-            for key in ("intro", "why", "now")
+            for key in ("when", "why", "now")
             if str(copy.get(key, "")).strip()
         }
         if len(cleaned_copy) < 3:
@@ -2001,14 +2008,14 @@ Source page excerpt:
 Part id: {name}
 Title: {title}
 Tagline: {item.get("tagline", "")}
-Intro: {item.get("intro", "")}
+When you touch this: {item.get("when", item.get("intro", ""))}
 Why: {item.get("why", "")}
 Now: {item.get("now", "")}
-Owns:
-{chr(10).join(f"- {line}" for line in item.get("owns", []))}
+What you notice:
+{chr(10).join(f"- {line}" for line in item.get("notice", item.get("owns", [])))}
 
-Does not own:
-{chr(10).join(f"- {line}" for line in item.get("not_owns", []))}
+What you do not need to care about yet:
+{chr(10).join(f"- {line}" for line in item.get("limits", item.get("not_owns", [])))}
 
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
@@ -2591,7 +2598,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 )
                 cleaned_copy = {
                     key: str(copy_row.get(key, "")).strip()
-                    for key in ("intro", "why", "now")
+                    for key in ("when", "why", "now")
                     if str(copy_row.get(key, "")).strip()
                 }
                 if len(cleaned_copy) < 3:
@@ -2616,7 +2623,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             except Exception as exc:
                 raise RuntimeError(f"part copy/media generation failed ({name}): {exc}") from exc
         for part_id, row in part_copy_rows.items():
-            humanize_mapping_fields(row, ("intro", "why", "now"), target_prefix=f"guide:part:{part_id}")
+            humanize_mapping_fields(row, ("when", "why", "now"), target_prefix=f"guide:part:{part_id}")
         overrides["parts"] = part_copy_rows
         overrides["media"]["parts"] = part_media_rows
     if include_horizons:

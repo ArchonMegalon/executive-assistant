@@ -75,9 +75,22 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
         "default_approval_class": "none",
         "workflow_template": "tool_then_artifact",
         "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
-        "evidence_requirements": ["repo_readmes", "design_scope", "public_status", "source_prompt"],
+        "evidence_requirements": [
+            "public_page_registry",
+            "public_part_registry",
+            "public_faq_registry",
+            "public_status",
+            "source_prompt",
+        ],
         "memory_write_policy": "reviewed_only",
-        "memory_reads": ["entities", "relationships", "repo_readmes", "design_scope", "public_status"],
+        "memory_reads": [
+            "entities",
+            "relationships",
+            "public_page_registry",
+            "public_part_registry",
+            "public_faq_registry",
+            "public_status",
+        ],
         "input_schema_json": {
             "type": "object",
             "properties": {
