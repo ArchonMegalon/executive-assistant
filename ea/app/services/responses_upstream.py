@@ -191,6 +191,24 @@ def _compact_text_preview(text: object, *, limit: int = 160) -> str:
     return normalized[: max(limit - 3, 0)].rstrip() + "..."
 
 
+def _sortable_timestamp(value: object) -> float:
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
 def _principal_override_map(env_name: str) -> dict[str, str]:
     raw = _env(env_name)
     if not raw:
@@ -239,12 +257,36 @@ def principal_label(principal_id: object) -> str:
     return override or normalized
 
 
+def principal_hub_user_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_HUB_USER_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
+def principal_hub_group_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_HUB_GROUP_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
+def principal_sponsor_session_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
 def principal_identity_summary(principal_id: object) -> dict[str, str]:
     normalized = str(principal_id or "").strip()
     return {
         "principal_id": normalized,
         "principal_label": principal_label(normalized),
         "owner_category": principal_owner_category(normalized),
+        "hub_user_id": principal_hub_user_id(normalized),
+        "hub_group_id": principal_hub_group_id(normalized),
+        "sponsor_session_id": principal_sponsor_session_id(normalized),
     }
 
 
@@ -5314,9 +5356,15 @@ def _provider_health_report() -> dict[str, object]:
                 "state": gemini_state if str(slot.get("last_result") or "").strip() != "failed" else "degraded",
                 "lease_holder_label": principal_label(active_lease_holder) if active_lease_holder else "",
                 "lease_holder_owner_category": principal_owner_category(active_lease_holder) if active_lease_holder else "",
+                "lease_holder_hub_user_id": principal_hub_user_id(active_lease_holder) if active_lease_holder else "",
+                "lease_holder_hub_group_id": principal_hub_group_id(active_lease_holder) if active_lease_holder else "",
+                "lease_holder_sponsor_session_id": principal_sponsor_session_id(active_lease_holder) if active_lease_holder else "",
                 "last_used_principal_id": last_used_principal_id,
                 "last_used_principal_label": principal_label(last_used_principal_id) if last_used_principal_id else "",
                 "last_used_owner_category": principal_owner_category(last_used_principal_id) if last_used_principal_id else "",
+                "last_used_hub_user_id": principal_hub_user_id(last_used_principal_id) if last_used_principal_id else "",
+                "last_used_hub_group_id": principal_hub_group_id(last_used_principal_id) if last_used_principal_id else "",
+                "last_used_sponsor_session_id": principal_sponsor_session_id(last_used_principal_id) if last_used_principal_id else "",
             }
         )
     gemini_active_lease_principals = [
@@ -5324,6 +5372,7 @@ def _provider_health_report() -> dict[str, object]:
         for slot in gemini_slots
         if str(slot.get("lease_holder") or "").strip()
     ]
+    gemini_last_used_slot = max(gemini_slots, key=lambda item: _sortable_timestamp(item.get("last_used_at")), default={})
     onemin_dispatch_summary = _provider_dispatch_summary(provider_key="onemin")
     magix_dispatch_summary = _provider_dispatch_summary(provider_key="magixai")
     chatplayground_dispatch_summary = _provider_dispatch_summary(provider_key="chatplayground")
@@ -5406,6 +5455,13 @@ def _provider_health_report() -> dict[str, object]:
                 "detail": gemini_detail,
                 "models": list(_gemini_vortex_models()),
                 "selection_mode": _gemini_vortex_selection_mode(),
+                "last_used_principal_id": str(gemini_last_used_slot.get("last_used_principal_id") or "").strip(),
+                "last_used_principal_label": str(gemini_last_used_slot.get("last_used_principal_label") or "").strip(),
+                "last_used_owner_category": str(gemini_last_used_slot.get("last_used_owner_category") or "").strip(),
+                "last_used_hub_user_id": str(gemini_last_used_slot.get("last_used_hub_user_id") or "").strip(),
+                "last_used_hub_group_id": str(gemini_last_used_slot.get("last_used_hub_group_id") or "").strip(),
+                "last_used_sponsor_session_id": str(gemini_last_used_slot.get("last_used_sponsor_session_id") or "").strip(),
+                "last_used_at": gemini_last_used_slot.get("last_used_at"),
             },
         },
         "provider_config": {

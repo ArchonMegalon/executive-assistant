@@ -114,6 +114,27 @@ def _principal_owner_category(principal_id: object) -> str:
     return "operator"
 
 
+def _principal_hub_user_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_HUB_USER_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
+def _principal_hub_group_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_HUB_GROUP_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
+def _principal_sponsor_session_id(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    return str(_principal_override_map("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON").get(normalized) or "").strip()
+
+
 @dataclass(frozen=True)
 class ProviderCapability:
     provider_key: str
@@ -176,6 +197,9 @@ class ProviderRegistryProviderView:
     last_used_principal_id: str = ""
     last_used_principal_label: str = ""
     last_used_owner_category: str = ""
+    last_used_hub_user_id: str = ""
+    last_used_hub_group_id: str = ""
+    last_used_sponsor_session_id: str = ""
     last_used_at: object = None
     active_lease_count: int = 0
 
@@ -202,6 +226,9 @@ class ProviderRegistryProviderView:
             "last_used_principal_id": self.last_used_principal_id,
             "last_used_principal_label": self.last_used_principal_label,
             "last_used_owner_category": self.last_used_owner_category,
+            "last_used_hub_user_id": self.last_used_hub_user_id,
+            "last_used_hub_group_id": self.last_used_hub_group_id,
+            "last_used_sponsor_session_id": self.last_used_sponsor_session_id,
             "last_used_at": self.last_used_at,
             "active_lease_count": self.active_lease_count,
         }
@@ -226,6 +253,9 @@ class ProviderRegistryLaneView:
     last_used_principal_id: str = ""
     last_used_principal_label: str = ""
     last_used_owner_category: str = ""
+    last_used_hub_user_id: str = ""
+    last_used_hub_group_id: str = ""
+    last_used_sponsor_session_id: str = ""
     last_used_at: object = None
 
     def as_dict(self) -> dict[str, object]:
@@ -247,6 +277,9 @@ class ProviderRegistryLaneView:
             "last_used_principal_id": self.last_used_principal_id,
             "last_used_principal_label": self.last_used_principal_label,
             "last_used_owner_category": self.last_used_owner_category,
+            "last_used_hub_user_id": self.last_used_hub_user_id,
+            "last_used_hub_group_id": self.last_used_hub_group_id,
+            "last_used_sponsor_session_id": self.last_used_sponsor_session_id,
             "last_used_at": self.last_used_at,
         }
 
@@ -826,6 +859,21 @@ class ProviderRegistryService:
             ).strip()
             if last_used_principal_id
             else "",
+            "last_used_hub_user_id": str(
+                provider_payload.get("last_used_hub_user_id") or _principal_hub_user_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            "last_used_hub_group_id": str(
+                provider_payload.get("last_used_hub_group_id") or _principal_hub_group_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            "last_used_sponsor_session_id": str(
+                provider_payload.get("last_used_sponsor_session_id") or _principal_sponsor_session_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
             "last_used_at": provider_payload.get("last_used_at") or last_used_slot.get("last_used_at") or None,
         }
 
@@ -899,6 +947,27 @@ class ProviderRegistryService:
             ).strip()
             if last_used_principal_id
             else "",
+            last_used_hub_user_id=str(
+                health_payload.get("last_used_hub_user_id")
+                or slot_pool_summary.get("last_used_hub_user_id")
+                or _principal_hub_user_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            last_used_hub_group_id=str(
+                health_payload.get("last_used_hub_group_id")
+                or slot_pool_summary.get("last_used_hub_group_id")
+                or _principal_hub_group_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            last_used_sponsor_session_id=str(
+                health_payload.get("last_used_sponsor_session_id")
+                or slot_pool_summary.get("last_used_sponsor_session_id")
+                or _principal_sponsor_session_id(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
             last_used_at=health_payload.get("last_used_at") or slot_pool_summary.get("last_used_at"),
             active_lease_count=int(health_payload.get("active_lease_count") or slot_pool_summary.get("active_lease_count") or 0),
         )
@@ -928,6 +997,9 @@ class ProviderRegistryService:
                 "last_used_principal_id": "",
                 "last_used_principal_label": "",
                 "last_used_owner_category": "",
+                "last_used_hub_user_id": "",
+                "last_used_hub_group_id": "",
+                "last_used_sponsor_session_id": "",
                 "last_used_at": None,
             }
         slot_pool = dict(primary.slot_pool or {})
@@ -951,6 +1023,15 @@ class ProviderRegistryService:
             ).strip(),
             "last_used_owner_category": str(
                 slot_pool.get("last_used_owner_category") or primary.last_used_owner_category or ""
+            ).strip(),
+            "last_used_hub_user_id": str(
+                slot_pool.get("last_used_hub_user_id") or primary.last_used_hub_user_id or ""
+            ).strip(),
+            "last_used_hub_group_id": str(
+                slot_pool.get("last_used_hub_group_id") or primary.last_used_hub_group_id or ""
+            ).strip(),
+            "last_used_sponsor_session_id": str(
+                slot_pool.get("last_used_sponsor_session_id") or primary.last_used_sponsor_session_id or ""
             ).strip(),
             "last_used_at": slot_pool.get("last_used_at") or primary.last_used_at,
         }
@@ -1024,6 +1105,9 @@ class ProviderRegistryService:
                     last_used_principal_id=str(capacity_summary.get("last_used_principal_id") or ""),
                     last_used_principal_label=str(capacity_summary.get("last_used_principal_label") or ""),
                     last_used_owner_category=str(capacity_summary.get("last_used_owner_category") or ""),
+                    last_used_hub_user_id=str(capacity_summary.get("last_used_hub_user_id") or ""),
+                    last_used_hub_group_id=str(capacity_summary.get("last_used_hub_group_id") or ""),
+                    last_used_sponsor_session_id=str(capacity_summary.get("last_used_sponsor_session_id") or ""),
                     last_used_at=capacity_summary.get("last_used_at"),
                 )
             )

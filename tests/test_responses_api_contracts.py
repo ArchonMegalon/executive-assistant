@@ -1338,6 +1338,7 @@ def test_codex_audit_smoke_uses_browseract_workflow_api_without_binding(monkeypa
 
 def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-profile")
+    from app.services import responses_upstream as upstream
 
     for key in list(os.environ.keys()):
         if key.startswith("ONEMIN_AI_API_KEY"):
@@ -1349,6 +1350,30 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
+    monkeypatch.setenv("EA_PRINCIPAL_HUB_USER_OVERRIDES_JSON", json.dumps({"codex-profile": "usr_codex"}))
+    monkeypatch.setenv("EA_PRINCIPAL_HUB_GROUP_OVERRIDES_JSON", json.dumps({"codex-profile": "grp_codex"}))
+    monkeypatch.setenv("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON", json.dumps({"codex-profile": "sps_codex"}))
+    monkeypatch.setattr(
+        upstream,
+        "gemini_vortex_slot_status",
+        lambda: [
+            {
+                "slot": "primary",
+                "account_name": "EA_GEMINI_VORTEX_DEFAULT_AUTH",
+                "slot_owner": "fleet-primary",
+                "lease_holder": "codex-profile",
+                "last_used_principal_id": "codex-profile",
+                "last_used_at": "2026-03-19T10:00:00Z",
+                "state": "ready",
+            },
+            {
+                "slot": "fallback_1",
+                "account_name": "GOOGLE_API_KEY_FALLBACK_1",
+                "slot_owner": "fleet-shadow",
+                "state": "ready",
+            },
+        ],
+    )
 
     response = client.get("/v1/codex/profiles")
     assert response.status_code == 200
@@ -1370,6 +1395,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_profile["health_provider_key"] == "gemini_vortex"
     assert groundwork_profile["provider_slot_pool"]["selection_mode"] in {"fallback", "round_robin"}
     assert [slot["slot_owner"] for slot in groundwork_profile["provider_slots"]] == ["fleet-primary", "fleet-shadow"]
+    assert groundwork_profile["provider_slot_pool"]["last_used_hub_user_id"] == "usr_codex"
+    assert groundwork_profile["provider_slot_pool"]["last_used_hub_group_id"] == "grp_codex"
+    assert groundwork_profile["provider_slot_pool"]["last_used_sponsor_session_id"] == "sps_codex"
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["browseract"]
@@ -1387,6 +1415,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["backend"] == "gemini_vortex"
     assert groundwork_lane["capacity_summary"]["configured_slots"] == 2
     assert groundwork_lane["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+    assert groundwork_lane["capacity_summary"]["last_used_hub_user_id"] == "usr_codex"
+    assert groundwork_lane["capacity_summary"]["last_used_hub_group_id"] == "grp_codex"
+    assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == "sps_codex"
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
     assert review_light_lane["health_provider_key"] == "chatplayground"
     assert review_light_lane["providers"][0]["provider_key"] == "browseract"
