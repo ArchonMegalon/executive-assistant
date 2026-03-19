@@ -97,6 +97,9 @@ _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
 _ONEMIN_MAX_CREDITS_PER_HOUR = 80000
 _ONEMIN_MAX_CREDITS_PER_DAY = 600000
 _DEFAULT_LANE_PROFILE = "easy"
+_DEFAULT_FLEET_STATUS_CACHE_SECONDS = 60
+_DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS = 2.0
+_FLEET_JURY_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": {}}
 
 
 def _resolve_default_response_lane() -> str:
@@ -413,6 +416,90 @@ class ProviderConfig:
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
+
+
+def _fleet_status_base_url() -> str:
+    return _env("EA_FLEET_STATUS_BASE_URL", "").rstrip("/")
+
+
+def _fleet_status_api_token() -> str:
+    return _env("EA_FLEET_STATUS_API_TOKEN", "")
+
+
+def _fleet_status_cache_seconds() -> int:
+    return _to_int(
+        _env("EA_FLEET_STATUS_CACHE_SECONDS", str(_DEFAULT_FLEET_STATUS_CACHE_SECONDS)),
+        _DEFAULT_FLEET_STATUS_CACHE_SECONDS,
+        minimum=15,
+    )
+
+
+def _fleet_status_timeout_seconds() -> float:
+    return _to_float(
+        _env("EA_FLEET_STATUS_TIMEOUT_SECONDS", str(_DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS)),
+        _DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS,
+        minimum=0.5,
+        maximum=10.0,
+    )
+
+
+def _fleet_jury_telemetry_report(*, force: bool = False) -> dict[str, object]:
+    base_url = _fleet_status_base_url()
+    if not base_url:
+        return {
+            "configured": False,
+            "state": "unconfigured",
+            "detail": "EA_FLEET_STATUS_BASE_URL is not set",
+            "source_url": "",
+        }
+    now = _now_epoch()
+    cached = dict(_FLEET_JURY_CACHE.get("payload") or {})
+    fetched_at = float(_FLEET_JURY_CACHE.get("fetched_at") or 0.0)
+    if not force and cached and (now - fetched_at) < _fleet_status_cache_seconds():
+        return cached
+    headers: dict[str, str] = {}
+    token = _fleet_status_api_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    source_url = f"{base_url}/api/cockpit/jury-telemetry"
+    try:
+        status, payload = _get_json(
+            url=source_url,
+            headers=headers,
+            timeout_seconds=_fleet_status_timeout_seconds(),
+        )
+        if status >= 400:
+            result = {
+                "configured": True,
+                "state": "unavailable",
+                "detail": f"fleet returned HTTP {status}",
+                "source_url": source_url,
+            }
+        elif isinstance(payload, dict):
+            result = {
+                "configured": True,
+                "state": "ok",
+                "source_url": source_url,
+                **payload,
+            }
+        else:
+            result = {
+                "configured": True,
+                "state": "invalid",
+                "detail": "fleet jury telemetry was not a JSON object",
+                "source_url": source_url,
+            }
+    except ResponsesUpstreamError as exc:
+        result = {
+            "configured": True,
+            "state": "unavailable",
+            "detail": str(exc),
+            "source_url": source_url,
+        }
+    result["fetched_at"] = now
+    _FLEET_JURY_CACHE["fetched_at"] = now
+    _FLEET_JURY_CACHE["payload"] = result
+    return result
 
 
 def _provider_ledger_dir() -> Path | None:
@@ -2410,6 +2497,43 @@ def _post_json(
     return status, raw
 
 
+def _get_json(
+    *,
+    url: str,
+    headers: dict[str, str],
+    timeout_seconds: float,
+) -> tuple[int, dict[str, Any] | list[Any] | str]:
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": _user_agent(),
+            **headers,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            status = int(getattr(response, "status", 200))
+            raw = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 500) or 500)
+        raw = exc.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        raise ResponsesUpstreamError(f"url_error:{exc.reason}") from exc
+    except Exception as exc:
+        raise ResponsesUpstreamError(f"request_failed:{exc}") from exc
+    if not raw.strip():
+        return status, {}
+    try:
+        payload_json = json.loads(raw)
+    except Exception:
+        return status, raw
+    if isinstance(payload_json, (dict, list)):
+        return status, payload_json
+    return status, raw
+
+
 def _extract_textish(value: Any) -> str:
     if value is None:
         return ""
@@ -4117,6 +4241,11 @@ def _test_reset_onemin_states() -> None:
             continue
 
 
+def _test_reset_fleet_jury_cache() -> None:
+    _FLEET_JURY_CACHE["fetched_at"] = 0.0
+    _FLEET_JURY_CACHE["payload"] = {}
+
+
 def _status_window_seconds(window: str) -> float:
     normalized = str(window or "1h").strip().lower()
     if normalized == "24h":
@@ -4625,6 +4754,7 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         "default_profile": provider_health.get("provider_config", {}).get("default_profile"),
         "default_lane": provider_health.get("provider_config", {}).get("default_lane"),
         "provider_health": provider_health,
+        "jury_service": dict(provider_health.get("jury_service") or {}),
         "providers_summary": providers_summary,
         "onemin_aggregate": onemin_aggregate,
         "onemin_billing_aggregate": onemin_billing_aggregate,
@@ -5196,6 +5326,7 @@ def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]
 def _provider_health_report() -> dict[str, object]:
     _load_provider_ledgers_once()
     now = _now_epoch()
+    fleet_jury_telemetry = _fleet_jury_telemetry_report()
     onemin_key_names = _onemin_key_names()
     onemin_active_keys = _onemin_active_keys()
     onemin_reserve_keys = _onemin_reserve_keys()
@@ -5505,6 +5636,7 @@ def _provider_health_report() -> dict[str, object]:
                 "default": _lane_max_output_tokens(_LANE_DEFAULT),
             },
         },
+        "jury_service": fleet_jury_telemetry,
         "magicx": {
             "urls": list(_magicx_urls()),
             "models": list(_magicx_models()),
