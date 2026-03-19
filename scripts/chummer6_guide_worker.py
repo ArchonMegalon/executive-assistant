@@ -19,7 +19,13 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chummer6_guide_canon import load_horizon_canon, load_part_canon
+from chummer6_guide_canon import (
+    load_faq_canon,
+    load_help_canon,
+    load_horizon_canon,
+    load_part_canon,
+    load_public_feature_registry,
+)
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 EA_ROOT = Path(__file__).resolve().parents[1]
@@ -548,12 +554,135 @@ def url_template(env_name: str) -> str:
 
 PARTS = load_part_canon()
 HORIZONS = load_horizon_canon()
+FAQ = load_faq_canon()
+HELP = load_help_canon()
+PUBLIC_FEATURE_REGISTRY = load_public_feature_registry()
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
+PUBLIC_SIGNAL_TAG_HINTS: tuple[tuple[str, str], ...] = (
+    ("deterministic rules truth", "deterministic_truth"),
+    ("receipts", "explain_receipts"),
+    ("provenance", "provenance_receipts"),
+    ("local-first", "local_first_play"),
+    ("offline", "offline_play"),
+    ("multiple rules eras", "multi_era_rulesets"),
+    ("sr4", "sr4_support"),
+    ("sr5", "sr5_support"),
+    ("sr6", "sr6_support"),
+    ("booster", "booster_participation"),
+    ("participate", "booster_participation"),
+    ("download", "download_now"),
+    ("issue tracker", "public_feedback"),
+    ("public guide", "public_guide"),
+    ("horizon", "future_horizons"),
+    ("dossier", "dossier_artifacts"),
+    ("runsite", "runsite_artifacts"),
+)
+WEAK_COPY_PHRASES: tuple[str, ...] = (
+    "toolkit",
+    "foundation",
+    "foundations first",
+    "digital handshake",
+    "background systems",
+    "keeping the lights on",
+    "designed to make",
+    "we are building",
+    "we're building",
+    "long-range plans ready",
+)
 
 
 def guide_excerpt_context_enabled() -> bool:
     raw = str(os.environ.get("CHUMMER6_GUIDE_INCLUDE_EXISTING_EXCERPTS") or "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
+
+def _public_card_rows() -> list[dict[str, object]]:
+    cards = PUBLIC_FEATURE_REGISTRY.get("cards") or []
+    return [dict(row) for row in cards if isinstance(row, dict)]
+
+
+def _public_card_buckets(*bucket_names: str, audience: str = "public", limit: int = 6) -> list[str]:
+    wanted = {str(name).strip() for name in bucket_names if str(name).strip()}
+    snippets: list[str] = []
+    for row in _public_card_rows():
+        if wanted and str(row.get("bucket") or "").strip() not in wanted:
+            continue
+        if audience and str(row.get("audience") or "").strip() not in {audience, ""}:
+            continue
+        parts = [
+            str(row.get("title") or "").strip(),
+            str(row.get("summary") or "").strip(),
+            str(row.get("pain") or "").strip(),
+            str(row.get("payoff") or "").strip(),
+            str(row.get("badge") or "").strip(),
+        ]
+        compact = " ".join(part for part in parts if part).strip()
+        if compact:
+            snippets.append(compact)
+        if len(snippets) >= max(1, limit):
+            break
+    return snippets
+
+
+def page_supporting_context(page_id: str) -> list[str]:
+    page = str(page_id or "").strip()
+    help_snippets = [
+        str(HELP.get("booster_lane") or "").strip(),
+        str(HELP.get("free_later_note") or "").strip(),
+    ]
+    help_snippets.extend(str(line).strip() for line in (HELP.get("privacy_and_review_safety") or []) if str(line).strip())
+    faq_questions = []
+    for section in FAQ.values():
+        if not isinstance(section, dict):
+            continue
+        for entry in section.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            question = str(entry.get("question") or "").strip()
+            if question:
+                faq_questions.append(question)
+    buckets_map = {
+        "readme": ("what_you_can_do_today", "why_this_feels_different", "whats_real_now"),
+        "start_here": ("what_you_can_do_today", "why_this_feels_different", "whats_real_now"),
+        "what_chummer6_is": ("what_you_can_do_today", "why_this_feels_different"),
+        "current_phase": ("whats_real_now", "coming_next"),
+        "current_status": ("whats_real_now", "release_shelf"),
+        "public_surfaces": ("what_you_can_do_today", "release_shelf", "participate"),
+        "parts_index": ("choose_your_lane",),
+        "horizons_index": ("coming_next",),
+        "where_to_go_deeper": ("participate", "release_shelf"),
+    }
+    snippets = _public_card_buckets(*buckets_map.get(page, ()), limit=6)
+    if page in {"start_here", "public_surfaces", "where_to_go_deeper"}:
+        snippets.extend([value for value in help_snippets if value][:3])
+    if page in {"public_surfaces", "where_to_go_deeper"}:
+        snippets.extend(f"FAQ: {question}" for question in faq_questions[:3])
+    return snippets[:8]
+
+
+def part_supporting_context(part_id: str) -> list[str]:
+    part = str(part_id or "").strip()
+    buckets_map = {
+        "core": ("why_this_feels_different", "whats_real_now"),
+        "ui": ("what_you_can_do_today", "release_shelf"),
+        "mobile": ("what_you_can_do_today", "whats_real_now"),
+        "hub": ("what_you_can_do_today", "participate", "release_shelf"),
+        "design": ("coming_next",),
+        "ui-kit": ("what_you_can_do_today",),
+        "hub-registry": ("featured_artifacts", "release_shelf"),
+        "media-factory": ("featured_artifacts",),
+    }
+    snippets = _public_card_buckets(*buckets_map.get(part, ()), limit=6)
+    if part == "hub":
+        snippets.extend(
+            value
+            for value in (
+                str(HELP.get("booster_lane") or "").strip(),
+                *[str(line).strip() for line in (HELP.get("privacy_and_review_safety") or [])[:2]],
+            )
+            if value
+        )
+    return snippets[:8]
 
 
 def read_markdown_excerpt(relative_path: str, *, limit: int = 360) -> str:
@@ -934,6 +1063,10 @@ Voice rules:
 - no mention of chummer5a
 - no control-plane jargon
 - no markdown fences
+- `when` should name concrete user situations, not vague platform posture
+- `why` should cash out a visible reader benefit instead of abstract coordination language
+- `now` should say what is true today plus one honest limit if the canon implies it
+- avoid generic filler like toolkit, platform glue, digital handshake, or background systems
 {PUBLIC_WRITER_RULES}
 
 Part id: {name}
@@ -953,6 +1086,12 @@ What you do not need to care about yet:
 
 Current now-text:
 {item.get("now", "")}
+
+Go deeper links:
+{json.dumps(item.get("go_deeper_links", []), ensure_ascii=True)}
+
+Supporting public context:
+{json.dumps(part_supporting_context(name), ensure_ascii=True)}
 
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
@@ -1014,6 +1153,18 @@ Foundations:
 Touched repos later:
 {repos}
 
+Access posture:
+{item.get("access_posture", "")}
+
+Resource burden:
+{item.get("resource_burden", "")}
+
+Booster nudge:
+{item.get("booster_nudge", "")}
+
+Free-later intent:
+{item.get("free_later_intent", "")}
+
 Guide OODA:
 {json.dumps(ooda or {}, ensure_ascii=True)}
 
@@ -1026,6 +1177,9 @@ Requirements:
 - `meanwhile` must be 2-4 bullet lines starting with `- `
 - `problem`, `why_great`, and `why_waits` should each be one tight paragraph
 - `pitch_line` should invite a better future idea without sounding corporate
+- if access posture or booster guidance exists in canon, `why_waits` and `pitch_line` should reflect it plainly instead of improvising a vague delay
+- if free-later intent exists in canon, explain broad-access intent without sounding like a paywall apology
+- avoid vague filler like future platform, foundation work, or shaky anvil when the canon gives a sharper reason
 
 Return valid JSON only.
 """
@@ -1080,7 +1234,12 @@ def build_section_ooda_prompt(
         },
         "page": {
             "context": f"the {name} guide page for the human-facing Chummer6 repo",
-            "source": str(item.get("source", "")).strip(),
+            "source": "\n\n".join(
+                [
+                    "Page brief:\n" + str(item.get("source", "")).strip(),
+                    "Supporting public context:\n" + "\n".join(f"- {line}" for line in page_supporting_context(name)),
+                ]
+            ).strip(),
         },
     }[section_type]
     return f"""You are doing section-level OODA for {prompt_bits['context']}.
@@ -1149,6 +1308,7 @@ def build_section_oodas_bundle_prompt(
             payload[name] = {
                 "title": title,
                 "source": str(item.get("source", "")).strip(),
+                "supporting_public_context": page_supporting_context(name),
             }
         elif section_type == "part":
             payload[name] = {
@@ -1159,6 +1319,7 @@ def build_section_oodas_bundle_prompt(
                 "now": item.get("now", ""),
                 "notice": item.get("notice", item.get("owns", [])),
                 "limits": item.get("limits", item.get("not_owns", [])),
+                "go_deeper_links": item.get("go_deeper_links", []),
             }
         else:
             payload[name] = {
@@ -1170,6 +1331,10 @@ def build_section_oodas_bundle_prompt(
                 "foundations": item.get("foundations", []),
                 "repos": item.get("repos", []),
                 "not_now": item.get("not_now", ""),
+                "access_posture": item.get("access_posture", ""),
+                "resource_burden": item.get("resource_burden", ""),
+                "booster_nudge": item.get("booster_nudge", ""),
+                "free_later_intent": item.get("free_later_intent", ""),
                 "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=220),
             }
     return f"""You are doing section-level OODA for multiple human-facing Chummer6 guide sections.
@@ -1383,6 +1548,7 @@ def normalize_section_oodas_bundle(
 
 
 def build_page_prompt(page_id: str, item: dict[str, object], *, global_ooda: dict[str, object] | None = None, section_ooda: dict[str, object] | None = None) -> str:
+    supporting_context = page_supporting_context(page_id)
     return f"""You are writing downstream-only copy for the human-facing Chummer6 guide page `{page_id}`.
 
 Task: return a JSON object only with keys intro, body, kicker.
@@ -1396,6 +1562,9 @@ Rules:
 - explain why this page matters to a normal reader
 - avoid internal jargon unless it is immediately translated
 - make the page sound distinct instead of reusing one canned sentence pattern
+- lead with one concrete table pain, payoff, or proof signal instead of abstract platform framing
+- body should name at least two specific present-tense truths, proofs, or user actions when the canon supports them
+- avoid generic filler like toolkit, foundation, platform glue, digital handshake, or background systems unless the sentence becomes sharper by keeping them
 - do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
 {PUBLIC_WRITER_RULES}
@@ -1403,6 +1572,9 @@ Rules:
 Page id: {page_id}
 Current source:
 {item.get("source", "")}
+
+Supporting public context:
+{json.dumps(supporting_context, ensure_ascii=True)}
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
@@ -1419,6 +1591,7 @@ def build_pages_bundle_prompt(*, items: dict[str, dict[str, object]], global_ood
     for page_id, item in items.items():
         pages_payload[page_id] = {
             "source": str(item.get("source", "")).strip(),
+            "supporting_public_context": page_supporting_context(page_id),
             "section_ooda": section_oodas.get(page_id, {}),
         }
     return f"""You are writing downstream-only copy for multiple human-facing Chummer6 guide pages.
@@ -1435,6 +1608,9 @@ Rules:
 - avoid internal jargon unless it is immediately translated
 - keep each page compact and useful
 - make each page feel distinct instead of reusing one sentence frame
+- lead with one concrete table pain, payoff, or proof signal instead of abstract platform framing
+- each page body should name at least two specific present-tense truths, proofs, or user actions when the canon supports them
+- avoid generic filler like toolkit, foundation, platform glue, digital handshake, or background systems unless the sentence becomes sharper by keeping them
 - do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
 {PUBLIC_WRITER_RULES}
@@ -1467,6 +1643,8 @@ def build_parts_bundle_prompt(
             "now": item.get("now", ""),
             "notice": item.get("notice", item.get("owns", [])),
             "limits": item.get("limits", item.get("not_owns", [])),
+            "go_deeper_links": item.get("go_deeper_links", []),
+            "supporting_public_context": part_supporting_context(name),
             "section_ooda": section_oodas.get(name, {}),
         }
     return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 part pages.
@@ -1490,6 +1668,9 @@ Rules:
 - make each part sound like its own place, not another templated glossary card
 - make the media scene-first, not icon soup
 - no literal on-image text or prompt leakage
+- `when` should sound like real user situations, not platform posture
+- `why` should cash out a visible benefit instead of abstract glue language
+- `now` should say what is true today plus one honest limit when the canon implies it
 {PUBLIC_WRITER_RULES}
 
 Global OODA:
@@ -1527,6 +1708,10 @@ def build_horizons_bundle_prompt(
             "foundations": item.get("foundations", []),
             "repos": item.get("repos", []),
             "not_now": item.get("not_now", ""),
+            "access_posture": item.get("access_posture", ""),
+            "resource_burden": item.get("resource_burden", ""),
+            "booster_nudge": item.get("booster_nudge", ""),
+            "free_later_intent": item.get("free_later_intent", ""),
             "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=260),
             "section_ooda": section_oodas.get(name, {}),
         }
@@ -1554,6 +1739,7 @@ Rules:
 - `table_scene` should feel like table dialogue, with a GM/player/Chummer rhythm when the concept allows it
 - `meanwhile` must be 2-4 bullet lines starting with `- `
 - prefer pain -> scene -> invisible system action -> payoff -> realism
+- if access posture, booster guidance, or free-later intent exists in canon, carry that into `why_waits` and `pitch_line` instead of improvising a vague delay story
 
 Global OODA:
 {json.dumps(global_ooda or {}, ensure_ascii=True)}
@@ -1840,69 +2026,248 @@ def run_skill_audit(
     return normalized
 
 
-SOURCE_SIGNAL_FILES = [
-    (("/docker/chummercomplete/chummer6-core/instructions.md", "/docker/chummercomplete/chummer-core-engine/instructions.md"), "core_instructions"),
-    (("/docker/chummercomplete/chummer6-core/README.md", "/docker/chummercomplete/chummer-core-engine/README.md"), "core_readme"),
-    (
-        (
-            "/docker/chummercomplete/chummer6-core/test-lua-evaluator.sh",
-            "/docker/chummercomplete/chummer-core-engine/test-lua-evaluator.sh",
+COPY_KEYS_BY_SECTION: dict[str, tuple[str, ...]] = {
+    "page": ("intro", "body", "kicker"),
+    "part": ("when", "why", "now"),
+    "horizon": ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
+}
+
+
+def copy_quality_findings(section_type: str, name: str, row: dict[str, object], item: dict[str, object]) -> list[str]:
+    combined = " ".join(
+        str(row.get(key, "")).strip()
+        for key in COPY_KEYS_BY_SECTION.get(section_type, ())
+        if str(row.get(key, "")).strip()
+    ).strip()
+    lowered = combined.lower()
+    findings: list[str] = []
+    if section_type == "page":
+        if page_supporting_context(name) and not any(
+            token in lowered
+            for token in (
+                "download",
+                "release",
+                "issue",
+                "preview",
+                "receipt",
+                "proof",
+                "local-first",
+                "participate",
+                "horizon",
+            )
+        ):
+            findings.append("Name at least one concrete proof surface or public action instead of describing the project only in abstract terms.")
+    if section_type == "part":
+        if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
+            findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
+    if section_type == "horizon":
+        access_posture = str(item.get("access_posture") or "").strip().lower()
+        free_later_intent = str(item.get("free_later_intent") or "").strip()
+        if access_posture == "booster_first" and not any(token in lowered for token in ("booster", "preview", "participate")):
+            findings.append("Explain the booster-first preview posture plainly instead of implying a vague wait.")
+        if free_later_intent and not any(
+            token in lowered
+            for token in ("wider access", "broader access", "not a permanent paywall", "free later", "free baseline")
+        ):
+            findings.append("State the broad-access or free-later intent when canon provides it.")
+    for phrase in WEAK_COPY_PHRASES:
+        if phrase in lowered:
+            findings.append(f"Replace generic filler like '{phrase}' with a sharper table-facing, proof-facing, or user-action detail.")
+    deduped: list[str] = []
+    for finding in findings:
+        normalized = str(finding or "").strip()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped[:8]
+
+
+def build_copy_polish_prompt(
+    *,
+    section_type: str,
+    name: str,
+    item: dict[str, object],
+    draft: dict[str, object],
+    findings: list[str],
+    global_ooda: dict[str, object],
+    section_ooda: dict[str, object],
+) -> str:
+    keys = COPY_KEYS_BY_SECTION.get(section_type, ())
+    context_payload: dict[str, object] = {"draft": draft, "findings": findings}
+    if section_type == "page":
+        context_payload["source"] = str(item.get("source", "")).strip()
+        context_payload["supporting_public_context"] = page_supporting_context(name)
+    elif section_type == "part":
+        context_payload["title"] = str(item.get("title", "")).strip()
+        context_payload["tagline"] = str(item.get("tagline", "")).strip()
+        context_payload["when"] = str(item.get("when", "")).strip()
+        context_payload["why"] = str(item.get("why", "")).strip()
+        context_payload["now"] = str(item.get("now", "")).strip()
+        context_payload["notice"] = list(item.get("notice") or [])
+        context_payload["limits"] = list(item.get("limits") or [])
+        context_payload["go_deeper_links"] = list(item.get("go_deeper_links") or [])
+        context_payload["supporting_public_context"] = part_supporting_context(name)
+    else:
+        context_payload["title"] = str(item.get("title", "")).strip()
+        context_payload["hook"] = str(item.get("hook", "")).strip()
+        context_payload["problem"] = str(item.get("problem", "")).strip()
+        context_payload["use_case"] = str(item.get("use_case", "")).strip()
+        context_payload["access_posture"] = str(item.get("access_posture", "")).strip()
+        context_payload["resource_burden"] = str(item.get("resource_burden", "")).strip()
+        context_payload["booster_nudge"] = str(item.get("booster_nudge", "")).strip()
+        context_payload["free_later_intent"] = str(item.get("free_later_intent", "")).strip()
+        context_payload["foundations"] = list(item.get("foundations") or [])
+    return f"""You are revising downstream-only {section_type} copy for the human-facing Chummer6 guide.
+
+Task: return a JSON object only with keys {", ".join(keys)}.
+
+Revision rules:
+- keep what is already sharp, but rewrite the weak or generic parts
+- prioritize concrete user value, proof, and current public actions over abstract platform framing
+- avoid generic filler like toolkit, foundation, digital handshake, background systems, or vague future posture
+- keep the output public-safe, reader-first, and distinct
+- no markdown fences
+{PUBLIC_WRITER_RULES}
+
+Section id: {name}
+Section context:
+{json.dumps(context_payload, ensure_ascii=True)}
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def polish_copy_row(
+    *,
+    section_type: str,
+    name: str,
+    row: dict[str, object],
+    item: dict[str, object],
+    global_ooda: dict[str, object],
+    section_ooda: dict[str, object],
+    model: str,
+) -> dict[str, object]:
+    findings = copy_quality_findings(section_type, name, row, item)
+    if not findings:
+        return row
+    result = chat_json(
+        build_copy_polish_prompt(
+            section_type=section_type,
+            name=name,
+            item=item,
+            draft=row,
+            findings=findings,
+            global_ooda=global_ooda,
+            section_ooda=section_ooda,
         ),
-        "core_lua_rules",
-    ),
-    (
-        (
-            "/docker/chummercomplete/chummer6-core/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
-            "/docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
-        ),
-        "core_sr4_plugin",
-    ),
-    (("/docker/chummercomplete/chummer6-ui/README.md", "/docker/chummercomplete/chummer-presentation/README.md"), "ui_readme"),
-    (("/docker/chummercomplete/chummer6-mobile/README.md", "/docker/chummercomplete/chummer-play/README.md"), "play_readme"),
-    (("/docker/chummercomplete/chummer6-hub/README.md", "/docker/chummercomplete/chummer.run-services/README.md"), "hub_readme"),
-    ("/docker/chummercomplete/chummer-design/products/chummer/README.md", "design_front_door"),
-    ("/docker/chummercomplete/chummer-design/products/chummer/ARCHITECTURE.md", "design_architecture"),
-    ("/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml", "design_milestones"),
-]
+        model=model,
+        skill_key=PUBLIC_WRITER_SKILL_KEY,
+    )
+    keys = COPY_KEYS_BY_SECTION.get(section_type, ())
+    polished = {
+        key: str(result.get(key, "")).strip()
+        for key in keys
+        if str(result.get(key, "")).strip()
+    }
+    if len(polished) < len(keys):
+        return row
+    assert_public_reader_safe(polished, context=f"{section_type}:{name}:polished")
+    return polished
 
 
 def collect_interest_signals() -> dict[str, object]:
-    snippets: list[str] = []
-    tags: list[str] = []
-    for raw_path, label in SOURCE_SIGNAL_FILES:
-        if isinstance(raw_path, (list, tuple)):
-            candidates = [Path(str(item)) for item in raw_path]
-            path = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
-        else:
-            path = Path(str(raw_path))
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        lowered = text.lower()
-        excerpt = short_sentence(text, limit=220)
-        if excerpt:
-            snippets.append(f"[{label}] {excerpt}")
-        for token, tag in (
-            ("sr4", "sr4_support"),
-            ("sr5", "sr5_support"),
-            ("sr6", "sr6_support"),
-            ("shadowrun 4", "sr4_support"),
-            ("shadowrun 5", "sr5_support"),
-            ("shadowrun 6", "sr6_support"),
-            ("lua", "lua_rules"),
-            ("scripted rules", "lua_rules"),
-            ("rulesetplugin", "multi_era_rulesets"),
-            ("offline", "offline_play"),
-            ("pwa", "installable_pwa"),
-            ("explain", "explain_receipts"),
-            ("provenance", "provenance_receipts"),
-            ("runtime bundle", "runtime_stacks"),
-            ("session event", "session_events"),
-            ("local-first", "local_first_play"),
-        ):
+    def add_tags(text: str, *, extra: list[str] | None = None) -> None:
+        lowered = str(text or "").lower()
+        for token, tag in PUBLIC_SIGNAL_TAG_HINTS:
             if token in lowered and tag not in tags:
                 tags.append(tag)
-    return {"tags": tags, "snippets": snippets[:6]}
+        for tag in extra or []:
+            normalized = str(tag or "").strip()
+            if normalized and normalized not in tags:
+                tags.append(normalized)
+
+    def add_snippet(label: str, text: str, *, extra_tags: list[str] | None = None, limit: int = 220) -> None:
+        compact = short_sentence(text, limit=limit)
+        if not compact:
+            return
+        snippets.append(f"[{label}] {compact}")
+        add_tags(compact, extra=extra_tags)
+
+    snippets: list[str] = []
+    tags: list[str] = []
+    for row in _public_card_rows()[:6]:
+        label = f"feature:{str(row.get('id') or '').strip() or 'card'}"
+        text = " ".join(
+            part
+            for part in (
+                str(row.get("title") or "").strip(),
+                str(row.get("summary") or "").strip(),
+                str(row.get("pain") or "").strip(),
+                str(row.get("payoff") or "").strip(),
+            )
+            if part
+        )
+        add_snippet(label, text)
+    part_signal_order = ["core", "ui", "mobile", "hub", "design"]
+    for slug in part_signal_order:
+        row = PARTS.get(slug)
+        if not isinstance(row, dict):
+            continue
+        text = " ".join(
+            part
+            for part in (
+                str(row.get("title") or "").strip(),
+                str(row.get("tagline") or "").strip(),
+                str(row.get("why") or "").strip(),
+                str(row.get("now") or "").strip(),
+            )
+            if part
+        )
+        add_snippet(f"part:{slug}", text)
+    horizon_signal_order = ["nexus-pan", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press", "table-pulse"]
+    for slug in horizon_signal_order:
+        row = HORIZONS.get(slug)
+        if not isinstance(row, dict):
+            continue
+        text = " ".join(
+            part
+            for part in (
+                str(row.get("title") or "").strip(),
+                str(row.get("hook") or "").strip(),
+                str(row.get("problem") or "").strip(),
+                str(row.get("booster_nudge") or "").strip(),
+                str(row.get("free_later_intent") or "").strip(),
+            )
+            if part
+        )
+        add_snippet(
+            f"horizon:{slug}",
+            text,
+            extra_tags=[
+                str(row.get("access_posture") or "").strip(),
+                "future_horizons",
+            ],
+        )
+    add_snippet("help:booster_lane", str(HELP.get("booster_lane") or "").strip(), extra_tags=["booster_participation"])
+    add_snippet("help:free_later", str(HELP.get("free_later_note") or "").strip(), extra_tags=["free_later_intent"])
+    for line in (HELP.get("privacy_and_review_safety") or [])[:4]:
+        add_snippet("help:safety", str(line).strip(), extra_tags=["review_safety"])
+    for section_id, section in FAQ.items():
+        if not isinstance(section, dict):
+            continue
+        for entry in section.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            question = str(entry.get("question") or "").strip()
+            answer = str(entry.get("answer") or "").strip()
+            if question:
+                add_snippet(f"faq:{section_id}", f"{question} {answer}", extra_tags=["faq"])
+    return {"tags": tags, "snippets": snippets[:16]}
 
 
 def build_ooda_prompt(signals: dict[str, object]) -> str:
@@ -2803,6 +3168,16 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
         except Exception as exc:
             raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+    for page_id, row in list(page_rows.items()):
+        page_rows[page_id] = polish_copy_row(
+            section_type="page",
+            name=page_id,
+            row=dict(row),
+            item=dict(PAGE_PROMPTS.get(page_id) or {}),
+            global_ooda=ooda,
+            section_ooda=dict(page_oodas.get(page_id) or {}),
+            model=model,
+        )
     for page_id, row in page_rows.items():
         humanize_mapping_fields(row, ("intro", "body", "kicker"), target_prefix=f"guide:page:{page_id}")
     overrides["pages"] = page_rows
@@ -2847,6 +3222,15 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 }
                 if len(cleaned_copy) < 3:
                     raise ValueError(f"insufficient part copy: {name}")
+                cleaned_copy = polish_copy_row(
+                    section_type="part",
+                    name=name,
+                    row=cleaned_copy,
+                    item=item,
+                    global_ooda=ooda,
+                    section_ooda=part_oodas[name],
+                    model=model,
+                )
                 assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
                 media_row = chat_json(
                     build_media_prompt(
@@ -2911,6 +3295,15 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 }
                 if len(cleaned_copy) < 7:
                     raise ValueError(f"insufficient horizon copy: {name}")
+                cleaned_copy = polish_copy_row(
+                    section_type="horizon",
+                    name=name,
+                    row=cleaned_copy,
+                    item=item,
+                    global_ooda=ooda,
+                    section_ooda=horizon_oodas[name],
+                    model=model,
+                )
                 assert_public_reader_safe(cleaned_copy, context=f"horizon:{name}")
                 media_row = chat_json(
                     build_media_prompt(

@@ -397,3 +397,63 @@ def test_normalize_media_override_allows_receipt_backed_mechanics_claims() -> No
     )
 
     assert normalized["title"] == "Replay ledger"
+
+
+def test_collect_interest_signals_prefers_public_safe_sources() -> None:
+    worker = _load_worker_module()
+
+    signals = worker.collect_interest_signals()
+    joined = "\n".join(signals["snippets"])
+
+    assert "[feature:" in joined
+    assert "[part:hub]" in joined
+    assert "[horizon:karma-forge]" in joined
+    assert "design_architecture" not in joined
+    assert "design_milestones" not in joined
+    assert "hub_readme" not in joined
+
+
+def test_build_page_prompt_includes_supporting_public_context() -> None:
+    worker = _load_worker_module()
+
+    prompt = worker.build_page_prompt("start_here", worker.PAGE_PROMPTS["start_here"])
+
+    assert "Supporting public context" in prompt
+    assert "See what is real now" in prompt or "Check the live proof shelf" in prompt
+
+
+def test_build_horizon_prompt_includes_rollout_access_canon() -> None:
+    worker = _load_worker_module()
+
+    prompt = worker.build_horizon_prompt("karma-forge", worker.HORIZONS["karma-forge"])
+
+    assert "Access posture:" in prompt
+    assert "Booster nudge:" in prompt
+    assert "Free-later intent:" in prompt
+
+
+def test_copy_quality_findings_flags_generic_copy_and_missing_booster_posture() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "horizon",
+        "karma-forge",
+        {
+            "hook": "A toolkit for the future.",
+            "problem": "We are building the foundation.",
+            "table_scene": "GM: We will see later.",
+            "meanwhile": "- foundation work",
+            "why_great": "It helps eventually.",
+            "why_waits": "It is not ready yet.",
+            "pitch_line": "Keep your long-range plans ready.",
+        },
+        {
+            **worker.HORIZONS["karma-forge"],
+            "free_later_intent": "The long-run intent is broader access rather than a permanent paywall.",
+        },
+    )
+
+    joined = " ".join(findings)
+    assert "generic filler" in joined
+    assert "booster-first preview posture" in joined
+    assert "broad-access or free-later intent" in joined
