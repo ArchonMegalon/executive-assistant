@@ -104,6 +104,7 @@ def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None
 def test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director(monkeypatch) -> None:
     worker = _load_worker_module()
     captured: list[str] = []
+    bootstrap_calls: list[bool] = []
 
     class _Orchestrator:
         def execute_task_artifact(self, request):
@@ -111,11 +112,52 @@ def test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director(monk
             raise ValueError("skill_not_found:chummer6_public_writer")
 
     monkeypatch.setattr(worker, "_ea_orchestrator", lambda: _Orchestrator())
+    monkeypatch.setattr(
+        worker,
+        "ensure_required_chummer6_skills",
+        lambda force=False: bootstrap_calls.append(force) or {"status": "ready"},
+    )
 
     with pytest.raises(ValueError, match="skill_not_found:chummer6_public_writer"):
         worker.ea_json("prompt body", model="gemini-groundwork")
 
-    assert captured == ["chummer6_public_writer"]
+    assert captured == ["chummer6_public_writer", "chummer6_public_writer"]
+    assert bootstrap_calls == [True]
+
+
+def test_ea_json_retries_writer_skill_after_bootstrap(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: list[str] = []
+    bootstrap_calls: list[bool] = []
+
+    class _Artifact:
+        structured_output_json = {"packet": "guide_refresh", "copy": "reader-first"}
+        content = ""
+
+    class _Orchestrator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute_task_artifact(self, request):
+            self.calls += 1
+            captured.append(request.skill_key)
+            if self.calls == 1:
+                raise ValueError("skill_not_found:chummer6_public_writer")
+            return _Artifact()
+
+    orchestrator = _Orchestrator()
+    monkeypatch.setattr(worker, "_ea_orchestrator", lambda: orchestrator)
+    monkeypatch.setattr(
+        worker,
+        "ensure_required_chummer6_skills",
+        lambda force=False: bootstrap_calls.append(force) or {"status": "ready"},
+    )
+
+    result = worker.ea_json("prompt body", model="gemini-groundwork")
+
+    assert result == {"packet": "guide_refresh", "copy": "reader-first"}
+    assert captured == ["chummer6_public_writer", "chummer6_public_writer"]
+    assert bootstrap_calls == [True]
 
 
 def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults() -> None:

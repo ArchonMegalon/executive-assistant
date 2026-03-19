@@ -33,6 +33,19 @@ EA_ORCHESTRATOR = None
 EA_CONTAINER = None
 PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
 VISUAL_DIRECTOR_SKILL_KEY = "chummer6_visual_director"
+PUBLIC_AUDITOR_SKILL_KEY = "chummer6_public_auditor"
+SCENE_AUDITOR_SKILL_KEY = "chummer6_scene_auditor"
+VISUAL_AUDITOR_SKILL_KEY = "chummer6_visual_auditor"
+PACK_AUDITOR_SKILL_KEY = "chummer6_pack_auditor"
+REQUIRED_CHUMMER6_SKILL_KEYS: tuple[str, ...] = (
+    PUBLIC_WRITER_SKILL_KEY,
+    PUBLIC_AUDITOR_SKILL_KEY,
+    VISUAL_DIRECTOR_SKILL_KEY,
+    SCENE_AUDITOR_SKILL_KEY,
+    VISUAL_AUDITOR_SKILL_KEY,
+    PACK_AUDITOR_SKILL_KEY,
+)
+SKILL_BOOTSTRAP_STATUS: dict[str, object] | None = None
 STYLE_PACKS: tuple[dict[str, str], ...] = (
     {
         "style_family": "grimy_cinematic_realism",
@@ -589,6 +602,27 @@ def short_sentence(text: str, *, limit: int = 160) -> str:
     return cleaned[:limit].rstrip(" ,;:-")
 
 
+def ensure_required_chummer6_skills(*, force: bool = False) -> dict[str, object]:
+    global SKILL_BOOTSTRAP_STATUS
+    if SKILL_BOOTSTRAP_STATUS is not None and not force:
+        return SKILL_BOOTSTRAP_STATUS
+    scripts_root = str(EA_ROOT / "scripts")
+    if scripts_root not in sys.path:
+        sys.path.insert(0, scripts_root)
+    from bootstrap_chummer6_guide_skill import ensure_local_skill_payloads
+
+    skills_service = getattr(EA_CONTAINER, "skills", None) if EA_CONTAINER is not None else None
+    state = ensure_local_skill_payloads(
+        required_keys=REQUIRED_CHUMMER6_SKILL_KEYS,
+        skills=skills_service,
+    )
+    missing = [str(value).strip() for value in (state.get("missing_skill_keys") or []) if str(value).strip()]
+    if missing:
+        raise RuntimeError("missing_chummer6_skills:" + ",".join(missing))
+    SKILL_BOOTSTRAP_STATUS = state
+    return state
+
+
 def _ea_orchestrator():
     global EA_CONTAINER, EA_ORCHESTRATOR
     if EA_ORCHESTRATOR is not None:
@@ -602,6 +636,7 @@ def _ea_orchestrator():
     from app.container import build_container
 
     EA_CONTAINER = build_container()
+    ensure_required_chummer6_skills(force=True)
     EA_ORCHESTRATOR = EA_CONTAINER.orchestrator
     return EA_ORCHESTRATOR
 
@@ -617,6 +652,21 @@ def ea_json(
         sys.path.insert(0, app_root)
     from app.domain.models import TaskExecutionRequest
     from app.services.orchestrator import AsyncExecutionQueuedError
+
+    def execute_request():
+        return _ea_orchestrator().execute_task_artifact(
+            TaskExecutionRequest(
+                skill_key=skill_key,
+                text=prompt,
+                principal_id=f"ea-{skill_key}-worker",
+                goal=f"Generate a structured JSON packet for the {skill_key} worker.",
+                input_json={
+                    "model": model,
+                    "generation_instruction": "Return JSON only. No markdown fences or commentary.",
+                    "mime_type": "application/json",
+                },
+            )
+        )
 
     def drain_queued_session(session_id: str) -> dict[str, object]:
         orchestrator = _ea_orchestrator()
@@ -653,19 +703,7 @@ def ea_json(
         raise RuntimeError(f"queued_task_timeout:{session_id}")
 
     try:
-        artifact = _ea_orchestrator().execute_task_artifact(
-            TaskExecutionRequest(
-                skill_key=skill_key,
-                text=prompt,
-                principal_id=f"ea-{skill_key}-worker",
-                goal=f"Generate a structured JSON packet for the {skill_key} worker.",
-                input_json={
-                    "model": model,
-                    "generation_instruction": "Return JSON only. No markdown fences or commentary.",
-                    "mime_type": "application/json",
-                },
-            )
-        )
+        artifact = execute_request()
         structured = dict(getattr(artifact, "structured_output_json", {}) or {})
         if structured:
             if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
@@ -674,6 +712,20 @@ def ea_json(
         return extract_json(artifact.content)
     except AsyncExecutionQueuedError as exc:
         return drain_queued_session(exc.session_id)
+    except ValueError as exc:
+        if str(exc).startswith("skill_not_found:"):
+            ensure_required_chummer6_skills(force=True)
+            try:
+                artifact = execute_request()
+            except AsyncExecutionQueuedError as queued_exc:
+                return drain_queued_session(queued_exc.session_id)
+            structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+            if structured:
+                if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                    return dict(structured.get("result") or {})
+                return structured
+            return extract_json(artifact.content)
+        raise
 
 
 def default_text_model() -> str:
@@ -875,8 +927,8 @@ Voice rules:
 - clear, slightly playful, Shadowrun-flavored
 - plain language first
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -930,8 +982,8 @@ Voice rules:
 - sell the idea harder without pretending it ships tomorrow
 - clear, punchy, Shadowrun-flavored
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - keep it exciting without pretending it is active work
 - no mention of Fleet or EA
@@ -1055,8 +1107,8 @@ Rules:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print UI labels or prompt text on the image
 - Shadowrun jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -1147,8 +1199,8 @@ Rules:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - overlay hints are design guidance for the renderer, not excuses to print labels, prompts, OODA, or resolution junk on the image
 - Shadowrun jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -1428,8 +1480,8 @@ Rules:
 - clear, slightly playful, Shadowrun-flavored
 - plain language first
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -1488,8 +1540,8 @@ Each horizon id must map to:
 Rules:
 - sell the idea harder without pretending it ships tomorrow
 - clear, punchy, Shadowrun-flavored
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -1596,6 +1648,198 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
     return copy_rows, media_rows
 
 
+AUDITOR_OK_STATUSES = {"ok", "pass", "approved", "clean"}
+
+
+def _trim_audit_text(text: object, *, limit: int = 320) -> str:
+    compact = " ".join(str(text or "").split()).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(32, limit - 1)].rstrip(" ,;:-") + "…"
+
+
+def _copy_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
+    return {
+        "pages": {
+            page_id: {
+                key: _trim_audit_text(value, limit=360)
+                for key, value in dict(row).items()
+                if isinstance(value, str)
+            }
+            for page_id, row in dict(overrides.get("pages") or {}).items()
+            if isinstance(row, dict)
+        },
+        "parts": {
+            part_id: {
+                key: _trim_audit_text(value, limit=240)
+                for key, value in dict(row).items()
+                if isinstance(value, str)
+            }
+            for part_id, row in dict(overrides.get("parts") or {}).items()
+            if isinstance(row, dict)
+        },
+        "horizons": {
+            horizon_id: {
+                key: _trim_audit_text(value, limit=260)
+                for key, value in dict(row).items()
+                if isinstance(value, str)
+            }
+            for horizon_id, row in dict(overrides.get("horizons") or {}).items()
+            if isinstance(row, dict)
+        },
+    }
+
+
+def _scene_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
+    media = dict(overrides.get("media") or {})
+    summary: dict[str, object] = {
+        "hero": {},
+        "parts": {},
+        "horizons": {},
+    }
+    hero = media.get("hero")
+    if isinstance(hero, dict):
+        contract = hero.get("scene_contract") if isinstance(hero.get("scene_contract"), dict) else {}
+        summary["hero"] = {
+            "visual_prompt": _trim_audit_text(hero.get("visual_prompt"), limit=260),
+            "overlay_hint": _trim_audit_text(hero.get("overlay_hint"), limit=120),
+            "scene_contract": {
+                key: contract.get(key)
+                for key in ("subject", "environment", "action", "metaphor", "composition")
+                if str(contract.get(key) or "").strip()
+            },
+        }
+    for group in ("parts", "horizons"):
+        rows: dict[str, object] = {}
+        for item_id, row in dict(media.get(group) or {}).items():
+            if not isinstance(row, dict):
+                continue
+            contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+            rows[item_id] = {
+                "title": _trim_audit_text(row.get("title"), limit=100),
+                "visual_prompt": _trim_audit_text(row.get("visual_prompt"), limit=220),
+                "overlay_hint": _trim_audit_text(row.get("overlay_hint"), limit=120),
+                "scene_contract": {
+                    key: contract.get(key)
+                    for key in ("subject", "environment", "action", "metaphor", "composition")
+                    if str(contract.get(key) or "").strip()
+                },
+            }
+        summary[group] = rows
+    return summary
+
+
+def _visual_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
+    media = dict(overrides.get("media") or {})
+    snapshot: dict[str, object] = {}
+    for group in ("hero", "parts", "horizons"):
+        rows = media.get(group)
+        if isinstance(rows, dict):
+            if group == "hero":
+                rows = {"hero": rows}
+            snapshot[group] = {
+                item_id: {
+                    "title": _trim_audit_text(row.get("title"), limit=90),
+                    "badge": _trim_audit_text(row.get("badge"), limit=60),
+                    "subtitle": _trim_audit_text(row.get("subtitle"), limit=120),
+                    "kicker": _trim_audit_text(row.get("kicker"), limit=120),
+                    "visual_motifs": list(row.get("visual_motifs") or [])[:6],
+                    "overlay_callouts": list(row.get("overlay_callouts") or [])[:4],
+                    "composition": str(((row.get("scene_contract") or {}) if isinstance(row, dict) else {}).get("composition") or "").strip(),
+                }
+                for item_id, row in rows.items()
+                if isinstance(row, dict)
+            }
+    return snapshot
+
+
+def _pack_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
+    meta = dict(overrides.get("meta") or {})
+    style_epoch = dict(meta.get("style_epoch") or {})
+    return {
+        "copy": _copy_audit_snapshot(overrides),
+        "visuals": _visual_audit_snapshot(overrides),
+        "style_epoch": {
+            key: style_epoch.get(key)
+            for key in ("epoch", "run_id", "style_family", "palette", "lighting", "humor_ceiling")
+            if key in style_epoch
+        },
+    }
+
+
+def build_auditor_prompt(*, label: str, focus: str, payload: dict[str, object]) -> str:
+    return f"""You are auditing a generated Chummer6 public-guide pack before publish.
+
+Task: return JSON only with keys status, summary, findings, risky_scopes.
+
+Rules:
+- `status` must be either `ok` or `revise`
+- mark `revise` if the pack still sounds like maintainers explaining structure to themselves, if the calls to action are misrouted, if the copy is not useful to a curious player/GM/tester, or if the visuals feel repetitive, generic, or mismatched to the page role
+- keep `summary` to one short paragraph
+- `findings` should be a short list of concrete issues, or an empty list when the pack is clean
+- `risky_scopes` should name the page ids, part ids, horizon ids, or media groups that need attention
+- do not rewrite the pack; audit it
+- no markdown fences
+
+Audit label: {label}
+Audit focus:
+{focus}
+
+Pack snapshot:
+{json.dumps(payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def normalize_audit_result(result: dict[str, object], *, label: str) -> dict[str, object]:
+    raw_status = str(result.get("status") or "").strip().lower()
+    summary = editorial_self_audit_text(
+        str(result.get("summary") or "").strip(),
+        fallback=f"{label} audit returned no summary.",
+        context=f"audit:{label}:summary",
+    )
+    findings = [
+        editorial_self_audit_text(
+            entry,
+            fallback=entry,
+            context=f"audit:{label}:finding",
+        )
+        for entry in _listish(result.get("findings"))
+    ]
+    risky_scopes = [entry for entry in _listish(result.get("risky_scopes")) if entry]
+    if raw_status not in AUDITOR_OK_STATUSES | {"revise", "fail", "failed", "reject"}:
+        raw_status = "ok" if not findings and not risky_scopes else "revise"
+    status = "ok" if raw_status in AUDITOR_OK_STATUSES else "revise"
+    return {
+        "status": status,
+        "summary": summary,
+        "findings": findings,
+        "risky_scopes": risky_scopes,
+    }
+
+
+def run_skill_audit(
+    *,
+    label: str,
+    skill_key: str,
+    focus: str,
+    payload: dict[str, object],
+    model: str,
+) -> dict[str, object]:
+    result = chat_json(
+        build_auditor_prompt(label=label, focus=focus, payload=payload),
+        model=model,
+        skill_key=skill_key,
+    )
+    normalized = normalize_audit_result(result, label=label)
+    if normalized["status"] != "ok":
+        scopes = ",".join(normalized["risky_scopes"][:8]) if normalized["risky_scopes"] else "unspecified"
+        findings = " | ".join(normalized["findings"][:4]) if normalized["findings"] else normalized["summary"]
+        raise RuntimeError(f"{label}_audit_failed:{scopes}:{findings}")
+    return normalized
+
+
 SOURCE_SIGNAL_FILES = [
     (("/docker/chummercomplete/chummer6-core/instructions.md", "/docker/chummercomplete/chummer-core-engine/instructions.md"), "core_instructions"),
     (("/docker/chummercomplete/chummer6-core/README.md", "/docker/chummercomplete/chummer-core-engine/README.md"), "core_readme"),
@@ -1677,8 +1921,8 @@ Required shape:
 Rules:
 - think like a sharp human guide writer, not a compliance bot
 - Shadowrun jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - focus on what a curious human would actually care about first
 - if the source suggests strong user-facing selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossiers, or dangerous simulation energy, surface them
@@ -1921,8 +2165,8 @@ Voice rules:
 - clear, inviting, slightly playful, Shadowrun-flavored
 - this is a human-facing guide, not a spec
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -1994,8 +2238,8 @@ Voice rules:
 - sell the part as something a reader should care about right now
 - the image should feel grounded, useful, and scene-first
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -2068,8 +2312,8 @@ Voice rules:
 - sell the horizon harder
 - the image should feel cool, dangerous, specific, and scene-first
 - SR jargon is welcome
-- sharper dev roasting is allowed
-- roast code habits first, but if source context makes it land harder, a little real-life spillover is fine
+- dry humor is allowed when it makes the point clearer
+- never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
 - no mention of chummer5a
@@ -2694,6 +2938,34 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             )
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
+    overrides["meta"]["public_skill_audit"] = run_skill_audit(
+        label="public",
+        skill_key=PUBLIC_AUDITOR_SKILL_KEY,
+        focus="Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes.",
+        payload=_copy_audit_snapshot(overrides),
+        model=model,
+    )
+    overrides["meta"]["scene_skill_audit"] = run_skill_audit(
+        label="scene",
+        skill_key=SCENE_AUDITOR_SKILL_KEY,
+        focus="Check composition diversity, page-role fit, and whether scene contracts still collapse into repetitive tableaus or generic cyberpunk wallpaper.",
+        payload=_scene_audit_snapshot(overrides),
+        model=model,
+    )
+    overrides["meta"]["visual_skill_audit"] = run_skill_audit(
+        label="visual",
+        skill_key=VISUAL_AUDITOR_SKILL_KEY,
+        focus="Check whether the visible media metadata feels specific, premium, and non-repetitive enough for a public guide pack.",
+        payload=_visual_audit_snapshot(overrides),
+        model=model,
+    )
+    overrides["meta"]["pack_skill_audit"] = run_skill_audit(
+        label="pack",
+        skill_key=PACK_AUDITOR_SKILL_KEY,
+        focus="Check overall pack coherence: public usefulness, visual consistency, and whether the whole set feels ready to publish for real users.",
+        payload=_pack_audit_snapshot(overrides),
+        model=model,
+    )
     overrides["meta"]["scene_plan_audit"] = scene_plan_pack_audit(overrides)
     overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"

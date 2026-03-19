@@ -368,7 +368,7 @@ def canonical_horizon_visual_contract(slug: str, item: dict[str, object]) -> dic
             "composition": composition,
             "palette": "petrol cyan, rust amber, wet charcoal",
             "mood": "grounded, cinematic, specific",
-            "humor": "the design canon moved first, so the art direction is sprinting to catch up without pretending local fallback slop is acceptable",
+            "humor": "the design canon moved first, so the art direction is catching up without inventing nonsense",
         },
     }
 
