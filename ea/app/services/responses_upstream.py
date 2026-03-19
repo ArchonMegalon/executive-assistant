@@ -191,6 +191,63 @@ def _compact_text_preview(text: object, *, limit: int = 160) -> str:
     return normalized[: max(limit - 3, 0)].rstrip() + "..."
 
 
+def _principal_override_map(env_name: str) -> dict[str, str]:
+    raw = _env(env_name)
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    payload: dict[str, str] = {}
+    for key, value in loaded.items():
+        normalized_key = str(key or "").strip()
+        normalized_value = str(value or "").strip()
+        if normalized_key and normalized_value:
+            payload[normalized_key] = normalized_value
+    return payload
+
+
+def principal_owner_category(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return "system"
+    overrides = _principal_override_map("EA_PRINCIPAL_OWNER_CATEGORY_OVERRIDES_JSON")
+    override = str(overrides.get(normalized) or "").strip().lower()
+    if override in {"participant", "operator", "system"}:
+        return override
+    lowered = normalized.lower().replace("_", "-")
+    if (
+        lowered.startswith(("participant", "acct-participant", "lane-participant", "chatgpt-participant"))
+        or "-participant-" in lowered
+        or lowered.endswith("-participant")
+    ):
+        return "participant"
+    if lowered.startswith(("system", "scheduler", "health", "survival", "automation", "telemetry", "cron", "daemon")):
+        return "system"
+    return "operator"
+
+
+def principal_label(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return "system"
+    overrides = _principal_override_map("EA_PRINCIPAL_LABEL_OVERRIDES_JSON")
+    override = str(overrides.get(normalized) or "").strip()
+    return override or normalized
+
+
+def principal_identity_summary(principal_id: object) -> dict[str, str]:
+    normalized = str(principal_id or "").strip()
+    return {
+        "principal_id": normalized,
+        "principal_label": principal_label(normalized),
+        "owner_category": principal_owner_category(normalized),
+    }
+
+
 class ResponsesUpstreamError(RuntimeError):
     pass
 
@@ -297,6 +354,10 @@ class ProviderDispatchEvent:
     model: str
     lane: str
     estimated_onemin_credits: int | None
+    backend: str = ""
+    principal_id: str | None = None
+    principal_label: str | None = None
+    owner_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -504,6 +565,10 @@ def _load_provider_ledgers_once() -> None:
                             provider_key=str(row.get("provider_key") or ""),
                             model=str(row.get("model") or ""),
                             lane=str(row.get("lane") or _LANE_DEFAULT),
+                            backend=str(row.get("backend") or ""),
+                            principal_id=str(row.get("principal_id") or "") or None,
+                            principal_label=str(row.get("principal_label") or "") or None,
+                            owner_category=str(row.get("owner_category") or "") or None,
                             estimated_onemin_credits=(
                                 int(row.get("estimated_onemin_credits"))
                                 if row.get("estimated_onemin_credits") is not None
@@ -3953,6 +4018,10 @@ def generate_text(
                         provider_key=result.provider_key,
                         model=result.model,
                         lane=lane,
+                        backend=str(result.provider_backend or config.provider_key or ""),
+                        principal_id=chatplayground_audit_principal_id,
+                        principal_label=principal_label(chatplayground_audit_principal_id),
+                        owner_category=principal_owner_category(chatplayground_audit_principal_id),
                         estimated_onemin_credits=estimated_onemin_credits if estimated_onemin_credits > 0 else None,
                     )
                     return result
@@ -4038,6 +4107,10 @@ def _record_provider_dispatch_event(
     provider_key: str,
     model: str,
     lane: str,
+    backend: str = "",
+    principal_id: str = "",
+    principal_label: str = "",
+    owner_category: str = "",
     estimated_onemin_credits: int | None,
     happened_at: float | None = None,
 ) -> None:
@@ -4047,6 +4120,10 @@ def _record_provider_dispatch_event(
         provider_key=str(provider_key or ""),
         model=str(model or ""),
         lane=str(lane or _LANE_DEFAULT),
+        backend=str(backend or ""),
+        principal_id=str(principal_id or "").strip() or None,
+        principal_label=str(principal_label or "").strip() or None,
+        owner_category=str(owner_category or "").strip() or None,
         estimated_onemin_credits=int(estimated_onemin_credits) if estimated_onemin_credits is not None else None,
     )
     with _ONEMIN_USAGE_LOCK:
@@ -4058,9 +4135,60 @@ def _record_provider_dispatch_event(
             "provider_key": event.provider_key,
             "model": event.model,
             "lane": event.lane,
+            "backend": event.backend,
+            "principal_id": event.principal_id,
+            "principal_label": event.principal_label,
+            "owner_category": event.owner_category,
             "estimated_onemin_credits": event.estimated_onemin_credits,
         },
     )
+
+
+def _latest_provider_dispatch_event(*, provider_key: str) -> ProviderDispatchEvent | None:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [item for item in _PROVIDER_DISPATCH_EVENTS if item.provider_key == provider_key]
+    if not rows:
+        return None
+    rows.sort(key=lambda item: item.happened_at, reverse=True)
+    return rows[0]
+
+
+def _provider_dispatch_summary(
+    *,
+    provider_key: str,
+    active_lease_principals: list[str] | None = None,
+) -> dict[str, object]:
+    latest = _latest_provider_dispatch_event(provider_key=provider_key)
+    active_principals = [str(item or "").strip() for item in (active_lease_principals or []) if str(item or "").strip()]
+    active_labels = [principal_label(item) for item in active_principals]
+    active_categories = list(dict.fromkeys(principal_owner_category(item) for item in active_principals))
+    if latest is None:
+        return {
+            "last_used_principal_id": "",
+            "last_used_principal_label": "",
+            "last_used_owner_category": "",
+            "last_used_lane": "",
+            "last_used_backend": "",
+            "last_used_at": None,
+            "active_lease_count": len(active_principals),
+            "active_lease_principals": active_principals,
+            "active_lease_labels": active_labels,
+            "active_lease_owner_categories": active_categories,
+        }
+    principal_id = str(latest.principal_id or "").strip()
+    return {
+        "last_used_principal_id": principal_id,
+        "last_used_principal_label": str(latest.principal_label or principal_label(principal_id) or "").strip(),
+        "last_used_owner_category": str(latest.owner_category or principal_owner_category(principal_id) or "").strip(),
+        "last_used_lane": str(latest.lane or "").strip(),
+        "last_used_backend": str(latest.backend or "").strip(),
+        "last_used_at": latest.happened_at,
+        "active_lease_count": len(active_principals),
+        "active_lease_principals": active_principals,
+        "active_lease_labels": active_labels,
+        "active_lease_owner_categories": active_categories,
+    }
 
 
 def _avoided_onemin_credit_summary(*, now: float, window_seconds: float) -> dict[str, object]:
@@ -5178,12 +5306,31 @@ def _provider_health_report() -> dict[str, object]:
     gemini_key_names = _gemini_vortex_account_names()
     gemini_slots = []
     for slot in gemini_vortex_slot_status():
+        last_used_principal_id = str(slot.get("last_used_principal_id") or slot.get("lease_holder") or "").strip()
+        active_lease_holder = str(slot.get("lease_holder") or "").strip()
         gemini_slots.append(
             {
                 **slot,
                 "state": gemini_state if str(slot.get("last_result") or "").strip() != "failed" else "degraded",
+                "lease_holder_label": principal_label(active_lease_holder) if active_lease_holder else "",
+                "lease_holder_owner_category": principal_owner_category(active_lease_holder) if active_lease_holder else "",
+                "last_used_principal_id": last_used_principal_id,
+                "last_used_principal_label": principal_label(last_used_principal_id) if last_used_principal_id else "",
+                "last_used_owner_category": principal_owner_category(last_used_principal_id) if last_used_principal_id else "",
             }
         )
+    gemini_active_lease_principals = [
+        str(slot.get("lease_holder") or "").strip()
+        for slot in gemini_slots
+        if str(slot.get("lease_holder") or "").strip()
+    ]
+    onemin_dispatch_summary = _provider_dispatch_summary(provider_key="onemin")
+    magix_dispatch_summary = _provider_dispatch_summary(provider_key="magixai")
+    chatplayground_dispatch_summary = _provider_dispatch_summary(provider_key="chatplayground")
+    gemini_dispatch_summary = _provider_dispatch_summary(
+        provider_key="gemini_vortex",
+        active_lease_principals=gemini_active_lease_principals,
+    )
     hard_max_active, hard_queue_timeout, _ = _resolve_hard_defaults()
     onemin_max_requests_per_hour = _onemin_max_requests_per_hour()
     onemin_max_credits_per_hour = _onemin_max_credits_per_hour()
@@ -5195,6 +5342,7 @@ def _provider_health_report() -> dict[str, object]:
                 "configured_slots": len(onemin_slots),
                 "backend": "1min",
                 "slots": onemin_slots,
+                **onemin_dispatch_summary,
                 "health_check_enabled": False,
                 "provider_order": list(_provider_order()),
                 "observed_remaining_credits": {
@@ -5234,6 +5382,7 @@ def _provider_health_report() -> dict[str, object]:
                 "configured_slots": len(magix_slots),
                 "backend": "aimagicx",
                 "slots": magix_slots,
+                **magix_dispatch_summary,
                 "state": magix_state,
                 "detail": magix_detail,
                 "checked_at": magix_checked_at,
@@ -5245,12 +5394,14 @@ def _provider_health_report() -> dict[str, object]:
                 "provider_url": _browserplayground_url(),
                 "configured_slots": len(chatplayground_slots),
                 "slots": chatplayground_slots,
+                **chatplayground_dispatch_summary,
             },
             "gemini_vortex": {
                 "provider_key": "gemini_vortex",
                 "backend": "gemini_vortex_cli",
                 "configured_slots": len(gemini_slots),
                 "slots": gemini_slots,
+                **gemini_dispatch_summary,
                 "state": gemini_state,
                 "detail": gemini_detail,
                 "models": list(_gemini_vortex_models()),
