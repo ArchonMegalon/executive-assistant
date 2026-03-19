@@ -593,11 +593,8 @@ def _ea_orchestrator():
     if scripts_root not in sys.path:
         sys.path.insert(0, scripts_root)
     from app.container import build_container
-    from bootstrap_chummer6_guide_skill import apply_skill_payload, build_skill_payloads
 
     EA_CONTAINER = build_container()
-    for payload in build_skill_payloads():
-        apply_skill_payload(EA_CONTAINER.skills, payload)
     EA_ORCHESTRATOR = EA_CONTAINER.orchestrator
     return EA_ORCHESTRATOR
 
@@ -648,41 +645,28 @@ def ea_json(
             time.sleep(0.25)
         raise RuntimeError(f"queued_task_timeout:{session_id}")
 
-    candidates = [skill_key]
-    if skill_key == PUBLIC_WRITER_SKILL_KEY:
-        candidates.append(VISUAL_DIRECTOR_SKILL_KEY)
-    last_error: Exception | None = None
-    for candidate in candidates:
-        try:
-            artifact = _ea_orchestrator().execute_task_artifact(
-                TaskExecutionRequest(
-                    skill_key=candidate,
-                    text=prompt,
-                    principal_id=f"ea-{candidate}-worker",
-                    goal=f"Generate a structured JSON packet for the {candidate} worker.",
-                    input_json={
-                        "model": model,
-                        "generation_instruction": "Return JSON only. No markdown fences or commentary.",
-                        "mime_type": "application/json",
-                    },
-                )
+    try:
+        artifact = _ea_orchestrator().execute_task_artifact(
+            TaskExecutionRequest(
+                skill_key=skill_key,
+                text=prompt,
+                principal_id=f"ea-{skill_key}-worker",
+                goal=f"Generate a structured JSON packet for the {skill_key} worker.",
+                input_json={
+                    "model": model,
+                    "generation_instruction": "Return JSON only. No markdown fences or commentary.",
+                    "mime_type": "application/json",
+                },
             )
-            structured = dict(getattr(artifact, "structured_output_json", {}) or {})
-            if structured:
-                if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
-                    return dict(structured.get("result") or {})
-                return structured
-            return extract_json(artifact.content)
-        except AsyncExecutionQueuedError as exc:
-            return drain_queued_session(exc.session_id)
-        except ValueError as exc:
-            if str(exc).startswith("skill_not_found:") and candidate != candidates[-1]:
-                last_error = exc
-                continue
-            raise
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("ea_json_failed_without_candidate")
+        )
+        structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+        if structured:
+            if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                return dict(structured.get("result") or {})
+            return structured
+        return extract_json(artifact.content)
+    except AsyncExecutionQueuedError as exc:
+        return drain_queued_session(exc.session_id)
 
 
 def default_text_model() -> str:

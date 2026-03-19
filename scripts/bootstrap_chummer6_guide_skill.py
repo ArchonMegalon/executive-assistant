@@ -44,7 +44,30 @@ def upsert_skill(body: dict[str, object]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _common_skill_fields() -> dict[str, object]:
+def _budget_policy(*, publishable: bool) -> dict[str, object]:
+    budget = {
+        "class": "low",
+        "workflow_template": "tool_then_artifact",
+        "pre_artifact_capability_key": "structured_generate",
+        "artifact_failure_strategy": "retry",
+        "artifact_max_attempts": 2,
+        "artifact_retry_backoff_seconds": 1,
+        "style_epoch_enabled": True,
+        "variation_guard_enabled": True,
+    }
+    if publishable:
+        budget.update(
+            {
+                "publish_on_success": True,
+                "publish_repo": "ArchonMegalon/Chummer6",
+                "publish_branch": "main",
+                "refresh_schedule_utc": {"weekday": 0, "hour": 5, "minute": 30},
+            }
+        )
+    return budget
+
+
+def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
     return {
         "task_key": "chummer6_guide_refresh",
         "deliverable_type": "chummer6_guide_refresh_packet",
@@ -90,25 +113,12 @@ def _common_skill_fields() -> dict[str, object]:
         },
         "human_policy_json": {"review_roles": ["guide_reviewer"]},
         "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
-        "budget_policy_json": {
-            "class": "low",
-            "workflow_template": "tool_then_artifact",
-            "pre_artifact_capability_key": "structured_generate",
-            "artifact_failure_strategy": "retry",
-            "artifact_max_attempts": 2,
-            "artifact_retry_backoff_seconds": 1,
-            "style_epoch_enabled": True,
-            "variation_guard_enabled": True,
-            "publish_on_success": True,
-            "publish_repo": "ArchonMegalon/Chummer6",
-            "publish_branch": "main",
-            "refresh_schedule_utc": {"weekday": 0, "hour": 5, "minute": 30},
-        },
+        "budget_policy_json": _budget_policy(publishable=publishable),
     }
 
 
 def build_public_writer_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=True)
     payload.update(
         {
             "skill_key": "chummer6_public_writer",
@@ -129,7 +139,7 @@ def build_public_writer_skill_payload() -> dict[str, object]:
 
 
 def build_visual_director_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=True)
     payload.update(
         {
             "skill_key": "chummer6_visual_director",
@@ -150,7 +160,7 @@ def build_visual_director_skill_payload() -> dict[str, object]:
 
 
 def build_public_auditor_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=False)
     payload.update(
         {
             "skill_key": "chummer6_public_auditor",
@@ -171,7 +181,7 @@ def build_public_auditor_skill_payload() -> dict[str, object]:
 
 
 def build_scene_auditor_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=False)
     payload.update(
         {
             "skill_key": "chummer6_scene_auditor",
@@ -192,7 +202,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
 
 
 def build_visual_auditor_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=False)
     payload.update(
         {
             "skill_key": "chummer6_visual_auditor",
@@ -214,7 +224,7 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
 
 
 def build_pack_auditor_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields()
+    payload = _common_skill_fields(publishable=False)
     payload.update(
         {
             "skill_key": "chummer6_pack_auditor",

@@ -17,12 +17,22 @@ from app.services.task_contracts import TaskContractService
 
 
 DESIGN_SKILL_BOOTSTRAP_PATH = Path("/docker/EA/scripts/bootstrap_design_governance_skills.py")
+CHUMMER_GUIDE_BOOTSTRAP_PATH = Path("/docker/EA/scripts/bootstrap_chummer6_guide_skill.py")
 
 
 def load_design_skill_bootstrap_module():
     spec = importlib.util.spec_from_file_location("design_governance_skill_bootstrap", DESIGN_SKILL_BOOTSTRAP_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"unable to load module from {DESIGN_SKILL_BOOTSTRAP_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_chummer_guide_bootstrap_module():
+    spec = importlib.util.spec_from_file_location("chummer6_guide_skill_bootstrap", CHUMMER_GUIDE_BOOTSTRAP_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load module from {CHUMMER_GUIDE_BOOTSTRAP_PATH}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -784,6 +794,111 @@ def test_chummer6_skill_catalog_keeps_writer_and_visual_director_distinct() -> N
     assert director_plan.status_code == 200
     assert writer_plan.json()["plan"]["task_key"] == "chummer6_public_copy_refresh"
     assert director_plan.json()["plan"]["task_key"] == "chummer6_guide_refresh"
+
+
+def test_chummer6_guide_bootstrap_keeps_publish_schedule_off_auditor_skills() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    writer_budget = payloads["chummer6_public_writer"]["budget_policy_json"]
+    director_budget = payloads["chummer6_visual_director"]["budget_policy_json"]
+    assert writer_budget["publish_on_success"] is True
+    assert director_budget["publish_on_success"] is True
+    assert "refresh_schedule_utc" in writer_budget
+    assert "refresh_schedule_utc" in director_budget
+
+    for skill_key in (
+        "chummer6_public_auditor",
+        "chummer6_scene_auditor",
+        "chummer6_visual_auditor",
+        "chummer6_pack_auditor",
+    ):
+        budget = payloads[skill_key]["budget_policy_json"]
+        assert "publish_on_success" not in budget
+        assert "publish_repo" not in budget
+        assert "publish_branch" not in budget
+        assert "refresh_schedule_utc" not in budget
+
+
+@pytest.mark.parametrize(
+    ("skill_key", "task_key", "memory_fact_key"),
+    [
+        ("chummer6_public_auditor", "chummer6_public_copy_audit", "copy"),
+        ("chummer6_scene_auditor", "chummer6_scene_plan_audit", "scene"),
+        ("chummer6_visual_auditor", "chummer6_visual_audit", "visual"),
+        ("chummer6_pack_auditor", "chummer6_pack_audit", "pack"),
+    ],
+)
+def test_skill_catalog_can_execute_chummer6_auditor_skills(monkeypatch, skill_key: str, task_key: str, memory_fact_key: str) -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "response": json.dumps(
+                        {
+                            "packet": "guide_refresh",
+                            memory_fact_key: f"{skill_key} keeps the pack reader-safe.",
+                        }
+                    ),
+                    "stats": {
+                        "models": {
+                            "gemini-2.5-flash": {
+                                "tokens": {"input": 88, "candidates": 21}
+                            }
+                        }
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_gemini_vortex_adapter.subprocess.run",
+        fake_run,
+    )
+
+    client = _client()
+
+    created = client.post("/v1/skills", json=payloads[skill_key])
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == skill_key
+    assert created.json()["task_key"] == task_key
+
+    fetched = client.get(f"/v1/skills/{skill_key}")
+    assert fetched.status_code == 200
+    assert fetched.json()["task_key"] == task_key
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": skill_key, "goal": f"run {skill_key} against the Chummer6 guide packet"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["plan"]["task_key"] == task_key
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": skill_key,
+            "goal": f"run {skill_key} against the Chummer6 guide packet",
+            "input_json": {"source_text": "Audit the generated Chummer6 guide packet with JSON only."},
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == skill_key
+    assert body["task_key"] == task_key
+    assert body["structured_output_json"]["packet"] == "guide_refresh"
+    assert memory_fact_key in body["structured_output_json"]
 
 
 def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:
