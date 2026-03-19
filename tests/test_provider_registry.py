@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pytest
 
 from app.domain.models import PlanValidationError, SkillContract
@@ -237,6 +238,59 @@ def test_provider_registry_rejects_non_executable_capability_route() -> None:
             provider_hints=("prompting_systems",),
             allowed_tools=("provider.prompting_systems.prompt_refine",),
         )
+
+
+def test_provider_registry_exposes_hub_owner_projection_from_principal_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_PRINCIPAL_HUB_USER_OVERRIDES_JSON", json.dumps({"participant-1": "usr_1"}))
+    monkeypatch.setenv("EA_PRINCIPAL_HUB_GROUP_OVERRIDES_JSON", json.dumps({"participant-1": "grp_1"}))
+    monkeypatch.setenv("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON", json.dumps({"participant-1": "sps_1"}))
+
+    registry = ProviderRegistryService()
+    read_model = registry.registry_read_model(
+        principal_id="participant-1",
+        provider_health={
+            "providers": {
+                "gemini_vortex": {
+                    "provider_key": "gemini_vortex",
+                    "backend": "gemini_vortex_cli",
+                    "configured_slots": 1,
+                    "slots": [
+                        {
+                            "slot": "primary",
+                            "state": "ready",
+                            "lease_holder": "participant-1",
+                            "last_used_principal_id": "participant-1",
+                            "last_used_at": "2026-03-19T10:00:00Z",
+                        }
+                    ],
+                }
+            }
+        },
+        profile_decisions=(
+            {
+                "profile": "groundwork",
+                "lane": "groundwork",
+                "public_model": "ea-groundwork-gemini",
+                "backend_key": "gemini_vortex_cli",
+                "provider_hint_order": ("gemini_vortex",),
+                "review_required": False,
+                "needs_review": False,
+                "merge_policy": "auto",
+            },
+        ),
+    )
+
+    provider = next(item for item in read_model["providers"] if item["provider_key"] == "gemini_vortex")
+    assert provider["last_used_hub_user_id"] == "usr_1"
+    assert provider["last_used_hub_group_id"] == "grp_1"
+    assert provider["last_used_sponsor_session_id"] == "sps_1"
+
+    lane = next(item for item in read_model["lanes"] if item["profile"] == "groundwork")
+    assert lane["last_used_hub_user_id"] == "usr_1"
+    assert lane["last_used_hub_group_id"] == "grp_1"
+    assert lane["last_used_sponsor_session_id"] == "sps_1"
 
 
 def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
