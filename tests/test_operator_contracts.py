@@ -936,6 +936,9 @@ def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
     assert "chummer6_public_writer" in http_examples
     assert "`chummer6_public_writer`" in skills_doc
     assert 'PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"' in worker
+    assert "test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director" in worker_test
+    assert "apply_skill_payload(EA_CONTAINER.skills, payload)" not in worker
+    assert "current `chummer6_guide_worker.py` generation path" in skills_doc
 
 
 def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() -> None:

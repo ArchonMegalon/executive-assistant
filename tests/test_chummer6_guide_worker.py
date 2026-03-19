@@ -101,6 +101,23 @@ def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None
     assert request.skill_key == "chummer6_visual_director"
 
 
+def test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: list[str] = []
+
+    class _Orchestrator:
+        def execute_task_artifact(self, request):
+            captured.append(request.skill_key)
+            raise ValueError("skill_not_found:chummer6_public_writer")
+
+    monkeypatch.setattr(worker, "_ea_orchestrator", lambda: _Orchestrator())
+
+    with pytest.raises(ValueError, match="skill_not_found:chummer6_public_writer"):
+        worker.ea_json("prompt body", model="gemini-groundwork")
+
+    assert captured == ["chummer6_public_writer"]
+
+
 def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults() -> None:
     worker = _load_worker_module()
 
