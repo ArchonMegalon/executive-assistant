@@ -37,6 +37,7 @@ from app.services.responses_upstream import (
     _provider_order,
     generate_text,
     list_response_models,
+    principal_identity_summary,
 )
 from app.services.survival_lane import SurvivalLaneService
 
@@ -834,7 +835,12 @@ def _attach_provider_slot_state(
             "state": item.get("state"),
             "slot_owner": item.get("slot_owner"),
             "lease_holder": item.get("lease_holder"),
+            "lease_holder_label": item.get("lease_holder_label"),
+            "lease_holder_owner_category": item.get("lease_holder_owner_category"),
             "lease_expires_at": item.get("lease_expires_at"),
+            "last_used_principal_id": item.get("last_used_principal_id"),
+            "last_used_principal_label": item.get("last_used_principal_label"),
+            "last_used_owner_category": item.get("last_used_owner_category"),
             "last_used_at": item.get("last_used_at"),
             "quota_posture": item.get("quota_posture"),
         }
@@ -859,6 +865,11 @@ def _attach_provider_slot_state(
                     "provider_key": "gemini_vortex",
                     "selection_mode": selection_mode,
                     "configured_slots": configured_slots,
+                    "active_lease_count": int(gemini.get("active_lease_count") or 0),
+                    "last_used_principal_id": gemini.get("last_used_principal_id"),
+                    "last_used_principal_label": gemini.get("last_used_principal_label"),
+                    "last_used_owner_category": gemini.get("last_used_owner_category"),
+                    "last_used_at": gemini.get("last_used_at"),
                 },
             }
         )
@@ -2422,6 +2433,7 @@ def get_provider_health(
     return JSONResponse(
         {
             **provider_health,
+            "principal": principal_identity_summary(context.principal_id),
             "provider_registry": _provider_registry_payload(
                 container=container,
                 principal_id=context.principal_id,
@@ -2766,6 +2778,7 @@ def list_codex_profiles(
     ]
     return JSONResponse(
         {
+            "principal": principal_identity_summary(context.principal_id),
             "profiles": _attach_provider_slot_state(profiles, provider_health=provider_health),
             "provider_health": provider_health,
             "provider_registry": _provider_registry_payload(

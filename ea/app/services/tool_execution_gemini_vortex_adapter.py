@@ -195,8 +195,10 @@ def gemini_vortex_slot_status() -> list[dict[str, Any]]:
                 "configured": True,
                 "slot_owner": _slot_owner(slot.slot),
                 "quota_posture": _slot_quota_posture(slot.slot) or "unknown",
+                "active_lease": active_lease,
                 "lease_holder": str(entry.get("lease_holder") or "") if active_lease else "",
                 "lease_expires_at": str(entry.get("lease_expires_at") or "") if active_lease else "",
+                "last_used_principal_id": str(entry.get("lease_holder") or ""),
                 "last_used_at": str(entry.get("last_used_at") or ""),
                 "last_result": str(entry.get("last_result") or ""),
             }

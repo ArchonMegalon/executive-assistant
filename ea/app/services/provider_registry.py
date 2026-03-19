@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -66,6 +67,53 @@ def _collect_strings(value: object) -> tuple[str, ...]:
     return ()
 
 
+def _principal_override_map(env_name: str) -> dict[str, str]:
+    raw = str(os.environ.get(env_name) or "").strip()
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    payload: dict[str, str] = {}
+    for key, value in loaded.items():
+        normalized_key = str(key or "").strip()
+        normalized_value = str(value or "").strip()
+        if normalized_key and normalized_value:
+            payload[normalized_key] = normalized_value
+    return payload
+
+
+def _principal_label(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return "system"
+    overrides = _principal_override_map("EA_PRINCIPAL_LABEL_OVERRIDES_JSON")
+    return str(overrides.get(normalized) or normalized).strip() or normalized
+
+
+def _principal_owner_category(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return "system"
+    overrides = _principal_override_map("EA_PRINCIPAL_OWNER_CATEGORY_OVERRIDES_JSON")
+    override = str(overrides.get(normalized) or "").strip().lower()
+    if override in {"participant", "operator", "system"}:
+        return override
+    lowered = normalized.lower().replace("_", "-")
+    if (
+        lowered.startswith(("participant", "acct-participant", "lane-participant", "chatgpt-participant"))
+        or "-participant-" in lowered
+        or lowered.endswith("-participant")
+    ):
+        return "participant"
+    if lowered.startswith(("system", "scheduler", "health", "survival", "automation", "telemetry", "cron", "daemon")):
+        return "system"
+    return "operator"
+
+
 @dataclass(frozen=True)
 class ProviderCapability:
     provider_key: str
@@ -125,6 +173,11 @@ class ProviderRegistryProviderView:
     capabilities: tuple[ProviderRegistryCapabilityView, ...]
     slot_pool: dict[str, object] = field(default_factory=dict)
     capacity: dict[str, object] = field(default_factory=dict)
+    last_used_principal_id: str = ""
+    last_used_principal_label: str = ""
+    last_used_owner_category: str = ""
+    last_used_at: object = None
+    active_lease_count: int = 0
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -146,6 +199,11 @@ class ProviderRegistryProviderView:
             "capabilities": [item.as_dict() for item in self.capabilities],
             "slot_pool": dict(self.slot_pool or {}),
             "capacity": dict(self.capacity or {}),
+            "last_used_principal_id": self.last_used_principal_id,
+            "last_used_principal_label": self.last_used_principal_label,
+            "last_used_owner_category": self.last_used_owner_category,
+            "last_used_at": self.last_used_at,
+            "active_lease_count": self.active_lease_count,
         }
 
 
@@ -165,6 +223,10 @@ class ProviderRegistryLaneView:
     primary_state: str
     providers: tuple[ProviderRegistryProviderView, ...]
     capacity_summary: dict[str, object] = field(default_factory=dict)
+    last_used_principal_id: str = ""
+    last_used_principal_label: str = ""
+    last_used_owner_category: str = ""
+    last_used_at: object = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -182,6 +244,10 @@ class ProviderRegistryLaneView:
             "primary_state": self.primary_state,
             "providers": [item.as_dict() for item in self.providers],
             "capacity_summary": dict(self.capacity_summary or {}),
+            "last_used_principal_id": self.last_used_principal_id,
+            "last_used_principal_label": self.last_used_principal_label,
+            "last_used_owner_category": self.last_used_owner_category,
+            "last_used_at": self.last_used_at,
         }
 
 
@@ -719,6 +785,18 @@ class ProviderRegistryService:
                 if str(item.get("lease_holder") or "").strip()
             )
         )
+        last_used_slots = sorted(
+            slots,
+            key=lambda item: str(item.get("last_used_at") or item.get("last_probe_at") or ""),
+            reverse=True,
+        )
+        last_used_slot = last_used_slots[0] if last_used_slots else {}
+        last_used_principal_id = str(
+            last_used_slot.get("last_used_principal_id")
+            or last_used_slot.get("lease_holder")
+            or provider_payload.get("last_used_principal_id")
+            or ""
+        ).strip()
         configured_slots = int(provider_payload.get("configured_slots") or len(slots))
         ready_slots = int(states.get("ready", 0))
         degraded_slots = sum(int(states.get(name, 0)) for name in ("degraded", "cooldown", "maintenance"))
@@ -736,6 +814,19 @@ class ProviderRegistryService:
             "selection_mode": str(provider_payload.get("selection_mode") or "").strip(),
             "remaining_percent_of_max": provider_payload.get("remaining_percent_of_max"),
             "estimated_hours_remaining_at_current_pace": provider_payload.get("estimated_hours_remaining_at_current_pace"),
+            "active_lease_count": int(provider_payload.get("active_lease_count") or len(lease_holders)),
+            "last_used_principal_id": last_used_principal_id,
+            "last_used_principal_label": str(
+                provider_payload.get("last_used_principal_label") or _principal_label(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            "last_used_owner_category": str(
+                provider_payload.get("last_used_owner_category") or _principal_owner_category(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            "last_used_at": provider_payload.get("last_used_at") or last_used_slot.get("last_used_at") or None,
         }
 
     def _provider_view(
@@ -770,6 +861,10 @@ class ProviderRegistryService:
             "max_credits_per_day": health_payload.get("max_credits_per_day"),
             "detail": detail,
         }
+        slot_pool_summary = self._slot_pool_summary(health_payload)
+        last_used_principal_id = str(
+            health_payload.get("last_used_principal_id") or slot_pool_summary.get("last_used_principal_id") or ""
+        ).strip()
         return ProviderRegistryProviderView(
             provider_key=state.provider_key,
             display_name=state.display_name,
@@ -787,8 +882,25 @@ class ProviderRegistryService:
             health_state=str(state.health_state or "unknown"),
             detail=detail,
             capabilities=tuple(capabilities),
-            slot_pool=self._slot_pool_summary(health_payload),
+            slot_pool=slot_pool_summary,
             capacity=capacity,
+            last_used_principal_id=last_used_principal_id,
+            last_used_principal_label=str(
+                health_payload.get("last_used_principal_label")
+                or slot_pool_summary.get("last_used_principal_label")
+                or _principal_label(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            last_used_owner_category=str(
+                health_payload.get("last_used_owner_category")
+                or slot_pool_summary.get("last_used_owner_category")
+                or _principal_owner_category(last_used_principal_id)
+            ).strip()
+            if last_used_principal_id
+            else "",
+            last_used_at=health_payload.get("last_used_at") or slot_pool_summary.get("last_used_at"),
+            active_lease_count=int(health_payload.get("active_lease_count") or slot_pool_summary.get("active_lease_count") or 0),
         )
 
     @staticmethod
@@ -812,6 +924,11 @@ class ProviderRegistryService:
                 "remaining_percent_of_max": None,
                 "estimated_hours_remaining_at_current_pace": None,
                 "estimated_remaining_credits_total": None,
+                "active_lease_count": 0,
+                "last_used_principal_id": "",
+                "last_used_principal_label": "",
+                "last_used_owner_category": "",
+                "last_used_at": None,
             }
         slot_pool = dict(primary.slot_pool or {})
         capacity = dict(primary.capacity or {})
@@ -827,6 +944,15 @@ class ProviderRegistryService:
             "remaining_percent_of_max": capacity.get("remaining_percent_of_max"),
             "estimated_hours_remaining_at_current_pace": capacity.get("estimated_hours_remaining_at_current_pace"),
             "estimated_remaining_credits_total": capacity.get("estimated_remaining_credits_total"),
+            "active_lease_count": int(slot_pool.get("active_lease_count") or primary.active_lease_count or 0),
+            "last_used_principal_id": str(slot_pool.get("last_used_principal_id") or primary.last_used_principal_id or "").strip(),
+            "last_used_principal_label": str(
+                slot_pool.get("last_used_principal_label") or primary.last_used_principal_label or ""
+            ).strip(),
+            "last_used_owner_category": str(
+                slot_pool.get("last_used_owner_category") or primary.last_used_owner_category or ""
+            ).strip(),
+            "last_used_at": slot_pool.get("last_used_at") or primary.last_used_at,
         }
 
     def registry_read_model(
@@ -895,6 +1021,10 @@ class ProviderRegistryService:
                     primary_state=primary.state if primary is not None else "unknown",
                     providers=lane_providers,
                     capacity_summary=capacity_summary,
+                    last_used_principal_id=str(capacity_summary.get("last_used_principal_id") or ""),
+                    last_used_principal_label=str(capacity_summary.get("last_used_principal_label") or ""),
+                    last_used_owner_category=str(capacity_summary.get("last_used_owner_category") or ""),
+                    last_used_at=capacity_summary.get("last_used_at"),
                 )
             )
 
@@ -903,6 +1033,8 @@ class ProviderRegistryService:
             "contract_version": "2026-03-18",
             "generated_at": now_utc_iso(),
             "principal_id": self._normalize_principal_id(principal_id),
+            "principal_label": _principal_label(principal_id),
+            "principal_owner_category": _principal_owner_category(principal_id),
             "provider_count": len(provider_views),
             "lane_count": len(lane_views),
             "capability_count": len(capability_index),
