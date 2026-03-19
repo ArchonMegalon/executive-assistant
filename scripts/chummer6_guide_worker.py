@@ -63,7 +63,7 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "signage_treatment": "icon-first transit grime and cropped labels",
         "troll_material_style": "worn stickers, scratched pins, faded decals",
         "weather_bias": "rain-biased night exterior or damp interior carry-over",
-        "humor_ceiling": "dry and restrained",
+        "humor_ceiling": "wry and restrained",
     },
     {
         "style_family": "neon_docu_realism",
@@ -75,7 +75,7 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "signage_treatment": "pictograms, lane lights, and half-obscured public markers",
         "troll_material_style": "enamel pins, transit stickers, CRT mascots",
         "weather_bias": "humid night air and reflective surfaces",
-        "humor_ceiling": "sarcastic but not showy",
+        "humor_ceiling": "lightly wry and not showy",
     },
     {
         "style_family": "corp_decay_noir",
@@ -87,7 +87,7 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "signage_treatment": "approval marks, warnings, and symbol clusters only",
         "troll_material_style": "wax seals, warning placards, coffee-stained coasters",
         "weather_bias": "interior-heavy with storm bleed through windows",
-        "humor_ceiling": "meaner and drier",
+        "humor_ceiling": "dry, spare, and adult",
     },
     {
         "style_family": "industrial_shadowplay",
@@ -99,7 +99,7 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "signage_treatment": "warning icons, hazard bands, stamped surfaces",
         "troll_material_style": "patches, tool decals, hazard stickers",
         "weather_bias": "indoor heat with outdoor rain suggested secondarily",
-        "humor_ceiling": "deadpan with sharper roast tolerance",
+        "humor_ceiling": "deadpan and tightly controlled",
     },
 )
 PUBLIC_WRITER_RULES = """Public-writer contract:
@@ -143,6 +143,56 @@ PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("the split is real", "the parts are real"),
     ("workbench", "prep surface"),
     ("play shell", "live-play surface"),
+)
+OVERPLAYED_SNARK_PHRASES: tuple[str, ...] = (
+    "hide the accelerants",
+    "growth funnel with a knife",
+    "future troublemakers",
+    "tiny cleanup pass",
+)
+SOFT_OODA_PHRASES: tuple[str, ...] = (
+    "future tech we are tracking",
+    "tech we are tracking",
+    "long-range scans",
+    "version worth watching",
+    "worth watching once",
+)
+SPARSE_EASTER_EGG_ASSET_TARGETS: frozenset[str] = frozenset(
+    {
+        "assets/hero/chummer6-hero.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
+SPARSE_HUMOR_ASSET_TARGETS: frozenset[str] = frozenset(
+    {
+        "assets/hero/poc-warning.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
+MEDIA_META_HUMOR_TOKENS: tuple[str, ...] = (
+    " dev ",
+    " developer",
+    " maintainer",
+    " sysadmin",
+    " admin ",
+    " cleanup pass",
+    " growth funnel",
+    " repo ",
+    " repo-",
+    " vibe-based",
+    " clean code",
+    " not my bug",
+    " one-liner",
+    " roast",
+    " roasting",
+)
+MEDIA_READABLE_JOKE_TOKENS: tuple[str, ...] = (
+    "reads:",
+    "says:",
+    "sign reads",
+    "sticker reads",
+    "placard reads",
+    "quote:",
 )
 COMPOSITION_SLUG_RE = re.compile(r"^[a-zA-Z0-9_-]{2,80}$")
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
@@ -383,10 +433,98 @@ def editorial_self_audit_text(
     forbidden = _contains_forbidden_public_copy(cleaned)
     if forbidden and fallback:
         return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(phrase in lowered for phrase in OVERPLAYED_SNARK_PHRASES) and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(phrase in lowered for phrase in WEAK_COPY_PHRASES + SOFT_OODA_PHRASES) and fallback:
+        return str(fallback or "").strip()
     if context.startswith("page:") or context.startswith("ooda:"):
         if any(term in original_lowered for term in ARCHITECTURE_HEAVY_TERMS) and fallback:
             return str(fallback or "").strip()
     return cleaned
+
+
+def media_asset_target(*, kind: str, item: dict[str, object]) -> str:
+    if kind == "hero":
+        return "assets/hero/chummer6-hero.png"
+    slug = str(item.get("slug") or item.get("id") or item.get("title") or "").strip().lower().replace(" ", "-")
+    if kind == "part":
+        return f"assets/parts/{slug}.png"
+    return f"assets/horizons/{slug}.png"
+
+
+def media_easter_egg_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
+    target = media_asset_target(kind=kind, item=item)
+    policy = str(contract.get("easter_egg_policy") or "").strip().lower()
+    if policy in {"allow", "allowed", "showcase", "force"}:
+        return True
+    return target in SPARSE_EASTER_EGG_ASSET_TARGETS
+
+
+def media_humor_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
+    target = media_asset_target(kind=kind, item=item)
+    policy = str(contract.get("humor_policy") or "").strip().lower()
+    if policy in {"allow", "allowed", "showcase", "force"}:
+        return True
+    return target in SPARSE_HUMOR_ASSET_TARGETS
+
+
+def sanitize_media_humor(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    lowered = f" {cleaned.lower()} "
+    if any(token in lowered for token in MEDIA_META_HUMOR_TOKENS):
+        return ""
+    if any(token in lowered for token in MEDIA_READABLE_JOKE_TOKENS):
+        return ""
+    if ("'" in cleaned or '"' in cleaned) and any(
+        token in lowered for token in ("sticker", "sign", "placard", "shirt", "patch", "note", "label", "reads", "says")
+    ):
+        return ""
+    if len(cleaned) > 140:
+        return ""
+    return cleaned
+
+
+def _mentions_troll_motif(text: str) -> bool:
+    lowered = " ".join(str(text or "").split()).strip().lower()
+    if "troll" not in lowered:
+        return False
+    return any(
+        token in lowered
+        for token in ("sticker", "tattoo", "patch", "decal", "doodle", "mascot", "motif", "mark", "charm", "stamp", "seal", "pin", "pictogram", "figurine")
+    )
+
+
+def strip_media_easter_egg_clauses(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    parts = re.split(r"(?<=[,.;])\s+", cleaned)
+    kept = [part.strip() for part in parts if part.strip() and not _mentions_troll_motif(part)]
+    if kept:
+        normalized = " ".join(kept)
+        normalized = re.sub(r"\s+,", ",", normalized)
+        normalized = re.sub(r"\s+\.", ".", normalized)
+        normalized = re.sub(r"\s+;", ";", normalized)
+        cleaned = normalized.strip(" ,;")
+    if _mentions_troll_motif(cleaned):
+        cleaned = re.sub(
+            r"\bwith\s+(?:a|an|one)\s+[^,.!?;]*troll[^,.!?;]*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"\b[a-z-]*troll[a-z-]*(?:\s+[a-z-]+){0,5}",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+,", ",", cleaned)
+        cleaned = re.sub(r"\s+\.", ".", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip(" ,;")
 
 
 def editorial_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
@@ -579,6 +717,8 @@ PUBLIC_SIGNAL_TAG_HINTS: tuple[tuple[str, str], ...] = (
 )
 WEAK_COPY_PHRASES: tuple[str, ...] = (
     "toolkit",
+    "management suite",
+    "industrial-grade",
     "foundation",
     "foundations first",
     "digital handshake",
@@ -1446,7 +1586,6 @@ def _section_ooda_defaults(
                 "lived props",
                 "grounded lighting",
                 "one obvious point of action",
-                "one troll easter egg tucked into the scene",
             ],
             "tone_rule": "be clear first, stylish second, and never drift into dead template language",
             "banned_literalizations": [
@@ -1646,6 +1785,8 @@ def build_parts_bundle_prompt(
             "go_deeper_links": item.get("go_deeper_links", []),
             "supporting_public_context": part_supporting_context(name),
             "section_ooda": section_oodas.get(name, {}),
+            "asset_target": f"assets/parts/{name}.png",
+            "variation_guardrails": variation_guardrails_for(f"assets/parts/{name}.png", recent_scene_rows()),
         }
     return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 part pages.
 
@@ -1667,6 +1808,8 @@ Rules:
 - keep copy grounded and useful
 - make each part sound like its own place, not another templated glossary card
 - make the media scene-first, not icon soup
+- humor is optional; if the scene does not earn it, skip it
+- easter eggs are optional and sparse; most assets should not carry one
 - no literal on-image text or prompt leakage
 - `when` should sound like real user situations, not platform posture
 - `why` should cash out a visible benefit instead of abstract glue language
@@ -1714,6 +1857,8 @@ def build_horizons_bundle_prompt(
             "free_later_intent": item.get("free_later_intent", ""),
             "current_page_excerpt": read_markdown_excerpt(f"HORIZONS/{name}.md", limit=260),
             "section_ooda": section_oodas.get(name, {}),
+            "asset_target": f"assets/horizons/{name}.png",
+            "variation_guardrails": variation_guardrails_for(f"assets/horizons/{name}.png", recent_scene_rows()),
         }
     return f"""You are writing downstream-only copy and media metadata for multiple Chummer6 horizon pages.
 
@@ -1735,6 +1880,8 @@ Rules:
 - if the codename implies a person or metaphor, make that legible
 - do not reuse the same sentence stem across multiple horizons
 - the copy should feel distinct per horizon, not like one template with swapped nouns
+- humor is optional; if it does not sharpen the horizon, leave it out
+- easter eggs are optional and sparse; most horizon assets should not carry one
 - `table_scene` must be a mini scene, not a one-sentence use-case stub
 - `table_scene` should feel like table dialogue, with a GM/player/Chummer rhythm when the concept allows it
 - `meanwhile` must be 2-4 bullet lines starting with `- `
@@ -2033,6 +2180,34 @@ COPY_KEYS_BY_SECTION: dict[str, tuple[str, ...]] = {
 }
 
 
+def normalize_horizon_meanwhile(text: str) -> str:
+    raw = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not raw:
+        return ""
+    lines = [line.strip() for line in raw.split("\n") if line.strip()]
+    if 2 <= len(lines) <= 4 and all(line.startswith("- ") for line in lines):
+        return "\n".join(lines)
+    compact = " ".join(raw.split()).strip(" .")
+    if not compact:
+        return ""
+    seeded = re.sub(r"\s+and\s+", "; ", compact, flags=re.IGNORECASE)
+    parts = [
+        part.strip(" ,.;:-")
+        for part in re.split(r";\s+|,\s+|\.\s+", seeded)
+        if part.strip(" ,.;:-")
+    ]
+    cleaned_parts: list[str] = []
+    for part in parts:
+        candidate = part[0].upper() + part[1:] if part and part[0].islower() else part
+        if candidate and candidate not in cleaned_parts:
+            cleaned_parts.append(candidate)
+    if not cleaned_parts:
+        cleaned_parts = [compact]
+    if len(cleaned_parts) == 1:
+        return f"- {cleaned_parts[0]}"
+    return "\n".join(f"- {entry}" for entry in cleaned_parts[:4])
+
+
 def copy_quality_findings(section_type: str, name: str, row: dict[str, object], item: dict[str, object]) -> list[str]:
     combined = " ".join(
         str(row.get(key, "")).strip()
@@ -2063,6 +2238,20 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     if section_type == "horizon":
         access_posture = str(item.get("access_posture") or "").strip().lower()
         free_later_intent = str(item.get("free_later_intent") or "").strip()
+        table_scene_lines = [
+            line.strip()
+            for line in str(row.get("table_scene", "")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            if line.strip()
+        ]
+        meanwhile_lines = [
+            line.strip()
+            for line in str(row.get("meanwhile", "")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            if line.strip()
+        ]
+        if table_scene_lines and not (5 <= len(table_scene_lines) <= 9):
+            findings.append("Make `table_scene` a fuller mini-scene with 5-9 short playable beats.")
+        if meanwhile_lines and (len(meanwhile_lines) < 2 or len(meanwhile_lines) > 4 or any(not line.startswith("- ") for line in meanwhile_lines)):
+            findings.append("Format `meanwhile` as 2-4 short bullet lines starting with `- `.")
         if access_posture == "booster_first" and not any(token in lowered for token in ("booster", "preview", "participate")):
             findings.append("Explain the booster-first preview posture plainly instead of implying a vague wait.")
         if free_later_intent and not any(
@@ -2176,6 +2365,8 @@ def polish_copy_row(
     }
     if len(polished) < len(keys):
         return row
+    if section_type == "horizon" and "meanwhile" in polished:
+        polished["meanwhile"] = normalize_horizon_meanwhile(str(polished.get("meanwhile") or ""))
     assert_public_reader_safe(polished, context=f"{section_type}:{name}:polished")
     return polished
 
@@ -2409,8 +2600,8 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
                 "honest public surfaces",
                 "future ideas that feel like table upgrades instead of slideware",
             ],
-            "visual_direction": "grounded cyberpunk scenes, readable props, lived table moments, and one sly troll reference per image",
-            "humor_line": "If the dev says this is a tiny cleanup pass, hide the accelerants.",
+            "visual_direction": "grounded cyberpunk scenes, readable props, lived table moments, and only occasional recurring motifs when they genuinely improve the image",
+            "humor_line": "Keep the wit dry, adult, and secondary to the actual point.",
             "signals_to_highlight": highlights
             or [
                 "multi-era support",
@@ -2432,18 +2623,18 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
         },
         "decide": {
             "information_order": "lead with table value, then product promise, then current truth, then the map of parts and futures",
-            "tone_rules": "keep it human, concrete, slightly sarcastic, and allergic to architecture sermons",
+            "tone_rules": "keep it human, concrete, lightly wry, and allergic to architecture sermons",
             "horizon_policy": "sell each horizon as a table pain and a vivid scene, not a codename first",
             "media_strategy": "use contextual scenes that show the moment the feature matters, not abstract title-card art",
             "overlay_policy": "only use overlays that clarify initiative, receipts, sync state, provenance, or simulation context",
-            "cta_strategy": "invite readers to test, watch, or pitch better ideas without sounding like a growth funnel with a knife",
+            "cta_strategy": "invite readers to test, watch, or pitch better ideas without sounding pushy or synthetic",
         },
         "act": {
             "landing_tagline": "Shadowrun rules truth, with receipts.",
             "landing_intro": "Chummer6 is trying to make Shadowrun rulings faster, clearer, and easier to trust when the table is loud and the stakes are dumb.",
-            "what_it_is": "This guide is the human-facing front door to what Chummer6 is becoming: a more explainable, local-first, multi-era Shadowrun toolkit that does not ask you to trust mystery math.",
+            "what_it_is": "Chummer6 is a local-first, multi-era Shadowrun rules engine and prep surface that shows its work instead of asking you to trust mystery math.",
             "watch_intro": "If you care about receipts, recoverable sessions, and future tools that feel useful instead of decorative, this is the version worth watching.",
-            "horizon_intro": "Horizons are future troublemakers: ideas for where the project could get delightfully more dangerous once the boring foundations stop wobbling.",
+            "horizon_intro": "Horizons are future lanes worth watching once the current proof surfaces are solid enough to carry them.",
         },
     }
 
@@ -2486,7 +2677,12 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
 
     decide: dict[str, object] = {}
     for key in ("information_order", "tone_rules", "horizon_policy", "media_strategy", "overlay_policy", "cta_strategy"):
-        value = str(raw_decide.get(key, "")).strip() if isinstance(raw_decide, dict) else ""
+        raw_value = raw_decide.get(key) if isinstance(raw_decide, dict) else ""
+        if isinstance(raw_value, (list, tuple)):
+            separator = " -> " if key == "information_order" else "; "
+            value = separator.join(str(entry).strip() for entry in raw_value if str(entry).strip()).strip()
+        else:
+            value = str(raw_value or "").strip()
         if not value:
             value = str(defaults["decide"].get(key, "")).strip()
         decide[key] = editorial_self_audit_text(value, fallback=str(defaults["decide"].get(key, "")).strip(), context=f"ooda:decide:{key}")
@@ -2530,7 +2726,8 @@ Voice rules:
 - clear, inviting, slightly playful, Shadowrun-flavored
 - this is a human-facing guide, not a spec
 - SR jargon is welcome
-- dry humor is allowed when it makes the point clearer
+- dry humor is optional and should stay secondary to the actual scene
+- adult language is fine when it fits the setting, but never make profanity the whole gag
 - never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
@@ -2584,6 +2781,7 @@ Requirements:
   - palette
   - mood
   - humor
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
 - scene_contract.subject should name the focal subject in plain language
 - scene_contract.metaphor should name the strongest visual metaphor if one exists
 - scene_contract.props should be a short list of concrete visible things
@@ -2603,7 +2801,8 @@ Voice rules:
 - sell the part as something a reader should care about right now
 - the image should feel grounded, useful, and scene-first
 - SR jargon is welcome
-- dry humor is allowed when it makes the point clearer
+- dry humor is optional and should stay secondary to the actual scene
+- adult language is fine when it fits the setting, but never make profanity the whole gag
 - never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
@@ -2664,6 +2863,7 @@ Requirements:
   - palette
   - mood
   - humor
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
 
 Return valid JSON only.
 """
@@ -2677,7 +2877,8 @@ Voice rules:
 - sell the horizon harder
 - the image should feel cool, dangerous, specific, and scene-first
 - SR jargon is welcome
-- dry humor is allowed when it makes the point clearer
+- dry humor is optional and should stay secondary to the actual scene
+- adult language is fine when it fits the setting, but never make profanity the whole gag
 - never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - no mention of Fleet or EA
@@ -2748,6 +2949,7 @@ Requirements:
   - palette
   - mood
   - humor
+- scene_contract.humor is optional; if present, make it a brief tonal nudge, not a roast, quoted joke, or readable sign
 - if the title reads like a codename or person, make scene_contract.subject a believable cyberpunk person, not a generic skyline or dashboard
 - if the metaphor is x-ray / dossier / forge / ghost / heat web / mirror / passport / blackbox / simulation, make scene_contract.metaphor explicit
 
@@ -2765,8 +2967,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             subject = "one operator, one receipt trail, and the props proving the point"
         elif "girl" in lowered or "woman" in lowered or asset_key == "alice":
             subject = "a cyberpunk woman"
-        elif "troll" in lowered or "forge" in lowered or asset_key == "karma-forge":
-            subject = "a cybernetic troll"
+        elif "troll" in lowered:
+            subject = "a cyberpunk troll"
+        elif "forge" in lowered or asset_key == "karma-forge":
+            subject = "a rulesmith at a dangerous workbench"
         environment = "a dangerous but inviting cyberpunk scene"
         if "archive" in lowered or "blueprint" in lowered:
             environment = "a blueprint room lit by cold neon"
@@ -2820,7 +3024,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             composition = "city_edge"
         palette = "cyan-magenta neon"
         mood = "dangerous, curious, and slightly amused"
-        humor = "dry roast energy without clown mode"
+        humor = ""
         props = [
             "wet chrome",
             "holographic receipts",
@@ -2863,6 +3067,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 cleaned_values = [str(entry).strip() for entry in value if str(entry).strip()]
                 if cleaned_values:
                     contract[key] = cleaned_values[:6]
+        for key in ("easter_egg_kind", "easter_egg_placement", "easter_egg_detail", "easter_egg_visibility", "easter_egg_policy", "humor_policy"):
+            value = str(raw.get(key, "")).strip()
+            if value:
+                contract[key] = value
         # Keep the prompt close by so downstream renderers can reason over both.
         contract["visual_prompt"] = visual_prompt
         return contract
@@ -2886,7 +3094,6 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         for candidate in (
             overlay_hint,
             f"{item_title} scene",
-            "subtle troll easter egg",
             f"{asset_key} context",
         ):
             cleaned_candidate = str(candidate or "").strip()
@@ -2902,7 +3109,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             deduped.append(motif)
             if len(deduped) >= 6:
                 break
-        return deduped or ["contextual scene", "subtle troll easter egg", "diegetic overlays"]
+        return deduped or ["contextual scene", "diegetic overlays", "grounded prop cluster"]
 
     def infer_overlay_callouts(*, scene_contract: dict[str, object], overlay_hint: str) -> list[str]:
         callouts: list[str] = []
@@ -2937,8 +3144,31 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             asset_key="hero",
             visual_prompt=str(normalized["visual_prompt"]),
         )
+        allow_easter_egg = media_easter_egg_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
+        allow_humor = media_humor_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
+        normalized["scene_contract"]["humor"] = sanitize_media_humor(str(normalized["scene_contract"].get("humor") or ""))
+        if not allow_humor:
+            normalized["scene_contract"]["humor"] = ""
+        if not allow_easter_egg:
+            normalized["visual_prompt"] = strip_media_easter_egg_clauses(str(normalized["visual_prompt"]))
+            for field in ("subject", "environment", "action", "metaphor", "palette", "mood"):
+                normalized["scene_contract"][field] = strip_media_easter_egg_clauses(str(normalized["scene_contract"].get(field) or ""))
+            normalized["scene_contract"]["props"] = [
+                str(entry).strip()
+                for entry in normalized["scene_contract"].get("props", [])
+                if str(entry).strip() and not _mentions_troll_motif(str(entry))
+            ]
+            normalized["scene_contract"]["overlays"] = [
+                str(entry).strip()
+                for entry in normalized["scene_contract"].get("overlays", [])
+                if str(entry).strip() and not _mentions_troll_motif(str(entry))
+            ]
+            for field in ("easter_egg_kind", "easter_egg_placement", "easter_egg_detail", "easter_egg_visibility", "easter_egg_policy"):
+                normalized["scene_contract"].pop(field, None)
         raw_motifs = normalized.get("visual_motifs")
         motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()] if isinstance(raw_motifs, list) else []
+        if not allow_easter_egg:
+            motifs = [entry for entry in motifs if not _mentions_troll_motif(entry)]
         normalized["visual_motifs"] = motifs or infer_visual_motifs(
             asset_key="hero",
             scene_contract=normalized["scene_contract"],
@@ -2947,6 +3177,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         )
         raw_callouts = normalized.get("overlay_callouts")
         callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()] if isinstance(raw_callouts, list) else []
+        if not allow_easter_egg:
+            callouts = [entry for entry in callouts if not _mentions_troll_motif(entry)]
         normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
             scene_contract=normalized["scene_contract"],
             overlay_hint=str(normalized["overlay_hint"]),
@@ -2971,8 +3203,31 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         asset_key=item.get("slug", item.get("title", "horizon")),
         visual_prompt=str(normalized["visual_prompt"]),
     )
+    allow_easter_egg = media_easter_egg_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
+    allow_humor = media_humor_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
+    normalized["scene_contract"]["humor"] = sanitize_media_humor(str(normalized["scene_contract"].get("humor") or ""))
+    if not allow_humor:
+        normalized["scene_contract"]["humor"] = ""
+    if not allow_easter_egg:
+        normalized["visual_prompt"] = strip_media_easter_egg_clauses(str(normalized["visual_prompt"]))
+        for field in ("subject", "environment", "action", "metaphor", "palette", "mood"):
+            normalized["scene_contract"][field] = strip_media_easter_egg_clauses(str(normalized["scene_contract"].get(field) or ""))
+        normalized["scene_contract"]["props"] = [
+            str(entry).strip()
+            for entry in normalized["scene_contract"].get("props", [])
+            if str(entry).strip() and not _mentions_troll_motif(str(entry))
+        ]
+        normalized["scene_contract"]["overlays"] = [
+            str(entry).strip()
+            for entry in normalized["scene_contract"].get("overlays", [])
+            if str(entry).strip() and not _mentions_troll_motif(str(entry))
+        ]
+        for field in ("easter_egg_kind", "easter_egg_placement", "easter_egg_detail", "easter_egg_visibility", "easter_egg_policy"):
+            normalized["scene_contract"].pop(field, None)
     raw_motifs = normalized.get("visual_motifs")
     motifs = [str(entry).strip() for entry in raw_motifs if str(entry).strip()] if isinstance(raw_motifs, list) else []
+    if not allow_easter_egg:
+        motifs = [entry for entry in motifs if not _mentions_troll_motif(entry)]
     normalized["visual_motifs"] = motifs or infer_visual_motifs(
         asset_key=str(item.get("slug", item.get("title", "horizon"))),
         scene_contract=normalized["scene_contract"],
@@ -2981,6 +3236,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     )
     raw_callouts = normalized.get("overlay_callouts")
     callouts = [str(entry).strip() for entry in raw_callouts if str(entry).strip()] if isinstance(raw_callouts, list) else []
+    if not allow_easter_egg:
+        callouts = [entry for entry in callouts if not _mentions_troll_motif(entry)]
     normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
         scene_contract=normalized["scene_contract"],
         overlay_hint=str(normalized["overlay_hint"]),
@@ -3203,25 +3460,27 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["parts"] = part_oodas
         part_copy_rows: dict[str, object] = {}
         part_media_rows: dict[str, object] = {}
-        for name, item in PARTS.items():
+        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
             try:
-                copy_row = chat_json(
-                    build_part_prompt(
-                        name,
-                        item,
-                        ooda=ooda,
-                        section_ooda=part_oodas[name],
+                part_bundle = chat_json(
+                    build_parts_bundle_prompt(
+                        items=batch,
+                        global_ooda=ooda,
+                        section_oodas={name: part_oodas[name] for name in batch.keys()},
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
                     ),
                     model=model,
                     skill_key=PUBLIC_WRITER_SKILL_KEY,
                 )
-                cleaned_copy = {
-                    key: str(copy_row.get(key, "")).strip()
-                    for key in ("when", "why", "now")
-                    if str(copy_row.get(key, "")).strip()
-                }
-                if len(cleaned_copy) < 3:
-                    raise ValueError(f"insufficient part copy: {name}")
+                batch_copy_rows, batch_media_rows = normalize_parts_bundle(part_bundle, items=batch)
+                part_copy_rows.update(batch_copy_rows)
+                part_media_rows.update(batch_media_rows)
+            except Exception as exc:
+                raise RuntimeError(f"part copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        for name, item in PARTS.items():
+            try:
+                cleaned_copy = dict(part_copy_rows[name])
                 cleaned_copy = polish_copy_row(
                     section_type="part",
                     name=name,
@@ -3231,25 +3490,9 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                     section_ooda=part_oodas[name],
                     model=model,
                 )
-                assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
-                media_row = chat_json(
-                    build_media_prompt(
-                        "part",
-                        name,
-                        item,
-                        ooda=ooda,
-                        section_ooda=part_oodas[name],
-                        style_epoch=style_epoch,
-                        recent_scenes=recent_scenes,
-                        variation_guardrails=variation_guardrails_for(f"assets/parts/{name}.png", recent_scene_rows()),
-                    ),
-                    model=model,
-                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
-                )
                 part_copy_rows[name] = cleaned_copy
-                part_media_rows[name] = normalize_media_override("part", dict(media_row), item)
             except Exception as exc:
-                raise RuntimeError(f"part copy/media generation failed ({name}): {exc}") from exc
+                raise RuntimeError(f"part copy polish failed ({name}): {exc}") from exc
         for part_id, row in part_copy_rows.items():
             humanize_mapping_fields(row, ("when", "why", "now"), target_prefix=f"guide:part:{part_id}")
         overrides["parts"] = part_copy_rows
@@ -3276,25 +3519,27 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["horizons"] = horizon_oodas
         horizon_copy_rows: dict[str, object] = {}
         horizon_media_rows: dict[str, object] = {}
-        for name, item in HORIZONS.items():
+        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
             try:
-                copy_row = chat_json(
-                    build_horizon_prompt(
-                        name,
-                        item,
-                        ooda=ooda,
-                        section_ooda=horizon_oodas[name],
+                horizon_bundle = chat_json(
+                    build_horizons_bundle_prompt(
+                        items=batch,
+                        global_ooda=ooda,
+                        section_oodas={name: horizon_oodas[name] for name in batch.keys()},
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
                     ),
                     model=model,
                     skill_key=PUBLIC_WRITER_SKILL_KEY,
                 )
-                cleaned_copy = {
-                    key: str(copy_row.get(key, "")).strip()
-                    for key in ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line")
-                    if str(copy_row.get(key, "")).strip()
-                }
-                if len(cleaned_copy) < 7:
-                    raise ValueError(f"insufficient horizon copy: {name}")
+                batch_copy_rows, batch_media_rows = normalize_horizons_bundle(horizon_bundle, items=batch)
+                horizon_copy_rows.update(batch_copy_rows)
+                horizon_media_rows.update(batch_media_rows)
+            except Exception as exc:
+                raise RuntimeError(f"horizon copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+        for name, item in HORIZONS.items():
+            try:
+                cleaned_copy = dict(horizon_copy_rows[name])
                 cleaned_copy = polish_copy_row(
                     section_type="horizon",
                     name=name,
@@ -3304,25 +3549,9 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                     section_ooda=horizon_oodas[name],
                     model=model,
                 )
-                assert_public_reader_safe(cleaned_copy, context=f"horizon:{name}")
-                media_row = chat_json(
-                    build_media_prompt(
-                        "horizon",
-                        name,
-                        item,
-                        ooda=ooda,
-                        section_ooda=horizon_oodas[name],
-                        style_epoch=style_epoch,
-                        recent_scenes=recent_scenes,
-                        variation_guardrails=variation_guardrails_for(f"assets/horizons/{name}.png", recent_scene_rows()),
-                    ),
-                    model=model,
-                    skill_key=VISUAL_DIRECTOR_SKILL_KEY,
-                )
                 horizon_copy_rows[name] = cleaned_copy
-                horizon_media_rows[name] = normalize_media_override("horizon", dict(media_row), item)
             except Exception as exc:
-                raise RuntimeError(f"horizon copy/media generation failed ({name}): {exc}") from exc
+                raise RuntimeError(f"horizon copy polish failed ({name}): {exc}") from exc
         for horizon_id, row in horizon_copy_rows.items():
             humanize_mapping_fields(
                 row,

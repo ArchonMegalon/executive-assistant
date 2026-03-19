@@ -11,7 +11,6 @@ from pathlib import Path
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
-HOST = os.environ.get("EA_SKILL_HOST", "http://127.0.0.1:8080")
 
 
 def env_value(name: str) -> str:
@@ -29,10 +28,20 @@ def env_value(name: str) -> str:
     return ""
 
 
+def skill_host() -> str:
+    direct = str(os.environ.get("EA_SKILL_HOST") or "").strip()
+    if direct:
+        return direct
+    configured = env_value("EA_HOST")
+    port = env_value("EA_PORT") or "8090"
+    host = configured if configured and configured not in {"0.0.0.0", "::"} else "127.0.0.1"
+    return f"http://{host}:{port}"
+
+
 def upsert_skill(body: dict[str, object]) -> dict[str, object]:
     token = env_value("EA_API_TOKEN")
     request = urllib.request.Request(
-        f"{HOST}/v1/skills",
+        f"{skill_host()}/v1/skills",
         method="POST",
         headers={
             "Content-Type": "application/json",

@@ -399,6 +399,87 @@ def test_normalize_media_override_allows_receipt_backed_mechanics_claims() -> No
     assert normalized["title"] == "Replay ledger"
 
 
+def test_normalize_media_override_strips_forced_easter_eggs_and_meta_humor_for_non_showcase_targets() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "part",
+        {
+            "badge": "UI",
+            "title": "Prep desk",
+            "subtitle": "Build and inspect",
+            "kicker": "Proof first",
+            "note": "Useful now.",
+            "meta": "preview",
+            "visual_prompt": "Prep desk scene with a troll monitor sticker clearly visible on the bezel.",
+            "overlay_hint": "receipt traces",
+            "visual_motifs": ["prep desk", "troll monitor sticker"],
+            "overlay_callouts": ["receipt traces"],
+            "scene_contract": {
+                "subject": "a player building a runner",
+                "environment": "a prep desk",
+                "action": "checking gear",
+                "metaphor": "receipt-first prep",
+                "props": ["laptop", "troll monitor sticker"],
+                "overlays": ["receipt traces"],
+                "composition": "desk_still_life",
+                "palette": "cyan",
+                "mood": "focused",
+                "humor": "A worn sticker on the monitor reads: 'NOT MY BUG'.",
+                "easter_egg_kind": "troll monitor sticker",
+                "easter_egg_placement": "upper-left bezel",
+                "easter_egg_detail": "classic Chummer troll sticker",
+                "easter_egg_visibility": "obvious",
+            },
+        },
+        {"slug": "ui", "title": "UI"},
+    )
+
+    assert "troll" not in normalized["visual_prompt"].lower()
+    assert normalized["scene_contract"]["humor"] == ""
+    assert "easter_egg_kind" not in normalized["scene_contract"]
+    assert all("troll" not in entry.lower() for entry in normalized["visual_motifs"])
+
+
+def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "KARMA FORGE",
+            "title": "Forge",
+            "subtitle": "Shape the dangerous rules",
+            "kicker": "Bench first",
+            "note": "Preview lane.",
+            "meta": "horizon",
+            "visual_prompt": "Rulesmith bench scene with a troll forge patch on the apron.",
+            "overlay_hint": "rollback markers",
+            "visual_motifs": ["rulesmith bench", "forge sparks"],
+            "overlay_callouts": ["rollback markers"],
+            "scene_contract": {
+                "subject": "a rulesmith at a bench",
+                "environment": "an industrial workshop",
+                "action": "hammering volatile rules into shape",
+                "metaphor": "forge sparks and molten rules",
+                "props": ["forge tools", "receipt traces"],
+                "overlays": ["rollback markers"],
+                "composition": "workshop_bench",
+                "palette": "rust amber",
+                "mood": "intense",
+                "humor": "The bastard thing finally behaves.",
+                "easter_egg_kind": "troll forge patch",
+                "easter_egg_placement": "on the apron strap",
+                "easter_egg_detail": "classic Chummer troll embroidered as a forge patch",
+                "easter_egg_visibility": "small but visible",
+            },
+        },
+        {"slug": "karma-forge", "title": "KARMA FORGE"},
+    )
+
+    assert "easter_egg_kind" in normalized["scene_contract"]
+
+
 def test_collect_interest_signals_prefers_public_safe_sources() -> None:
     worker = _load_worker_module()
 
@@ -457,3 +538,128 @@ def test_copy_quality_findings_flags_generic_copy_and_missing_booster_posture() 
     assert "generic filler" in joined
     assert "booster-first preview posture" in joined
     assert "broad-access or free-later intent" in joined
+
+
+def test_copy_quality_findings_flags_horizon_shape_drift() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "horizon",
+        "karma-forge",
+        {
+            "hook": "Custom rules with receipts.",
+            "problem": "House rules usually break the sheet.",
+            "table_scene": "GM: Use the house rules tonight.\nPlayer: Okay.",
+            "meanwhile": "Sandboxing scripts and compatibility checks.",
+            "why_great": "It keeps the math inspectable.",
+            "why_waits": "It is booster-first while safety work lands.",
+            "pitch_line": "Help us make it broader later.",
+        },
+        worker.HORIZONS["karma-forge"],
+    )
+
+    joined = " ".join(findings)
+    assert "table_scene" in joined
+    assert "meanwhile" in joined
+
+
+def test_global_ooda_defaults_do_not_force_trolls_or_edgy_dev_snark() -> None:
+    worker = _load_worker_module()
+
+    defaults = worker._global_ooda_defaults({"tags": ["multi_era_rulesets"], "snippets": []})
+    orient = defaults["orient"]
+    decide = defaults["decide"]
+    act = defaults["act"]
+
+    assert "troll reference per image" not in orient["visual_direction"].lower()
+    assert "accelerants" not in orient["humor_line"].lower()
+    assert "growth funnel with a knife" not in decide["cta_strategy"].lower()
+    assert "future troublemakers" not in act["horizon_intro"].lower()
+
+
+def test_section_ooda_defaults_no_longer_force_troll_easter_eggs() -> None:
+    worker = _load_worker_module()
+
+    defaults = worker._section_ooda_defaults(
+        section_type="page",
+        name="start_here",
+        item=worker.PAGE_PROMPTS["start_here"],
+        global_ooda={},
+    )
+
+    visual_devices = " ".join(defaults["orient"]["visual_devices"]).lower()
+    assert "troll easter egg" not in visual_devices
+
+
+def test_editorial_self_audit_rejects_overplayed_ooda_snark() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "Invite readers without sounding like a growth funnel with a knife.",
+            fallback="Invite readers without sounding pushy or synthetic.",
+            context="ooda:decide:cta_strategy",
+        )
+        == "Invite readers without sounding pushy or synthetic."
+    )
+
+
+def test_editorial_self_audit_rejects_soft_ooda_filler() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "This is the version worth watching once the future tech we are tracking becomes clearer.",
+            fallback="If you care about receipts and recoverable sessions, this is the version worth watching.",
+            context="ooda:act:watch_intro",
+        )
+        == "If you care about receipts and recoverable sessions, this is the version worth watching."
+    )
+
+
+def test_normalize_ooda_compacts_list_shaped_decide_fields() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_ooda(
+        {
+            "decide": {
+                "information_order": ["value", "proof", "download"],
+                "tone_rules": ["plain", "concrete", "human"],
+            },
+            "act": {
+                "landing_tagline": "Truth with receipts.",
+                "landing_intro": "Intro.",
+                "what_it_is": "What it is.",
+                "watch_intro": "Watch.",
+                "horizon_intro": "Future.",
+            },
+        },
+        {"tags": ["offline_play"], "snippets": []},
+    )
+
+    assert normalized["decide"]["information_order"] == "value -> proof -> download"
+    assert normalized["decide"]["tone_rules"] == "plain; concrete; human"
+
+
+def test_normalize_horizon_meanwhile_coerces_bullets() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_horizon_meanwhile(
+        "Validating the scripted rules engine for heavy table use, securing the registry to keep homebrew rules from leaking into public builds, and building the safety nets that prevent custom math from breaking during core updates."
+    )
+
+    lines = [line for line in normalized.splitlines() if line.strip()]
+    assert 2 <= len(lines) <= 4
+    assert all(line.startswith("- ") for line in lines)
+
+
+def test_normalize_horizon_meanwhile_splits_sentences_into_multiple_bullets() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_horizon_meanwhile(
+        "Ensuring custom rule-slabs never drift into vibe-based math. Refining the registry so homebrew does not orphan character data. Testing sync logic for live session updates."
+    )
+
+    lines = [line for line in normalized.splitlines() if line.strip()]
+    assert len(lines) >= 2
+    assert all(line.startswith("- ") for line in lines)
