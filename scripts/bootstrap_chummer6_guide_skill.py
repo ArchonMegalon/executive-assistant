@@ -273,6 +273,80 @@ def build_skill_payload() -> dict[str, object]:
     return build_visual_director_skill_payload()
 
 
+def required_skill_keys() -> tuple[str, ...]:
+    return tuple(
+        str(payload.get("skill_key") or "").strip()
+        for payload in build_skill_payloads()
+        if str(payload.get("skill_key") or "").strip()
+    )
+
+
+def _resolve_local_skill_catalog(skills=None):
+    if skills is not None:
+        return skills
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.services.skills import SkillCatalogService
+    from app.services.task_contracts import build_task_contract_service
+
+    return SkillCatalogService(build_task_contract_service())
+
+
+def local_skill_registration_state(
+    *,
+    required_keys: tuple[str, ...] | None = None,
+    skills=None,
+    ensure_registered: bool = False,
+) -> dict[str, object]:
+    resolved_skills = _resolve_local_skill_catalog(skills)
+    payloads = {
+        str(payload.get("skill_key") or "").strip(): dict(payload)
+        for payload in build_skill_payloads()
+        if str(payload.get("skill_key") or "").strip()
+    }
+    required = tuple(required_keys or required_skill_keys())
+    registered = [
+        skill_key
+        for skill_key in required
+        if resolved_skills.get_skill(skill_key) is not None
+    ]
+    missing = [skill_key for skill_key in required if skill_key not in registered]
+    upserted: list[str] = []
+    if ensure_registered:
+        for skill_key in list(missing):
+            payload = payloads.get(skill_key)
+            if payload is None:
+                continue
+            apply_skill_payload(resolved_skills, payload)
+            upserted.append(skill_key)
+        registered = [
+            skill_key
+            for skill_key in required
+            if resolved_skills.get_skill(skill_key) is not None
+        ]
+        missing = [skill_key for skill_key in required if skill_key not in registered]
+    return {
+        "required_skill_keys": list(required),
+        "registered_skill_keys": registered,
+        "missing_skill_keys": missing,
+        "upserted_skill_keys": upserted,
+        "status": "ready" if not missing else "missing",
+    }
+
+
+def ensure_local_skill_payloads(
+    *,
+    required_keys: tuple[str, ...] | None = None,
+    skills=None,
+) -> dict[str, object]:
+    return local_skill_registration_state(
+        required_keys=required_keys,
+        skills=skills,
+        ensure_registered=True,
+    )
+
+
 def upsert_skills_via(fn) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     for payload in build_skill_payloads():

@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "chummer6_release_builder.py"
@@ -57,3 +59,23 @@ def test_build_release_matrix_normalizes_platform_arch_and_kind(tmp_path: Path) 
     assert matrix["artifacts"][1]["platform"] == "macos"
     assert matrix["artifacts"][1]["arch"] == "arm64"
     assert matrix["artifacts"][1]["kind"] == "dmg"
+
+
+def test_default_manifest_path_honors_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    builder = _load_module()
+    custom_manifest = tmp_path / "custom-releases.json"
+    monkeypatch.setenv("CHUMMER6_RELEASE_MANIFEST_PATH", str(custom_manifest))
+
+    assert builder.default_manifest_path() == custom_manifest
+
+
+def test_default_manifest_path_prefers_first_existing_candidate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    builder = _load_module()
+    first = tmp_path / "preferred.json"
+    second = tmp_path / "fallback.json"
+    first.write_text("{}", encoding="utf-8")
+    second.write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("CHUMMER6_RELEASE_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(builder, "DEFAULT_MANIFEST_CANDIDATES", (first, second))
+
+    assert builder.default_manifest_path() == first

@@ -3,13 +3,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import urllib.parse
 
 
-DEFAULT_MANIFEST_PATH = Path("/docker/chummer5a/Docker/Downloads/releases.json")
+DEFAULT_MANIFEST_CANDIDATES: tuple[Path, ...] = (
+    Path("/docker/chummercomplete/chummer.run-services/legacy/tooling/docker/Docker/Downloads/releases.json"),
+    Path("/docker/chummer5a/Docker/Downloads/releases.json"),
+)
 DEFAULT_OUTPUT_PATH = Path("/docker/fleet/state/chummer6/chummer6_release_matrix.json")
 DEFAULT_BASE_URL = "https://chummer.run"
+
+
+def default_manifest_path() -> Path:
+    configured = str(os.environ.get("CHUMMER6_RELEASE_MANIFEST_PATH") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    for candidate in DEFAULT_MANIFEST_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return DEFAULT_MANIFEST_CANDIDATES[0]
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -100,7 +114,7 @@ def build_release_matrix(*, manifest_path: Path, base_url: str) -> dict[str, obj
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Normalize the current Chummer6 desktop downloads manifest into a guide-facing release matrix.")
-    parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST_PATH))
+    parser.add_argument("--manifest", default=str(default_manifest_path()))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT_PATH))
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     args = parser.parse_args()
