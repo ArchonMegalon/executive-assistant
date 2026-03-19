@@ -129,6 +129,19 @@ def canonical_horizon_slugs() -> list[str]:
     return [str(row.get("id") or "").strip() for row in _public_horizon_rows() if str(row.get("id") or "").strip()]
 
 
+def assert_public_horizon_catalog(expected_slugs: list[str], rendered_slugs: list[str]) -> None:
+    expected = [str(item or "").strip() for item in expected_slugs if str(item or "").strip()]
+    rendered = [str(item or "").strip() for item in rendered_slugs if str(item or "").strip()]
+    if rendered != expected:
+        raise RuntimeError(f"public_horizon_catalog_mismatch: expected={expected!r} rendered={rendered!r}")
+
+
+def assert_slug_in_canon(slug: str, catalog: dict[str, dict[str, object]], *, kind: str) -> None:
+    normalized = str(slug or "").strip()
+    if not normalized or normalized not in catalog:
+        raise RuntimeError(f"missing_{kind}_canon:{normalized}")
+
+
 def load_part_canon() -> dict[str, dict[str, object]]:
     catalog: dict[str, dict[str, object]] = {}
     for row in _part_rows():

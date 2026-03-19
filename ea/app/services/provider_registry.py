@@ -197,6 +197,7 @@ class ProviderRegistryProviderView:
     last_used_principal_id: str = ""
     last_used_principal_label: str = ""
     last_used_owner_category: str = ""
+    last_used_lane_role: str = ""
     last_used_hub_user_id: str = ""
     last_used_hub_group_id: str = ""
     last_used_sponsor_session_id: str = ""
@@ -226,6 +227,7 @@ class ProviderRegistryProviderView:
             "last_used_principal_id": self.last_used_principal_id,
             "last_used_principal_label": self.last_used_principal_label,
             "last_used_owner_category": self.last_used_owner_category,
+            "last_used_lane_role": self.last_used_lane_role,
             "last_used_hub_user_id": self.last_used_hub_user_id,
             "last_used_hub_group_id": self.last_used_hub_group_id,
             "last_used_sponsor_session_id": self.last_used_sponsor_session_id,
@@ -253,6 +255,7 @@ class ProviderRegistryLaneView:
     last_used_principal_id: str = ""
     last_used_principal_label: str = ""
     last_used_owner_category: str = ""
+    last_used_lane_role: str = ""
     last_used_hub_user_id: str = ""
     last_used_hub_group_id: str = ""
     last_used_sponsor_session_id: str = ""
@@ -277,6 +280,7 @@ class ProviderRegistryLaneView:
             "last_used_principal_id": self.last_used_principal_id,
             "last_used_principal_label": self.last_used_principal_label,
             "last_used_owner_category": self.last_used_owner_category,
+            "last_used_lane_role": self.last_used_lane_role,
             "last_used_hub_user_id": self.last_used_hub_user_id,
             "last_used_hub_group_id": self.last_used_hub_group_id,
             "last_used_sponsor_session_id": self.last_used_sponsor_session_id,
@@ -859,6 +863,7 @@ class ProviderRegistryService:
             ).strip()
             if last_used_principal_id
             else "",
+            "last_used_lane_role": str(provider_payload.get("last_used_lane_role") or last_used_slot.get("last_used_lane_role") or "").strip(),
             "last_used_hub_user_id": str(
                 provider_payload.get("last_used_hub_user_id") or _principal_hub_user_id(last_used_principal_id)
             ).strip()
@@ -947,6 +952,11 @@ class ProviderRegistryService:
             ).strip()
             if last_used_principal_id
             else "",
+            last_used_lane_role=str(
+                health_payload.get("last_used_lane_role")
+                or slot_pool_summary.get("last_used_lane_role")
+                or ""
+            ).strip(),
             last_used_hub_user_id=str(
                 health_payload.get("last_used_hub_user_id")
                 or slot_pool_summary.get("last_used_hub_user_id")
@@ -997,6 +1007,7 @@ class ProviderRegistryService:
                 "last_used_principal_id": "",
                 "last_used_principal_label": "",
                 "last_used_owner_category": "",
+                "last_used_lane_role": "",
                 "last_used_hub_user_id": "",
                 "last_used_hub_group_id": "",
                 "last_used_sponsor_session_id": "",
@@ -1023,6 +1034,9 @@ class ProviderRegistryService:
             ).strip(),
             "last_used_owner_category": str(
                 slot_pool.get("last_used_owner_category") or primary.last_used_owner_category or ""
+            ).strip(),
+            "last_used_lane_role": str(
+                slot_pool.get("last_used_lane_role") or primary.last_used_lane_role or ""
             ).strip(),
             "last_used_hub_user_id": str(
                 slot_pool.get("last_used_hub_user_id") or primary.last_used_hub_user_id or ""
@@ -1105,6 +1119,7 @@ class ProviderRegistryService:
                     last_used_principal_id=str(capacity_summary.get("last_used_principal_id") or ""),
                     last_used_principal_label=str(capacity_summary.get("last_used_principal_label") or ""),
                     last_used_owner_category=str(capacity_summary.get("last_used_owner_category") or ""),
+                    last_used_lane_role=str(capacity_summary.get("last_used_lane_role") or ""),
                     last_used_hub_user_id=str(capacity_summary.get("last_used_hub_user_id") or ""),
                     last_used_hub_group_id=str(capacity_summary.get("last_used_hub_group_id") or ""),
                     last_used_sponsor_session_id=str(capacity_summary.get("last_used_sponsor_session_id") or ""),

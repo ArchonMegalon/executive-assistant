@@ -281,6 +281,23 @@ def principal_sponsor_session_id(principal_id: object) -> str:
     return str(_principal_override_map("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON").get(normalized) or "").strip()
 
 
+def principal_lane_role(principal_id: object) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    role = str(_principal_override_map("EA_PRINCIPAL_LANE_ROLE_OVERRIDES_JSON").get(normalized) or "").strip().lower()
+    if role in {"coding", "review", "deep_review"}:
+        return role
+    lowered = normalized.lower().replace("_", "-")
+    if "deep-review" in lowered or "jury-deep" in lowered:
+        return "deep_review"
+    if "review" in lowered:
+        return "review"
+    if "participant" in lowered:
+        return "coding"
+    return ""
+
+
 def principal_identity_summary(principal_id: object) -> dict[str, str]:
     normalized = str(principal_id or "").strip()
     return {
@@ -290,6 +307,7 @@ def principal_identity_summary(principal_id: object) -> dict[str, str]:
         "hub_user_id": principal_hub_user_id(normalized),
         "hub_group_id": principal_hub_group_id(normalized),
         "sponsor_session_id": principal_sponsor_session_id(normalized),
+        "lane_role": principal_lane_role(normalized),
     }
 
 
@@ -4339,6 +4357,7 @@ def _provider_dispatch_summary(
             "last_used_principal_id": "",
             "last_used_principal_label": "",
             "last_used_owner_category": "",
+            "last_used_lane_role": "",
             "last_used_lane": "",
             "last_used_backend": "",
             "last_used_at": None,
@@ -4346,12 +4365,14 @@ def _provider_dispatch_summary(
             "active_lease_principals": active_principals,
             "active_lease_labels": active_labels,
             "active_lease_owner_categories": active_categories,
+            "active_lease_lane_roles": [principal_lane_role(item) for item in active_principals if principal_lane_role(item)],
         }
     principal_id = str(latest.principal_id or "").strip()
     return {
         "last_used_principal_id": principal_id,
         "last_used_principal_label": str(latest.principal_label or principal_label(principal_id) or "").strip(),
         "last_used_owner_category": str(latest.owner_category or principal_owner_category(principal_id) or "").strip(),
+        "last_used_lane_role": principal_lane_role(principal_id),
         "last_used_lane": str(latest.lane or "").strip(),
         "last_used_backend": str(latest.backend or "").strip(),
         "last_used_at": latest.happened_at,
@@ -4359,6 +4380,7 @@ def _provider_dispatch_summary(
         "active_lease_principals": active_principals,
         "active_lease_labels": active_labels,
         "active_lease_owner_categories": active_categories,
+        "active_lease_lane_roles": [principal_lane_role(item) for item in active_principals if principal_lane_role(item)],
     }
 
 
@@ -5487,12 +5509,14 @@ def _provider_health_report() -> dict[str, object]:
                 "state": gemini_state if str(slot.get("last_result") or "").strip() != "failed" else "degraded",
                 "lease_holder_label": principal_label(active_lease_holder) if active_lease_holder else "",
                 "lease_holder_owner_category": principal_owner_category(active_lease_holder) if active_lease_holder else "",
+                "lease_holder_lane_role": principal_lane_role(active_lease_holder) if active_lease_holder else "",
                 "lease_holder_hub_user_id": principal_hub_user_id(active_lease_holder) if active_lease_holder else "",
                 "lease_holder_hub_group_id": principal_hub_group_id(active_lease_holder) if active_lease_holder else "",
                 "lease_holder_sponsor_session_id": principal_sponsor_session_id(active_lease_holder) if active_lease_holder else "",
                 "last_used_principal_id": last_used_principal_id,
                 "last_used_principal_label": principal_label(last_used_principal_id) if last_used_principal_id else "",
                 "last_used_owner_category": principal_owner_category(last_used_principal_id) if last_used_principal_id else "",
+                "last_used_lane_role": principal_lane_role(last_used_principal_id) if last_used_principal_id else "",
                 "last_used_hub_user_id": principal_hub_user_id(last_used_principal_id) if last_used_principal_id else "",
                 "last_used_hub_group_id": principal_hub_group_id(last_used_principal_id) if last_used_principal_id else "",
                 "last_used_sponsor_session_id": principal_sponsor_session_id(last_used_principal_id) if last_used_principal_id else "",
@@ -5589,6 +5613,7 @@ def _provider_health_report() -> dict[str, object]:
                 "last_used_principal_id": str(gemini_last_used_slot.get("last_used_principal_id") or "").strip(),
                 "last_used_principal_label": str(gemini_last_used_slot.get("last_used_principal_label") or "").strip(),
                 "last_used_owner_category": str(gemini_last_used_slot.get("last_used_owner_category") or "").strip(),
+                "last_used_lane_role": str(gemini_last_used_slot.get("last_used_lane_role") or "").strip(),
                 "last_used_hub_user_id": str(gemini_last_used_slot.get("last_used_hub_user_id") or "").strip(),
                 "last_used_hub_group_id": str(gemini_last_used_slot.get("last_used_hub_group_id") or "").strip(),
                 "last_used_sponsor_session_id": str(gemini_last_used_slot.get("last_used_sponsor_session_id") or "").strip(),

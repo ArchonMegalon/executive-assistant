@@ -258,6 +258,11 @@ HORIZON_MEDIA_FALLBACKS: dict[str, dict[str, object]] = {
     },
 }
 
+# Downstream guide visuals must derive from canonical horizon metadata or explicit
+# approved overrides. The old bespoke fallback scene map is kept only as dead
+# reference during migration and is intentionally disabled at runtime.
+HORIZON_MEDIA_FALLBACKS = {}
+
 
 def provider_order() -> list[str]:
     preferred = ["magixai", "media_factory", "onemin", "browseract_magixai", "browseract_prompting_systems"]
@@ -311,51 +316,65 @@ def is_credit_exhaustion_message(text: str) -> bool:
     )
 
 
-def fallback_horizon_media_row(slug: str, item: dict[str, object]) -> dict[str, object]:
-    template = dict(HORIZON_MEDIA_FALLBACKS.get(slug) or {})
+def forbid_legacy_svg_fallback(asset_path: Path) -> None:
+    if asset_path.suffix.lower() == ".svg":
+        raise RuntimeError(f"legacy_svg_fallback_forbidden:{asset_path}")
+
+
+def canonical_horizon_visual_contract(slug: str, item: dict[str, object]) -> dict[str, object]:
     title = str(item.get("title") or slug.replace("-", " ").title()).strip()
     hook = " ".join(str(item.get("hook") or "").split()).strip()
     problem = " ".join(str(item.get("problem") or item.get("brutal_truth") or "").split()).strip()
     use_case = " ".join(str(item.get("use_case") or "").split()).strip()
+    access_posture = " ".join(str(item.get("access_posture") or "").split()).strip()
+    resource_burden = " ".join(str(item.get("resource_burden") or "").split()).strip()
+    booster_nudge = " ".join(str(item.get("booster_nudge") or "").split()).strip()
     foundations = [str(entry).strip() for entry in (item.get("foundations") or []) if str(entry).strip()]
-    scene_contract = dict(template.get("scene_contract") or {})
-    visual_prompt = str(template.get("visual_prompt") or "").strip()
-    if not visual_prompt:
-        visual_prompt = (
-            f"Cinematic cyberpunk concept art for {title}. {use_case or hook} "
-            f"Show concrete props tied to {', '.join(foundations[:3]) or 'governed receipts and mission-ready artifacts'}. "
-            "No printed text, no logos, no slide-deck framing."
-        ).strip()
+    visual_prompt = (
+        f"Cinematic cyberpunk concept art for {title}. {use_case or hook or problem} "
+        f"Show concrete props tied to {', '.join(foundations[:3]) or 'governed receipts and mission-ready artifacts'}. "
+        "No printed text, no logos, no slide-deck framing."
+    ).strip()
+    subtitle = hook or use_case or problem or title
+    visual_motifs = list(dict.fromkeys([*foundations[:4], access_posture, resource_burden]))
+    overlay_callouts = list(dict.fromkeys(foundations[:4] or ["Canonical brief", "Bounded move", "Receipt trail"]))
+    composition = "single_protagonist"
+    if "site" in slug or "runsite" in slug:
+        composition = "district_map"
+    elif any(token in slug for token in ("press", "jackpoint")):
+        composition = "dossier_desk"
+    elif any(token in slug for token in ("pulse", "nexus-pan")):
+        composition = "solo_operator"
+    elif any(token in slug for token in ("forge", "co-processor")):
+        composition = "workshop"
     return {
-        "badge": str(template.get("badge") or f"HORIZON:{slug.upper().replace('-', '_')[:14]}").strip(),
+        "badge": f"HORIZON:{slug.upper().replace('-', '_')[:14]}",
         "title": title,
-        "subtitle": str(template.get("subtitle") or hook or use_case).strip(),
-        "kicker": str(
-            template.get("kicker")
-            or "Canonical design is ahead of the richer guide packet, so this scene is grounded directly in the current horizon brief."
-        ).strip(),
-        "note": str(template.get("note") or problem or use_case).strip(),
-        "meta": str(template.get("meta") or "Status: Horizon Concept // Canon-driven visual seed").strip(),
+        "subtitle": subtitle,
+        "kicker": "Canonical design is ahead of the richer guide packet, so this scene is grounded directly in the current horizon brief.",
+        "note": booster_nudge or problem or use_case,
+        "meta": "Status: Horizon Concept // Canon-driven visual seed",
         "visual_prompt": visual_prompt,
-        "overlay_hint": str(template.get("overlay_hint") or "Diegetic receipts and bounded operator overlays only.").strip(),
-        "visual_motifs": list(template.get("visual_motifs") or foundations[:4]),
-        "overlay_callouts": list(template.get("overlay_callouts") or foundations[:4]),
+        "overlay_hint": "Diegetic receipts and bounded operator overlays only.",
+        "visual_motifs": visual_motifs,
+        "overlay_callouts": overlay_callouts,
         "scene_contract": {
-            "subject": str(scene_contract.get("subject") or f"{title} made concrete in one playable moment").strip(),
-            "environment": str(scene_contract.get("environment") or use_case or problem).strip(),
-            "action": str(scene_contract.get("action") or use_case or hook).strip(),
-            "metaphor": str(scene_contract.get("metaphor") or hook or problem).strip(),
-            "props": list(scene_contract.get("props") or foundations[:4]),
-            "overlays": list(scene_contract.get("overlays") or foundations[:3]),
-            "composition": str(scene_contract.get("composition") or "single_protagonist").strip(),
-            "palette": str(scene_contract.get("palette") or "petrol cyan, rust amber, wet charcoal").strip(),
-            "mood": str(scene_contract.get("mood") or "grounded, cinematic, specific").strip(),
-            "humor": str(
-                scene_contract.get("humor")
-                or "the design canon moved first, so the art direction is sprinting to catch up without pretending local fallback slop is acceptable"
-            ).strip(),
+            "subject": f"{title} made concrete in one playable moment",
+            "environment": use_case or problem or "bounded table pain becoming visually legible",
+            "action": use_case or hook or "show the horizon payoff in one grounded scene",
+            "metaphor": hook or problem or "future table relief rendered without fake product certainty",
+            "props": foundations[:4],
+            "overlays": foundations[:3],
+            "composition": composition,
+            "palette": "petrol cyan, rust amber, wet charcoal",
+            "mood": "grounded, cinematic, specific",
+            "humor": "the design canon moved first, so the art direction is sprinting to catch up without pretending local fallback slop is acceptable",
         },
     }
+
+
+def fallback_horizon_media_row(slug: str, item: dict[str, object]) -> dict[str, object]:
+    return canonical_horizon_visual_contract(slug, item)
 
 
 def deep_merge(base: object, override: object) -> object:
@@ -1795,6 +1814,7 @@ def apply_context_overlay(*, output_path: Path, spec: dict[str, object], width: 
 
 
 def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int, spec: dict[str, object]) -> dict[str, object]:
+    forbid_legacy_svg_fallback(output_path)
     attempts: list[str] = []
     requested_order = spec.get("providers")
     if isinstance(requested_order, list):

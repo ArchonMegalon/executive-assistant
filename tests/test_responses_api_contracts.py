@@ -1353,6 +1353,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     monkeypatch.setenv("EA_PRINCIPAL_HUB_USER_OVERRIDES_JSON", json.dumps({"codex-profile": "usr_codex"}))
     monkeypatch.setenv("EA_PRINCIPAL_HUB_GROUP_OVERRIDES_JSON", json.dumps({"codex-profile": "grp_codex"}))
     monkeypatch.setenv("EA_PRINCIPAL_SPONSOR_SESSION_OVERRIDES_JSON", json.dumps({"codex-profile": "sps_codex"}))
+    monkeypatch.setenv("EA_PRINCIPAL_LANE_ROLE_OVERRIDES_JSON", json.dumps({"codex-profile": "review"}))
     monkeypatch.setattr(
         upstream,
         "gemini_vortex_slot_status",
@@ -1398,6 +1399,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_profile["provider_slot_pool"]["last_used_hub_user_id"] == "usr_codex"
     assert groundwork_profile["provider_slot_pool"]["last_used_hub_group_id"] == "grp_codex"
     assert groundwork_profile["provider_slot_pool"]["last_used_sponsor_session_id"] == "sps_codex"
+    assert groundwork_profile["provider_slot_pool"]["last_used_lane_role"] == "review"
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["browseract"]
@@ -1418,6 +1420,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_hub_user_id"] == "usr_codex"
     assert groundwork_lane["capacity_summary"]["last_used_hub_group_id"] == "grp_codex"
     assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == "sps_codex"
+    assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == "review"
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
     assert review_light_lane["health_provider_key"] == "chatplayground"
     assert review_light_lane["providers"][0]["provider_key"] == "browseract"
