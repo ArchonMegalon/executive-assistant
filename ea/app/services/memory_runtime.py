@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from app.domain.models import (
     AuthorityBinding,
@@ -313,7 +314,7 @@ class MemoryRuntimeService:
     def list_commitments(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[Commitment]:
@@ -411,7 +412,7 @@ class MemoryRuntimeService:
     def list_decision_windows(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[DecisionWindow]:
@@ -457,7 +458,7 @@ class MemoryRuntimeService:
     def list_deadline_windows(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[DeadlineWindow]:
@@ -749,7 +750,7 @@ class MemoryRuntimeService:
     def list_interruption_budgets(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[InterruptionBudget]:
@@ -766,6 +767,132 @@ class MemoryRuntimeService:
         if found.principal_id != str(principal_id or "").strip():
             return None
         return found
+
+    def list_open_commitments_due_before(
+        self,
+        *,
+        due_before: str,
+        limit: int = 200,
+    ) -> list[Commitment]:
+        cutoff = str(due_before or "").strip()
+        if not cutoff:
+            return []
+        rows = self.list_commitments(principal_id=None, limit=limit, status="open")
+        return [
+            row
+            for row in rows
+            if str(row.due_at or "").strip() and str(row.due_at or "") <= cutoff
+        ]
+
+    def list_open_decision_windows_closing_before(
+        self,
+        *,
+        closes_before: str,
+        limit: int = 200,
+    ) -> list[DecisionWindow]:
+        cutoff = str(closes_before or "").strip()
+        if not cutoff:
+            return []
+        rows = self.list_decision_windows(principal_id=None, limit=limit, status="open")
+        return [
+            row
+            for row in rows
+            if str(row.closes_at or "").strip() and str(row.closes_at or "") <= cutoff
+        ]
+
+    def list_open_deadline_windows_ending_before(
+        self,
+        *,
+        ends_before: str,
+        limit: int = 200,
+    ) -> list[DeadlineWindow]:
+        cutoff = str(ends_before or "").strip()
+        if not cutoff:
+            return []
+        rows = self.list_deadline_windows(principal_id=None, limit=limit, status="open")
+        return [
+            row
+            for row in rows
+            if str(row.end_at or "").strip() and str(row.end_at or "") <= cutoff
+        ]
+
+    def current_interruption_budget(
+        self,
+        *,
+        principal_id: str,
+        scope: str = "default",
+    ) -> InterruptionBudget:
+        principal = str(principal_id or "").strip()
+        normalized_scope = str(scope or "default").strip() or "default"
+        rows = self.list_interruption_budgets(principal_id=principal, limit=200, status="active")
+        for row in rows:
+            if str(row.scope or "").strip() == normalized_scope:
+                return row
+        return self.upsert_interruption_budget(
+            principal_id=principal,
+            scope=normalized_scope,
+            window_kind="focus_window",
+            budget_minutes=15,
+            used_minutes=0,
+            reset_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            status="active",
+            notes="auto_created_cognitive_load_budget",
+        )
+
+    def interruption_budget_state(
+        self,
+        *,
+        principal_id: str,
+        scope: str = "default",
+    ) -> str:
+        row = self.current_interruption_budget(principal_id=principal_id, scope=scope)
+        if int(row.used_minutes or 0) >= int(row.budget_minutes or 0):
+            return "exhausted"
+        return "available"
+
+    def exhaust_interruption_budget(
+        self,
+        *,
+        principal_id: str,
+        scope: str = "default",
+        notes: str = "",
+    ) -> InterruptionBudget:
+        current = self.current_interruption_budget(principal_id=principal_id, scope=scope)
+        return self.upsert_interruption_budget(
+            principal_id=current.principal_id,
+            scope=current.scope,
+            window_kind=current.window_kind or "focus_window",
+            budget_minutes=max(1, int(current.budget_minutes or 15)),
+            used_minutes=max(1, int(current.budget_minutes or 15)),
+            reset_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            quiet_hours_json=dict(current.quiet_hours_json or {}),
+            status=current.status or "active",
+            notes=str(notes or current.notes or "high_velocity_focus").strip(),
+            budget_id=current.budget_id,
+        )
+
+    def restore_interruption_budget_gradually(
+        self,
+        *,
+        principal_id: str,
+        scope: str = "default",
+        recovery_minutes: int = 5,
+        notes: str = "",
+    ) -> InterruptionBudget:
+        current = self.current_interruption_budget(principal_id=principal_id, scope=scope)
+        next_used = max(0, int(current.used_minutes or 0) - max(1, int(recovery_minutes or 1)))
+        return self.upsert_interruption_budget(
+            principal_id=current.principal_id,
+            scope=current.scope,
+            window_kind=current.window_kind or "focus_window",
+            budget_minutes=max(1, int(current.budget_minutes or 15)),
+            used_minutes=next_used,
+            reset_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            quiet_hours_json=dict(current.quiet_hours_json or {}),
+            status=current.status or "active",
+            notes=str(notes or current.notes or "focus_budget_restored").strip(),
+            budget_id=current.budget_id,
+        )
 
 
 def _backend_mode(settings: Settings) -> str:

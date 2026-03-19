@@ -215,3 +215,68 @@ class PostgresObservationEventRepository:
                 raw_payload_uri,
             ) in rows
         ]
+
+    def get_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+        key = str(dedupe_key or "").strip()
+        if not key:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
+                           source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
+                    FROM observation_events
+                    WHERE dedupe_key = %s
+                    LIMIT 1
+                    """,
+                    (key,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        (
+            observation_id,
+            principal_id,
+            channel,
+            event_type,
+            payload_json,
+            created_at,
+            source_id,
+            external_id,
+            found_dedupe_key,
+            auth_context_json,
+            raw_payload_uri,
+        ) = row
+        return ObservationEvent(
+            observation_id=str(observation_id),
+            principal_id=str(principal_id),
+            channel=str(channel),
+            event_type=str(event_type),
+            payload=dict(payload_json or {}),
+            created_at=_to_iso(created_at),
+            source_id=str(source_id or ""),
+            external_id=str(external_id or ""),
+            dedupe_key=str(found_dedupe_key or ""),
+            auth_context_json=dict(auth_context_json or {}),
+            raw_payload_uri=str(raw_payload_uri or ""),
+        )
+
+    def count_recent_for_principal(self, principal_id: str, *, since: str) -> int:
+        principal = str(principal_id or "").strip()
+        cutoff = str(since or "").strip()
+        if not principal or not cutoff:
+            return 0
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM observation_events
+                    WHERE principal_id = %s
+                      AND created_at >= %s
+                    """,
+                    (principal, cutoff),
+                )
+                row = cur.fetchone()
+        return int(row[0] or 0) if row else 0

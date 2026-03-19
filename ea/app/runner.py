@@ -13,6 +13,7 @@ from app.settings import get_settings
 _IDLE_BACKOFF_START_SECONDS = 1.0
 _IDLE_BACKOFF_MAX_SECONDS = 15.0
 _ERROR_BACKOFF_SECONDS = 2.0
+_SCHEDULER_SCAN_INTERVAL_SECONDS = 900.0
 
 
 def _run_api() -> None:
@@ -32,8 +33,19 @@ def _run_execution_worker(role: str) -> None:
     log = logging.getLogger("ea.runner")
     container = build_container()
     idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
+    last_horizon_scan_at = 0.0
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
+        if role == "scheduler":
+            now = time.time()
+            if now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
+                try:
+                    launched = container.proactive_horizon.run_once()
+                    if launched:
+                        log.info("role=%s proactive horizon launched=%s", role, len(launched))
+                except Exception:
+                    log.exception("role=%s proactive horizon scan failed", role)
+                last_horizon_scan_at = now
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:

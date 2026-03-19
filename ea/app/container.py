@@ -25,12 +25,14 @@ from app.repositories.provider_bindings import build_provider_binding_service_re
 from app.repositories.stakeholders import InMemoryStakeholderRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.brain_router import BrainRouterService
+from app.services.cognitive_load import CognitiveLoadService
 from app.services.channel_runtime import ChannelRuntimeService, build_channel_runtime
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.orchestrator import RewriteOrchestrator, build_artifact_repo, build_default_orchestrator
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService
+from app.services.proactive_horizon import ProactiveHorizonService
 from app.services.provider_registry import ProviderRegistryService
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
@@ -111,6 +113,8 @@ class AppContainer:
     planner: PlannerService
     provider_registry: ProviderRegistryService
     brain_router: BrainRouterService
+    cognitive_load: CognitiveLoadService
+    proactive_horizon: ProactiveHorizonService
     readiness: ReadinessService
 
 
@@ -121,8 +125,15 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
     task_contracts = build_task_contract_service(settings=settings)
     planner = PlannerService(task_contracts, provider_registry=provider_registry, brain_router=brain_router)
     skills = SkillCatalogService(task_contracts)
+    policy = PolicyDecisionService(
+        max_rewrite_chars=settings.policy.max_rewrite_chars,
+        approval_required_chars=settings.policy.approval_required_chars,
+    )
     try:
-        channel_runtime = build_channel_runtime(settings=settings)
+        channel_runtime = build_channel_runtime(
+            settings=settings,
+            policy=policy,
+        )
     except Exception as exc:
         ensure_storage_fallback_allowed(settings, "channel runtime bootstrap", exc)
         raise
@@ -131,6 +142,12 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
     except Exception as exc:
         ensure_storage_fallback_allowed(settings, "memory runtime bootstrap", exc)
         raise
+    cognitive_load = CognitiveLoadService(
+        count_recent_for_principal=channel_runtime.count_recent_observations_for_principal,
+        memory_runtime=memory_runtime,
+    )
+    channel_runtime._cognitive_load = cognitive_load  # type: ignore[attr-defined]
+    channel_runtime._policy = policy  # type: ignore[attr-defined]
     evidence_runtime = build_evidence_runtime(settings=settings)
     tool_runtime = build_tool_runtime(settings=settings)
     tool_execution = ToolExecutionService(
@@ -148,7 +165,14 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         planner=planner,
         evidence_runtime=evidence_runtime,
         memory_runtime=memory_runtime,
+        provider_registry=provider_registry,
         tool_execution=tool_execution,
+    )
+    proactive_horizon = ProactiveHorizonService(
+        memory_runtime=memory_runtime,
+        orchestrator=orchestrator,
+        task_contracts=task_contracts,
+        channel_runtime=channel_runtime,
     )
     return AppContainer(
         settings=settings,
@@ -164,6 +188,8 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         planner=planner,
         provider_registry=provider_registry,
         brain_router=brain_router,
+        cognitive_load=cognitive_load,
+        proactive_horizon=proactive_horizon,
         readiness=ReadinessService(settings),
     )
 

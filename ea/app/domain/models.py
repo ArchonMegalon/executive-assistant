@@ -645,7 +645,7 @@ def parse_task_contract_runtime_policy(
 
     def _retry(prefix: str) -> TaskContractRetryPolicy:
         failure_strategy = str(metadata.get(f"{prefix}_failure_strategy") or "fail").strip().lower() or "fail"
-        if failure_strategy not in {"fail", "retry", "fallback_human", "skip"}:
+        if failure_strategy not in {"fail", "retry", "fallback_human", "skip", "replan"}:
             failure_strategy = "fail"
         return TaskContractRetryPolicy(
             failure_strategy=failure_strategy,

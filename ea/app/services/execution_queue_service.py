@@ -16,6 +16,7 @@ NextQueueFn = Callable[[str], ExecutionQueueItem | None]
 CompleteQueueItemFn = Callable[[str, ...], ExecutionQueueItem | None]
 FailQueueItemFn = Callable[[str, ...], ExecutionQueueItem | None]
 RetryDeciderFn = Callable[[ExecutionQueueItem, ExecutionStep, Exception], bool]
+ReplanDeciderFn = Callable[[ExecutionQueueItem, ExecutionStep, Exception], bool]
 SetSessionStatusFn = Callable[[str, str], ExecutionSession | None]
 QueueForSessionFn = Callable[[str], list[ExecutionQueueItem]]
 EnqueueStepFn = Callable[[str, str], ExecutionQueueItem]
@@ -42,6 +43,7 @@ class ExecutionQueueService:
         execute_step: ExecuteStepFn,
         continue_session_queue: ContinuePipelineFn,
         schedule_retry: RetryDeciderFn,
+        schedule_replan: ReplanDeciderFn | None = None,
     ) -> None:
         self._lease_queue_item = lease_queue_item
         self._lease_next_queue_item = lease_next_queue_item
@@ -59,6 +61,7 @@ class ExecutionQueueService:
         self._execute_step = execute_step
         self._continue_session_queue = continue_session_queue
         self._schedule_retry = schedule_retry
+        self._schedule_replan = schedule_replan
 
     def _queue_item_is_eligible_now(self, row: ExecutionQueueItem) -> bool:
         now = datetime.now(timezone.utc)
@@ -317,6 +320,24 @@ class ExecutionQueueService:
             artifact = self._execute_step(queue_item.session_id, running_step)
         except Exception as exc:
             if self._schedule_retry(queue_item, running_step, exc):
+                return None
+            if self._schedule_replan is not None and self._schedule_replan(queue_item, running_step, exc):
+                self._fail_queue_item(queue_item.queue_id, last_error=str(exc))
+                self._update_step(
+                    queue_item.step_id,
+                    state="failed",
+                    error_json={"reason": "execution_replanned", "detail": str(exc)},
+                    attempt_count=queue_item.attempt_count,
+                )
+                self._append_event(
+                    queue_item.session_id,
+                    "step_execution_replanned",
+                    {
+                        "queue_id": queue_item.queue_id,
+                        "step_id": queue_item.step_id,
+                        "reason": str(exc),
+                    },
+                )
                 return None
             self._fail_queue_item(queue_item.queue_id, last_error=str(exc))
             self._update_step(

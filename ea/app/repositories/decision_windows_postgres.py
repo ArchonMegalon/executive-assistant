@@ -212,18 +212,22 @@ class PostgresDecisionWindowRepository:
     def list_decision_windows(
         self,
         *,
-        principal_id: str,
+        principal_id: str | None = None,
         limit: int = 100,
         status: str | None = None,
     ) -> list[DecisionWindow]:
         principal = str(principal_id or "").strip()
         n = max(1, min(500, int(limit or 100)))
         status_filter = str(status or "").strip().lower()
-        where = "WHERE principal_id = %s"
-        params: list[object] = [principal]
+        where_clauses: list[str] = []
+        params: list[object] = []
+        if principal:
+            where_clauses.append("principal_id = %s")
+            params.append(principal)
         if status_filter:
-            where += " AND status = %s"
+            where_clauses.append("status = %s")
             params.append(status_filter)
+        where = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         query = (
             "SELECT decision_window_id, principal_id, title, context, opens_at, closes_at, urgency, authority_required, status, notes, source_json, created_at, updated_at "
             "FROM decision_windows "
