@@ -2689,11 +2689,15 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_bil
         return {
             "billing_usage_page": "\n".join(
                 [
+                    "Plan: BUSINESS",
+                    "Billing Cycle: LIFETIME",
+                    "Status: Active",
                     "Remaining credits: 1234567",
                     "Max credits: 2000000",
                     "Used percent: 38.27",
                     "Next top-up: 2026-03-31T00:00:00Z",
                     "Top-up amount: 2000000",
+                    "Unlock Free Credits",
                     "Lifetime credits roll over month to month",
                 ]
             )
@@ -2723,6 +2727,11 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_bil
     assert result.output_json["next_topup_at"] == "2026-03-31T00:00:00Z"
     assert result.output_json["topup_amount"] == 2000000
     assert result.output_json["rollover_enabled"] is True
+    assert result.output_json["plan_name"] == "BUSINESS"
+    assert result.output_json["billing_cycle"] == "LIFETIME"
+    assert result.output_json["subscription_status"] == "Active"
+    assert result.output_json["daily_bonus_cta_text"] == "Unlock Free Credits"
+    assert result.output_json["daily_bonus_available"] is True
     assert result.output_json["basis"] == "actual_billing_usage_page"
     assert result.output_json["structured_output_json"]["persisted_snapshot"]["remaining_credits"] == 1234567
     assert tool_runtime.get_tool("browseract.onemin_billing_usage") is not None
@@ -2811,12 +2820,224 @@ def test_tool_execution_service_parses_onemin_billing_workflow_usage_history_out
 
     assert result.output_json["remaining_credits"] == 2716749
     assert result.output_json["basis"] == "actual_billing_usage_page"
+    assert result.output_json["usage_history_count"] == 2
+    assert result.output_json["latest_usage_at"] == "2026-03-20T17:38:27Z"
+    assert result.output_json["earliest_usage_at"] == "2026-03-20T15:58:28Z"
+    assert result.output_json["latest_usage_credit"] == 31
+    assert result.output_json["observed_usage_credits_total"] == 21835
+    assert result.output_json["observed_usage_window_hours"] == pytest.approx(1.6664)
+    assert result.output_json["observed_usage_burn_credits_per_hour"] == pytest.approx(13103.18)
     structured = result.output_json["structured_output_json"]
     assert structured["usage_history_json"][0]["after_deduction"] == 2716749
+    assert structured["usage_summary_json"]["observed_usage_credits_total"] == 21835
     assert "browseract_password" not in structured["raw_text"]
     assert "topsecret" not in structured["raw_text"]
     assert "input_parameters" not in structured["label_map"]
     assert structured["persisted_snapshot"]["remaining_credits"] == 2716749
+
+
+def test_tool_execution_service_parses_sectioned_onemin_billing_workflow_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps({"slots": [{"owner_email": "owner@example.com"}]}),
+    )
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_billing_usage_run_url": "https://browseract.example/run/billing"},
+        status="enabled",
+    )
+
+    def _fake_billing_usage(**_: object) -> dict[str, object]:
+        return {
+            "billing_usage_bonus_page": [
+                {
+                    "section_type": "billing_settings_page",
+                    "plan_name": "BUSINESS",
+                    "billing_cycle": "LIFETIME",
+                    "status": "Active",
+                    "current_credit": 4264349,
+                    "manage_subscription_button_text": "Manage Subscription",
+                    "top_up_credits_button_text": "Top Up Credits",
+                    "unlock_free_credits_button_text": "Unlock Free Credits",
+                },
+                {
+                    "section_type": "usage_records_page",
+                    "user_name": "Test User",
+                    "before_deduction": 4264380,
+                    "after_deduction": 4264349,
+                    "credit": 31,
+                    "date": "2026-03-20 19:47:24",
+                },
+                {
+                    "section_type": "usage_records_page",
+                    "user_name": "Test User",
+                    "before_deduction": 4264411,
+                    "after_deduction": 4264380,
+                    "credit": 31,
+                    "date": "2026-03-20 19:45:07",
+                },
+                {
+                    "section_type": "billing_usage_bonus_page",
+                    "bonus_type": "Daily Visit Credits",
+                    "bonus_credits": 30000,
+                    "description": "Unlock 15,000 FREE credits EVERY DAY.",
+                },
+                {
+                    "section_type": "billing_usage_bonus_page",
+                    "bonus_type": "Referral Signup Bonus",
+                    "bonus_credits": 20000,
+                    "description": "Referral bonus",
+                },
+            ]
+        }
+
+    service._browseract_onemin_billing_usage = _fake_billing_usage
+    registry._rows.pop("browseract.onemin_billing_usage", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_billing_usage"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-sections-1",
+            step_id="step-browseract-onemin-billing-sections-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/billing",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["remaining_credits"] == 4264349
+    assert result.output_json["plan_name"] == "BUSINESS"
+    assert result.output_json["billing_cycle"] == "LIFETIME"
+    assert result.output_json["subscription_status"] == "Active"
+    assert result.output_json["daily_bonus_cta_text"] == "Unlock Free Credits"
+    assert result.output_json["daily_bonus_available"] is True
+    assert result.output_json["daily_bonus_credits"] == 30000
+    assert result.output_json["usage_history_count"] == 2
+    assert result.output_json["observed_usage_credits_total"] == 62
+    structured = result.output_json["structured_output_json"]
+    assert structured["visible_actions_json"] == [
+        "Manage Subscription",
+        "Top Up Credits",
+        "Unlock Free Credits",
+    ]
+    assert structured["visible_tabs_json"] == ["Subscription", "Usage Records", "Voucher"]
+    assert structured["billing_overview_json"]["plan_name"] == "BUSINESS"
+    assert structured["billing_overview_json"]["daily_bonus_credits"] == 30000
+    assert structured["bonus_catalog_json"][0]["bonus_type"] == "Daily Visit Credits"
+
+
+def test_tool_execution_service_parses_json_array_raw_text_onemin_billing_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps({"slots": [{"owner_email": "owner@example.com"}]}),
+    )
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_billing_usage_run_url": "https://browseract.example/run/billing"},
+        status="enabled",
+    )
+
+    def _fake_billing_usage(**_: object) -> dict[str, object]:
+        return {
+            "billing_usage_bonus_page": json.dumps(
+                [
+                    {
+                        "plan_name": "BUSINESS",
+                        "billing_cycle": "LIFETIME",
+                        "status": "Active",
+                        "available_credit": 4264349,
+                    },
+                    {
+                        "user_name": "Test User",
+                        "before_deduction": 4264380,
+                        "after_deduction": 4264349,
+                        "credit": 31,
+                        "date": "2026-03-20",
+                        "time": "19:47:24",
+                        "record_type": "Show record",
+                    },
+                    {
+                        "bonus_type": "Daily Visit",
+                        "bonus_description": "Unlock 15,000 FREE credits EVERY DAY.",
+                        "bonus_credits": 15000,
+                        "requirement": "Visit the web app once per day.",
+                    },
+                ]
+            )
+        }
+
+    service._browseract_onemin_billing_usage = _fake_billing_usage
+    registry._rows.pop("browseract.onemin_billing_usage", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_billing_usage"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-json-text-1",
+            step_id="step-browseract-onemin-billing-json-text-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/billing",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["remaining_credits"] == 4264349
+    assert result.output_json["plan_name"] == "BUSINESS"
+    assert result.output_json["billing_cycle"] == "LIFETIME"
+    assert result.output_json["subscription_status"] == "Active"
+    assert result.output_json["daily_bonus_available"] is True
+    assert result.output_json["daily_bonus_credits"] == 15000
+    structured = result.output_json["structured_output_json"]
+    assert structured["billing_overview_json"]["plan_name"] == "BUSINESS"
+    assert structured["billing_overview_json"]["daily_bonus_credits"] == 15000
+    assert structured["bonus_catalog_json"][0]["bonus_type"] == "Daily Visit"
 
 
 def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_member_reconciliation_definition(
@@ -3145,6 +3366,58 @@ def test_tool_execution_service_builds_page_extract_browseract_packets() -> None
     assert any(node["id"] == "output_result" for node in spec["nodes"])
     assert next(node for node in spec["nodes"] if node["id"] == "extract_result")["config"]["field_name"] == "page_body"
     assert "Kind: page_extract" in result.output_json["normalized_text"]
+
+
+def test_tool_execution_service_builds_explicit_browseract_workflow_spec_packets() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-spec-explicit-1",
+            step_id="step-browseract-spec-explicit-1",
+            tool_name="browseract.build_workflow_spec",
+            action_kind="workflow.spec_build",
+            payload_json={
+                "workflow_name": "1min Billing Usage Reader",
+                "purpose": "Capture billing settings, usage rows, and free-credit unlock state.",
+                "login_url": "https://app.1min.ai/login",
+                "tool_url": "https://app.1min.ai/billing-usage",
+                "workflow_kind": "page_extract",
+                "workflow_spec_json": {
+                    "publish": True,
+                    "mcp_ready": False,
+                    "inputs": [
+                        {"name": "browseract_username", "description": "Login email"},
+                        {"name": "browseract_password", "description": "Login password"},
+                    ],
+                    "nodes": [
+                        {"id": "open_login", "type": "visit_page", "label": "Open Login", "config": {"url": "https://app.1min.ai/login"}},
+                        {"id": "open_login_modal", "type": "click", "label": "Open Login Modal", "config": {"selector": "button:has-text(\"Log In\")"}},
+                        {"id": "output_result", "type": "output", "label": "Output Result", "config": {"field_name": "unlock_free_credits_surface"}},
+                    ],
+                    "edges": [
+                        ["open_login", "open_login_modal"],
+                        ["open_login_modal", "output_result"],
+                    ],
+                },
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    spec = result.output_json["structured_output_json"]
+    assert spec["workflow_name"] == "1min Billing Usage Reader"
+    assert spec["meta"]["workflow_kind"] == "page_extract"
+    assert spec["inputs"][0]["name"] == "browseract_username"
+    assert [node["id"] for node in spec["nodes"]] == ["open_login", "open_login_modal", "output_result"]
+    assert spec["edges"] == [["open_login", "open_login_modal"], ["open_login_modal", "output_result"]]
 
 
 def test_tool_execution_service_repairs_browseract_workflow_spec_packets(monkeypatch) -> None:

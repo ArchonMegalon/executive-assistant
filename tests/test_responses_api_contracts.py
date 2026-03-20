@@ -1756,7 +1756,25 @@ def test_codex_status_endpoint_exposes_onemin_billing_aggregate(monkeypatch: pyt
             "rollover_enabled": True,
             "basis": "actual_billing_usage_page",
             "source_url": "https://app.1min.ai/billing-usage",
-            "structured_output_json": {"raw_text": "Remaining credits: 800000"},
+            "structured_output_json": {
+                "raw_text": "Remaining credits: 800000",
+                "billing_overview_json": {
+                    "plan_name": "BUSINESS",
+                    "billing_cycle": "LIFETIME",
+                    "subscription_status": "Active",
+                    "daily_bonus_cta_text": "Unlock Free Credits",
+                    "daily_bonus_available": True,
+                    "daily_bonus_credits": 500,
+                },
+                "usage_summary_json": {
+                    "usage_history_count": 10,
+                    "latest_usage_at": "2026-03-18T09:04:00Z",
+                    "earliest_usage_at": "2026-03-18T07:04:00Z",
+                    "observed_usage_credits_total": 2400,
+                    "observed_usage_window_hours": 2.0,
+                    "observed_usage_burn_credits_per_hour": 1200.0,
+                },
+            },
         },
     )
     upstream.record_onemin_billing_snapshot(
@@ -1771,7 +1789,23 @@ def test_codex_status_endpoint_exposes_onemin_billing_aggregate(monkeypatch: pyt
             "rollover_enabled": True,
             "basis": "actual_billing_usage_page",
             "source_url": "https://app.1min.ai/billing-usage",
-            "structured_output_json": {"raw_text": "Remaining credits: 200000"},
+            "structured_output_json": {
+                "raw_text": "Remaining credits: 200000",
+                "billing_overview_json": {
+                    "plan_name": "BUSINESS",
+                    "billing_cycle": "LIFETIME",
+                    "subscription_status": "Active",
+                    "daily_bonus_available": False,
+                },
+                "usage_summary_json": {
+                    "usage_history_count": 4,
+                    "latest_usage_at": "2026-03-18T08:55:00Z",
+                    "earliest_usage_at": "2026-03-18T07:55:00Z",
+                    "observed_usage_credits_total": 300,
+                    "observed_usage_window_hours": 1.0,
+                    "observed_usage_burn_credits_per_hour": 300.0,
+                },
+            },
         },
     )
     upstream.record_onemin_member_reconciliation_snapshot(
@@ -1799,10 +1833,25 @@ def test_codex_status_endpoint_exposes_onemin_billing_aggregate(monkeypatch: pyt
     assert aggregate["topup_amount"] == 2000000.0
     assert aggregate["basis_counts"] == {"actual_billing_usage_page": 2}
     assert aggregate["basis_summary"] == "actual_billing_usage_page x2"
+    assert aggregate["daily_bonus_claimable_slot_count"] == 1
+    assert aggregate["daily_bonus_unavailable_slot_count"] == 1
+    assert aggregate["daily_bonus_unknown_slot_count"] == 0
+    assert aggregate["sum_claimable_daily_bonus_credits"] == 500.0
+    assert aggregate["sum_free_credits_plus_claimable_daily_bonus"] == 1000500.0
+    assert aggregate["observed_usage_history_row_count"] == 14
+    assert aggregate["observed_usage_burn_credits_per_hour"] == 1500.0
+    assert aggregate["slot_count_with_observed_usage_burn"] == 2
+    assert aggregate["hours_remaining_at_observed_usage_pace"] == pytest.approx(666.67)
+    assert aggregate["hours_remaining_at_observed_usage_pace_including_claimable_daily_bonus"] == pytest.approx(667.0)
     assert body["topup_summary"]["next_topup_at"] == "2026-03-31T00:00:00Z"
     provider_row = next(row for row in body["providers_summary"] if row["account_name"] == "ONEMIN_AI_API_KEY")
     assert provider_row["basis"] == "actual_billing_usage_page"
     assert provider_row["free_credits"] == 800000
+    assert provider_row["billing_plan_name"] == "BUSINESS"
+    assert provider_row["billing_daily_bonus_available"] is True
+    assert provider_row["billing_daily_bonus_credits"] == 500.0
+    assert provider_row["billing_usage_history_count"] == 10
+    assert provider_row["billing_observed_usage_burn_credits_per_hour"] == 1200.0
 
 
 def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
