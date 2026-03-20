@@ -126,7 +126,7 @@ def env_value(name: str) -> str:
 
 
 def easter_egg_allowed_for_target(target: str) -> bool:
-    return str(target or "").replace("\\", "/").strip() in SPARSE_EASTER_EGG_TARGETS
+    return True
 
 
 def scene_contract_requests_easter_egg(contract: dict[str, object] | None) -> bool:

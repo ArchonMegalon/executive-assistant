@@ -71,6 +71,92 @@ def test_provider_bindings_are_principal_scoped_and_support_probe_updates() -> N
     assert denied.json()["error"]["code"] == "provider_binding_not_found"
 
 
+def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-google")
+
+    started = owner.post("/v1/providers/google/oauth/start", json={"scope_bundle": "send"})
+    assert started.status_code == 200
+    started_body = started.json()
+    assert started_body["provider_key"] == "google_gmail"
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started_body["auth_url"]
+    assert "https://www.googleapis.com/auth/gmail.send" in started_body["requested_scopes"]
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-123",
+            "email": "runner@gmail.example",
+            "hd": "gmail.example",
+        },
+    )
+
+    callback = owner.get(
+        "/v1/providers/google/oauth/callback",
+        params={"code": "code-123", "state": started_body["state"]},
+    )
+    assert callback.status_code == 200
+    callback_body = callback.json()
+    assert callback_body["principal_id"] == "exec-google"
+    assert callback_body["google_email"] == "runner@gmail.example"
+    assert callback_body["consent_stage"] == "send"
+    assert callback_body["token_status"] == "active"
+    assert callback_body["connector_binding_id"]
+
+    accounts = owner.get("/v1/providers/google/accounts")
+    assert accounts.status_code == 200
+    rows = accounts.json()
+    assert len(rows) == 1
+    assert rows[0]["google_subject"] == "google-sub-123"
+    assert rows[0]["granted_scopes"] == ["email", "https://www.googleapis.com/auth/gmail.send", "openid", "profile"]
+
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_gmail_send_message",
+        lambda **kwargs: "gmail-message-123",
+    )
+
+    smoke = owner.post("/v1/providers/google/gmail/smoke-test", json={})
+    assert smoke.status_code == 200
+    smoke_body = smoke.json()
+    assert smoke_body["sender_email"] == "runner@gmail.example"
+    assert smoke_body["recipient_email"] == "runner@gmail.example"
+    assert smoke_body["gmail_message_id"] == "gmail-message-123"
+    assert smoke_body["rfc822_message_id"].startswith("<ea-smoke-")
+
+    disconnected = owner.post("/v1/providers/google/oauth/disconnect", json={})
+    assert disconnected.status_code == 200
+    disconnected_body = disconnected.json()
+    assert disconnected_body["token_status"] == "revoked"
+    assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
+
+
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:
     owner = _client(principal_id="exec-1")
     response = owner.get("/v1/providers/bindings?principal_id=exec-2")

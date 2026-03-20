@@ -18,6 +18,7 @@ def create_app() -> FastAPI:
     from app.api.routes.connectors import router as connectors_router
     from app.api.routes.delivery import router as delivery_router
     from app.api.routes.evidence import router as evidence_router
+    from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.health import router as health_router
     from app.api.routes.human import router as human_router
     from app.api.routes.memory import router as memory_router
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(observations_router, dependencies=auth_dependency)
     app.include_router(delivery_router, dependencies=auth_dependency)
     app.include_router(connectors_router, dependencies=auth_dependency)
+    app.include_router(google_oauth_router)
     app.include_router(policy_router, dependencies=auth_dependency)
     app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
