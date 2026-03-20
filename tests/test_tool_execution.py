@@ -2728,6 +2728,97 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_bil
     assert tool_runtime.get_tool("browseract.onemin_billing_usage") is not None
 
 
+def test_tool_execution_service_parses_onemin_billing_workflow_usage_history_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_billing_usage_run_url": "https://browseract.example/run/billing"},
+        status="enabled",
+    )
+
+    def _fake_billing_usage(**_: object) -> dict[str, object]:
+        return {
+            "task_id": "task-usage-1",
+            "status": "finished",
+            "input_parameters": "browseract_username=owner@example.com; browseract_password=topsecret",
+            "steps": [
+                {
+                    "task_element_order": 1,
+                    "goal": "Navigate to login",
+                    "status": "succeed",
+                }
+            ],
+            "output": {
+                "string": json.dumps(
+                    [
+                        {
+                            "user": "Test User",
+                            "before_deduction": 2716780,
+                            "after_deduction": 2716749,
+                            "credit": 31,
+                            "date": "2026-03-20",
+                            "time": "17:38:27",
+                        },
+                        {
+                            "user": "Test User",
+                            "before_deduction": 2738801,
+                            "after_deduction": 2716997,
+                            "credit": 21804,
+                            "date": "2026-03-20",
+                            "time": "15:58:28",
+                        },
+                    ]
+                )
+            },
+        }
+
+    service._browseract_onemin_billing_usage = _fake_billing_usage
+    registry._rows.pop("browseract.onemin_billing_usage", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_billing_usage"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-usage-1",
+            step_id="step-browseract-onemin-billing-usage-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/billing",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["remaining_credits"] == 2716749
+    assert result.output_json["basis"] == "actual_billing_usage_page"
+    structured = result.output_json["structured_output_json"]
+    assert structured["usage_history_json"][0]["after_deduction"] == 2716749
+    assert "browseract_password" not in structured["raw_text"]
+    assert "topsecret" not in structured["raw_text"]
+    assert "input_parameters" not in structured["label_map"]
+    assert structured["persisted_snapshot"]["remaining_credits"] == 2716749
+
+
 def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_member_reconciliation_definition(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
