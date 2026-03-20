@@ -39,10 +39,17 @@ class StorageSettings:
 class AuthSettings:
     api_token: str
     default_principal_id: str
+    cf_access_team_domain: str = ""
+    cf_access_audiences: tuple[str, ...] = ()
+    cf_access_certs_url: str = ""
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_token.strip())
+        return bool(self.api_token.strip()) or self.cf_access_enabled
+
+    @property
+    def cf_access_enabled(self) -> bool:
+        return bool(self.cf_access_team_domain.strip()) and bool(self.cf_access_audiences)
 
 
 @dataclass(frozen=True)
@@ -88,6 +95,7 @@ class RuntimeProfile:
         return self.principal_source in {
             "caller_header_or_default",
             "authenticated_header_or_default",
+            "access_identity_or_default",
             "default_principal",
         }
 
@@ -176,13 +184,20 @@ def _database_url(settings: object) -> str:
 def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
     database_url = _database_url(settings)
+    auth_mode = "anonymous_dev"
+    if settings.auth.api_token and settings.auth.cf_access_enabled:
+        auth_mode = "token_or_access"
+    elif settings.auth.api_token:
+        auth_mode = "token"
+    elif settings.auth.cf_access_enabled:
+        auth_mode = "access"
     if is_prod_mode(settings.runtime.mode):
         return RuntimeProfile(
             mode="prod",
             storage_backend="postgres",
             durability="durable",
-            auth_mode="token",
-            principal_source="authenticated_header",
+            auth_mode=auth_mode,
+            principal_source="authenticated_header" if auth_mode in {"token", "token_or_access"} else "access_identity",
             database_required=True,
             database_configured=bool(database_url),
             source_backend=source_backend,
@@ -192,8 +207,12 @@ def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     if source_backend == "auto" and database_url:
         storage_backend = "postgres"
         durability = "durable"
-    auth_mode = "token" if settings.auth.enabled else "anonymous_dev"
-    principal_source = "authenticated_header_or_default" if auth_mode == "token" else "caller_header_or_default"
+    if auth_mode in {"token", "token_or_access"}:
+        principal_source = "authenticated_header_or_default"
+    elif auth_mode == "access":
+        principal_source = "access_identity_or_default"
+    else:
+        principal_source = "caller_header_or_default"
     return RuntimeProfile(
         mode=settings.runtime.mode,
         storage_backend=storage_backend,
@@ -233,7 +252,9 @@ def ensure_prod_api_token_configured(settings: Settings) -> None:
         return
     if str(settings.auth.api_token or "").strip():
         return
-    raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set")
+    if bool(getattr(settings.auth, "cf_access_enabled", False)):
+        return
+    raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access auth to be set")
 
 
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
@@ -277,6 +298,14 @@ def get_settings() -> Settings:
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
     default_principal_id = (os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "local-user").strip() or "local-user"
+    cf_access_team_domain = (os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN") or "").strip().lower().rstrip("/")
+    raw_cf_access_aud = (os.environ.get("EA_CF_ACCESS_AUD") or "").strip()
+    cf_access_audiences = tuple(
+        value for value in {part.strip() for part in raw_cf_access_aud.split(",") if part.strip()}
+    )
+    cf_access_certs_url = (os.environ.get("EA_CF_ACCESS_CERTS_URL") or "").strip()
+    if not cf_access_certs_url and cf_access_team_domain:
+        cf_access_certs_url = f"https://{cf_access_team_domain}/cdn-cgi/access/certs"
     max_rewrite_chars = max(1, _to_int(os.environ.get("EA_MAX_REWRITE_CHARS") or "20000", 20000))
     approval_required_chars = max(1, _to_int(os.environ.get("EA_APPROVAL_THRESHOLD_CHARS") or "5000", 5000))
     approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
@@ -298,7 +327,13 @@ def get_settings() -> Settings:
             database_url=database_url,
             artifacts_dir=artifacts_dir,
         ),
-        auth=AuthSettings(api_token=api_token, default_principal_id=default_principal_id),
+        auth=AuthSettings(
+            api_token=api_token,
+            default_principal_id=default_principal_id,
+            cf_access_team_domain=cf_access_team_domain,
+            cf_access_audiences=cf_access_audiences,
+            cf_access_certs_url=cf_access_certs_url,
+        ),
         policy=PolicySettings(
             max_rewrite_chars=max_rewrite_chars,
             approval_required_chars=approval_required_chars,

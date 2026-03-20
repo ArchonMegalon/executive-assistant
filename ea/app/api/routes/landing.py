@@ -6,8 +6,9 @@ import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import get_container
+from app.api.dependencies import get_cloudflare_access_identity, get_container
 from app.container import AppContainer
+from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import build_google_oauth_start, complete_google_oauth_callback
 
 router = APIRouter(tags=["landing"])
@@ -33,6 +34,23 @@ def _google_ready(container: AppContainer) -> tuple[bool, str]:
     if not state.secret_configured:
         return False, "Google OAuth env vars are not configured yet."
     return True, "Google OAuth is configured and ready to connect."
+
+
+def _gmail_onboarding_state(
+    *,
+    container: AppContainer,
+    access_identity: CloudflareAccessIdentity | None,
+) -> tuple[bool, bool]:
+    if access_identity is None:
+        return False, False
+    normalized_email = access_identity.email.strip().lower()
+    if not normalized_email.endswith("@gmail.com"):
+        return False, False
+    states = container.provider_registry.list_binding_states(principal_id=access_identity.principal_id)
+    for state in states:
+        if state.provider_key == "google_gmail" and state.binding_id:
+            return True, True
+    return True, False
 
 
 def _page_shell(*, title: str, body: str) -> HTMLResponse:
@@ -122,11 +140,45 @@ def _page_shell(*, title: str, body: str) -> HTMLResponse:
 
 
 @router.get("/", response_class=HTMLResponse)
-def landing(request: Request, container: AppContainer = Depends(get_container)) -> HTMLResponse:
+def landing(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
     google_ready, google_message = _google_ready(container)
     token_required = _token_required(container)
-    default_principal = _default_principal_id(container)
+    default_principal = access_identity.principal_id if access_identity is not None else _default_principal_id(container)
     status_class = "status-ok" if google_ready else "status-warn"
+    gmail_candidate, gmail_connected = _gmail_onboarding_state(container=container, access_identity=access_identity)
+    access_block = ""
+    principal_field = f"""
+          <label for="principal_id">Principal ID</label>
+          <input id="principal_id" name="principal_id" value="{html.escape(default_principal)}" required>
+    """
+    token_field = f"""
+          <label for="api_token">API token</label>
+          <input id="api_token" name="api_token" type="password" placeholder="{html.escape('required in prod or when EA_API_TOKEN is set' if token_required else 'optional in dev mode')}">
+    """
+    if access_identity is not None:
+        access_block = f"""
+        <p class="small"><strong>Signed in via Cloudflare Access:</strong> {html.escape(access_identity.email)}</p>
+        <p class="small">EA uses that verified email to auto-provision your local assistant identity. There is no separate signup step here.</p>
+        """
+        principal_field = f"""
+          <input type="hidden" name="principal_id" value="{html.escape(default_principal)}">
+          <p class="small"><strong>Assistant principal:</strong> <code>{html.escape(default_principal)}</code></p>
+        """
+        token_field = ""
+    gmail_note = ""
+    if gmail_candidate and not gmail_connected:
+        gmail_note = f"""
+        <p class="status-ok">This looks like a Gmail user. Connect Google now to turn this into that user's own assistant.</p>
+        <p class="small">EA already knows the verified Access email <code>{html.escape(access_identity.email if access_identity else '')}</code>. The next step is just Google consent.</p>
+        """
+    elif gmail_candidate and gmail_connected:
+        gmail_note = """
+        <p class="status-ok">Google is already linked for this assistant. The Gmail onboarding step is complete.</p>
+        """
     body = f"""
     <h1>Executive Assistant</h1>
     <p class="lead">Principal-scoped control plane, durable context plane, queue-backed execution, and provider bindings. This front door is deliberately thin: connect a provider, verify the binding, then run real work.</p>
@@ -135,16 +187,16 @@ def landing(request: Request, container: AppContainer = Depends(get_container)) 
         <h2>Google Gmail</h2>
         <p class="{status_class}">{html.escape(google_message)}</p>
         <p class="small">Current flow: OAuth connect, account listing, send-only Gmail smoke test. Mailbox read/verification is not enabled yet.</p>
+        {access_block}
+        {gmail_note}
         <form method="post" action="/google/connect">
-          <label for="principal_id">Principal ID</label>
-          <input id="principal_id" name="principal_id" value="{html.escape(default_principal)}" required>
+          {principal_field}
           <label for="scope_bundle">Scope bundle</label>
           <select id="scope_bundle" name="scope_bundle">
             <option value="send">Send only</option>
             <option value="verify">Send + metadata verify</option>
           </select>
-          <label for="api_token">API token</label>
-          <input id="api_token" name="api_token" type="password" placeholder="{html.escape('required in prod or when EA_API_TOKEN is set' if token_required else 'optional in dev mode')}">
+          {token_field}
           <button type="submit">Connect Google</button>
         </form>
       </section>
@@ -152,8 +204,8 @@ def landing(request: Request, container: AppContainer = Depends(get_container)) 
         <h2>What This Page Is For</h2>
         <ul class="list">
           <li>Start provider onboarding without hand-crafting API calls.</li>
-          <li>Keep the auth trigger in a browser-friendly place.</li>
-          <li>Stay honest about what the current Gmail slice can and cannot do.</li>
+          <li>Use Cloudflare Access as the tenant/user entry trigger.</li>
+          <li>Keep the Google connect step honest about what the current Gmail slice can and cannot do.</li>
         </ul>
         <p class="small" style="margin-top:14px">If you want the raw API instead, the connect start lives at <code>/v1/providers/google/oauth/start</code>.</p>
       </section>
@@ -171,17 +223,24 @@ def _form_value(form_data: dict[str, list[str]], key: str, default: str = "") ->
 async def google_connect_browser(
     request: Request,
     container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> RedirectResponse:
     body = (await request.body()).decode("utf-8", errors="ignore")
     form_data = urllib.parse.parse_qs(body, keep_blank_values=True)
-    principal_id = _form_value(form_data, "principal_id", _default_principal_id(container))
+    principal_id = _form_value(
+        form_data,
+        "principal_id",
+        access_identity.principal_id if access_identity is not None else _default_principal_id(container),
+    )
     scope_bundle = _form_value(form_data, "scope_bundle", "send")
     api_token = _form_value(form_data, "api_token", "")
     expected = _expected_api_token(container)
-    if _token_required(container):
+    if access_identity is None and _token_required(container):
         if not expected or str(api_token or "").strip() != expected:
             raise HTTPException(status_code=401, detail="auth_required")
-    resolved_principal = str(principal_id or "").strip() or _default_principal_id(container)
+    resolved_principal = str(principal_id or "").strip() or (
+        access_identity.principal_id if access_identity is not None else _default_principal_id(container)
+    )
     try:
         packet = build_google_oauth_start(
             principal_id=resolved_principal,

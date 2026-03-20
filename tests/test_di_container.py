@@ -393,7 +393,7 @@ def test_prod_mode_rejects_blank_api_token_startup() -> None:
 
         from app.api.app import create_app
 
-        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN"):
             create_app()
     finally:
         for key, value in saved_env.items():
@@ -527,7 +527,7 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
 
 def test_build_container_rejects_prod_mode_with_whitespace_api_token() -> None:
     settings = _Settings(auth=_Auth(api_token="  \t"), runtime=_Runtime(mode="prod"))
-    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN"):
         app_container.build_container(settings=settings)
 
 
