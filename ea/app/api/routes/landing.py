@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,13 +28,16 @@ def _token_required(container: AppContainer) -> bool:
     return mode == "prod" or bool(_expected_api_token(container))
 
 
-def _google_ready(container: AppContainer) -> tuple[bool, str]:
+def _google_ready(container: AppContainer) -> tuple[bool, str, tuple[str, ...]]:
     state = container.provider_registry.binding_state("google_gmail")
     if state is None:
-        return False, "google_gmail is not registered in the provider catalog."
+        return False, "google_gmail is not registered in the provider catalog.", ()
+    missing = tuple(name for name in state.secret_env_names if not str(os.environ.get(name) or "").strip())
     if not state.secret_configured:
-        return False, "Google OAuth env vars are not configured yet."
-    return True, "Google OAuth is configured and ready to connect."
+        if missing:
+            return False, f"Google OAuth is not configured yet. Missing: {', '.join(missing)}.", missing
+        return False, "Google OAuth env vars are not configured yet.", ()
+    return True, "Google OAuth is configured and ready to connect.", ()
 
 
 def _gmail_onboarding_state(
@@ -145,7 +149,7 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    google_ready, google_message = _google_ready(container)
+    google_ready, google_message, google_missing = _google_ready(container)
     token_required = _token_required(container)
     default_principal = access_identity.principal_id if access_identity is not None else _default_principal_id(container)
     status_class = "status-ok" if google_ready else "status-warn"
@@ -179,16 +183,7 @@ def landing(
         gmail_note = """
         <p class="status-ok">Google is already linked for this assistant. The Gmail onboarding step is complete.</p>
         """
-    body = f"""
-    <h1>Executive Assistant</h1>
-    <p class="lead">Principal-scoped control plane, durable context plane, queue-backed execution, and provider bindings. This front door is deliberately thin: connect a provider, verify the binding, then run real work.</p>
-    <div class="grid">
-      <section class="card">
-        <h2>Google Gmail</h2>
-        <p class="{status_class}">{html.escape(google_message)}</p>
-        <p class="small">Current flow: OAuth connect, account listing, send-only Gmail smoke test. Mailbox read/verification is not enabled yet.</p>
-        {access_block}
-        {gmail_note}
+    google_form = f"""
         <form method="post" action="/google/connect">
           {principal_field}
           <label for="scope_bundle">Scope bundle</label>
@@ -199,6 +194,25 @@ def landing(
           {token_field}
           <button type="submit">Connect Google</button>
         </form>
+    """
+    if not google_ready:
+        google_form = f"""
+        <p class="small">Google OAuth still needs real Google Cloud credentials before the browser connect flow can start.</p>
+        {'<p class="small"><strong>Missing:</strong> <code>' + html.escape(', '.join(google_missing)) + '</code></p>' if google_missing else ''}
+        <p class="small">Current redirect URI is expected to be <code>{html.escape(str(os.environ.get('EA_GOOGLE_OAUTH_REDIRECT_URI') or 'https://ea.girschele.com/google/callback'))}</code>.</p>
+        <button type="button" disabled style="opacity:.55;cursor:not-allowed">Connect Google</button>
+        """
+    body = f"""
+    <h1>Executive Assistant</h1>
+    <p class="lead">Principal-scoped control plane, durable context plane, queue-backed execution, and provider bindings. This front door is deliberately thin: connect a provider, verify the binding, then run real work.</p>
+    <div class="grid">
+      <section class="card">
+        <h2>Google Gmail</h2>
+        <p class="{status_class}">{html.escape(google_message)}</p>
+        <p class="small">Current flow: OAuth connect, account listing, send-only Gmail smoke test. Mailbox read/verification is not enabled yet.</p>
+        {access_block}
+        {gmail_note}
+        {google_form}
       </section>
       <section class="card">
         <h2>What This Page Is For</h2>
@@ -225,6 +239,16 @@ async def google_connect_browser(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> RedirectResponse:
+    google_ready, google_message, _ = _google_ready(container)
+    if not google_ready:
+        return _page_shell(
+            title="Google Not Ready",
+            body=f"""
+            <h1>Google OAuth Is Not Configured Yet</h1>
+            <p class="lead">{html.escape(google_message)}</p>
+            <p><a href="/">Back to EA landing</a></p>
+            """,
+        )
     body = (await request.body()).decode("utf-8", errors="ignore")
     form_data = urllib.parse.parse_qs(body, keep_blank_values=True)
     principal_id = _form_value(
@@ -248,7 +272,14 @@ async def google_connect_browser(
             redirect_uri_override=str(request.url_for("google_oauth_browser_callback")),
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _page_shell(
+            title="Google OAuth Error",
+            body=f"""
+            <h1>Google OAuth Could Not Start</h1>
+            <p class="lead">{html.escape(str(exc))}</p>
+            <p><a href="/">Back to EA landing</a></p>
+            """,
+        )
     return RedirectResponse(packet.auth_url, status_code=303)
 
 
