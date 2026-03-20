@@ -1024,6 +1024,24 @@ class OperatorProfile:
 
 
 @dataclass(frozen=True)
+class OnboardingState:
+    onboarding_id: str
+    principal_id: str
+    workspace_name: str
+    workspace_mode: str
+    region: str
+    language: str
+    timezone: str
+    selected_channels: tuple[str, ...]
+    privacy_preferences_json: dict[str, Any]
+    channel_preferences_json: dict[str, Any]
+    brief_preview_json: dict[str, Any]
+    status: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class PolicyDecision:
     allow: bool
     requires_approval: bool
