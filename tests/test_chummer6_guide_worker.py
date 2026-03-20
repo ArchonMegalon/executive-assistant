@@ -633,7 +633,7 @@ def test_normalize_media_override_strips_machine_overlay_labels_from_scene_contr
     assert "hud style:" not in normalized["overlay_hint"].lower()
 
 
-def test_normalize_media_override_keeps_scene_fit_easter_eggs_but_strips_meta_humor() -> None:
+def test_normalize_media_override_strips_non_sparse_easter_eggs_but_keeps_meta_humor_out() -> None:
     worker = _load_worker_module()
 
     normalized = worker.normalize_media_override(
@@ -670,9 +670,9 @@ def test_normalize_media_override_keeps_scene_fit_easter_eggs_but_strips_meta_hu
     )
 
     assert normalized["scene_contract"]["humor"] == ""
-    assert normalized["scene_contract"]["easter_egg_kind"] == "troll monitor sticker"
-    assert "troll" in normalized["visual_prompt"].lower()
-    assert any("troll" in entry.lower() for entry in normalized["visual_motifs"])
+    assert "easter_egg_kind" not in normalized["scene_contract"]
+    assert "troll" not in normalized["visual_prompt"].lower()
+    assert not any("troll" in entry.lower() for entry in normalized["visual_motifs"])
 
 
 def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> None:
@@ -860,13 +860,37 @@ def test_normalize_media_override_preserves_curated_scene_contract_for_known_hor
     assert normalized["badge"] == "Concept // handbook lane"
     assert normalized["kicker"] == "books that still remember the source"
     assert normalized["note"] == "Long-form publishing is still an idea lane here, not a finished press."
-    assert normalized["meta"] == "Concept lane | books that still point back to source"
-    assert normalized["overlay_hint"] == "publication markers and manifest traces"
-    assert normalized["scene_contract"]["subject"] == "a campaign writer marking up a district guide on a rugged slate"
-    assert normalized["scene_contract"]["environment"] == "a safehouse desk covered in physical maps, clips, and coffee rings"
-    assert normalized["scene_contract"]["action"] == "turning loose notes into a dossier that still points back to source"
-    assert normalized["scene_contract"]["metaphor"] == "leaked field manual"
-    assert normalized["scene_contract"]["composition"] == "dossier_desk"
+
+
+def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hints() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "hero",
+        {
+            "badge": "Tactical Dossier",
+            "title": "Math With Receipts",
+            "subtitle": "An idea trace, not a finished tool.",
+            "kicker": "Inspect the direction.",
+            "note": "PROTOTYPE LOGIC",
+            "meta": "concept",
+            "visual_prompt": "One runner checks a suspect ruling in the rain while a receipt trail blooms over the evidence.",
+            "overlay_hint": "Dossier metadata HUD",
+            "visual_motifs": ["runner", "receipt traces"],
+            "overlay_callouts": ["receipt traces"],
+            "scene_contract": {"composition": "over_shoulder_receipt"},
+        },
+        {},
+    )
+
+    assert normalized["badge"] == "Idea Trace"
+    assert normalized["note"] == "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support."
+    assert "metadata hud" not in normalized["overlay_hint"].lower()
+    assert "concept" in normalized["meta"].lower()
+    assert normalized["overlay_hint"]
+    assert "runner" in normalized["scene_contract"]["subject"].lower()
+    assert "receipt" in normalized["scene_contract"]["action"].lower() or "trust" in normalized["scene_contract"]["action"].lower()
+    assert normalized["scene_contract"]["composition"] == "over_shoulder_receipt"
 
 
 def test_collect_interest_signals_prefers_public_safe_sources() -> None:
@@ -1222,15 +1246,21 @@ def test_fallback_horizon_copy_keeps_non_karma_horizons_free_of_booster_copy() -
     worker.assert_public_reader_safe(row, context="horizon:jackpoint:fallback")
 
 
-def test_media_easter_egg_allowed_is_optional_not_whitelist_only() -> None:
+def test_media_easter_egg_allowed_is_sparse_by_default_but_respects_force_policy() -> None:
     worker = _load_worker_module()
 
-    assert worker.media_easter_egg_allowed(kind="part", item={"slug": "ui"}, contract={}) is True
+    assert worker.media_easter_egg_allowed(kind="hero", item={}, contract={}) is True
+    assert worker.media_easter_egg_allowed(kind="part", item={"slug": "ui"}, contract={}) is False
     assert worker.media_easter_egg_allowed(
         kind="part",
         item={"slug": "ui"},
         contract={"easter_egg_policy": "deny"},
     ) is False
+    assert worker.media_easter_egg_allowed(
+        kind="part",
+        item={"slug": "ui"},
+        contract={"easter_egg_policy": "force"},
+    ) is True
 
 
 def test_part_supporting_context_does_not_inject_booster_copy_into_hub() -> None:
