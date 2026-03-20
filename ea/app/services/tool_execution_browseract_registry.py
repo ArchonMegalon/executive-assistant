@@ -231,10 +231,11 @@ def register_builtin_browseract_onemin_billing_usage(
             version="v1",
             input_schema_json={
                 "type": "object",
-                "required": ["binding_id", "run_url"],
+                "required": ["binding_id"],
                 "properties": {
                     "binding_id": {"type": "string"},
                     "run_url": {"type": "string"},
+                    "workflow_id": {"type": "string"},
                     "timeout_seconds": {"type": "integer"},
                     "account_label": {"type": "string"},
                     "page_url": {"type": "string"},
@@ -284,10 +285,11 @@ def register_builtin_browseract_onemin_member_reconciliation(
             version="v1",
             input_schema_json={
                 "type": "object",
-                "required": ["binding_id", "run_url"],
+                "required": ["binding_id"],
                 "properties": {
                     "binding_id": {"type": "string"},
                     "run_url": {"type": "string"},
+                    "workflow_id": {"type": "string"},
                     "timeout_seconds": {"type": "integer"},
                     "account_label": {"type": "string"},
                     "page_url": {"type": "string"},
