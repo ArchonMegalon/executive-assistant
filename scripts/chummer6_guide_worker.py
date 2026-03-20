@@ -158,6 +158,22 @@ PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("the split is real", "the parts are real"),
     ("workbench", "prep surface"),
     ("play shell", "live-play surface"),
+    ("device churn", "reconnect chaos"),
+    ("rules-truth", "receipt trail"),
+    ("rules truth", "receipt trail"),
+    ("trust the math", "follow the receipts"),
+    ("stop guessing", "start with the idea"),
+    ("proof of concept", "rough concept"),
+    ("proof-of-concept", "rough concept"),
+    ("pre-release", "concept spillover"),
+    ("prerelease", "concept spillover"),
+    ("usable tonight", "visible by accident tonight"),
+    ("available today", "visible right now by accident"),
+    ("release shelf", "artifact shelf"),
+    ("prototype logic", "unstable experiment"),
+    ("governed ruleset evolution", "rule experiment lane"),
+    ("tactical dossier", "idea trace"),
+    ("dossier metadata hud", "provenance traces"),
 )
 OVERPLAYED_SNARK_PHRASES: tuple[str, ...] = (
     "hide the accelerants",
@@ -202,6 +218,12 @@ OODA_OVERCLAIM_PHRASES: tuple[str, ...] = (
     "local-first stability",
     "audit every dv",
     "audit every threshold",
+    "usable tonight",
+    "available today",
+    "latest drop",
+    "release shelf",
+    "public guide is active today",
+    "integrity clues are on the shelf",
 )
 SECTION_OODA_DRIFT_PHRASES: tuple[str, ...] = (
     "corp-subsidized calculator",
@@ -223,9 +245,24 @@ SECTION_OODA_DRIFT_PHRASES: tuple[str, ...] = (
     "the math is the law",
     "trust the vibe",
     "trust the math",
+    "rules-truth",
+    "rules truth",
+    "prototype logic",
+    "tactical dossier",
+    "governed ruleset evolution",
+    "dossier metadata hud",
     "current drop",
     "device churn",
     "typography guides",
+    "prerelease",
+    "pre-release",
+    "usable tonight",
+    "available today",
+    "latest drop",
+    "release shelf",
+    "public guide is active today",
+    "integrity clues are on the shelf",
+    "the math should explain itself",
 )
 SPARSE_EASTER_EGG_ASSET_TARGETS: frozenset[str] = frozenset(
     {
@@ -532,29 +569,31 @@ def editorial_self_audit_text(
         return str(fallback or "").strip()
     original_lowered = cleaned.lower()
     lowered = original_lowered
+    audit_lowered = original_lowered
     for source, target in PUBLIC_COPY_REPLACEMENTS:
         if source in lowered:
             cleaned = re.sub(re.escape(source), target, cleaned, flags=re.IGNORECASE)
             lowered = cleaned.lower()
+    audit_lowered = f"{original_lowered}\n{lowered}"
     forbidden = _contains_forbidden_public_copy(cleaned)
     if forbidden and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in OVERPLAYED_SNARK_PHRASES) and fallback:
+    if context.startswith("ooda:") and any(phrase in audit_lowered for phrase in OVERPLAYED_SNARK_PHRASES) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in WEAK_COPY_PHRASES + SOFT_OODA_PHRASES + PAGE_SOFT_FILLER_PHRASES) and fallback:
+    if context.startswith("ooda:") and any(phrase in audit_lowered for phrase in WEAK_COPY_PHRASES + SOFT_OODA_PHRASES + PAGE_SOFT_FILLER_PHRASES) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in PAGE_MATH_CERTAINTY_PHRASES) and fallback:
+    if context.startswith("ooda:") and any(phrase in audit_lowered for phrase in PAGE_MATH_CERTAINTY_PHRASES) and fallback:
         return str(fallback or "").strip()
     if context.startswith("ooda:") and any(pattern.search(cleaned) for pattern in TOTALIZING_PUBLIC_MATH_PATTERNS) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in PAGE_RISKY_SPECIFIC_CLAIMS + PAGE_RISKY_GAME_DETAIL_TOKENS) and fallback:
+    if context.startswith("ooda:") and any(phrase in audit_lowered for phrase in PAGE_RISKY_SPECIFIC_CLAIMS + PAGE_RISKY_GAME_DETAIL_TOKENS) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in OODA_OVERCLAIM_PHRASES) and fallback:
+    if context.startswith("ooda:") and any(phrase in audit_lowered for phrase in OODA_OVERCLAIM_PHRASES) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(term in lowered for term in OODA_RESTRICTED_TERMS) and fallback:
+    if context.startswith("ooda:") and any(term in audit_lowered for term in OODA_RESTRICTED_TERMS) and fallback:
         return str(fallback or "").strip()
     if any(context.startswith(prefix) for prefix in ("hero:", "part:", "horizon:", "ooda:", "page:")) and any(
-        phrase in lowered for phrase in SECTION_OODA_DRIFT_PHRASES
+        phrase in audit_lowered for phrase in SECTION_OODA_DRIFT_PHRASES
     ) and fallback:
         return str(fallback or "").strip()
     if any(context.startswith(prefix) for prefix in ("hero:", "part:", "horizon:", "ooda:", "page:")) and re.search(
@@ -571,7 +610,7 @@ def editorial_self_audit_text(
         return str(fallback or "").strip()
     if context == "ooda:act:landing_tagline" and re.match(r"^(stop|start|grab|download|use)\b", lowered) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("page:") and any(phrase in lowered for phrase in PAGE_RISKY_SPECIFIC_CLAIMS + PAGE_RISKY_GAME_DETAIL_TOKENS + PAGE_MATH_CERTAINTY_PHRASES + OODA_OVERCLAIM_PHRASES) and fallback:
+    if context.startswith("page:") and any(phrase in audit_lowered for phrase in PAGE_RISKY_SPECIFIC_CLAIMS + PAGE_RISKY_GAME_DETAIL_TOKENS + PAGE_MATH_CERTAINTY_PHRASES + OODA_OVERCLAIM_PHRASES) and fallback:
         return str(fallback or "").strip()
     if context.startswith("page:") and any(pattern.search(cleaned) for pattern in TOTALIZING_PUBLIC_MATH_PATTERNS) and fallback:
         return str(fallback or "").strip()
@@ -637,10 +676,13 @@ def media_asset_target(*, kind: str, item: dict[str, object]) -> str:
 
 
 def media_easter_egg_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
+    target = media_asset_target(kind=kind, item=item)
     policy = str(contract.get("easter_egg_policy") or "").strip().lower()
     if policy in {"deny", "denied", "forbid", "forbidden", "none", "off"}:
         return False
-    return True
+    if policy in {"force", "showcase"}:
+        return True
+    return target in SPARSE_EASTER_EGG_ASSET_TARGETS
 
 
 def media_humor_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
@@ -2108,6 +2150,34 @@ def _section_ooda_defaults(
     one_liner = tagline or intro or f"{title} should feel like a table upgrade, not another internal nickname."
     paragraph_seed = intro or f"{title} matters when the table needs something clearer, faster, or less fragile."
     visual_seed = f"Contextual cyberpunk scene for {title}; show the real moment this page would matter."
+    if section_type == "page" and name == "readme":
+        likely_interest = "How honest is this about being mostly an idea with stray spillover?"
+        scene_logic = "A risky concept warning, not a release announcement."
+        one_liner = "README should warn people that they are looking at an idea with accidental spillover, not a product front door."
+        paragraph_seed = "README matters when a curious runner needs the honest warning before mistaking stray traces for dependable software."
+        visual_seed = "A dangerous concept warning scene in a rain-slick alley threshold or shuttered kiosk: sealed crate, hazard tape, hard practical light, no readable labels."
+        concrete_signals = [
+            "concept honesty before product posture",
+            "stray traces instead of dependable surfaces",
+            "follow the guide before trusting the spillover",
+        ]
+    elif section_type == "page" and name == "current_status":
+        likely_interest = "What is actually visible right now, and how accidental is it?"
+        scene_logic = "A fragile public trace still hanging on, not a supported live feature."
+        one_liner = "Current status should read like an idea leaving faint traces behind, not a latest-drop victory lap."
+        paragraph_seed = "Current status matters when a player or GM wants the honest state of the idea and whatever accidental public traces it left behind."
+        visual_seed = "One operator or host checking a fragile public trace at a rain-streaked kiosk edge or transit bench; obvious uncertainty, no triumphant product posture."
+        concrete_signals = [
+            "public explanation before product claims",
+            "horizon map and artifact shelf as traces, not guarantees",
+            "almost everything still provisional or accidental",
+        ]
+    elif section_type == "page" and name == "what_chummer6_is":
+        likely_interest = "What kind of trust problem is this idea trying to solve at the table?"
+        scene_logic = "One inspectable trust moment beats an abstract feature poster."
+        one_liner = "What Chummer6 is should feel like a trust problem caught in the act, not a finished system pitch."
+        paragraph_seed = "This page matters when someone wants to know what kind of Shadowrun pain this idea is trying to relieve, without pretending the tool already exists."
+        visual_seed = "One runner inspecting a suspect receipt trail in a rain-cut alley or kiosk mouth, with visible stakes and no group huddle."
     return {
         "observe": {
             "reader_question": question,
@@ -3864,7 +3934,7 @@ def _interest_signals_from_tags(tags: list[str]) -> list[str]:
         "lua_rules": "edge-case handling should come with receipts instead of trust-me copy",
         "offline_play": "offline-safe play matters",
         "installable_pwa": "downloadable proof builds matter",
-        "explain_receipts": "the math should explain itself",
+        "explain_receipts": "receipt trails should stay inspectable",
         "provenance_receipts": "modifiers should show where they came from",
         "runtime_stacks": "runtime bundles should stay legible",
         "session_events": "session state and replay matter at the table",
@@ -4366,6 +4436,15 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "status stamp",
             "readable text",
             "typography",
+            "metadata hud",
+            "dossier metadata hud",
+            "prototype logic",
+            "rules-truth",
+            "hud-style",
+            "data-source labels",
+            "biometric lock icons",
+            "integrity signatures",
+            "build timestamps",
         )
         if any(token in lowered for token in banned_tokens):
             return True
@@ -4393,6 +4472,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             return True
         if re.search(r"\bv\d+(?:\.\d+)*\b", lowered):
             return True
+        if re.match(r"^[A-Z]{2,}(?:-[A-Z0-9]{1,})+$", cleaned_text):
+            return True
         if any(
             token in lowered
             for token in (
@@ -4407,6 +4488,12 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "lua driven",
                 "artifact ready",
                 "source truth",
+                "tactical dossier",
+                "governed ruleset evolution",
+                "prototype logic",
+                "dossier metadata hud",
+                "artifact-driven",
+                "spatial awareness",
             )
         ):
             return True
@@ -4483,6 +4570,11 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                     "layout text",
                     "status stamp",
                     "typography",
+                    "rules-truth",
+                    "prototype logic",
+                    "tactical dossier",
+                    "governed ruleset evolution",
+                    "dossier metadata hud",
                     "no logo",
                     "no logos",
                     "no watermark",
@@ -4682,6 +4774,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "recap artifacts",
                 "analytical what-if",
                 "ruleset governance",
+                "tactical dossier",
+                "governed ruleset evolution",
+                "prototype logic",
+                "dossier metadata hud",
                 "phase:",
                 "source:",
                 "epoch:",
@@ -4993,7 +5089,18 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         if re.match(r"^(stop|start|grab|download|use)\b", title_lowered):
             normalized["title"] = "An Idea With Receipts"
         note_lowered = str(normalized.get("note", "")).strip().lower()
-        if any(token in note_lowered for token in ("proof of concept", "proof of intent", "rely on it", "finished tool", "the math is the law", "authority")):
+        if any(
+            token in note_lowered
+            for token in (
+                "proof of concept",
+                "proof of intent",
+                "prototype logic",
+                "rely on it",
+                "finished tool",
+                "the math is the law",
+                "authority",
+            )
+        ):
             normalized["note"] = fallback_fields["note"]
         allow_easter_egg = media_easter_egg_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
         allow_humor = media_humor_allowed(kind=kind, item=item, contract=normalized["scene_contract"])
@@ -5069,10 +5176,29 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     fallback_fields = fallback_media_fields(asset_key=asset_key, kind=kind)
     if looks_like_status_label(str(normalized["badge"])):
         normalized["badge"] = fallback_fields["badge"]
+    if looks_like_status_label(str(normalized["subtitle"])) or contains_machine_overlay_language(str(normalized["subtitle"])):
+        normalized["subtitle"] = (
+            str(item.get("hook") or item.get("why") or item.get("problem") or item.get("title") or "").strip()
+            or fallback_fields["note"]
+        )
     if looks_like_status_label(str(normalized["kicker"])) or re.match(r"^(stop|start|grab|download|use|trust)\b", str(normalized["kicker"]).strip().lower()):
         normalized["kicker"] = fallback_fields["kicker"]
     note_lowered = str(normalized["note"]).strip().lower()
-    if any(token in note_lowered for token in ("finished tool", "finished press", "professional weight", "authority", "the math is the law")):
+    if any(
+        token in note_lowered
+        for token in (
+            "finished tool",
+            "finished press",
+            "prototype logic",
+            "lua-scripted",
+            "integrity signature",
+            "artifact-driven",
+            "spatial awareness",
+            "professional weight",
+            "authority",
+            "the math is the law",
+        )
+    ):
         normalized["note"] = fallback_fields["note"]
     if needs_concept_meta_refresh(str(normalized["meta"])):
         normalized["meta"] = fallback_media_meta(asset_key=asset_key, kind=kind)
@@ -5230,6 +5356,22 @@ PAGE_RISKY_SPECIFIC_CLAIMS: tuple[str, ...] = (
     "on your own gear",
     "local grid",
     "core-backed receipts",
+    "poc build",
+    "release notes",
+    "downloadable",
+    "what's functional",
+    "system integrity",
+    "integrity signatures",
+    "build timestamps",
+    "live-fire test",
+    "live fire test",
+    "core logic",
+    "release shelf",
+    "latest drop",
+    "available today",
+    "usable tonight",
+    "public guide is active today",
+    "integrity clues",
 )
 PAGE_RISKY_GAME_DETAIL_TOKENS: tuple[str, ...] = (
     "stat change",
@@ -5260,6 +5402,8 @@ PAGE_SOFT_FILLER_PHRASES: tuple[str, ...] = (
     "proof of concept",
     "proof-of-concept",
     "poc drop",
+    "pre-release",
+    "prerelease",
     "designed to give",
     "delivers a",
 )
@@ -5286,6 +5430,7 @@ PAGE_MATH_CERTAINTY_PHRASES: tuple[str, ...] = (
     "verify rules math",
     "rules are functioning today",
     "functioning today before you buy in",
+    "the math should explain itself",
 )
 BAD_PAGE_OPENING_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bsmartlink\b|\boptics\b", re.IGNORECASE), "niche_gear_hook"),
@@ -5710,6 +5855,17 @@ def generate_overrides(
                 raise RuntimeError(f"horizon copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
         for name, item in selected_horizons.items():
             cleaned_copy = dict(horizon_copy_rows[name])
+            fallback = fallback_horizon_copy(name, item)
+            if fallback:
+                try:
+                    assert_public_reader_safe(fallback, context=f"horizon:{name}:curated_prepolish")
+                    fallback_findings = copy_quality_findings("horizon", name, fallback, item)
+                except Exception:
+                    fallback_findings = ["fallback_invalid"]
+                fallback_findings = [str(entry or "").strip() for entry in fallback_findings if str(entry or "").strip()]
+                if not fallback_findings:
+                    horizon_copy_rows[name] = fallback
+                    continue
             try:
                 cleaned_copy = polish_copy_row(
                     section_type="horizon",
@@ -5721,7 +5877,6 @@ def generate_overrides(
                     model=model,
                 )
             except Exception:
-                fallback = fallback_horizon_copy(name, item)
                 if fallback:
                     cleaned_copy = fallback
                 else:

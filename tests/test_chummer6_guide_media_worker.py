@@ -132,7 +132,7 @@ def test_sanitize_scene_humor_drops_readable_meta_jokes_but_keeps_adult_in_world
     )
 
 
-def test_sanitize_media_row_keeps_explicit_easter_eggs_for_non_showcase_targets() -> None:
+def test_sanitize_media_row_strips_explicit_easter_eggs_for_non_sparse_targets() -> None:
     media = _load_module()
 
     row = media.sanitize_media_row(
@@ -160,10 +160,10 @@ def test_sanitize_media_row_keeps_explicit_easter_eggs_for_non_showcase_targets(
         },
     )
 
-    assert "troll" in row["visual_prompt"].lower()
+    assert "troll" not in row["visual_prompt"].lower()
     assert row["scene_contract"]["humor"] == ""
-    assert row["scene_contract"]["easter_egg_kind"] == "troll monitor sticker"
-    assert any("troll" in entry.lower() for entry in row["visual_motifs"])
+    assert "easter_egg_kind" not in row["scene_contract"]
+    assert not any("troll" in entry.lower() for entry in row["visual_motifs"])
 
 
 def test_sanitize_media_row_keeps_sparse_showcase_easter_egg_targets() -> None:
@@ -229,6 +229,7 @@ def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_reque
     prompt = media.build_safe_onemin_prompt(
         prompt="Rulesmith forge scene.",
         spec={
+            "target": "assets/horizons/karma-forge.png",
             "media_row": {
                 "visual_prompt": "Rulesmith forge scene.",
                 "scene_contract": {
@@ -247,6 +248,33 @@ def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_reque
     )
 
     assert "troll motif" in prompt.lower()
+
+
+def test_build_safe_onemin_prompt_does_not_force_troll_clause_for_non_sparse_targets_even_with_explicit_fields() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Prep desk scene with receipts.",
+        spec={
+            "target": "assets/parts/ui.png",
+            "media_row": {
+                "visual_prompt": "Prep desk scene with receipts.",
+                "scene_contract": {
+                    "subject": "a player building a runner",
+                    "environment": "a prep desk",
+                    "action": "checking gear",
+                    "composition": "desk_still_life",
+                    "mood": "focused",
+                    "easter_egg_kind": "troll monitor sticker",
+                    "easter_egg_placement": "upper-left bezel",
+                    "easter_egg_detail": "classic Chummer troll sticker",
+                    "easter_egg_visibility": "obvious",
+                },
+            },
+        },
+    )
+
+    assert "troll motif" not in prompt.lower()
 
 
 def test_build_safe_pollinations_prompt_does_not_force_troll_clause_without_explicit_request() -> None:
@@ -348,6 +376,47 @@ def test_build_safe_onemin_prompt_can_carry_lore_scars_inside_dossier_or_worksho
 
     lowered = prompt.lower()
     assert "anti-dragon sigil" in lowered or "runner superstition sticker" in lowered or "talismonger ward mark" in lowered
+
+
+def test_sanitize_prompt_for_provider_onemin_keeps_shadowrun_lore_and_gear_terms() -> None:
+    media = _load_module()
+
+    prompt = media.sanitize_prompt_for_provider(
+        "Shadowrun runner with a weapon checks smartlink threat posture in a rainy alley.",
+        provider="onemin",
+    )
+
+    lowered = prompt.lower()
+    assert "shadowrun" in lowered
+    assert "runner" in lowered
+    assert "weapon" in lowered
+    assert "no weapons" not in lowered
+
+
+def test_build_render_accounting_summarizes_provider_attempts() -> None:
+    media = _load_module()
+
+    report = media.build_render_accounting(
+        [
+            {
+                "target": "assets/hero/chummer6-hero.png",
+                "provider": "onemin",
+                "status": "onemin:http_200",
+                "attempts": ["magixai:not_configured", "onemin:http_200", "normalize_banner_size:applied:960x540"],
+            },
+            {
+                "target": "assets/horizons/jackpoint.png",
+                "provider": "media_factory",
+                "status": "media_factory:rendered",
+                "attempts": ["media_factory:rendered", "normalize_banner_size:applied:960x540"],
+            },
+        ]
+    )
+
+    assert report["asset_count"] == 2
+    assert report["providers"]["onemin"]["successes"] == 1
+    assert report["providers"]["magixai"]["estimated_billable_attempts"] == 0
+    assert report["providers"]["media_factory"]["attempts"] == 1
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:

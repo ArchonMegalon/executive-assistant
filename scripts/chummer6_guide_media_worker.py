@@ -52,6 +52,7 @@ PALETTES = [
     ("#4338ca", "#818cf8"),
 ]
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
+STATIC_DESK_COMPOSITIONS = {"desk_still_life", "dossier_desk"}
 SPARSE_EASTER_EGG_TARGETS = frozenset(
     {
         "assets/hero/chummer6-hero.png",
@@ -126,22 +127,27 @@ def env_value(name: str) -> str:
 
 
 def easter_egg_allowed_for_target(target: str) -> bool:
-    return True
+    return str(target or "").replace("\\", "/").strip() in SPARSE_EASTER_EGG_TARGETS
 
 
 def scene_contract_requests_easter_egg(contract: dict[str, object] | None) -> bool:
     data = contract if isinstance(contract, dict) else {}
-    if any(str(data.get(field) or "").strip() for field in EASTER_EGG_FIELDS):
-        return True
     policy = str(data.get("easter_egg_policy") or "").strip().lower()
-    return policy in {"allow", "allowed", "showcase", "force"}
+    if policy in {"force", "showcase"}:
+        return True
+    if any(str(data.get(field) or "").strip() for field in EASTER_EGG_FIELDS):
+        return policy in {"allow", "allowed", ""}
+    return policy in {"allow", "allowed"}
 
 
 def media_row_requests_easter_egg(*, target: str, row: dict[str, object] | None) -> bool:
-    if not easter_egg_allowed_for_target(target):
-        return False
     data = row if isinstance(row, dict) else {}
     contract = data.get("scene_contract") if isinstance(data.get("scene_contract"), dict) else {}
+    policy = str(contract.get("easter_egg_policy") or "").strip().lower()
+    if policy in {"force", "showcase"}:
+        return True
+    if not easter_egg_allowed_for_target(target):
+        return False
     return scene_contract_requests_easter_egg(contract)
 
 
@@ -595,6 +601,12 @@ def sanitize_visual_prompt_text(text: str) -> str:
                 "no logo",
                 "no logos",
                 "no watermark",
+                "prerelease",
+                "pre-release",
+                "usable tonight",
+                "available today",
+                "public guide is active today",
+                "integrity clues",
             )
         ):
             continue
@@ -606,7 +618,21 @@ def sanitize_visual_prompt_text(text: str) -> str:
 
 def sanitize_overlay_hint_text(text: str) -> str:
     cleaned = " ".join(str(text or "").split()).strip()
-    if not cleaned or contains_machine_overlay_language(cleaned):
+    lowered = cleaned.lower()
+    if (
+        not cleaned
+        or contains_machine_overlay_language(cleaned)
+        or any(
+            token in lowered
+            for token in (
+                "math should explain itself",
+                "public guide is active today",
+                "integrity clues",
+                "available today",
+                "release shelf",
+            )
+        )
+    ):
         return ""
     return cleaned
 
@@ -655,11 +681,28 @@ def sanitize_text_list(values: object, *, allow_easter_egg: bool) -> list[str]:
     cleaned_values: list[str] = []
     for value in values:
         text = " ".join(str(value or "").split()).strip()
+        lowered = text.lower()
         if not text:
             continue
         if not allow_easter_egg and clause_mentions_easter_egg(text):
             continue
         if looks_like_machine_overlay_phrase(text):
+            continue
+        if any(
+            token in lowered
+            for token in (
+                "math should explain itself",
+                "public guide is active today",
+                "integrity clues",
+                "available today",
+                "release shelf",
+                "latest drop",
+                "proof trace",
+                "usable tonight",
+                "prerelease",
+                "pre-release",
+            )
+        ):
             continue
         cleaned_values.append(text)
     return cleaned_values
@@ -697,6 +740,53 @@ def sanitize_media_row(*, target: str, row: dict[str, object]) -> dict[str, obje
     cleaned["visual_motifs"] = sanitize_text_list(cleaned.get("visual_motifs"), allow_easter_egg=allow_easter_egg)
     cleaned["overlay_callouts"] = sanitize_text_list(cleaned.get("overlay_callouts"), allow_easter_egg=allow_easter_egg)
     return cleaned
+
+
+def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool:
+    texts: list[str] = []
+    for key in ("visual_prompt", "overlay_hint", "title", "subtitle", "kicker", "note", "meta"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            texts.append(value)
+    contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    for key in ("subject", "environment", "action", "metaphor", "palette", "mood"):
+        value = str(contract.get(key) or "").strip()
+        if value:
+            texts.append(value)
+    for key in ("props", "overlays"):
+        values = contract.get(key)
+        if isinstance(values, list):
+            texts.extend(str(entry).strip() for entry in values if str(entry).strip())
+    lowered = "\n".join(texts).lower()
+    if any(
+        token in lowered
+        for token in (
+            "rules truth",
+            "rules-truth",
+            "prerelease",
+            "pre-release",
+            "usable tonight",
+            "available today",
+            "public guide is active today",
+            "integrity clues",
+            "latest drop",
+            "release shelf",
+        )
+    ):
+        return True
+    if target == "assets/hero/chummer6-hero.png" and any(
+        token in lowered for token in ("task lamp", "battered table corner", "dice tray", "modifier chips")
+    ):
+        return True
+    if target == "assets/hero/poc-warning.png" and any(
+        token in lowered for token in ("desk still life", "scarred desk", "workbench", "coffee ring")
+    ):
+        return True
+    if target == "assets/pages/current-status.png" and any(
+        token in lowered for token in ("real session", "wi-fi dies", "shared state", "tablet screen")
+    ):
+        return True
+    return False
 
 
 def easter_egg_payload(contract: dict[str, object] | None) -> dict[str, str] | None:
@@ -1593,24 +1683,21 @@ def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
     provider_name = str(provider or "").strip().lower()
     if provider_name in {"onemin", "1min", "1min.ai", "oneminai"}:
         replacements = {
-            "Shadowrun": "cyberpunk tabletop",
-            "shadowrun": "cyberpunk tabletop",
-            "runner": "operative",
-            "runners": "operatives",
             "dangerous": "tense",
-            "combat": "tactical simulation",
             "crash-test dummy": "test mannequin",
             "crash test dummy": "test mannequin",
-            "weapon": "gear",
-            "weapons": "gear",
-            "gun": "tool",
-            "guns": "tools",
+            "rules truth": "receipt trail",
+            "rules-truth": "receipt trail",
+            "preview software that is usable tonight": "a rough trace that happens to be visible by accident tonight",
+            "proof of concept": "rough concept",
+            "pre-release": "concept-stage",
+            "prerelease": "concept-stage",
             "blood": "stress",
             "gore": "damage",
         }
         for src, dst in replacements.items():
             cleaned = cleaned.replace(src, dst)
-        cleaned += " Safe-for-work, nonviolent, no gore, no weapons, no explicit danger."
+        cleaned += " Adult Shadowrun tone is fine; keep violence non-gory."
     return cleaned
 
 
@@ -1696,16 +1783,9 @@ def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
         "rule_xray",
         "conspiracy_wall",
     }:
-        return (
-            "Diegetic smartlink assessment is welcome: use nonverbal threat posture cues, line-of-fire brackets, "
-            "cover confidence arcs, ingress cones, watch-angle silhouettes, or target-priority ghosts as in-world overlays. "
-            "Keep them symbolic and cinematic, never readable or numeric."
-        )
+        return "Use symbolic smartlink brackets, threat posture cues, ingress cones, or ghost silhouettes; never readable HUD text."
     if composition in {"solo_operator", "service_rack", "simulation_lab", "mirror_split", "workshop_bench", "dossier_desk"}:
-        return (
-            "Light tactical AR is welcome: suggest posture checks, signal integrity halos, danger weighting, or consequence ghosts "
-            "through pictograms, brackets, and soft traces instead of readable HUD text."
-        )
+        return "Light tactical AR is welcome: posture checks, fragile-signal halos, danger weighting, or consequence ghosts through pictograms and soft traces."
     return ""
 
 
@@ -1713,16 +1793,9 @@ def lore_background_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
     if composition in {"street_front", "city_edge", "horizon_boulevard", "transit_checkpoint", "district_map"}:
-        return (
-            "A Shadowrun-lore background nod is welcome if the surface exists for it: dragon-warning graffiti energy, "
-            "crossed-out draconic pictograms, extraction arrows, or half-scrubbed alley scrawl in the distance. "
-            "Keep it secondary, weathered, and never clean readable typography."
-        )
+        return "Secondary lore texture is welcome: dragon-warning graffiti, crossed-out draconic pictograms, extraction arrows, or half-scrubbed alley scrawl."
     if composition in {"dossier_desk", "workshop_bench", "simulation_lab", "solo_operator"}:
-        return (
-            "A scratched anti-dragon sigil, runner superstition sticker, talismonger ward mark, or dog-eared bounty card "
-            "can live in the background as secondary lore texture. Keep it subtle and never render it as crisp readable text."
-        )
+        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, or dog-eared bounty card."
     return ""
 
 
@@ -1754,16 +1827,8 @@ def compact_easter_egg_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     kind = compact_text(data.get("easter_egg_kind") or "small troll motif", limit=36)
     placement = compact_text(data.get("easter_egg_placement") or "inside the safe crop", limit=90)
-    detail = compact_text(
-        data.get("easter_egg_detail") or "classic horned Chummer troll silhouette",
-        limit=96,
-    )
     visibility = compact_text(data.get("easter_egg_visibility") or "clearly visible on the banner", limit=72)
-    return (
-        f"Troll motif: {kind} at {placement}. "
-        f"Detail: {detail}. "
-        f"Keep it {visibility}."
-    )
+    return f"Troll motif: {kind} at {placement}; keep it {visibility}."
 
 
 def troll_mark_tint(kind: str) -> str:
@@ -1979,7 +2044,18 @@ def compact_text(value: object, *, limit: int = 120) -> str:
         if sep and head.strip():
             cleaned = head.strip()
             break
-    return cleaned[:limit].rstrip(" ,;:-")
+    if len(cleaned) <= limit:
+        return cleaned
+    clipped = cleaned[: limit + 1]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    clipped = clipped.rstrip(" ,;:-")
+    while clipped.lower().endswith((" a", " an", " the", " and", " of", " with", " to", " on", " in", " near")):
+        shorter = clipped.rsplit(" ", 1)[0].rstrip(" ,;:-")
+        if not shorter or shorter == clipped:
+            break
+        clipped = shorter
+    return clipped
 
 
 def compact_items(values: object, *, limit: int = 3, item_limit: int = 48) -> str:
@@ -1990,9 +2066,20 @@ def compact_items(values: object, *, limit: int = 3, item_limit: int = 48) -> st
     return ", ".join(items)
 
 
+def clip_prompt_text(value: object, *, limit: int) -> str:
+    cleaned = " ".join(str(value or "").split()).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    clipped = cleaned[: limit + 1]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(" ,;:-")
+
+
 def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     contract = row.get("scene_contract") if isinstance(row, dict) else {}
+    target = str(spec.get("target") or "").strip()
     if not isinstance(contract, dict):
         cleaned = " ".join(str(prompt or "").split()).strip()
         return cleaned[:220]
@@ -2015,15 +2102,16 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
         "one focal subject",
         smartlink if smartlink else "",
         lore if lore else "",
-        easter_egg_stub(contract) if scene_contract_requests_easter_egg(contract) else "",
+        easter_egg_stub(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
         "no readable text no watermark 16:9",
     ]
-    return ", ".join(part for part in parts if part)[:240]
+    return clip_prompt_text(", ".join(part for part in parts if part), limit=240)
 
 
 def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     contract = row.get("scene_contract") if isinstance(row, dict) else {}
+    target = str(spec.get("target") or "").strip()
     if not isinstance(contract, dict):
         return sanitize_prompt_for_provider(prompt, provider="onemin")
     visual_prompt = compact_text(row.get("visual_prompt") or contract.get("visual_prompt") or prompt, limit=220)
@@ -2038,27 +2126,36 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     guardrail = compact_text(composition_visual_guardrails(contract), limit=156)
     smartlink = compact_text(smartlink_overlay_clause(contract), limit=172)
     lore = compact_text(lore_background_clause(contract), limit=156)
+    framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=160)
+    avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=180)
+    human_presence = ""
+    if composition not in {"prop_detail", "desk_still_life", "dossier_desk"}:
+        human_presence = "Human presence must be obvious: face, hands, posture, or body in frame; not props alone."
     parts = [
         "Grounded cinematic cyberpunk scene still.",
         visual_prompt,
-        compact_easter_egg_clause(contract) if scene_contract_requests_easter_egg(contract) else "",
+        compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
         f"Focus on {subject}." if subject else "",
         f"Scene: {environment}." if environment else "",
         f"Moment: {action}." if action else "",
         f"Metaphor: {metaphor}." if metaphor else "",
-        f"Composition: {composition}." if composition else "",
         f"Mood: {mood}." if mood else "",
         f"Smartlink: {smartlink}." if smartlink else "",
         f"Lore detail: {lore}." if lore else "",
         f"Props: {props}." if props else "",
         f"Motifs: {motifs}." if motifs else "",
+        f"Framing: {framing}." if framing else "",
+        f"Avoid: {avoid}." if avoid else "",
         f"Guardrail: {guardrail}." if guardrail else "",
-        "Real table, street, lab, archive, desk, or workshop scene. Not abstract infographic. Not product poster.",
+        human_presence,
+        "Real Shadowrun place with obvious stakes: alley threshold, kiosk, van doorway, archive corner, transit choke point, forge station, or dossier scene. Not abstract infographic. Not product poster.",
+        "Avoid desk-only still lifes unless this target is explicitly a dossier or prop-detail shot.",
+        "Avoid readable background signage, storefront words, menu boards, branded labels, or neon letters. Use broken pictograms, hazard stripes, arrows, glyphs, and color lanes instead.",
         "No readable words or numbers anywhere. Use pictograms, bars, chips, glyphs, traces, stamps, and silhouette icons instead.",
         "No watermark. 16:9.",
     ]
     compact_prompt = " ".join(part for part in parts if part)
-    return sanitize_prompt_for_provider(compact_prompt[:680], provider="onemin")
+    return sanitize_prompt_for_provider(clip_prompt_text(compact_prompt, limit=680), provider="onemin")
 
 
 def _overlay_family(row: dict[str, object], spec: dict[str, object]) -> str:
@@ -2327,7 +2424,10 @@ def asset_specs() -> list[dict[str, object]]:
             return sanitize_media_row(target=target, row=row)
         merged = deep_merge(row, override)
         normalized = merged if isinstance(merged, dict) else row
-        return sanitize_media_row(target=target, row=normalized)
+        sanitized = sanitize_media_row(target=target, row=normalized)
+        if row_has_stale_override_drift(target=target, row=sanitized):
+            return sanitize_media_row(target=target, row=row)
+        return sanitized
 
     def render_prompt_from_row(row: dict[str, object], *, role: str, target: str) -> str:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
@@ -2378,7 +2478,7 @@ def asset_specs() -> list[dict[str, object]]:
             lore_clause,
             f"Keep the overall look consistent with: {style_bits}." if style_bits else "",
             "Variation rules: " + " ".join(guardrails) if guardrails else "",
-            easter_egg_clause(contract) if scene_contract_requests_easter_egg(contract) else "",
+            easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
@@ -2446,14 +2546,36 @@ def asset_specs() -> list[dict[str, object]]:
 
     target_scene_policies: dict[str, dict[str, object]] = {
         "assets/hero/chummer6-hero.png": {
-            "preferred": "over_shoulder_receipt",
+            "required": "city_edge",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Keep this as one rules-truth moment under pressure, not a committee around a surface.",
+            "prompt_nudge": "Treat the hero like a wide first-contact street moment with one runner and one inspectable prop cluster, not a portrait crop and not a glamour close-up of a phone.",
+            "environment": "a rain-streaked alley edge or loading threshold with hard practical spill, wet pavement, and no storefront words",
+            "subject": "one runner checking whether a rough proof trail deserves trust before the call hardens",
+            "replace_visual_prompt": "Wide documentary street scene: one tired runner at a rain-cut alley edge or loading threshold sorting stamped chips, clipped proof tags, and trace markers around one secondary handheld resting on a crate or utility box while the wet street recedes behind; full upper body, both hands, and the prop cluster clearly in frame; no paper strip held to camera, no storefront window, no seated table pose, no readable screen text or signage.",
+            "framing": "wide or medium-wide shot with the runner on one third of frame, full upper body visible, both hands and the prop cluster visible, and real environment depth behind",
+            "avoid": "extreme face crop, storefront windows, neon words, menu boards, seated table pose, close portrait framing, phone glamour close-up, front-facing paper strips, or long receipt paper",
+            "overlay_hint": "proof provenance traces and threat-posture brackets",
+        },
+        "assets/hero/poc-warning.png": {
+            "preferred": "street_front",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Treat this as a dangerous concept warning in the world: a sealed crate, shuttered kiosk, or alley-side warning surface, not a desk still life with readable labels.",
+            "subject": "a suspicious concept crate or warning package left where a curious runner could still find it",
+            "environment": "a rain-slick alley threshold or shuttered street-front kiosk with hazard tape and hard practical light",
+            "action": "warning the viewer that almost nothing here should be mistaken for dependable software",
+            "mood": "tense, cautionary, and dry",
+            "replace_visual_prompt": "A sealed concept crate or warning package abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable, no readable labels, no desk still life.",
+            "overlay_hint": "subtle hazard glyphs and provenance traces",
         },
         "assets/pages/what-chummer6-is.png": {
-            "preferred": "over_shoulder_receipt",
+            "required": "conspiracy_wall",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Prefer one trust moment with the proof path doing the heavy lifting over another group confrontation.",
+            "prompt_nudge": "Make this feel like trust being assembled from physical traces, not another person staring at a device.",
+            "subject": "one runner deciding whether a ruling becomes trustworthy because the receipts survive inspection",
+            "environment": "a cramped proof nook with pinned translucent tags, stamped chips, gear markers, and one glowing evidence seam",
+            "replace_visual_prompt": "One runner in a cramped proof nook pinning translucent evidence tags, stamped chips, and gear markers onto a conspiracy-style proof wall; one gloved hand mid-decision, one face in profile, trust built from physical traces instead of paper receipts or product sheen; no readable text, no loose printed sheets.",
+            "avoid": "paper receipts with printed lines, loose slips, readable forms, glowing room numbers, or a glowing handheld as the star of the shot",
+            "overlay_hint": "rule-source provenance tags, trust arrows, and receipt traces",
         },
         "assets/pages/where-to-go-deeper.png": {
             "preferred": "archive_room",
@@ -2461,16 +2583,29 @@ def asset_specs() -> list[dict[str, object]]:
             "prompt_nudge": "Treat go-deeper like an archive descent or evidence room, not a desk meeting.",
             "subject": "a reader tracing one question across archive materials",
             "environment": "a dim archive room with binders, drawers, and one glowing review screen",
+            "replace_visual_prompt": "A narrow archive aisle with binders, drawers, hanging evidence tags, and one reader tracing a source deeper into the stacks; shelves and drawer fronts dominate, no desk spread, no vintage terminal as the hero prop.",
+            "avoid": "desk spreads, seated desk posture, front-facing monitor text, or a lone CRT taking over the scene",
         },
         "assets/pages/current-status.png": {
-            "preferred": "solo_operator",
-            "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Show one host or operator keeping the session alive instead of another huddle.",
-        },
-        "assets/pages/public-surfaces.png": {
             "preferred": "street_front",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Use a real-world surface scene with asymmetrical devices, not another meeting shot.",
+            "prompt_nudge": "Show one fragile public trace surviving in the wild, not another heroic phone close-up and not a triumphant usable-build shot.",
+            "subject": "one host or operator checking whether a fragile public trace is still visible",
+            "environment": "a rain-streaked kiosk edge, transit bench, or shuttered public shelf with one faint public surface and too much uncertainty",
+            "action": "checking whether the visible trace is still there by luck rather than by support",
+            "mood": "fragile, honest, and uncertain",
+            "replace_visual_prompt": "At a rain-streaked kiosk edge or shuttered public shelf, one operator stands half in frame while a weak public trace flickers on an exterior panel and taped artifact cluster; the handheld is secondary, the uncertainty is obvious, wet reflections everywhere, no readable text.",
+            "overlay_hint": "faint provenance traces, fragile-signal halos, and weak target brackets",
+        },
+        "assets/pages/public-surfaces.png": {
+            "required": "street_front",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Use a real-world public-surface scene in a bare utility threshold, not another desk with screens and not another storefront sign.",
+            "subject": "one runner in a weathered jacket checking several rough public surfaces at a standing threshold",
+            "environment": "a concrete utility bay or underpass threshold with wall-mounted service slabs, exposed conduit, and wet floor reflections",
+            "replace_visual_prompt": "A bare concrete utility threshold with wall-mounted service slabs, one battered tablet in hand, and one pocket device all showing different public surfaces through bars, pictograms, route arrows, and color blocks while a runner in a weathered jacket and dark trousers interacts with them standing up; exposed conduit, wet reflections, no desk, no storefront, no readable UI text, no wall placards.",
+            "avoid": "desk surfaces, seated desk posture, readable storefront signs, OPEN signs, shop windows, wall placards, neat monitor triptychs on a counter, or screen layouts dominated by text lines",
+            "overlay_hint": "cross-surface state echoes and route markers",
         },
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
@@ -2484,6 +2619,15 @@ def asset_specs() -> list[dict[str, object]]:
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "Core is proof-on-props first: hands, dice, chips, and traces beat faces.",
         },
+        "assets/parts/ui.png": {
+            "required": "mirror_split",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "UI should feel like a runner really building and inspecting a sheet across surfaces, not another neat desk still life.",
+            "replace_visual_prompt": "A runner compares a live sheet across a vertical wall display and a clipped hanging slate at a locker shelf, hands moving gear cards and note chips between them; no laptop, no desk surface, tactile and clearly in use.",
+            "framing": "show both the vertical display and the hanging slate clearly in one frame, with hands bridging them",
+            "avoid": "laptop-on-desk framing, framed wall posters with readable text, or a generic terminal wallpaper",
+            "overlay_hint": "build-state deltas and inspection brackets",
+        },
         "assets/parts/mobile.png": {
             "required": "transit_checkpoint",
             "banned": TABLEAU_COMPOSITIONS,
@@ -2493,6 +2637,21 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "service_rack",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "Hosted coordination should read as racks, control surfaces, and remote presence seams, not a table in disguise.",
+        },
+        "assets/parts/ui-kit.png": {
+            "required": "workshop",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Shared chrome should show up across real surfaces in motion, not just swatches on a desk.",
+            "replace_visual_prompt": "A compact interface workshop where a vertical review board, one rugged handheld, and a clipped component rail all share the same visual language while a designer adjusts component tokens mid-scene; grounded materials, no desk glamour.",
+            "avoid": "monitor-on-desk trope, readable design docs, or a single framed UI mockup taking over the whole image",
+            "overlay_hint": "component echoes and shared-state alignment markers",
+        },
+        "assets/parts/hub-registry.png": {
+            "required": "archive_room",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "Registry should feel like intake and judgment in a real archive lane, not a stack of props on a desk.",
+            "replace_visual_prompt": "An archive-style intake lane with bins, scanners, hanging tags, and one registrar hand deciding where a rough artifact belongs; shelves and intake rails beat desk glamour, no readable forms.",
+            "overlay_hint": "intake stamps and compatibility bands",
         },
         "assets/horizons/nexus-pan.png": {
             "required": "transit_checkpoint",
@@ -2510,11 +2669,53 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "dossier_desk",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "JACKPOINT should feel like dossier, dead-drop, or evidence-desk grammar before faces enter frame.",
+            "replace_visual_prompt": "A hot dossier being assembled from evidence chips, rain-damp folders, and clipped notes on an evidence desk, with one fixer hand entering frame; tactile, finished-feeling, no readable forms.",
+            "overlay_hint": "provenance stamps and dossier anchors",
         },
         "assets/horizons/karma-forge.png": {
             "required": "workshop_bench",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "KARMA FORGE needs a rulesmith bench or forge station, not a committee around glowing furniture.",
+            "replace_visual_prompt": "One rulesmith at a grimy forge bench forcing unstable rule chips into shape under hard sodium spill and terminal glow; tactile sparks, rollback markers, no committee shot, no readable labels.",
+            "overlay_hint": "compatibility traces and rollback seals",
+        },
+        "assets/horizons/runsite.png": {
+            "required": "district_map",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "RUNSITE should feel like ingress planning over real space, not another person staring at a tablet.",
+            "subject": "a rigger plotting ingress lanes across a projected floor plan in the field",
+            "environment": "a rain-slick loading dock and alley staging point with stacked crates, chalk marks, and one ghosted building outline",
+            "replace_visual_prompt": "A rigger crouches at a rain-slick loading dock while ingress cones, threat silhouettes, and a ghosted building layout project across crates and wet concrete; the planning surface lives in the world, not on a readable tablet screen.",
+            "overlay_hint": "ingress cones, threat-posture marks, and ghost-lane overlays",
+        },
+        "assets/horizons/runbook-press.png": {
+            "required": "workshop_bench",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "RUNBOOK PRESS should feel like print hardware, plates, folded maps, and clipped proofs in motion, not a stack of dossiers or a readable front page.",
+            "subject": "a campaign writer turning rough district material into physical guide artifacts",
+            "environment": "a cramped print bench with rollers, metal plates, folding arms, clipped proof strips, and warm mechanical light",
+            "replace_visual_prompt": "A cramped print bench with ink rollers, metal plates, folded maps, clipped proof strips, and one writer hand moving fresh material through the mechanism; tactile and alive, no front-facing page, no readable headline, no newspaper-like masthead.",
+            "framing": "oblique angle across rollers, plates, folded maps, and hands; the print hardware dominates, not a held-up sheet",
+            "avoid": "newspaper mastheads, readable page headlines, front-facing sheets, centered poster samples, or someone presenting a printed page to camera",
+            "overlay_hint": "layout marks and route-callout arrows",
+        },
+        "assets/pages/parts-index.png": {
+            "required": "district_map",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Parts index should read like a walkable map of work zones, not a central planning table.",
+            "subject": "the Chummer parts expressed as distinct work zones across one walkable room",
+            "environment": "an open backroom warehouse floor with hanging cables, isolated prop islands, and color-lit lanes crossing the concrete",
+            "replace_visual_prompt": "An open backroom warehouse floor where each Chummer part appears as its own color-lit prop island on pallets or low crates: proof locker cluster, UI cluster, mobile checkpoint, registry intake props, and media bench props, all connected by floor-route lines and cable paths; silhouettes can move between islands, but there are no wall signs, no door labels, and no central table.",
+            "framing": "wide room view with multiple distinct floor islands visible at once and route lines connecting them across the concrete",
+            "avoid": "top-down tabletop composition, central command table, boardgame layout, labeled doorways, wall signage, framed station headers, or neat laptops arranged around one surface",
+            "overlay_hint": "route lines and district callout pings",
+        },
+        "assets/horizons/table-pulse.png": {
+            "required": "solo_operator",
+            "banned": TABLEAU_COMPOSITIONS,
+            "prompt_nudge": "TABLE PULSE should feel like replaying the run after hours, not another neutral person-with-tablet portrait.",
+            "replace_visual_prompt": "After the run, a tired orc GM sits alone in a booth with cooling soykaf while translucent heat paths, threat pulses, and session echoes bloom above physical tokens and cups; intimate, exhausted, and lived-in, no readable screens.",
+            "overlay_hint": "replay heat paths and consequence echoes",
         },
     }
     adjacency_fallbacks = {
@@ -2567,7 +2768,7 @@ def asset_specs() -> list[dict[str, object]]:
             for planned in planned_rows
             if str(planned.get("composition") or "").strip() in TABLEAU_COMPOSITIONS
         )
-        if composition in TABLEAU_COMPOSITIONS and tableish_count >= 2:
+        if composition in TABLEAU_COMPOSITIONS and tableish_count >= 1:
             fallback = preferred or adjacency_fallbacks.get(composition) or "solo_operator"
             if fallback in TABLEAU_COMPOSITIONS:
                 fallback = "solo_operator"
@@ -2586,15 +2787,21 @@ def asset_specs() -> list[dict[str, object]]:
         contract["composition"] = composition
         for key in ("subject", "environment", "action", "metaphor", "mood"):
             replacement = str(policy.get(key) or "").strip()
-            if replacement and (notes or not str(contract.get(key) or "").strip()):
+            if replacement:
                 contract[key] = replacement
         cleaned["scene_contract"] = contract
 
         prompt_nudge = str(policy.get("prompt_nudge") or "").strip()
+        replace_visual_prompt = str(policy.get("replace_visual_prompt") or "").strip()
+        replace_overlay_hint = str(policy.get("overlay_hint") or "").strip()
         if prompt_nudge:
             visual_prompt = str(cleaned.get("visual_prompt") or "").strip()
             if prompt_nudge.lower() not in visual_prompt.lower():
                 cleaned["visual_prompt"] = f"{prompt_nudge} {visual_prompt}".strip()
+        if replace_visual_prompt:
+            cleaned["visual_prompt"] = replace_visual_prompt
+        if replace_overlay_hint:
+            cleaned["overlay_hint"] = replace_overlay_hint
         if notes:
             cleaned["scene_audit"] = list(notes)
         return cleaned, notes
@@ -2629,7 +2836,7 @@ def asset_specs() -> list[dict[str, object]]:
             for spec in audited_specs
         ]
         tableish_count = sum(1 for composition in compositions if composition in TABLEAU_COMPOSITIONS)
-        if tableish_count > 2:
+        if tableish_count > 1:
             raise RuntimeError(f"whole_pack_audit_failed:table_monoculture:{tableish_count}")
         for expected_target, required in (
             ("assets/pages/horizons-index.png", "horizon_boulevard"),
@@ -2660,7 +2867,7 @@ def asset_specs() -> list[dict[str, object]]:
             "style_epoch": style_epoch,
             "providers": provider_order(),
         },
-        page_spec(target="assets/hero/poc-warning.png", page_id="readme", role="POC warning shelf", composition_hint="desk_still_life"),
+        page_spec(target="assets/hero/poc-warning.png", page_id="readme", role="POC warning shelf", composition_hint="street_front"),
         page_spec(target="assets/pages/start-here.png", page_id="start_here", role="start-here banner", composition_hint="city_edge"),
         page_spec(target="assets/pages/what-chummer6-is.png", page_id="what_chummer6_is", role="what-is banner", composition_hint="single_protagonist"),
         page_spec(target="assets/pages/where-to-go-deeper.png", page_id="where_to_go_deeper", role="deeper-dive banner", composition_hint="archive_room"),
@@ -2841,11 +3048,13 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
             "easter_egg": egg_payload,
         }
     assets = [_render_spec(spec) for spec in specs]
+    render_accounting = build_render_accounting(assets)
     manifest = {
         "output_dir": str(output_dir),
         "assets": assets,
         "style_epoch": active_style_epoch,
         "pack_audit": pack_audit,
+        "render_accounting": render_accounting,
     }
     MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_OUT.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -2864,6 +3073,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "status": f"pack:rendered:{len(assets)}",
                 "attempts": [asset["status"] for asset in assets],
                 "pack_audit": pack_audit,
+                "render_accounting": render_accounting,
             },
             indent=2,
             ensure_ascii=True,
@@ -2872,6 +3082,99 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         encoding="utf-8",
     )
     return manifest
+
+
+def _attempt_provider(detail: object) -> str:
+    cleaned = str(detail or "").strip()
+    if ":" not in cleaned:
+        return ""
+    provider = cleaned.split(":", 1)[0].strip().lower()
+    if provider in {
+        "normalize_banner_size",
+        "troll_postpass",
+        "variation_guard",
+        "rejected",
+        "pack",
+        "none",
+    }:
+        return ""
+    return provider
+
+
+def _attempt_is_billable(detail: object) -> bool:
+    cleaned = str(detail or "").strip().lower()
+    provider = _attempt_provider(cleaned)
+    if not provider:
+        return False
+    if any(
+        token in cleaned
+        for token in (
+            ":not_configured",
+            ":unknown_provider",
+            ":forbidden_fallback",
+            ":disabled_for_primary_art",
+            "legacy_svg_fallback_forbidden",
+        )
+    ):
+        return False
+    return True
+
+
+def build_render_accounting(assets: list[dict[str, object]]) -> dict[str, object]:
+    by_provider: dict[str, dict[str, int]] = {}
+    per_asset: list[dict[str, object]] = []
+    total_attempts = 0
+    total_billable_attempts = 0
+    for asset in assets:
+        target = str(asset.get("target") or "").strip()
+        final_status = str(asset.get("status") or "").strip().lower()
+        final_provider = str(asset.get("provider") or "").strip().lower()
+        attempts = list(asset.get("attempts") or [])
+        asset_attempts = 0
+        asset_billable = 0
+        provider_order: list[str] = []
+        for detail in attempts:
+            provider = _attempt_provider(detail)
+            if not provider:
+                continue
+            provider_row = by_provider.setdefault(
+                provider,
+                {
+                    "attempts": 0,
+                    "successes": 0,
+                    "failures": 0,
+                    "estimated_billable_attempts": 0,
+                },
+            )
+            provider_row["attempts"] += 1
+            asset_attempts += 1
+            total_attempts += 1
+            if provider == final_provider and str(detail or "").strip().lower() == final_status:
+                provider_row["successes"] += 1
+            else:
+                provider_row["failures"] += 1
+            if _attempt_is_billable(detail):
+                provider_row["estimated_billable_attempts"] += 1
+                asset_billable += 1
+                total_billable_attempts += 1
+            provider_order.append(provider)
+        per_asset.append(
+            {
+                "target": target,
+                "final_provider": final_provider,
+                "render_attempts": asset_attempts,
+                "estimated_billable_attempts": asset_billable,
+                "attempt_provider_order": provider_order,
+            }
+        )
+    return {
+        "asset_count": len(assets),
+        "total_render_attempts": total_attempts,
+        "estimated_billable_attempts": total_billable_attempts,
+        "providers": by_provider,
+        "per_asset": per_asset,
+        "note": "Estimated billable attempts count provider calls that were actually attempted; it is a burn proxy, not a provider invoice.",
+    }
 
 
 def render_pack(*, output_dir: Path) -> dict[str, object]:
