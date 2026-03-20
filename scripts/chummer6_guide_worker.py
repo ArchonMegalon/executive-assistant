@@ -38,6 +38,8 @@ TEXT_PROVIDER_USED: str = ""
 HUMANIZER_EXTERNAL_LOCKED_OUT: bool = False
 HUMANIZER_EXTERNAL_LOCKOUT_REASON: str = ""
 HUMANIZER_EXTERNAL_READY: bool | None = None
+HUMANIZER_BRAIN_ONLY: bool = False
+TRACE_ENABLED: bool = False
 EA_ORCHESTRATOR = None
 EA_CONTAINER = None
 PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
@@ -275,6 +277,12 @@ def load_json_file(path: Path) -> dict[str, object]:
     except Exception:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def trace(message: str) -> None:
+    if not TRACE_ENABLED:
+        return
+    print(f"[chummer6-guide] {message}", file=sys.stderr, flush=True)
 
 
 def write_json_file(path: Path, payload: dict[str, object]) -> None:
@@ -1317,6 +1325,13 @@ def humanize_text(text: str, *, target: str) -> str:
         return cleaned
     if sentence_count(cleaned) < humanizer_min_sentences() or word_count(cleaned) < humanizer_min_words():
         return humanize_text_local(cleaned, target=target)
+    if HUMANIZER_BRAIN_ONLY:
+        brain_humanized = humanize_text_brain(cleaned, target=target)
+        if humanized_candidate_ok(cleaned, brain_humanized):
+            return brain_humanized
+        if humanizer_required():
+            raise RuntimeError("text_humanizer_failed:brain_only_invalid")
+        return humanize_text_local(cleaned, target=target)
     command_names = [
         "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
         "CHUMMER6_TEXT_HUMANIZER_COMMAND",
@@ -1398,6 +1413,31 @@ def humanize_mapping_fields(mapping: dict[str, object], keys: tuple[str, ...], *
             continue
         mapping[key] = humanize_text(value, target=f"{target_prefix}:{key}")
     return mapping
+
+
+def humanize_mapping_fields_with_mode(
+    mapping: dict[str, object],
+    keys: tuple[str, ...],
+    *,
+    target_prefix: str,
+    brain_only: bool,
+) -> dict[str, object]:
+    if brain_only:
+        for key in keys:
+            if key not in mapping:
+                continue
+            value = str(mapping.get(key, "")).strip()
+            if not value:
+                continue
+            mapping[key] = humanize_text_local(value, target=f"{target_prefix}:{key}")
+        return mapping
+    global HUMANIZER_BRAIN_ONLY
+    previous = HUMANIZER_BRAIN_ONLY
+    HUMANIZER_BRAIN_ONLY = bool(brain_only)
+    try:
+        return humanize_mapping_fields(mapping, keys, target_prefix=target_prefix)
+    finally:
+        HUMANIZER_BRAIN_ONLY = previous
 
 
 def build_part_prompt(
@@ -1937,6 +1977,12 @@ Rules:
 - avoid generic filler like toolkit, foundation, platform glue, digital handshake, or background systems unless the sentence becomes sharper by keeping them
 - do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
+- treat `supporting_public_context` as the safe boundary for exact present-tense feature claims
+- if a capability is not explicit in the page source or supporting_public_context, stay at the level of proof shelf, release shelf, current drop, public guide, horizon shelf, issue tracker, or local-first posture
+- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, or similar feature details unless the page payload explicitly says them
+- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
+- keep the pre-alpha posture defensive and honest on first-contact pages
+- do not mention booster / participate caveats on general pages; reserve that expensive-lane explanation for the KARMA FORGE horizon unless a page payload explicitly requires it
 {PUBLIC_WRITER_RULES}
 
 Page id: {page_id}
@@ -2154,9 +2200,35 @@ def normalize_pages_bundle(result: dict[str, object], *, items: dict[str, dict[s
         }
         if len(cleaned) < 2:
             raise ValueError(f"insufficient page bundle content: {page_id}")
-        assert_public_reader_safe(cleaned, context=f"page:{page_id}")
         normalized[page_id] = cleaned
     return normalized
+
+
+def normalize_single_page_bundle_candidate(result: dict[str, object], *, page_id: str) -> dict[str, str]:
+    candidate: dict[str, object] | None = None
+    if all(str(result.get(key, "")).strip() for key in ("intro", "body", "kicker")):
+        candidate = result
+    else:
+        nested_candidates = [
+            value
+            for value in result.values()
+            if isinstance(value, dict) and any(str(value.get(key, "")).strip() for key in ("intro", "body", "kicker"))
+        ]
+        if len(nested_candidates) == 1:
+            candidate = dict(nested_candidates[0])
+    if not isinstance(candidate, dict):
+        raise ValueError(f"missing page bundle row: {page_id}")
+    cleaned = {
+        key: editorial_self_audit_text(
+            str(candidate.get(key, "")).strip(),
+            context=f"page:{page_id}:{key}",
+        )
+        for key in ("intro", "body", "kicker")
+        if str(candidate.get(key, "")).strip()
+    }
+    if len(cleaned) < 2:
+        raise ValueError(f"insufficient page bundle content: {page_id}")
+    return cleaned
 
 
 def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
@@ -2180,7 +2252,6 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
         }
         if len(cleaned_copy) < 3:
             raise ValueError(f"insufficient part copy: {name}")
-        assert_public_reader_safe(cleaned_copy, context=f"part:{name}")
         media_cleaned = normalize_media_override("part", dict(media), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
@@ -2208,7 +2279,6 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
         }
         if len(cleaned_copy) < 7:
             raise ValueError(f"insufficient horizon copy: {name}")
-        assert_public_reader_safe(cleaned_copy, context=f"horizon:{name}")
         media_cleaned = normalize_media_override("horizon", dict(media), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
@@ -2451,6 +2521,39 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     lowered = combined.lower()
     findings: list[str] = []
     if section_type == "page":
+        source_context = " ".join(
+            [
+                str(item.get("source", "")).strip(),
+                *page_supporting_context(name),
+            ]
+        ).lower()
+        risky_claims = [
+            phrase
+            for phrase in PAGE_RISKY_SPECIFIC_CLAIMS
+            if phrase in lowered and phrase not in source_context
+        ]
+        if risky_claims:
+            findings.append(
+                "Do not invent exact present-tense feature claims beyond the provided page context. Stay on proof shelf, release shelf, current drop, guide, issue tracker, horizon shelf, or local-first posture unless the source explicitly goes narrower."
+            )
+        risky_game_details = [
+            phrase
+            for phrase in PAGE_RISKY_GAME_DETAIL_TOKENS
+            if phrase in lowered and phrase not in source_context
+        ]
+        if risky_game_details:
+            findings.append(
+                "Avoid specific subsystem, edition, or character-sheet examples unless the page context explicitly names them. Keep these root pages at the level of receipts, proof, current drop, and user-visible trust."
+            )
+        soft_filler_phrases = [
+            phrase
+            for phrase in PAGE_SOFT_FILLER_PHRASES
+            if phrase in lowered
+        ]
+        if soft_filler_phrases:
+            findings.append(
+                "Replace synthetic product phrasing with plain user language. Say what the reader can check, download, or trust instead of calling it a session shell, character engine, or similar invented label."
+            )
         if page_supporting_context(name) and not any(
             token in lowered
             for token in (
@@ -2478,6 +2581,28 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append("Make the pre-alpha and proof-first posture explicit so the guide does not sound like a finished-product pitch.")
+        if name == "readme" and not any(token in lowered for token in ("proof shelf", "release", "drop", "download")):
+            findings.append("README should point the reader toward a real proof or download surface instead of staying at product-story altitude.")
+        if name == "start_here" and not any(
+            token in lowered for token in ("tonight", "next", "start", "download", "proof shelf", "release", "issue tracker")
+        ):
+            findings.append("START_HERE should tell the reader what to do next tonight, not just why the project matters in the abstract.")
+        if name == "what_chummer6_is":
+            if "local-first" not in lowered:
+                findings.append("Explain the local-first posture plainly so this page feels like a product difference instead of a generic rules app description.")
+            if not any(token in lowered for token in ("receipt", "proof", "show the math", "rules truth")):
+                findings.append("Tie WHAT_CHUMMER6_IS back to receipts, visible math, or rules truth instead of leaving the trust story abstract.")
+        if name == "current_phase" and not any(
+            token in lowered for token in ("trust", "proof", "receipt", "math", "before polish", "before the paint")
+        ):
+            findings.append("CURRENT_PHASE should explain that trust work and receipts come before polish, not just that the build is early.")
+        if name == "current_status" and not any(token in lowered for token in ("download", "current drop", "proof shelf", "guide", "horizon")):
+            findings.append("CURRENT_STATUS should point to visible things a reader can click or inspect right now.")
+        if name == "public_surfaces":
+            if not any(token in lowered for token in ("guide", "proof shelf", "release", "download", "issue tracker", "horizon")):
+                findings.append("PUBLIC_SURFACES should name the visible public surfaces directly instead of speaking in generalities.")
+            if any(token in lowered for token in ("booster", "participate")):
+                findings.append("Keep booster or participation framing out of general public-surface copy unless the page source explicitly requires it.")
     if section_type == "part":
         if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
             findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
@@ -2569,6 +2694,11 @@ Revision rules:
 - prioritize concrete user value, proof, and current public actions over abstract platform framing
 - avoid generic filler like toolkit, foundation, digital handshake, background systems, or vague future posture
 - keep the output public-safe, reader-first, and distinct
+- do not add exact current capabilities that are not explicit in the section context
+- if the section context is vague, stay grounded in proof shelf, current drop, guide, release shelf, horizon shelf, issue tracker, or local-first posture instead of inventing narrower feature claims
+- do not improvise subsystem, edition, or character-sheet specifics unless the section context explicitly names them
+- for root/page copy, replace unsupported subsystem specifics with reader-visible proof surfaces, current drop, route names, or local-first posture
+- keep booster / participate caveats scoped to KARMA FORGE-style expensive-horizon copy unless the section context explicitly requires them
 - no markdown fences
 {PUBLIC_WRITER_RULES}
 
@@ -2586,6 +2716,97 @@ Return valid JSON only.
 """
 
 
+def build_page_grounding_rescue_prompt(
+    *,
+    name: str,
+    item: dict[str, object],
+    draft: dict[str, object],
+    findings: list[str],
+    global_ooda: dict[str, object],
+    section_ooda: dict[str, object],
+) -> str:
+    return f"""You are repairing an overclaimed root-page draft for the human-facing Chummer6 guide.
+
+Task: return a JSON object only with keys intro, body, kicker.
+
+Hard rules:
+- use only facts that are explicit in the page source, supporting public context, or global OODA
+- do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, or other narrow feature claims unless the provided context explicitly names them
+- stay grounded in proof shelf, current drop, release shelf, public guide, horizon shelf, issue tracker, receipts, and local-first posture
+- keep the page defensive and honest about pre-alpha reality
+- avoid generic filler like designed to make, providing, ensuring that, built to, or similar soft product mush
+- intro should say what this page means to a normal reader
+- body should name visible proof or action surfaces without improvising deeper capability claims
+- kicker should end on one concrete next action, proof surface, or honest caution
+- no markdown fences
+{PUBLIC_WRITER_RULES}
+
+Page id: {name}
+Page source:
+{str(item.get("source", "")).strip()}
+
+Supporting public context:
+{json.dumps(page_supporting_context(name), ensure_ascii=True)}
+
+Failed draft:
+{json.dumps(draft, ensure_ascii=True)}
+
+Why the draft failed:
+{json.dumps(findings, ensure_ascii=True)}
+
+Global OODA:
+{json.dumps(global_ooda or {}, ensure_ascii=True)}
+
+Section OODA:
+{json.dumps(section_ooda or {}, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str, object]) -> dict[str, str]:
+    page_id = str(name or "").strip()
+    act = dict(global_ooda.get("act") or {}) if isinstance(global_ooda, dict) else {}
+    tagline = str(act.get("landing_tagline") or "Shadowrun rules truth, with receipts.").strip()
+    if page_id == "readme":
+        return {
+            "intro": f"{tagline} Chummer6 is pre-alpha, but the proof surfaces are already real.",
+            "body": "Start with the proof shelf if you want to see what the engine can already defend, then grab the current drop from releases if you want to test the rough build yourself. The project is local-first and evidence-first, so the useful part is what it can already show, not what it might promise later.",
+            "kicker": "Treat it like a rough workbench with receipts, not a finished product pitch.",
+        }
+    if page_id == "start_here":
+        return {
+            "intro": "Start with tonight's rules problem, not the repo map.",
+            "body": "Check the proof shelf when you need to see what the engine can already prove, or grab the latest drop from releases if you want to test the rough build directly. If the math looks wrong, the useful next move is the Chummer6 issue tracker, not a leap of faith.",
+            "kicker": "Pre-alpha means rough and honest, not polished and vague.",
+        }
+    if page_id == "what_chummer6_is":
+        return {
+            "intro": "Chummer6 is a local-first Shadowrun rules workbench that shows its math instead of asking for trust.",
+            "body": "The point is visible rules truth with receipts. You can inspect the proof shelf, follow the current drop from releases, and judge what is real before the project earns any bigger promises.",
+            "kicker": "It is pre-alpha, rough, and useful exactly to the degree that the evidence is already on the table.",
+        }
+    if page_id == "current_phase":
+        return {
+            "intro": "The current phase is trust work before chrome.",
+            "body": "Right now the project is spending its time on receipts, deterministic behavior, and the rough surfaces that prove the engine can defend its answers. That is less glamorous than feature fireworks, but it is the part that makes later polish worth believing.",
+            "kicker": "This is still pre-alpha, so visible proof matters more than pretty promises.",
+        }
+    if page_id == "current_status":
+        return {
+            "intro": "The current status is simple: there is real proof, a real guide, and a rough drop you can test.",
+            "body": "You can browse the public guide, inspect the proof shelf, and download the current POC from releases. The build is still early, so the right reading is 'real enough to inspect' rather than 'finished enough to trust blindly.'",
+            "kicker": "Click what is visible now, and treat everything else as contingent until the evidence catches up.",
+        }
+    if page_id == "public_surfaces":
+        return {
+            "intro": "The public surfaces are the guide, the proof shelf, the current drop, the horizon shelf, and the issue tracker.",
+            "body": "That is enough to read the product story, inspect what is already defended, try the rough build, and report where the math or UX still falls over. Preview does not mean fake here; it means the visible parts are real while the rest is still earning the right to exist.",
+            "kicker": "Use the public surfaces to verify what is real today, not to imagine the finished version for us.",
+        }
+    return {}
+
+
 def polish_copy_row(
     *,
     section_type: str,
@@ -2596,34 +2817,102 @@ def polish_copy_row(
     section_ooda: dict[str, object],
     model: str,
 ) -> dict[str, object]:
-    findings = copy_quality_findings(section_type, name, row, item)
-    if not findings:
-        return row
-    result = chat_json(
-        build_copy_polish_prompt(
-            section_type=section_type,
-            name=name,
-            item=item,
-            draft=row,
-            findings=findings,
-            global_ooda=global_ooda,
-            section_ooda=section_ooda,
-        ),
-        model=model,
-        skill_key=PUBLIC_WRITER_SKILL_KEY,
-    )
     keys = COPY_KEYS_BY_SECTION.get(section_type, ())
-    polished = {
-        key: str(result.get(key, "")).strip()
-        for key in keys
-        if str(result.get(key, "")).strip()
-    }
-    if len(polished) < len(keys):
-        return row
-    if section_type == "horizon" and "meanwhile" in polished:
-        polished["meanwhile"] = normalize_horizon_meanwhile(str(polished.get("meanwhile") or ""))
-    assert_public_reader_safe(polished, context=f"{section_type}:{name}:polished")
-    return polished
+    current = dict(row)
+    findings = copy_quality_findings(section_type, name, current, item)
+    try:
+        assert_public_reader_safe(current, context=f"{section_type}:{name}:draft")
+    except Exception as exc:
+        findings = [*findings, str(exc)]
+    deduped_findings: list[str] = []
+    for finding in findings:
+        normalized = str(finding or "").strip()
+        if normalized and normalized not in deduped_findings:
+            deduped_findings.append(normalized)
+    if not deduped_findings:
+        return current
+    for _attempt in range(2):
+        result = chat_json(
+            build_copy_polish_prompt(
+                section_type=section_type,
+                name=name,
+                item=item,
+                draft=current,
+                findings=deduped_findings,
+                global_ooda=global_ooda,
+                section_ooda=section_ooda,
+            ),
+            model=model,
+            skill_key=PUBLIC_WRITER_SKILL_KEY,
+        )
+        polished = {
+            key: str(result.get(key, "")).strip()
+            for key in keys
+            if str(result.get(key, "")).strip()
+        }
+        if len(polished) < len(keys):
+            break
+        if section_type == "horizon" and "meanwhile" in polished:
+            polished["meanwhile"] = normalize_horizon_meanwhile(str(polished.get("meanwhile") or ""))
+        next_findings = copy_quality_findings(section_type, name, polished, item)
+        try:
+            assert_public_reader_safe(polished, context=f"{section_type}:{name}:polished")
+        except Exception as exc:
+            next_findings.append(str(exc))
+        deduped_findings = []
+        for finding in next_findings:
+            normalized = str(finding or "").strip()
+            if normalized and normalized not in deduped_findings:
+                deduped_findings.append(normalized)
+        current = polished
+        if not deduped_findings:
+            return current
+    if section_type == "page":
+        result = chat_json(
+            build_page_grounding_rescue_prompt(
+                name=name,
+                item=item,
+                draft=current,
+                findings=deduped_findings,
+                global_ooda=global_ooda,
+                section_ooda=section_ooda,
+            ),
+            model=model,
+            skill_key=PUBLIC_WRITER_SKILL_KEY,
+        )
+        rescued = {
+            key: str(result.get(key, "")).strip()
+            for key in keys
+            if str(result.get(key, "")).strip()
+        }
+        if len(rescued) == len(keys):
+            rescue_findings = copy_quality_findings(section_type, name, rescued, item)
+            try:
+                assert_public_reader_safe(rescued, context=f"{section_type}:{name}:rescued")
+            except Exception as exc:
+                rescue_findings.append(str(exc))
+            deduped_findings = []
+            for finding in rescue_findings:
+                normalized = str(finding or "").strip()
+                if normalized and normalized not in deduped_findings:
+                    deduped_findings.append(normalized)
+            if not deduped_findings:
+                return rescued
+        fallback = fallback_page_copy(name, item, global_ooda)
+        if fallback:
+            fallback_findings = copy_quality_findings(section_type, name, fallback, item)
+            try:
+                assert_public_reader_safe(fallback, context=f"{section_type}:{name}:fallback")
+            except Exception as exc:
+                fallback_findings.append(str(exc))
+            deduped_findings = []
+            for finding in fallback_findings:
+                normalized = str(finding or "").strip()
+                if normalized and normalized not in deduped_findings:
+                    deduped_findings.append(normalized)
+            if not deduped_findings:
+                return fallback
+    raise RuntimeError(f"copy_polish_failed:{section_type}:{name}:{' | '.join(deduped_findings[:6])}")
 
 
 def collect_interest_signals() -> dict[str, object]:
@@ -3541,9 +3830,59 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
     },
 }
 
+PAGE_RISKY_SPECIFIC_CLAIMS: tuple[str, ...] = (
+    "gear availability",
+    "gear costs",
+    "gear limits",
+    "character integrity",
+    "session continuity",
+    "device swap",
+    "commlink reboot",
+    "corporate uplink",
+    "on your phone",
+    "your phone",
+    "total precision",
+)
+PAGE_RISKY_GAME_DETAIL_TOKENS: tuple[str, ...] = (
+    "stat change",
+    "stat adjustment",
+    "qualities",
+    "cyberware",
+    "initiative",
+    "health",
+    "sr4",
+    "sr5",
+)
+PAGE_SOFT_FILLER_PHRASES: tuple[str, ...] = (
+    "session shell",
+    "character engine",
+    "local-first system",
+)
+
 def chunk_mapping(mapping: dict[str, object], *, size: int) -> list[dict[str, object]]:
     items = list(mapping.items())
     return [dict(items[index : index + size]) for index in range(0, len(items), size)]
+
+
+def selected_mapping(mapping: dict[str, object], selected_ids: Sequence[str] | None) -> dict[str, object]:
+    if not selected_ids:
+        return dict(mapping)
+    wanted = [str(item or "").strip() for item in selected_ids if str(item or "").strip()]
+    filtered = {key: value for key, value in mapping.items() if key in wanted}
+    missing = [item for item in wanted if item not in filtered]
+    if missing:
+        raise ValueError(f"unknown_chummer6_section_ids:{','.join(missing)}")
+    return filtered
+
+
+def parse_selected_ids(raw: str) -> list[str]:
+    return [part.strip() for part in str(raw or "").split(",") if part.strip()]
+
+
+def load_reusable_ooda(path: Path) -> dict[str, object]:
+    payload = load_json_file(path)
+    ooda = payload.get("ooda")
+    return dict(ooda) if isinstance(ooda, dict) else {}
 
 
 def section_batch_size(section_type: str, total: int) -> int:
@@ -3561,7 +3900,31 @@ def section_batch_size(section_type: str, total: int) -> int:
     return max(1, min(total, value))
 
 
-def generate_overrides(*, include_parts: bool, include_horizons: bool, model: str) -> dict[str, object]:
+def effective_section_batch_size(
+    section_type: str,
+    total: int,
+    *,
+    prefer_quality: bool = False,
+) -> int:
+    if prefer_quality and section_type == "page":
+        return 1
+    return section_batch_size(section_type, total)
+
+
+def generate_overrides(
+    *,
+    include_parts: bool,
+    include_horizons: bool,
+    model: str,
+    include_hero_media: bool = True,
+    reused_ooda: dict[str, object] | None = None,
+    page_ids: Sequence[str] | None = None,
+    part_ids: Sequence[str] | None = None,
+    horizon_ids: Sequence[str] | None = None,
+    run_skill_audits: bool = True,
+    prefer_brain_humanizer: bool = False,
+    prefer_page_quality: bool = False,
+) -> dict[str, object]:
     global TEXT_PROVIDER_USED
     TEXT_PROVIDER_USED = ""
     signals = collect_interest_signals()
@@ -3585,92 +3948,138 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         },
     }
     provider_error = ""
-    try:
-        ooda_result = chat_json(build_ooda_prompt(signals), model=model, skill_key=PUBLIC_WRITER_SKILL_KEY)
-        overrides["ooda"] = normalize_ooda(ooda_result, signals)
-    except Exception as exc:
-        raise RuntimeError(f"global OODA generation failed: {exc}") from exc
+    selected_pages = selected_mapping(PAGE_PROMPTS, page_ids)
+    selected_parts = selected_mapping(PARTS, part_ids) if include_parts else {}
+    selected_horizons = selected_mapping(HORIZONS, horizon_ids) if include_horizons else {}
+    focused_page_quality_run = (
+        prefer_page_quality
+        and bool(selected_pages)
+        and not include_parts
+        and not include_horizons
+    )
+    trace(
+        "regen start"
+        + f" pages={','.join(selected_pages.keys()) or '-'}"
+        + f" parts={','.join(selected_parts.keys()) or '-'}"
+        + f" horizons={','.join(selected_horizons.keys()) or '-'}"
+        + f" hero_media={'yes' if include_hero_media else 'no'}"
+    )
+    reusable = dict(reused_ooda or {})
+    if reusable:
+        trace("global OODA reused")
+        overrides["ooda"] = normalize_ooda(reusable, signals)
+    else:
+        try:
+            trace("global OODA")
+            ooda_result = chat_json(build_ooda_prompt(signals), model=model, skill_key=PUBLIC_WRITER_SKILL_KEY)
+            overrides["ooda"] = normalize_ooda(ooda_result, signals)
+        except Exception as exc:
+            raise RuntimeError(f"global OODA generation failed: {exc}") from exc
     ooda = dict(overrides.get("ooda") or {})
     if isinstance(ooda.get("act"), dict):
-        humanize_mapping_fields(
+        humanize_mapping_fields_with_mode(
             ooda["act"],
             ("landing_intro", "what_it_is", "watch_intro", "horizon_intro"),
             target_prefix="guide:ooda:act",
+            brain_only=prefer_brain_humanizer,
         )
-    try:
-        hero_ooda_result = chat_json(
-            build_section_ooda_prompt(
-                "hero",
-                "hero",
-                {},
-                global_ooda=ooda,
-                style_epoch=style_epoch,
-                recent_scenes=recent_scenes,
-            ),
-            model=model,
-            skill_key=VISUAL_DIRECTOR_SKILL_KEY,
-        )
-        hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
-    except Exception as exc:
-        raise RuntimeError(f"hero section OODA generation failed: {exc}") from exc
-    overrides["section_ooda"]["hero"]["hero"] = hero_ooda
-    try:
-        result = chat_json(
-            build_media_prompt(
-                "hero",
-                "hero",
-                {},
-                ooda=ooda,
-                section_ooda=hero_ooda,
-                style_epoch=style_epoch,
-                recent_scenes=recent_scenes,
-                variation_guardrails=variation_guardrails_for("assets/hero/chummer6-hero.png", recent_scene_rows()),
-            ),
-            model=model,
-            skill_key=VISUAL_DIRECTOR_SKILL_KEY,
-        )
-        cleaned = {}
-        for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
-            value = str(result.get(key, "")).strip()
-            if value:
-                cleaned[key] = value
-        for key in ("visual_motifs", "overlay_callouts"):
-            raw = result.get(key)
-            if isinstance(raw, list):
-                cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
-        cleaned = normalize_media_override("hero", cleaned, {})
-    except Exception as exc:
-        raise RuntimeError(f"hero media generation failed: {exc}") from exc
-    cleaned = normalize_media_override("hero", cleaned, {})
-    overrides["media"]["hero"] = cleaned
-    page_oodas: dict[str, object] = {}
-    for batch in chunk_mapping(PAGE_PROMPTS, size=section_batch_size("page", len(PAGE_PROMPTS))):
+    if include_hero_media:
         try:
-            page_ooda_result = chat_json(
-                build_section_oodas_bundle_prompt(
-                    "page",
-                    batch,
+            trace("hero OODA")
+            hero_ooda_result = chat_json(
+                build_section_ooda_prompt(
+                    "hero",
+                    "hero",
+                    {},
                     global_ooda=ooda,
                     style_epoch=style_epoch,
                     recent_scenes=recent_scenes,
                 ),
                 model=model,
-                skill_key=PUBLIC_WRITER_SKILL_KEY,
+                skill_key=VISUAL_DIRECTOR_SKILL_KEY,
             )
-            page_oodas.update(
-                normalize_section_oodas_bundle(
-                    page_ooda_result,
-                    section_type="page",
-                    section_items=batch,
-                    global_ooda=ooda,
-                )
-            )
+            hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
         except Exception as exc:
-            raise RuntimeError(f"page section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+            raise RuntimeError(f"hero section OODA generation failed: {exc}") from exc
+        overrides["section_ooda"]["hero"]["hero"] = hero_ooda
+        try:
+            trace("hero media")
+            result = chat_json(
+                build_media_prompt(
+                    "hero",
+                    "hero",
+                    {},
+                    ooda=ooda,
+                    section_ooda=hero_ooda,
+                    style_epoch=style_epoch,
+                    recent_scenes=recent_scenes,
+                    variation_guardrails=variation_guardrails_for("assets/hero/chummer6-hero.png", recent_scene_rows()),
+                ),
+                model=model,
+                skill_key=VISUAL_DIRECTOR_SKILL_KEY,
+            )
+            cleaned = {}
+            for key in ("badge", "title", "subtitle", "kicker", "note", "meta", "visual_prompt", "overlay_hint"):
+                value = str(result.get(key, "")).strip()
+                if value:
+                    cleaned[key] = value
+            for key in ("visual_motifs", "overlay_callouts"):
+                raw = result.get(key)
+                if isinstance(raw, list):
+                    cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
+            cleaned = normalize_media_override("hero", cleaned, {})
+        except Exception as exc:
+            raise RuntimeError(f"hero media generation failed: {exc}") from exc
+        cleaned = normalize_media_override("hero", cleaned, {})
+        overrides["media"]["hero"] = cleaned
+    page_oodas: dict[str, object] = {}
+    if focused_page_quality_run:
+        trace("page OODA skipped for focused quality run")
+        page_oodas = {page_id: {} for page_id in selected_pages.keys()}
+    else:
+        for batch in chunk_mapping(
+            selected_pages,
+            size=effective_section_batch_size(
+                "page",
+                len(selected_pages),
+                prefer_quality=prefer_page_quality,
+            ),
+        ):
+            try:
+                trace(f"page OODA bundle: {','.join(batch.keys())}")
+                page_ooda_result = chat_json(
+                    build_section_oodas_bundle_prompt(
+                        "page",
+                        batch,
+                        global_ooda=ooda,
+                        style_epoch=style_epoch,
+                        recent_scenes=recent_scenes,
+                    ),
+                    model=model,
+                    skill_key=PUBLIC_WRITER_SKILL_KEY,
+                )
+                page_oodas.update(
+                    normalize_section_oodas_bundle(
+                        page_ooda_result,
+                        section_type="page",
+                        section_items=batch,
+                        global_ooda=ooda,
+                    )
+                )
+            except Exception as exc:
+                raise RuntimeError(f"page section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
     overrides["section_ooda"]["pages"] = page_oodas
     page_rows: dict[str, object] = {}
-    for batch in chunk_mapping(PAGE_PROMPTS, size=section_batch_size("page", len(PAGE_PROMPTS))):
+    for batch in chunk_mapping(
+        selected_pages,
+        size=effective_section_batch_size(
+            "page",
+            len(selected_pages),
+            prefer_quality=prefer_page_quality,
+        ),
+    ):
         try:
+            trace(f"page copy bundle: {','.join(batch.keys())}")
             page_bundle = chat_json(
                 build_pages_bundle_prompt(
                     items=batch,
@@ -3680,26 +4089,46 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 model=model,
                 skill_key=PUBLIC_WRITER_SKILL_KEY,
             )
-            page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
+            try:
+                page_rows.update(normalize_pages_bundle(page_bundle, items=batch))
+            except Exception:
+                if len(batch) != 1:
+                    raise
+                page_id, item = next(iter(batch.items()))
+                try:
+                    trace(f"page bundle repair: {page_id}")
+                    page_rows[page_id] = normalize_single_page_bundle_candidate(page_bundle, page_id=page_id)
+                except Exception:
+                    trace(f"page bundle fallback: {page_id}")
+                    page_rows[page_id] = fallback_page_copy(page_id, dict(item), ooda)
         except Exception as exc:
             raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
     for page_id, row in list(page_rows.items()):
+        trace(f"page polish: {page_id}")
         page_rows[page_id] = polish_copy_row(
             section_type="page",
             name=page_id,
             row=dict(row),
-            item=dict(PAGE_PROMPTS.get(page_id) or {}),
+            item=dict(selected_pages.get(page_id) or {}),
             global_ooda=ooda,
             section_ooda=dict(page_oodas.get(page_id) or {}),
             model=model,
         )
     for page_id, row in page_rows.items():
-        humanize_mapping_fields(row, ("intro", "body", "kicker"), target_prefix=f"guide:page:{page_id}")
+        trace(f"page humanize: {page_id}")
+        humanize_mapping_fields_with_mode(
+            row,
+            ("intro", "body", "kicker"),
+            target_prefix=f"guide:page:{page_id}",
+            brain_only=prefer_brain_humanizer,
+        )
+        assert_public_reader_safe(row, context=f"page:{page_id}:final")
     overrides["pages"] = page_rows
     if include_parts:
         part_oodas: dict[str, object] = {}
-        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
+        for batch in chunk_mapping(selected_parts, size=section_batch_size("part", len(selected_parts))):
             try:
+                trace(f"part OODA bundle: {','.join(batch.keys())}")
                 part_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("part", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
@@ -3718,8 +4147,9 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["parts"] = part_oodas
         part_copy_rows: dict[str, object] = {}
         part_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(PARTS, size=section_batch_size("part", len(PARTS))):
+        for batch in chunk_mapping(selected_parts, size=section_batch_size("part", len(selected_parts))):
             try:
+                trace(f"part copy/media bundle: {','.join(batch.keys())}")
                 part_bundle = chat_json(
                     build_parts_bundle_prompt(
                         items=batch,
@@ -3736,7 +4166,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 part_media_rows.update(batch_media_rows)
             except Exception as exc:
                 raise RuntimeError(f"part copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
-        for name, item in PARTS.items():
+        for name, item in selected_parts.items():
             try:
                 cleaned_copy = dict(part_copy_rows[name])
                 cleaned_copy = polish_copy_row(
@@ -3752,13 +4182,20 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             except Exception as exc:
                 raise RuntimeError(f"part copy polish failed ({name}): {exc}") from exc
         for part_id, row in part_copy_rows.items():
-            humanize_mapping_fields(row, ("when", "why", "now"), target_prefix=f"guide:part:{part_id}")
+            humanize_mapping_fields_with_mode(
+                row,
+                ("when", "why", "now"),
+                target_prefix=f"guide:part:{part_id}",
+                brain_only=prefer_brain_humanizer,
+            )
+            assert_public_reader_safe(row, context=f"part:{part_id}:final")
         overrides["parts"] = part_copy_rows
         overrides["media"]["parts"] = part_media_rows
     if include_horizons:
         horizon_oodas: dict[str, object] = {}
-        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
+        for batch in chunk_mapping(selected_horizons, size=section_batch_size("horizon", len(selected_horizons))):
             try:
+                trace(f"horizon OODA bundle: {','.join(batch.keys())}")
                 horizon_ooda_result = chat_json(
                     build_section_oodas_bundle_prompt("horizon", batch, global_ooda=ooda, style_epoch=style_epoch, recent_scenes=recent_scenes),
                     model=model,
@@ -3777,8 +4214,9 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
         overrides["section_ooda"]["horizons"] = horizon_oodas
         horizon_copy_rows: dict[str, object] = {}
         horizon_media_rows: dict[str, object] = {}
-        for batch in chunk_mapping(HORIZONS, size=section_batch_size("horizon", len(HORIZONS))):
+        for batch in chunk_mapping(selected_horizons, size=section_batch_size("horizon", len(selected_horizons))):
             try:
+                trace(f"horizon copy/media bundle: {','.join(batch.keys())}")
                 horizon_bundle = chat_json(
                     build_horizons_bundle_prompt(
                         items=batch,
@@ -3795,7 +4233,7 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
                 horizon_media_rows.update(batch_media_rows)
             except Exception as exc:
                 raise RuntimeError(f"horizon copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
-        for name, item in HORIZONS.items():
+        for name, item in selected_horizons.items():
             try:
                 cleaned_copy = dict(horizon_copy_rows[name])
                 cleaned_copy = polish_copy_row(
@@ -3811,63 +4249,109 @@ def generate_overrides(*, include_parts: bool, include_horizons: bool, model: st
             except Exception as exc:
                 raise RuntimeError(f"horizon copy polish failed ({name}): {exc}") from exc
         for horizon_id, row in horizon_copy_rows.items():
-            humanize_mapping_fields(
+            humanize_mapping_fields_with_mode(
                 row,
                 ("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
                 target_prefix=f"guide:horizon:{horizon_id}",
+                brain_only=prefer_brain_humanizer,
             )
+            assert_public_reader_safe(row, context=f"horizon:{horizon_id}:final")
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
-    overrides["meta"]["public_skill_audit"] = run_skill_audit(
-        label="public",
-        skill_key=PUBLIC_AUDITOR_SKILL_KEY,
-        focus="Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes.",
-        payload=_copy_audit_snapshot(overrides),
-        model=model,
-    )
-    overrides["meta"]["scene_skill_audit"] = run_skill_audit(
-        label="scene",
-        skill_key=SCENE_AUDITOR_SKILL_KEY,
-        focus="Check composition diversity, page-role fit, and whether scene contracts still collapse into repetitive tableaus or generic cyberpunk wallpaper.",
-        payload=_scene_audit_snapshot(overrides),
-        model=model,
-    )
-    overrides["meta"]["visual_skill_audit"] = run_skill_audit(
-        label="visual",
-        skill_key=VISUAL_AUDITOR_SKILL_KEY,
-        focus="Check whether the visible media metadata feels specific, premium, and non-repetitive enough for a public guide pack.",
-        payload=_visual_audit_snapshot(overrides),
-        model=model,
-    )
-    overrides["meta"]["pack_skill_audit"] = run_skill_audit(
-        label="pack",
-        skill_key=PACK_AUDITOR_SKILL_KEY,
-        focus="Check overall pack coherence: public usefulness, visual consistency, and whether the whole set feels ready to publish for real users.",
-        payload=_pack_audit_snapshot(overrides),
-        model=model,
-    )
+    if run_skill_audits:
+        trace("public audit")
+        overrides["meta"]["public_skill_audit"] = run_skill_audit(
+            label="public",
+            skill_key=PUBLIC_AUDITOR_SKILL_KEY,
+            focus="Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes.",
+            payload=_copy_audit_snapshot(overrides),
+            model=model,
+        )
+    else:
+        overrides["meta"]["public_skill_audit"] = {"status": "skipped", "reason": "partial_regen"}
+    run_media_audits = include_hero_media or include_parts or include_horizons
+    if run_media_audits and run_skill_audits:
+        trace("scene audit")
+        overrides["meta"]["scene_skill_audit"] = run_skill_audit(
+            label="scene",
+            skill_key=SCENE_AUDITOR_SKILL_KEY,
+            focus="Check composition diversity, page-role fit, and whether scene contracts still collapse into repetitive tableaus or generic cyberpunk wallpaper.",
+            payload=_scene_audit_snapshot(overrides),
+            model=model,
+        )
+        trace("visual audit")
+        overrides["meta"]["visual_skill_audit"] = run_skill_audit(
+            label="visual",
+            skill_key=VISUAL_AUDITOR_SKILL_KEY,
+            focus="Check whether the visible media metadata feels specific, premium, and non-repetitive enough for a public guide pack.",
+            payload=_visual_audit_snapshot(overrides),
+            model=model,
+        )
+    else:
+        skip_reason = "partial_regen" if not run_skill_audits else "text_only_pages_regen"
+        overrides["meta"]["scene_skill_audit"] = {"status": "skipped", "reason": skip_reason}
+        overrides["meta"]["visual_skill_audit"] = {"status": "skipped", "reason": skip_reason}
+    if run_skill_audits:
+        trace("pack audit")
+        overrides["meta"]["pack_skill_audit"] = run_skill_audit(
+            label="pack",
+            skill_key=PACK_AUDITOR_SKILL_KEY,
+            focus="Check overall pack coherence: public usefulness, visual consistency, and whether the whole set feels ready to publish for real users.",
+            payload=_pack_audit_snapshot(overrides),
+            model=model,
+        )
+    else:
+        overrides["meta"]["pack_skill_audit"] = {"status": "skipped", "reason": "partial_regen"}
     overrides["meta"]["scene_plan_audit"] = scene_plan_pack_audit(overrides)
     overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"
     overrides["meta"]["provider_status"] = "ok"
     overrides["meta"]["provider_error"] = provider_error
+    trace("regen complete")
     return overrides
 
 
 def main() -> int:
+    global TRACE_ENABLED
     parser = argparse.ArgumentParser(description="Generate Chummer6 downstream guide overrides through EA using section-level OODA.")
     parser.add_argument("--output", default=str(OVERRIDE_OUT), help="Where to write the override JSON.")
     parser.add_argument("--model", default=default_text_model(), help="Preferred EA/Gemini text model hint.")
+    parser.add_argument("--trace", action="store_true", help="Emit phase trace lines to stderr during generation.")
+    parser.add_argument("--pages-only", action="store_true", help="Generate root/page overrides only.")
     parser.add_argument("--parts-only", action="store_true", help="Generate part-page overrides only.")
     parser.add_argument("--horizons-only", action="store_true", help="Generate horizon-page overrides only.")
+    parser.add_argument("--pages", default="", help="Comma-separated page ids to regenerate.")
+    parser.add_argument("--parts", default="", help="Comma-separated part ids to regenerate.")
+    parser.add_argument("--horizons", default="", help="Comma-separated horizon ids to regenerate.")
+    parser.add_argument("--full-skill-audits", action="store_true", help="Run external skill audits even for partial targeted regenerations.")
+    parser.add_argument(
+        "--reuse-global-ooda-from",
+        default="",
+        help="Optional override JSON path to reuse the existing global OODA packet during targeted iterations.",
+    )
     args = parser.parse_args()
+    TRACE_ENABLED = bool(args.trace) or str(os.environ.get("CHUMMER6_TRACE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
-    include_parts = not args.horizons_only
-    include_horizons = not args.parts_only
+    if sum(1 for enabled in (args.pages_only, args.parts_only, args.horizons_only) if enabled) > 1:
+        raise SystemExit("Choose at most one of --pages-only, --parts-only, or --horizons-only.")
+
+    include_parts = not args.horizons_only and not args.pages_only
+    include_horizons = not args.parts_only and not args.pages_only
+    partial_regen = bool(args.pages_only or args.parts_only or args.horizons_only or args.pages or args.parts or args.horizons)
+    reuse_ooda_path = str(args.reuse_global_ooda_from or "").strip()
+    reusable_ooda = load_reusable_ooda(Path(reuse_ooda_path).expanduser()) if reuse_ooda_path else {}
     overrides = generate_overrides(
         include_parts=include_parts,
         include_horizons=include_horizons,
         model=str(args.model or default_text_model()).strip() or default_text_model(),
+        include_hero_media=not args.pages_only,
+        reused_ooda=reusable_ooda,
+        page_ids=parse_selected_ids(args.pages),
+        part_ids=parse_selected_ids(args.parts),
+        horizon_ids=parse_selected_ids(args.horizons),
+        run_skill_audits=(not partial_regen) or bool(args.full_skill_audits),
+        prefer_brain_humanizer=partial_regen,
+        prefer_page_quality=partial_regen,
     )
     output_path = Path(args.output).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)

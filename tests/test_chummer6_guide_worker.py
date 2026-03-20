@@ -605,6 +605,52 @@ def test_copy_quality_findings_requires_pre_alpha_posture_on_first_contact_pages
     assert "pre-alpha" in joined
 
 
+def test_copy_quality_findings_flags_risky_page_specific_claims_outside_context() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "public_surfaces",
+        {
+            "intro": "The public workbench is visible now.",
+            "body": "The current preview already verifies gear limits and character integrity with total precision on your phone.",
+            "kicker": "Check it out.",
+        },
+        worker.PAGE_PROMPTS["public_surfaces"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "do not invent exact present-tense feature claims" in joined
+
+
+def test_copy_quality_findings_flags_soft_synthetic_page_phrasing() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "what_chummer6_is",
+        {
+            "intro": "Chummer6 is a character engine.",
+            "body": "This session shell is a local-first system for proof.",
+            "kicker": "Check it out.",
+        },
+        worker.PAGE_PROMPTS["what_chummer6_is"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "replace synthetic product phrasing" in joined
+
+
+def test_fallback_page_copy_is_reader_safe_for_what_chummer6_is() -> None:
+    worker = _load_worker_module()
+
+    row = worker.fallback_page_copy("what_chummer6_is", worker.PAGE_PROMPTS["what_chummer6_is"], {})
+
+    assert row["intro"]
+    assert "local-first" in row["intro"].lower() or "local-first" in row["body"].lower()
+    worker.assert_public_reader_safe(row, context="page:what_chummer6_is:fallback")
+
+
 def test_part_supporting_context_does_not_inject_booster_copy_into_hub() -> None:
     worker = _load_worker_module()
 
@@ -832,3 +878,242 @@ def test_normalize_horizon_meanwhile_splits_sentences_into_multiple_bullets() ->
     lines = [line for line in normalized.splitlines() if line.strip()]
     assert len(lines) >= 2
     assert all(line.startswith("- ") for line in lines)
+
+
+def test_selected_mapping_keeps_requested_order_subset() -> None:
+    worker = _load_worker_module()
+
+    subset = worker.selected_mapping(
+        worker.PAGE_PROMPTS,
+        ["start_here", "current_status"],
+    )
+
+    assert list(subset.keys()) == ["start_here", "current_status"]
+
+
+def test_selected_mapping_rejects_unknown_ids() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="unknown_chummer6_section_ids:not-real"):
+        worker.selected_mapping(worker.PAGE_PROMPTS, ["start_here", "not-real"])
+
+
+def test_generate_overrides_can_regenerate_only_selected_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "normalize_section_ooda", lambda *args, **kwargs: {})
+    monkeypatch.setattr(worker, "normalize_section_oodas_bundle", lambda *args, **kwargs: {name: {} for name in kwargs["section_items"].keys()})
+    monkeypatch.setattr(worker, "normalize_media_override", lambda kind, media, item: {"badge": "Hero"})
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "run_skill_audit", lambda **kwargs: {"status": "ok"})
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "variation_guardrails_for", lambda *args, **kwargs: {})
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if "top-level keys observe, orient, decide, act" in prompt:
+            return {"observe": {}, "orient": {}, "decide": {}, "act": {}}
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {
+                "start_here": {"intro": "Start.", "body": "Body.", "kicker": "Kick."},
+                "current_status": {"intro": "Status.", "body": "Today.", "kicker": "Proof."},
+            }
+        if "section_oodas" in prompt.lower() or "section_ooda" in prompt.lower():
+            return {"start_here": {}, "current_status": {}}
+        return {"badge": "Hero", "title": "Chummer6"}
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        model="ea-groundwork",
+        page_ids=["start_here", "current_status"],
+    )
+
+    assert set(overrides["pages"].keys()) == {"start_here", "current_status"}
+    assert overrides["parts"] == {}
+    assert overrides["horizons"] == {}
+
+
+def test_generate_overrides_can_reuse_existing_global_ooda(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    chat_calls: list[str] = []
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "normalize_section_oodas_bundle", lambda *args, **kwargs: {name: {} for name in kwargs["section_items"].keys()})
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "run_skill_audit", lambda **kwargs: {"status": "ok"})
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        chat_calls.append(prompt)
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {
+                "start_here": {"intro": "Start.", "body": "Body.", "kicker": "Kick."},
+            }
+        return {"start_here": {}}
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        reused_ooda={"observe": {}, "orient": {}, "decide": {}, "act": {}},
+        page_ids=["start_here"],
+    )
+
+    assert set(overrides["pages"].keys()) == {"start_here"}
+    assert all("top-level keys observe, orient, decide, act" not in prompt for prompt in chat_calls)
+
+
+def test_generate_overrides_can_skip_skill_audits_for_partial_regen(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    audit_calls: list[str] = []
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "normalize_section_oodas_bundle", lambda *args, **kwargs: {name: {} for name in kwargs["section_items"].keys()})
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+
+    def fake_run_skill_audit(**kwargs):
+        audit_calls.append(kwargs["label"])
+        return {"status": "ok"}
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {
+                "start_here": {"intro": "Start.", "body": "Body.", "kicker": "Kick."},
+            }
+        return {"start_here": {}}
+
+    monkeypatch.setattr(worker, "run_skill_audit", fake_run_skill_audit)
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        reused_ooda={"observe": {}, "orient": {}, "decide": {}, "act": {}},
+        page_ids=["start_here"],
+        run_skill_audits=False,
+    )
+
+    assert audit_calls == []
+    assert overrides["meta"]["public_skill_audit"]["status"] == "skipped"
+    assert overrides["meta"]["pack_skill_audit"]["reason"] == "partial_regen"
+
+
+def test_generate_overrides_can_force_single_page_batches_for_quality(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    copy_prompts: list[str] = []
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+
+    def fake_build_section_oodas_bundle_prompt(section_type, batch, **kwargs):
+        raise AssertionError("focused quality page runs should skip page OODA generation")
+
+    def fake_build_pages_bundle_prompt(*, items, **kwargs):
+        prompt = f"PAGES:{','.join(items.keys())}"
+        copy_prompts.append(prompt)
+        return prompt
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if prompt.startswith("OODA:"):
+            names = [part for part in prompt.split(":", 1)[1].split(",") if part]
+            return {name: {} for name in names}
+        if prompt.startswith("PAGES:"):
+            names = [part for part in prompt.split(":", 1)[1].split(",") if part]
+            return {
+                name: {"intro": f"{name} intro", "body": f"{name} body", "kicker": f"{name} kicker"}
+                for name in names
+            }
+        return {"observe": {}, "orient": {}, "decide": {}, "act": {}}
+
+    monkeypatch.setattr(worker, "build_section_oodas_bundle_prompt", fake_build_section_oodas_bundle_prompt)
+    monkeypatch.setattr(worker, "build_pages_bundle_prompt", fake_build_pages_bundle_prompt)
+    monkeypatch.setattr(worker, "normalize_section_oodas_bundle", lambda result, **kwargs: dict(result))
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        reused_ooda={"observe": {}, "orient": {}, "decide": {}, "act": {}},
+        page_ids=["start_here", "current_status"],
+        run_skill_audits=False,
+        prefer_page_quality=True,
+    )
+
+    assert set(overrides["pages"].keys()) == {"start_here", "current_status"}
+    assert copy_prompts == ["PAGES:start_here", "PAGES:current_status"]
+
+
+def test_generate_overrides_repairs_single_page_bundle_without_requested_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "fallback_page_copy", lambda name, item, global_ooda: {"intro": "Fallback intro", "body": "Fallback body", "kicker": "Fallback kicker"})
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {
+                "intro": "Direct intro",
+                "body": "Direct body",
+                "kicker": "Direct kicker",
+            }
+        return {"observe": {}, "orient": {}, "decide": {}, "act": {}}
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        reused_ooda={"observe": {}, "orient": {}, "decide": {}, "act": {}},
+        page_ids=["start_here"],
+        run_skill_audits=False,
+        prefer_page_quality=True,
+    )
+
+    assert overrides["pages"]["start_here"]["intro"] == "Direct intro"
+    assert overrides["pages"]["start_here"]["body"] == "Direct body"
