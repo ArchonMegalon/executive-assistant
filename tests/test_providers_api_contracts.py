@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.parse
 
 import pytest
 
@@ -155,6 +156,61 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     disconnected_body = disconnected.json()
     assert disconnected_body["token_status"] == "revoked"
     assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
+
+
+def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-browser")
+
+    landing = owner.get("/")
+    assert landing.status_code == 200
+    assert "Executive Assistant" in landing.text
+    assert "Connect Google" in landing.text
+
+    started = owner.post(
+        "/google/connect",
+        data={"principal_id": "exec-browser", "scope_bundle": "send", "api_token": ""},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    location = started.headers["location"]
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in location
+    parsed = urllib.parse.urlparse(location)
+    query = urllib.parse.parse_qs(parsed.query)
+    state = query["state"][0]
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-browser",
+            "email": "browser@gmail.example",
+            "hd": "gmail.example",
+        },
+    )
+
+    callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
+    assert callback.status_code == 200
+    assert "Google Connected" in callback.text
+    assert "browser@gmail.example" in callback.text
+    assert "gmail.send" in callback.text
 
 
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:
