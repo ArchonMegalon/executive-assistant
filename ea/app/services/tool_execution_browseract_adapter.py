@@ -506,6 +506,14 @@ class BrowserActToolAdapter:
         return ""
 
     @staticmethod
+    def _browseract_normalization_payload(value: object) -> object:
+        if isinstance(value, dict):
+            task_output = BrowserActToolAdapter._browseract_task_output(value)
+            if task_output:
+                return task_output
+        return value
+
+    @staticmethod
     def _parse_number(value: object) -> float | None:
         if value is None:
             return None
@@ -602,6 +610,102 @@ class BrowserActToolAdapter:
         return ""
 
     @classmethod
+    def _extract_onemin_usage_rows(cls, value: object) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        seen: set[str] = set()
+
+        def _visit(node: object) -> None:
+            if isinstance(node, dict):
+                lowered = {cls._normalize_lookup_key(key): nested for key, nested in node.items()}
+                before_deduction = cls._parse_credit_int(
+                    lowered.get("before_deduction")
+                    or lowered.get("beforededuction")
+                )
+                after_deduction = cls._parse_credit_int(
+                    lowered.get("after_deduction")
+                    or lowered.get("afterdeduction")
+                    or lowered.get("remaining_credits")
+                )
+                credit = cls._parse_credit_int(
+                    lowered.get("credit")
+                    or lowered.get("credits")
+                    or lowered.get("deduction")
+                )
+                raw_date = str(lowered.get("date") or "").strip()
+                raw_time = str(lowered.get("time") or "").strip()
+                observed_at = cls._parse_datetime_text(
+                    lowered.get("observed_at")
+                    or lowered.get("created_at")
+                    or lowered.get("createdat")
+                    or lowered.get("datetime")
+                    or lowered.get("date_time")
+                    or " ".join(part for part in (raw_date, raw_time) if part)
+                    or raw_date
+                )
+                if (
+                    before_deduction is not None
+                    or after_deduction is not None
+                    or credit is not None
+                ):
+                    row = {
+                        "user": str(
+                            lowered.get("user")
+                            or lowered.get("name")
+                            or lowered.get("member_name")
+                            or ""
+                        ).strip(),
+                        "before_deduction": before_deduction,
+                        "after_deduction": after_deduction,
+                        "credit": credit,
+                        "date": raw_date,
+                        "time": raw_time,
+                        "observed_at": observed_at,
+                    }
+                    fingerprint = json.dumps(row, ensure_ascii=True, sort_keys=True)
+                    if fingerprint not in seen:
+                        seen.add(fingerprint)
+                        rows.append(row)
+                for nested in node.values():
+                    _visit(nested)
+                return
+            if isinstance(node, (list, tuple, set)):
+                for nested in node:
+                    _visit(nested)
+                return
+            if isinstance(node, str):
+                parsed = _load_jsonish(node)
+                if parsed is not None and parsed != node:
+                    _visit(parsed)
+
+        _visit(value)
+        return rows
+
+    @classmethod
+    def _latest_onemin_usage_remaining(cls, rows: list[dict[str, object]]) -> int | None:
+        latest_remaining: int | None = None
+        latest_epoch = float("-inf")
+        fallback_remaining: int | None = None
+        for index, row in enumerate(rows):
+            remaining = cls._parse_credit_int(row.get("after_deduction"))
+            if remaining is None:
+                continue
+            if fallback_remaining is None:
+                fallback_remaining = remaining
+            observed_at = cls._parse_datetime_text(row.get("observed_at"))
+            if observed_at:
+                try:
+                    epoch = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    epoch = float("-inf")
+                if epoch >= latest_epoch:
+                    latest_epoch = epoch
+                    latest_remaining = remaining
+                continue
+            if latest_remaining is None and index == 0:
+                latest_remaining = remaining
+        return latest_remaining if latest_remaining is not None else fallback_remaining
+
+    @classmethod
     def _normalize_onemin_billing_payload(
         cls,
         *,
@@ -609,9 +713,11 @@ class BrowserActToolAdapter:
         source_url: str,
         account_label: str,
     ) -> dict[str, object]:
-        scalar_map = cls._browseract_scalar_map(response)
-        raw_text = "\n\n".join(cls._browseract_text_candidates(response)).strip()
+        normalized_payload = cls._browseract_normalization_payload(response)
+        scalar_map = cls._browseract_scalar_map(normalized_payload)
+        raw_text = "\n\n".join(cls._browseract_text_candidates(normalized_payload)).strip()
         label_map = dict(scalar_map)
+        usage_rows = cls._extract_onemin_usage_rows(normalized_payload)
 
         remaining_credits = cls._parse_credit_int(
             cls._first_scalar_for_aliases(
@@ -631,7 +737,7 @@ class BrowserActToolAdapter:
                     "Credits available",
                 ),
             )
-        )
+        ) or cls._latest_onemin_usage_remaining(usage_rows)
         max_credits = cls._parse_credit_int(
             cls._first_scalar_for_aliases(
                 scalar_map,
@@ -685,6 +791,12 @@ class BrowserActToolAdapter:
             or raw_text
         )
         basis = "actual_billing_usage_page" if remaining_credits is not None else "page_seen_but_unparsed"
+        structured_output_json = {
+            "raw_text": raw_text,
+            "label_map": label_map,
+        }
+        if usage_rows:
+            structured_output_json["usage_history_json"] = usage_rows
         return {
             "provider_backend": "onemin_billing_usage_page",
             "account_label": account_label,
@@ -698,10 +810,7 @@ class BrowserActToolAdapter:
             "rollover_enabled": rollover_enabled,
             "source_url": source_url,
             "basis": basis,
-            "structured_output_json": {
-                "raw_text": raw_text,
-                "label_map": label_map,
-            },
+            "structured_output_json": structured_output_json,
         }
 
     @classmethod
@@ -790,7 +899,8 @@ class BrowserActToolAdapter:
     ) -> dict[str, object]:
         from app.services import responses_upstream as upstream
 
-        members = cls._extract_member_rows(response)
+        normalized_payload = cls._browseract_normalization_payload(response)
+        members = cls._extract_member_rows(normalized_payload)
         owner_entries = list(upstream._onemin_owner_entries())
         owner_emails = {
             str(row.get("owner_email") or "").strip().lower()
@@ -830,8 +940,8 @@ class BrowserActToolAdapter:
             "source_url": source_url,
             "basis": basis,
             "structured_output_json": {
-                "raw_text": "\n\n".join(cls._browseract_text_candidates(response)).strip(),
-                "label_map": cls._browseract_scalar_map(response),
+                "raw_text": "\n\n".join(cls._browseract_text_candidates(normalized_payload)).strip(),
+                "label_map": cls._browseract_scalar_map(normalized_payload),
             },
         }
 
