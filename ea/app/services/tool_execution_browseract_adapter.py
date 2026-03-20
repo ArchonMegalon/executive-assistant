@@ -998,8 +998,14 @@ class BrowserActToolAdapter:
             or binding_metadata.get("run_url")
             or ""
         ).strip()
-        if not run_url:
-            raise ToolExecutionError("run_url_required:browseract.onemin_billing_usage")
+        workflow_id = str(
+            payload.get("workflow_id")
+            or binding_metadata.get("onemin_billing_usage_workflow_id")
+            or binding_metadata.get("browseract_onemin_billing_usage_workflow_id")
+            or ""
+        ).strip()
+        if not run_url and not workflow_id:
+            raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_billing_usage")
         page_url = str(payload.get("page_url") or "https://app.1min.ai/billing-usage").strip() or "https://app.1min.ai/billing-usage"
         account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
         try:
@@ -1012,6 +1018,12 @@ class BrowserActToolAdapter:
             maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
             if isinstance(maybe, dict):
                 response = maybe
+            elif workflow_id and not run_url:
+                response = self._run_onemin_workflow_task(
+                    workflow_id=workflow_id,
+                    account_label=account_label,
+                    timeout_seconds=timeout_seconds,
+                )
             else:
                 response = self._post_browseract_json(
                     run_url=run_url,
@@ -1026,18 +1038,25 @@ class BrowserActToolAdapter:
                     timeout_seconds=timeout_seconds,
                 )
         else:
-            response = self._post_browseract_json(
-                run_url=run_url,
-                request_payload={
-                    "page_url": page_url,
-                    "account_label": account_label,
-                    "capture_raw_text": bool(payload.get("capture_raw_text", True)),
-                    "principal_id": principal_id,
-                    "binding_id": binding.binding_id,
-                    "external_account_ref": binding.external_account_ref,
-                },
-                timeout_seconds=timeout_seconds,
-            )
+            if workflow_id and not run_url:
+                response = self._run_onemin_workflow_task(
+                    workflow_id=workflow_id,
+                    account_label=account_label,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload={
+                        "page_url": page_url,
+                        "account_label": account_label,
+                        "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                        "principal_id": principal_id,
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                    },
+                    timeout_seconds=timeout_seconds,
+                )
         self._raise_for_ui_lane_failure(payload=response, backend="onemin_billing_usage")
         normalized = self._normalize_onemin_billing_payload(
             response=response,
@@ -1090,7 +1109,7 @@ class BrowserActToolAdapter:
                 "tool_version": definition.version,
                 "tool_name": definition.tool_name,
                 "action_kind": action_kind,
-                "requested_url": run_url,
+                "requested_url": run_url or f"browseract://workflow/{workflow_id}",
                 "source_url": page_url,
                 "account_label": account_label,
                 "basis": normalized.get("basis"),
@@ -1119,8 +1138,14 @@ class BrowserActToolAdapter:
             or binding_metadata.get("run_url")
             or ""
         ).strip()
-        if not run_url:
-            raise ToolExecutionError("run_url_required:browseract.onemin_member_reconciliation")
+        workflow_id = str(
+            payload.get("workflow_id")
+            or binding_metadata.get("onemin_members_workflow_id")
+            or binding_metadata.get("browseract_onemin_members_workflow_id")
+            or ""
+        ).strip()
+        if not run_url and not workflow_id:
+            raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_member_reconciliation")
         page_url = str(payload.get("page_url") or "https://app.1min.ai/members").strip() or "https://app.1min.ai/members"
         account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
         try:
@@ -1133,6 +1158,12 @@ class BrowserActToolAdapter:
             maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
             if isinstance(maybe, dict):
                 response = maybe
+            elif workflow_id and not run_url:
+                response = self._run_onemin_workflow_task(
+                    workflow_id=workflow_id,
+                    account_label=account_label,
+                    timeout_seconds=timeout_seconds,
+                )
             else:
                 response = self._post_browseract_json(
                     run_url=run_url,
@@ -1147,18 +1178,25 @@ class BrowserActToolAdapter:
                     timeout_seconds=timeout_seconds,
                 )
         else:
-            response = self._post_browseract_json(
-                run_url=run_url,
-                request_payload={
-                    "page_url": page_url,
-                    "account_label": account_label,
-                    "capture_raw_text": bool(payload.get("capture_raw_text", True)),
-                    "principal_id": principal_id,
-                    "binding_id": binding.binding_id,
-                    "external_account_ref": binding.external_account_ref,
-                },
-                timeout_seconds=timeout_seconds,
-            )
+            if workflow_id and not run_url:
+                response = self._run_onemin_workflow_task(
+                    workflow_id=workflow_id,
+                    account_label=account_label,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload={
+                        "page_url": page_url,
+                        "account_label": account_label,
+                        "capture_raw_text": bool(payload.get("capture_raw_text", True)),
+                        "principal_id": principal_id,
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                    },
+                    timeout_seconds=timeout_seconds,
+                )
         self._raise_for_ui_lane_failure(payload=response, backend="onemin_members")
         normalized = self._normalize_onemin_member_reconciliation_payload(
             response=response,
@@ -1208,7 +1246,7 @@ class BrowserActToolAdapter:
                 "tool_version": definition.version,
                 "tool_name": definition.tool_name,
                 "action_kind": action_kind,
-                "requested_url": run_url,
+                "requested_url": run_url or f"browseract://workflow/{workflow_id}",
                 "source_url": page_url,
                 "account_label": account_label,
                 "basis": normalized.get("basis"),
@@ -2251,10 +2289,33 @@ class BrowserActToolAdapter:
         workflow_id: str,
         prompt: str,
     ) -> dict[str, object]:
+        return self._run_browseract_workflow_task_with_inputs(
+            workflow_id=workflow_id,
+            input_values={"prompt": prompt},
+        )
+
+    @staticmethod
+    def _browseract_workflow_input_variants(input_values: dict[str, object]) -> list[object]:
+        values = {str(key or "").strip(): value for key, value in input_values.items() if str(key or "").strip()}
+        if not values:
+            return []
+        ordered = list(values.items())
+        return [
+            [{"name": key, "value": value} for key, value in ordered],
+            [{"key": key, "value": value} for key, value in ordered],
+            [{key: value for key, value in ordered}],
+            {key: value for key, value in ordered},
+        ]
+
+    def _run_browseract_workflow_task_with_inputs(
+        self,
+        *,
+        workflow_id: str,
+        input_values: dict[str, object],
+    ) -> dict[str, object]:
         payload_variants = [
-            {"workflow_id": workflow_id, "input_parameters": [{"name": "prompt", "value": prompt}]},
-            {"workflow_id": workflow_id, "input_parameters": [{"key": "prompt", "value": prompt}]},
-            {"workflow_id": workflow_id, "input_parameters": [{"prompt": prompt}]},
+            {"workflow_id": workflow_id, "input_parameters": candidate}
+            for candidate in self._browseract_workflow_input_variants(input_values)
         ]
         last_error = "browseract_run_task_failed"
         for candidate in payload_variants:
@@ -2264,6 +2325,52 @@ class BrowserActToolAdapter:
                 last_error = str(exc)
                 continue
         raise ToolExecutionError(last_error)
+
+    @staticmethod
+    def _onemin_browser_password() -> str:
+        return str(os.getenv("ONEMIN_DEFAULT_PASSWORD") or os.getenv("BROWSERACT_PASSWORD") or "").strip()
+
+    @staticmethod
+    def _onemin_owner_email_for_account(*, account_label: str) -> str:
+        from app.services import responses_upstream as upstream
+
+        normalized = str(account_label or "").strip()
+        if not normalized:
+            return ""
+        for row in upstream.onemin_owner_rows():
+            if normalized in {
+                str(row.get("account_name") or "").strip(),
+                str(row.get("slot") or "").strip(),
+                str(row.get("owner_label") or "").strip(),
+            }:
+                return str(row.get("owner_email") or "").strip()
+        return ""
+
+    def _run_onemin_workflow_task(
+        self,
+        *,
+        workflow_id: str,
+        account_label: str,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        owner_email = self._onemin_owner_email_for_account(account_label=account_label)
+        if not owner_email:
+            raise ToolExecutionError(f"owner_email_required:onemin:{account_label}")
+        password = self._onemin_browser_password()
+        if not password:
+            raise ToolExecutionError("onemin_password_missing")
+        started = self._run_browseract_workflow_task_with_inputs(
+            workflow_id=workflow_id,
+            input_values={
+                "browseract_username": owner_email,
+                "browseract_password": password,
+            },
+        )
+        return self._wait_for_browseract_task(
+            task_id=self._browseract_task_id(started),
+            timeout_seconds=timeout_seconds,
+            created_stall_seconds=min(120, timeout_seconds),
+        )
 
     def _wait_for_browseract_task(
         self,

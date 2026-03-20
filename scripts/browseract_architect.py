@@ -159,6 +159,8 @@ def normalize_spec(raw: dict[str, object]) -> dict[str, object]:
         config = dict(node.get("config") or {})
         inferred_name = str(config.get("value_from_input") or "").strip()
         if not inferred_name:
+            inferred_name = str(config.get("value_from_secret") or "").strip()
+        if not inferred_name:
             continue
         inferred_description = str(config.get("description") or f"Runtime input for {node['label']}.").strip()
         add_input(inferred_name, description=inferred_description)

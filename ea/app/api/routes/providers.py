@@ -273,6 +273,14 @@ def _binding_run_url(binding_metadata: dict[str, object], *keys: str) -> str:
     return ""
 
 
+def _binding_workflow_id(binding_metadata: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = str(binding_metadata.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _resolve_onemin_account_labels(binding) -> tuple[str, ...]:
     binding_metadata = dict(binding.auth_metadata_json or {})
 
@@ -754,10 +762,21 @@ def refresh_onemin_billing(
             "browseract_onemin_billing_usage_run_url",
             "run_url",
         )
+        billing_workflow_id = _binding_workflow_id(
+            binding_metadata,
+            "onemin_billing_usage_workflow_id",
+            "browseract_onemin_billing_usage_workflow_id",
+            "workflow_id",
+        )
         members_run_url = _binding_run_url(
             binding_metadata,
             "onemin_members_run_url",
             "browseract_onemin_members_run_url",
+        )
+        members_workflow_id = _binding_workflow_id(
+            binding_metadata,
+            "onemin_members_workflow_id",
+            "browseract_onemin_members_workflow_id",
         )
         account_labels = _resolve_onemin_account_labels(binding)
         if not account_labels:
@@ -770,12 +789,12 @@ def refresh_onemin_billing(
             )
             continue
 
-        if not billing_run_url:
+        if not billing_run_url and not billing_workflow_id:
             skipped.append(
                 {
                     "binding_id": binding.binding_id,
                     "external_account_ref": binding.external_account_ref,
-                    "reason": "billing_run_url_missing",
+                    "reason": "billing_workflow_missing",
                     "account_labels": list(account_labels),
                 }
             )
@@ -789,9 +808,10 @@ def refresh_onemin_billing(
                         action_kind="billing.inspect",
                         payload_json={
                             "binding_id": binding.binding_id,
-                            "run_url": billing_run_url,
                             "account_label": account_label,
                             "capture_raw_text": bool(payload.capture_raw_text),
+                            **({"run_url": billing_run_url} if billing_run_url else {}),
+                            **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
                             **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
                         },
                     )
@@ -816,12 +836,12 @@ def refresh_onemin_billing(
 
         if not payload.include_members:
             continue
-        if not members_run_url:
+        if not members_run_url and not members_workflow_id:
             skipped.append(
                 {
                     "binding_id": binding.binding_id,
                     "external_account_ref": binding.external_account_ref,
-                    "reason": "members_run_url_missing",
+                    "reason": "members_workflow_missing",
                     "account_labels": list(account_labels),
                 }
             )
@@ -835,9 +855,10 @@ def refresh_onemin_billing(
                     action_kind="billing.reconcile_members",
                     payload_json={
                         "binding_id": binding.binding_id,
-                        "run_url": members_run_url,
                         "account_label": account_label,
                         "capture_raw_text": bool(payload.capture_raw_text),
+                        **({"run_url": members_run_url} if members_run_url else {}),
+                        **({"workflow_id": members_workflow_id} if members_workflow_id else {}),
                         **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
                     },
                 )
