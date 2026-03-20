@@ -188,6 +188,28 @@ def recent_scene_rows(ledger: dict[str, object], *, limit: int = 8) -> list[dict
     return rows[-max(1, limit) :]
 
 
+def scene_rows_for_style_epoch(
+    ledger: dict[str, object],
+    *,
+    style_epoch: dict[str, object] | None,
+    allow_fallback: bool = True,
+) -> list[dict[str, object]]:
+    rows = scene_rows(ledger)
+    active = dict(style_epoch or {})
+    if not active:
+        return rows
+    filtered = [
+        row
+        for row in rows
+        if isinstance(row.get("style_epoch"), dict) and dict(row.get("style_epoch") or {}) == active
+    ]
+    if filtered:
+        return filtered
+    if allow_fallback:
+        return rows
+    return []
+
+
 def infer_cast_signature(contract: dict[str, object]) -> str:
     subject = str(contract.get("subject") or "").lower()
     composition = str(contract.get("composition") or "").lower()
@@ -494,7 +516,98 @@ def strip_easter_egg_clauses(text: str) -> str:
         normalized = re.sub(r"\s+,", ",", normalized)
         normalized = re.sub(r"\s+\.", ".", normalized)
         normalized = re.sub(r"\s+;", ";", normalized)
-        return normalized.strip(" ,;")
+        cleaned = normalized.strip(" ,;")
+    if clause_mentions_easter_egg(cleaned):
+        cleaned = re.sub(
+            r",?\s*(?:a|an|the|tiny|small|subtle|hidden|visible|clearly visible)?\s*troll\b[^,.;]*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+,", ",", cleaned)
+        cleaned = re.sub(r"\s+\.", ".", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned)
+        cleaned = cleaned.strip(" ,;")
+    return cleaned
+
+
+def contains_machine_overlay_language(text: str) -> bool:
+    lowered = " ".join(str(text or "").split()).strip().lower()
+    if not lowered:
+        return False
+    banned_tokens = (
+        "device id",
+        "signal strength",
+        "ghost-label",
+        "ghost label",
+        "metadata string",
+        "metadata strings",
+        "provenance hash",
+        "provenance hashes",
+        "version receipt",
+        "version receipts",
+        "verified stamp",
+        "verified stamps",
+        "compatibility checkmark",
+        "compatibility checkmarks",
+        "hud style:",
+        "id callout",
+        "id callouts",
+        "link verified",
+        "evidence chain",
+        "weapon diagnostics",
+        "accuracy modifiers",
+        "damage modifiers",
+        "smartlink electronics",
+        "barrel rifling",
+        "hardware diagnostics verified",
+        "ares predator",
+    )
+    if any(token in lowered for token in banned_tokens):
+        return True
+    if re.search(r"\b0x[0-9a-f]+\b", lowered):
+        return True
+    if re.search(r"\b\d+(?:\.\d+)?%\b", lowered):
+        return True
+    if re.search(r"\b\d+(?:\.\d+){1,}\b", lowered) and any(ch.isalpha() for ch in lowered):
+        return True
+    if ("'" in lowered or '"' in lowered) and re.search(r"['\"][A-Z0-9 _-]{3,}['\"]", str(text or "")):
+        return True
+    return False
+
+
+def sanitize_visual_prompt_text(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", cleaned)
+    kept: list[str] = []
+    for part in parts:
+        piece = str(part or "").strip()
+        if not piece:
+            continue
+        lowered_piece = piece.lower()
+        if any(
+            token in lowered_piece
+            for token in (
+                "no printed text",
+                "no readable words",
+                "no logo",
+                "no logos",
+                "no watermark",
+            )
+        ):
+            continue
+        if contains_machine_overlay_language(piece):
+            continue
+        kept.append(piece)
+    return " ".join(kept).strip()
+
+
+def sanitize_overlay_hint_text(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned or contains_machine_overlay_language(cleaned):
+        return ""
     return cleaned
 
 
@@ -517,6 +630,26 @@ def sanitize_scene_humor(text: str) -> str:
 
 
 def sanitize_text_list(values: object, *, allow_easter_egg: bool) -> list[str]:
+    def looks_like_machine_overlay_phrase(text: str) -> bool:
+        cleaned = " ".join(str(text or "").split()).strip()
+        if not cleaned:
+            return False
+        if "_" in cleaned:
+            return True
+        if re.search(r"\b0x[0-9a-f]+\b", cleaned, re.IGNORECASE):
+            return True
+        if re.search(r"\b\d+(?:\.\d+)?%\b", cleaned):
+            return True
+        if re.search(r"\b\d+(?:\.\d+){1,}\b", cleaned) and any(ch.isalpha() for ch in cleaned):
+            return True
+        if (":" in cleaned or "=" in cleaned) and re.search(r"[:=]\s*(?:0x[0-9a-f]+|[A-Z0-9_.%-]{2,}|\d)", cleaned, re.IGNORECASE):
+            return True
+        words = re.findall(r"[A-Za-z0-9%.-]+", cleaned)
+        if words and not any(ch.islower() for ch in cleaned):
+            if len(words) >= 2 or any(any(ch.isdigit() for ch in word) for word in words):
+                return True
+        return False
+
     if not isinstance(values, list):
         return []
     cleaned_values: list[str] = []
@@ -525,6 +658,8 @@ def sanitize_text_list(values: object, *, allow_easter_egg: bool) -> list[str]:
         if not text:
             continue
         if not allow_easter_egg and clause_mentions_easter_egg(text):
+            continue
+        if looks_like_machine_overlay_phrase(text):
             continue
         cleaned_values.append(text)
     return cleaned_values
@@ -557,6 +692,8 @@ def sanitize_media_row(*, target: str, row: dict[str, object]) -> dict[str, obje
     visual_prompt = " ".join(str(cleaned.get("visual_prompt") or "").split()).strip()
     if visual_prompt and not allow_easter_egg:
         cleaned["visual_prompt"] = strip_easter_egg_clauses(visual_prompt)
+    cleaned["visual_prompt"] = sanitize_visual_prompt_text(cleaned.get("visual_prompt")) or str(cleaned.get("visual_prompt") or "").strip()
+    cleaned["overlay_hint"] = sanitize_overlay_hint_text(cleaned.get("overlay_hint"))
     cleaned["visual_motifs"] = sanitize_text_list(cleaned.get("visual_motifs"), allow_easter_egg=allow_easter_egg)
     cleaned["overlay_callouts"] = sanitize_text_list(cleaned.get("overlay_callouts"), allow_easter_egg=allow_easter_egg)
     return cleaned
@@ -1375,6 +1512,14 @@ def prompt_refinement_attempts_enabled() -> bool:
     return any(env_value(name) for name in explicit_env_names)
 
 
+def prompt_refinement_timeout_seconds() -> int:
+    raw = env_value("CHUMMER6_PROMPT_REFINEMENT_TIMEOUT_SECONDS") or "25"
+    try:
+        return max(5, int(raw))
+    except Exception:
+        return 25
+
+
 def troll_postpass_enabled() -> bool:
     raw = env_value("CHUMMER6_TROLL_POSTPASS")
     return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -1382,10 +1527,9 @@ def troll_postpass_enabled() -> bool:
 
 def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     # OODA-authored visual_prompt is the required source of truth.
-    # External prompt refinement is an optional enhancer and should never
-    # block publishing unless it is explicitly marked required.
-    if not prompt_refinement_required():
-        return refine_prompt_local(prompt, target=target)
+    # External prompt refinement is an optional enhancer by default and should
+    # only block publishing when explicitly marked required.
+    base_prompt = refine_prompt_local(prompt, target=target)
     command_names = [
         "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
         "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
@@ -1398,16 +1542,20 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     ]
     attempted: list[str] = []
     external_expected = prompt_refinement_attempts_enabled()
+    refinement_required = prompt_refinement_required()
+    if not external_expected and not refinement_required:
+        return base_prompt
     for env_name in command_names:
         command = shlex_command(env_name)
         if not command:
             continue
         try:
             completed = subprocess.run(
-                [part.format(prompt=prompt, target=target) for part in command],
+                [part.format(prompt=base_prompt, target=target) for part in command],
                 check=True,
                 text=True,
                 capture_output=True,
+                timeout=prompt_refinement_timeout_seconds(),
             )
             refined = (completed.stdout or "").strip()
             if refined:
@@ -1420,7 +1568,7 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
         if not template:
             continue
         url = template.format(
-            prompt=urllib.parse.quote(prompt, safe=""),
+            prompt=urllib.parse.quote(base_prompt, safe=""),
             target=urllib.parse.quote(target, safe=""),
         )
         request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-PromptRefiner/1.0"})
@@ -1432,10 +1580,10 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
             attempted.append(f"{env_name}:empty_output")
         except Exception as exc:
             attempted.append(f"{env_name}:{exc}")
-    if external_expected and prompt_refinement_required():
+    if external_expected and refinement_required:
         detail = " || ".join(attempted) if attempted else "no_external_refiner_succeeded"
         raise RuntimeError(f"prompt_refinement_failed:{detail}")
-    return refine_prompt_local(prompt, target=target)
+    return base_prompt
 
 
 def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
@@ -1534,6 +1682,48 @@ def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
             "stamps, traces, tokens, light bars, and body language."
         )
     return "Use objects, symbols, and lighting to explain the moment before any readable text would."
+
+
+def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    composition = str(data.get("composition") or "").strip().lower()
+    if composition in {
+        "over_shoulder_receipt",
+        "transit_checkpoint",
+        "district_map",
+        "forensic_replay",
+        "passport_gate",
+        "rule_xray",
+        "conspiracy_wall",
+    }:
+        return (
+            "Diegetic smartlink assessment is welcome: use nonverbal threat posture cues, line-of-fire brackets, "
+            "cover confidence arcs, ingress cones, watch-angle silhouettes, or target-priority ghosts as in-world overlays. "
+            "Keep them symbolic and cinematic, never readable or numeric."
+        )
+    if composition in {"solo_operator", "service_rack", "simulation_lab", "mirror_split", "workshop_bench", "dossier_desk"}:
+        return (
+            "Light tactical AR is welcome: suggest posture checks, signal integrity halos, danger weighting, or consequence ghosts "
+            "through pictograms, brackets, and soft traces instead of readable HUD text."
+        )
+    return ""
+
+
+def lore_background_clause(contract: dict[str, object] | None) -> str:
+    data = contract if isinstance(contract, dict) else {}
+    composition = str(data.get("composition") or "").strip().lower()
+    if composition in {"street_front", "city_edge", "horizon_boulevard", "transit_checkpoint", "district_map"}:
+        return (
+            "A Shadowrun-lore background nod is welcome if the surface exists for it: dragon-warning graffiti energy, "
+            "crossed-out draconic pictograms, extraction arrows, or half-scrubbed alley scrawl in the distance. "
+            "Keep it secondary, weathered, and never clean readable typography."
+        )
+    if composition in {"dossier_desk", "workshop_bench", "simulation_lab", "solo_operator"}:
+        return (
+            "A scratched anti-dragon sigil, runner superstition sticker, talismonger ward mark, or dog-eared bounty card "
+            "can live in the background as secondary lore texture. Keep it subtle and never render it as crisp readable text."
+        )
+    return ""
 
 
 def scene_integrity_instruction_set(contract: dict[str, object] | None, *, target: str) -> str:
@@ -1812,8 +2002,10 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     metaphor = str(contract.get("metaphor") or "").strip()
     palette = str(contract.get("palette") or "rainy neon cyan and magenta").strip()
     mood = str(contract.get("mood") or "tense but inviting").strip()
+    smartlink = compact_text(smartlink_overlay_clause(contract), limit=88)
+    lore = compact_text(lore_background_clause(contract), limit=72)
     parts = [
-        "Wide cinematic cyberpunk concept art",
+        "Grounded cinematic cyberpunk scene still",
         subject,
         f"in {environment}",
         action,
@@ -1821,7 +2013,9 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
         mood,
         palette,
         "one focal subject",
-        easter_egg_stub(contract),
+        smartlink if smartlink else "",
+        lore if lore else "",
+        easter_egg_stub(contract) if scene_contract_requests_easter_egg(contract) else "",
         "no readable text no watermark 16:9",
     ]
     return ", ".join(part for part in parts if part)[:240]
@@ -1842,16 +2036,20 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     props = compact_items(contract.get("props"), limit=4, item_limit=32)
     motifs = compact_items((row.get("visual_motifs") or []), limit=4, item_limit=36)
     guardrail = compact_text(composition_visual_guardrails(contract), limit=156)
+    smartlink = compact_text(smartlink_overlay_clause(contract), limit=172)
+    lore = compact_text(lore_background_clause(contract), limit=156)
     parts = [
-        "Grounded cinematic cyberpunk guide art.",
+        "Grounded cinematic cyberpunk scene still.",
         visual_prompt,
-        compact_easter_egg_clause(contract),
+        compact_easter_egg_clause(contract) if scene_contract_requests_easter_egg(contract) else "",
         f"Focus on {subject}." if subject else "",
         f"Scene: {environment}." if environment else "",
         f"Moment: {action}." if action else "",
         f"Metaphor: {metaphor}." if metaphor else "",
         f"Composition: {composition}." if composition else "",
         f"Mood: {mood}." if mood else "",
+        f"Smartlink: {smartlink}." if smartlink else "",
+        f"Lore detail: {lore}." if lore else "",
         f"Props: {props}." if props else "",
         f"Motifs: {motifs}." if motifs else "",
         f"Guardrail: {guardrail}." if guardrail else "",
@@ -1860,7 +2058,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         "No watermark. 16:9.",
     ]
     compact_prompt = " ".join(part for part in parts if part)
-    return sanitize_prompt_for_provider(compact_prompt[:520], provider="onemin")
+    return sanitize_prompt_for_provider(compact_prompt[:680], provider="onemin")
 
 
 def _overlay_family(row: dict[str, object], spec: dict[str, object]) -> str:
@@ -2111,7 +2309,7 @@ def asset_specs() -> list[dict[str, object]]:
     pages = loaded.get("pages") if isinstance(loaded, dict) else {}
     style_epoch = style_epoch_for_overrides(loaded)
     ledger = load_scene_ledger()
-    recent_rows = recent_scene_rows(ledger)
+    recent_rows = scene_rows_for_style_epoch(ledger, style_epoch=style_epoch, allow_fallback=False)[-8:]
     section_ooda = loaded.get("section_ooda") if isinstance(loaded, dict) else {}
     page_ooda = section_ooda.get("pages") if isinstance(section_ooda, dict) else {}
     visual_overrides = load_visual_overrides()
@@ -2155,10 +2353,12 @@ def asset_specs() -> list[dict[str, object]]:
         normalized_target = target.replace("\\", "/")
         is_detail_still = "/details/" in normalized_target or normalized_target.endswith("-scene.png")
         intro_line = (
-            f"Close, prop-led cinematic cyberpunk scene still for the Chummer6 {role}."
+            f"Close, prop-led grounded cyberpunk scene still for the {role}."
             if is_detail_still
-            else f"Wide cinematic cyberpunk concept art for the Chummer6 {role}."
+            else f"Wide grounded cyberpunk scene still for the {role}."
         )
+        smartlink_clause = smartlink_overlay_clause(contract)
+        lore_clause = lore_background_clause(contract)
         prompt_parts = [
             intro_line,
             visual_prompt,
@@ -2172,9 +2372,11 @@ def asset_specs() -> list[dict[str, object]]:
             f"Humor note: {humor}." if humor else "",
             f"Concrete visible props: {props}." if props else "",
             f"Useful diegetic overlays in-scene: {overlays}." if overlays else "",
-            f"Reader-facing motifs to weave in visually: {motifs}." if motifs else "",
-            f"Overlay ideas to imply, not print literally: {callouts}." if callouts else "",
-            f"Style epoch to keep consistent across this pass: {style_bits}." if style_bits else "",
+            f"Weave in these recurring visual motifs: {motifs}." if motifs else "",
+            f"Imply these idea markers through props and framing, never through readable text: {callouts}." if callouts else "",
+            smartlink_clause,
+            lore_clause,
+            f"Keep the overall look consistent with: {style_bits}." if style_bits else "",
             "Variation rules: " + " ".join(guardrails) if guardrails else "",
             easter_egg_clause(contract) if scene_contract_requests_easter_egg(contract) else "",
             "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
@@ -2551,10 +2753,10 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         raise RuntimeError("no asset specs selected for rendering")
     output_dir.mkdir(parents=True, exist_ok=True)
     ledger = load_scene_ledger()
-    accepted_rows = scene_rows(ledger)
     active_style_epoch = {}
     if specs and isinstance(specs[0].get("style_epoch"), dict):
         active_style_epoch = dict(specs[0].get("style_epoch") or {})
+    accepted_rows = scene_rows_for_style_epoch(ledger, style_epoch=active_style_epoch, allow_fallback=False)
     audited_compositions = [
         str(
             (
