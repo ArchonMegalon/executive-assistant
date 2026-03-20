@@ -18,6 +18,390 @@ COMMON_CLOSE_SELECTORS = [
 ]
 
 
+def onemin_login_modal_inputs() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "browseract_username",
+            "description": "1min login email for the selected account.",
+        },
+        {
+            "name": "browseract_password",
+            "description": "1min login password for the selected account.",
+        },
+    ]
+
+
+def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]]]:
+    nodes = [
+        {
+            "id": "open_login",
+            "type": "visit_page",
+            "label": "Open Login",
+            "config": {"url": ONEMIN_LOGIN_URL},
+        },
+        {
+            "id": "open_login_modal",
+            "type": "click",
+            "label": "Open Login Modal",
+            "config": {
+                "selector": 'button:has-text("Log In"), a:has-text("Log In"), [role=button]:has-text("Log In")',
+            },
+        },
+        {
+            "id": "email",
+            "type": "input_text",
+            "label": "Email",
+            "config": {
+                "selector": 'input[placeholder="Email"], input[aria-label="Email"], input[type=email]',
+                "value_from_secret": "browseract_username",
+            },
+        },
+        {
+            "id": "password",
+            "type": "input_text",
+            "label": "Password",
+            "config": {
+                "selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
+                "value_from_secret": "browseract_password",
+            },
+        },
+        {
+            "id": "submit",
+            "type": "click",
+            "label": "Submit",
+            "config": {"selector": 'button[type=submit], button:has-text("Log In")'},
+        },
+        {
+            "id": "wait_dashboard",
+            "type": "wait",
+            "label": "Wait Dashboard",
+            "config": {"selector": "body"},
+        },
+    ]
+    edges = [
+        ["open_login", "open_login_modal"],
+        ["open_login_modal", "email"],
+        ["email", "password"],
+        ["password", "submit"],
+        ["submit", "wait_dashboard"],
+    ]
+    return nodes, edges
+
+
+def onemin_daily_bonus_workflow_spec() -> dict[str, object]:
+    nodes, edges = onemin_login_modal_prefix()
+    nodes.extend(
+        [
+            {
+                "id": "open_billing_usage",
+                "type": "visit_page",
+                "label": "Open Billing Usage",
+                "config": {"url": ONEMIN_BILLING_USAGE_URL},
+            },
+            {
+                "id": "dismiss_overlay_01",
+                "type": "click",
+                "label": "Dismiss Overlay 1",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0]},
+            },
+            {
+                "id": "dismiss_overlay_02",
+                "type": "click",
+                "label": "Dismiss Overlay 2",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1]},
+            },
+            {
+                "id": "dismiss_overlay_03",
+                "type": "click",
+                "label": "Dismiss Overlay 3",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2]},
+            },
+            {
+                "id": "wait_billing_usage",
+                "type": "wait",
+                "label": "Wait Billing Usage",
+                "config": {"selector": "main, body"},
+            },
+            {
+                "id": "unlock_free_credits",
+                "type": "click",
+                "label": "Unlock Free Credits",
+                "config": {
+                    "selector": 'button:has-text("Unlock Free Credits"), [role=button]:has-text("Unlock Free Credits")',
+                },
+            },
+            {
+                "id": "wait_bonus_surface",
+                "type": "wait",
+                "label": "Wait Bonus Surface",
+                "config": {"selector": "main, body"},
+            },
+            {
+                "id": "extract_daily_bonus",
+                "type": "extract",
+                "label": "Extract Daily Bonus",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "daily_bonus_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "output_result",
+                "type": "output",
+                "label": "Output Result",
+                "config": {
+                    "field_name": "daily_bonus_page",
+                    "description": "Publish the daily bonus surface for API callers.",
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            ["wait_dashboard", "open_billing_usage"],
+            ["open_billing_usage", "dismiss_overlay_01"],
+            ["dismiss_overlay_01", "dismiss_overlay_02"],
+            ["dismiss_overlay_02", "dismiss_overlay_03"],
+            ["dismiss_overlay_03", "wait_billing_usage"],
+            ["wait_billing_usage", "unlock_free_credits"],
+            ["unlock_free_credits", "wait_bonus_surface"],
+            ["wait_bonus_surface", "extract_daily_bonus"],
+            ["extract_daily_bonus", "output_result"],
+        ]
+    )
+    return {
+        "workflow_name": "1min Daily Bonus Check-in",
+        "description": "Sign in to 1min.AI, open the billing surface, trigger the free-credit unlock path, and extract the visible daily bonus/check-in state for later normalization.",
+        "publish": True,
+        "mcp_ready": False,
+        "inputs": onemin_login_modal_inputs(),
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "slug": "onemin_daily_bonus_checkin_live",
+            "output_dir": str(DEFAULT_OUTPUT_DIR),
+            "status": "pending_browseract_seed",
+            "workflow_kind": "page_extract",
+        },
+    }
+
+
+def onemin_billing_usage_workflow_spec() -> dict[str, object]:
+    nodes, edges = onemin_login_modal_prefix()
+    nodes.extend(
+        [
+            {
+                "id": "open_billing_usage",
+                "type": "visit_page",
+                "label": "Open Billing Usage",
+                "config": {"url": ONEMIN_BILLING_USAGE_URL},
+            },
+            {
+                "id": "dismiss_overlay_01",
+                "type": "click",
+                "label": "Dismiss Overlay 1",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0]},
+            },
+            {
+                "id": "dismiss_overlay_02",
+                "type": "click",
+                "label": "Dismiss Overlay 2",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1]},
+            },
+            {
+                "id": "dismiss_overlay_03",
+                "type": "click",
+                "label": "Dismiss Overlay 3",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2]},
+            },
+            {
+                "id": "wait_billing_usage",
+                "type": "wait",
+                "label": "Wait Billing Usage",
+                "config": {"selector": "main, body"},
+            },
+            {
+                "id": "extract_billing_settings",
+                "type": "extract",
+                "label": "Extract Billing Settings",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_settings_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "extract_usage_records",
+                "type": "extract",
+                "label": "Extract Usage Records",
+                "config": {
+                    "selector": "table, main, body",
+                    "field_name": "usage_records_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "extract_pre_bonus_page",
+                "type": "extract",
+                "label": "Extract Billing Page Before Bonus",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_usage_pre_bonus_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "unlock_free_credits",
+                "type": "click",
+                "label": "Unlock Free Credits",
+                "config": {
+                    "selector": 'button:has-text("Unlock Free Credits"), [role=button]:has-text("Unlock Free Credits")',
+                },
+            },
+            {
+                "id": "wait_bonus_surface",
+                "type": "wait",
+                "label": "Wait Bonus Surface",
+                "config": {"selector": "main, body"},
+            },
+            {
+                "id": "extract_billing_bonus_page",
+                "type": "extract",
+                "label": "Extract Billing Page After Bonus",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_usage_bonus_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "output_result",
+                "type": "output",
+                "label": "Output Result",
+                "config": {
+                    "field_name": "billing_usage_bonus_page",
+                    "description": "Publish the combined 1min billing page after opening the free-credit surface so API callers can answer balance, burn, and bonus questions from one run.",
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            ["wait_dashboard", "open_billing_usage"],
+            ["open_billing_usage", "dismiss_overlay_01"],
+            ["dismiss_overlay_01", "dismiss_overlay_02"],
+            ["dismiss_overlay_02", "dismiss_overlay_03"],
+            ["dismiss_overlay_03", "wait_billing_usage"],
+            ["wait_billing_usage", "extract_billing_settings"],
+            ["extract_billing_settings", "extract_usage_records"],
+            ["extract_usage_records", "extract_pre_bonus_page"],
+            ["extract_pre_bonus_page", "unlock_free_credits"],
+            ["unlock_free_credits", "wait_bonus_surface"],
+            ["wait_bonus_surface", "extract_billing_bonus_page"],
+            ["extract_billing_bonus_page", "output_result"],
+        ]
+    )
+    return {
+        "workflow_name": "1min Billing Usage Reader",
+        "description": "Sign in to 1min.AI, extract the visible billing settings and usage records, capture the full pre-bonus billing page, then trigger the free-credit unlock path and publish the post-click page so one BrowserAct run supports balance, burn, plan, and bonus questions.",
+        "publish": True,
+        "mcp_ready": False,
+        "inputs": onemin_login_modal_inputs(),
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "slug": "onemin_billing_usage_reader_live",
+            "output_dir": str(DEFAULT_OUTPUT_DIR),
+            "status": "pending_browseract_seed",
+            "workflow_kind": "page_extract",
+        },
+    }
+
+
+def onemin_members_workflow_spec() -> dict[str, object]:
+    nodes, edges = onemin_login_modal_prefix()
+    nodes.extend(
+        [
+            {
+                "id": "open_members",
+                "type": "visit_page",
+                "label": "Open Members",
+                "config": {"url": ONEMIN_MEMBERS_URL},
+            },
+            {
+                "id": "dismiss_overlay_01",
+                "type": "click",
+                "label": "Dismiss Overlay 1",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0]},
+            },
+            {
+                "id": "dismiss_overlay_02",
+                "type": "click",
+                "label": "Dismiss Overlay 2",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1]},
+            },
+            {
+                "id": "dismiss_overlay_03",
+                "type": "click",
+                "label": "Dismiss Overlay 3",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2]},
+            },
+            {
+                "id": "wait_members",
+                "type": "wait",
+                "label": "Wait Members",
+                "config": {"selector": "main, body"},
+            },
+            {
+                "id": "extract_members",
+                "type": "extract",
+                "label": "Extract Members",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "members_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "output_result",
+                "type": "output",
+                "label": "Output Result",
+                "config": {
+                    "field_name": "members_page",
+                    "description": "Publish the members surface for API callers.",
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            ["wait_dashboard", "open_members"],
+            ["open_members", "dismiss_overlay_01"],
+            ["dismiss_overlay_01", "dismiss_overlay_02"],
+            ["dismiss_overlay_02", "dismiss_overlay_03"],
+            ["dismiss_overlay_03", "wait_members"],
+            ["wait_members", "extract_members"],
+            ["extract_members", "output_result"],
+        ]
+    )
+    return {
+        "workflow_name": "1min Members Reconciliation Reader",
+        "description": "Sign in to 1min.AI, open the members surface, and extract the visible member roster, statuses, and credit-limit hints for owner reconciliation.",
+        "publish": True,
+        "mcp_ready": False,
+        "inputs": onemin_login_modal_inputs(),
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "slug": "onemin_members_reconciliation_live",
+            "output_dir": str(DEFAULT_OUTPUT_DIR),
+            "status": "pending_browseract_seed",
+            "workflow_kind": "page_extract",
+        },
+    }
+
+
 def build_skill_payload() -> dict[str, object]:
     return {
         "skill_key": "browseract_bootstrap_manager",
@@ -55,28 +439,30 @@ def templates() -> list[dict[str, object]]:
         {
             "slug": "onemin_daily_bonus_checkin_live",
             "workflow_name": "1min Daily Bonus Check-in",
-            "purpose": "Sign in to the 1min.AI app, land on the authenticated home/dashboard surface, and extract the visible daily bonus or check-in state so operators can verify the daily credit claim path.",
-            "login_url": ONEMIN_LOGIN_URL,
-            "tool_url": ONEMIN_APP_URL,
-            "workflow_kind": "page_extract",
-            "wait_selector": "main, body",
-            "title_selector": "h1, h2, [role='heading']",
-            "result_selector": "main, body",
-            "result_field_name": "daily_bonus_page",
-            "dismiss_selectors": COMMON_CLOSE_SELECTORS,
-        },
-        {
-            "slug": "onemin_billing_usage_reader_live",
-            "workflow_name": "1min Billing Usage Reader",
-            "purpose": "Sign in to the 1min.AI app, open the billing/usage surface, and extract the visible credits, renewal, and usage text for later normalization into billing snapshots.",
+            "purpose": "Sign in to the 1min.AI app, open the billing surface, trigger the free-credit unlock path, and extract the visible daily bonus or check-in state so operators can verify the recurring credit claim path.",
             "login_url": ONEMIN_LOGIN_URL,
             "tool_url": ONEMIN_BILLING_USAGE_URL,
             "workflow_kind": "page_extract",
             "wait_selector": "main, body",
             "title_selector": "h1, h2, [role='heading']",
             "result_selector": "main, body",
-            "result_field_name": "billing_usage_page",
+            "result_field_name": "daily_bonus_page",
             "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+            "workflow_spec_json": onemin_daily_bonus_workflow_spec(),
+        },
+        {
+            "slug": "onemin_billing_usage_reader_live",
+            "workflow_name": "1min Billing Usage Reader",
+            "purpose": "Sign in to the 1min.AI app, extract billing settings plus usage records, capture the full billing page before and after opening the free-credit unlock path, and keep enough text for stable balance, burn, plan, and bonus normalization from one BrowserAct run.",
+            "login_url": ONEMIN_LOGIN_URL,
+            "tool_url": ONEMIN_BILLING_USAGE_URL,
+            "workflow_kind": "page_extract",
+            "wait_selector": "main, body",
+            "title_selector": "h1, h2, [role='heading']",
+            "result_selector": "main, body",
+            "result_field_name": "billing_usage_bonus_page",
+            "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+            "workflow_spec_json": onemin_billing_usage_workflow_spec(),
         },
         {
             "slug": "onemin_members_reconciliation_live",
@@ -90,6 +476,7 @@ def templates() -> list[dict[str, object]]:
             "result_selector": "main, body",
             "result_field_name": "members_page",
             "dismiss_selectors": COMMON_CLOSE_SELECTORS,
+            "workflow_spec_json": onemin_members_workflow_spec(),
         },
         {
             "slug": "economist_article_reader_live",

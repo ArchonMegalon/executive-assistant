@@ -472,6 +472,13 @@ class BrowserActToolAdapter:
                         "normalized_text",
                         "page_body",
                         "billing_usage_page",
+                        "billing_usage_pre_bonus_page",
+                        "billing_usage_bonus_page",
+                        "billing_settings_page",
+                        "usage_statistics_page",
+                        "usage_records_page",
+                        "invoice_page",
+                        "unlock_free_credits_surface",
                         "daily_bonus_page",
                         "members_page",
                         "output_text",
@@ -610,6 +617,23 @@ class BrowserActToolAdapter:
         return ""
 
     @classmethod
+    def _visible_labels(cls, raw_text: str, labels: tuple[str, ...]) -> list[str]:
+        text = str(raw_text or "")
+        if not text:
+            return []
+        found: list[str] = []
+        seen: set[str] = set()
+        for label in labels:
+            if re.search(rf"\b{re.escape(label)}\b", text, flags=re.IGNORECASE) is None:
+                continue
+            key = cls._normalize_lookup_key(label)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(label)
+        return found
+
+    @classmethod
     def _extract_onemin_usage_rows(cls, value: object) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         seen: set[str] = set()
@@ -706,6 +730,166 @@ class BrowserActToolAdapter:
         return latest_remaining if latest_remaining is not None else fallback_remaining
 
     @classmethod
+    def _summarize_onemin_usage_rows(cls, rows: list[dict[str, object]]) -> dict[str, object]:
+        usage_history_count = len(rows)
+        latest_usage_at = None
+        earliest_usage_at = None
+        latest_usage_credit = None
+        observed_usage_credits_total = None
+        observed_usage_window_hours = None
+        observed_usage_burn_credits_per_hour = None
+        latest_epoch = float("-inf")
+        earliest_epoch = float("inf")
+        credit_total = 0
+        credit_count = 0
+
+        for index, row in enumerate(rows):
+            credit = cls._parse_credit_int(row.get("credit"))
+            if credit is not None:
+                credit_total += credit
+                credit_count += 1
+            observed_at = cls._parse_datetime_text(row.get("observed_at"))
+            if not observed_at:
+                continue
+            try:
+                epoch = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                continue
+            if epoch >= latest_epoch:
+                latest_epoch = epoch
+                latest_usage_at = observed_at
+                latest_usage_credit = credit
+            if epoch <= earliest_epoch:
+                earliest_epoch = epoch
+                earliest_usage_at = observed_at
+            if latest_usage_at is None and index == 0:
+                latest_usage_at = observed_at
+                latest_usage_credit = credit
+
+        if credit_count > 0:
+            observed_usage_credits_total = credit_total
+        raw_usage_window_hours = None
+        if latest_epoch > earliest_epoch >= 0:
+            raw_usage_window_hours = (latest_epoch - earliest_epoch) / 3600.0
+            observed_usage_window_hours = round(raw_usage_window_hours, 4)
+        if (
+            observed_usage_credits_total is not None
+            and raw_usage_window_hours not in (None, 0)
+        ):
+            observed_usage_burn_credits_per_hour = round(
+                float(observed_usage_credits_total) / float(raw_usage_window_hours),
+                2,
+            )
+
+        return {
+            "usage_history_count": usage_history_count,
+            "latest_usage_at": latest_usage_at,
+            "earliest_usage_at": earliest_usage_at,
+            "latest_usage_credit": latest_usage_credit,
+            "observed_usage_credits_total": observed_usage_credits_total,
+            "observed_usage_window_hours": observed_usage_window_hours,
+            "observed_usage_burn_credits_per_hour": observed_usage_burn_credits_per_hour,
+        }
+
+    @classmethod
+    def _extract_onemin_billing_sections(cls, value: object) -> dict[str, list[dict[str, object]]]:
+        sections: dict[str, list[dict[str, object]]] = {}
+
+        def _visit(node: object) -> None:
+            if isinstance(node, dict):
+                lowered = {cls._normalize_lookup_key(key): item for key, item in node.items()}
+                section_type = str(lowered.get("section_type") or lowered.get("section") or "").strip()
+                if section_type:
+                    sections.setdefault(cls._normalize_lookup_key(section_type), []).append(dict(node))
+                for child in node.values():
+                    _visit(child)
+            elif isinstance(node, list):
+                for item in node:
+                    _visit(item)
+
+        _visit(value)
+        return sections
+
+    @classmethod
+    def _first_onemin_section_scalar(
+        cls,
+        sections: dict[str, list[dict[str, object]]],
+        section_names: tuple[str, ...],
+        *aliases: str,
+    ) -> object:
+        for section_name in section_names:
+            rows = sections.get(cls._normalize_lookup_key(section_name), [])
+            for row in rows:
+                lowered = {cls._normalize_lookup_key(key): value for key, value in row.items()}
+                for alias in aliases:
+                    value = lowered.get(cls._normalize_lookup_key(alias))
+                    if value not in (None, "", [], {}):
+                        return value
+        return ""
+
+    @classmethod
+    def _extract_onemin_bonus_rows(
+        cls,
+        sections: dict[str, list[dict[str, object]]],
+    ) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for row in sections.get("billing_usage_bonus_page", []):
+            bonus_type = str(row.get("bonus_type") or row.get("name") or row.get("title") or "").strip()
+            description = str(
+                row.get("description")
+                or row.get("bonus_description")
+                or row.get("details")
+                or ""
+            ).strip()
+            bonus_credits = cls._parse_credit_int(
+                row.get("bonus_credits") or row.get("credits") or row.get("reward_credits")
+            )
+            rows.append(
+                {
+                    "bonus_type": bonus_type or None,
+                    "bonus_credits": bonus_credits,
+                    "description": description or None,
+                }
+            )
+        return rows
+
+    @classmethod
+    def _extract_onemin_json_rows_from_text(cls, raw_text: str) -> list[dict[str, object]]:
+        text = str(raw_text or "").strip()
+        if not text:
+            return []
+        candidates = [text]
+        start = text.find("[")
+        end = text.rfind("]")
+        if 0 <= start < end:
+            candidates.append(text[start : end + 1])
+        rows: list[dict[str, object]] = []
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            if not isinstance(parsed, list):
+                continue
+            rows = [dict(item) for item in parsed if isinstance(item, dict)]
+            if rows:
+                return rows
+        return []
+
+    @classmethod
+    def _infer_onemin_billing_section_name(cls, row: dict[str, object]) -> str:
+        lowered = {cls._normalize_lookup_key(key): value for key, value in row.items()}
+        if any(key in lowered for key in ("plan_name", "billing_plan", "billing_cycle", "available_credit", "current_credit", "credit_balance")):
+            return "billing_settings_page"
+        if any(key in lowered for key in ("bonus_type", "bonus_description", "requirement")):
+            return "billing_usage_bonus_page"
+        if any(key in lowered for key in ("before_deduction", "after_deduction", "credit", "record_type")):
+            return "usage_records_page"
+        return ""
+
+    @classmethod
     def _normalize_onemin_billing_payload(
         cls,
         *,
@@ -717,9 +901,68 @@ class BrowserActToolAdapter:
         scalar_map = cls._browseract_scalar_map(normalized_payload)
         raw_text = "\n\n".join(cls._browseract_text_candidates(normalized_payload)).strip()
         label_map = dict(scalar_map)
+        section_rows = cls._extract_onemin_billing_sections(normalized_payload)
+        json_rows = cls._extract_onemin_json_rows_from_text(raw_text)
+        for row in json_rows:
+            inferred_section = cls._infer_onemin_billing_section_name(row)
+            if inferred_section:
+                section_rows.setdefault(inferred_section, []).append(row)
         usage_rows = cls._extract_onemin_usage_rows(normalized_payload)
+        if not usage_rows and json_rows:
+            usage_rows = cls._extract_onemin_usage_rows(json_rows)
+        bonus_rows = cls._extract_onemin_bonus_rows(section_rows)
+        visible_actions = cls._visible_labels(
+            raw_text,
+            (
+                "Manage Subscription",
+                "Top Up Credits",
+                "Unlock Free Credits",
+                "Claim Free Credits",
+                "Claim Daily Bonus",
+            ),
+        )
+        visible_tabs = cls._visible_labels(
+            raw_text,
+            (
+                "Subscription",
+                "Invoice",
+                "Voucher",
+                "Usage Statistics",
+                "Usage Records",
+            ),
+        )
+        for section_name, tab_label in (
+            ("billing_settings_page", "Subscription"),
+            ("usage_records_page", "Usage Records"),
+            ("billing_usage_bonus_page", "Voucher"),
+        ):
+            if section_rows.get(section_name) and tab_label not in visible_tabs:
+                visible_tabs.append(tab_label)
+        for alias in (
+            "manage_subscription_button_text",
+            "top_up_credits_button_text",
+            "unlock_free_credits_button_text",
+            "claim_free_credits_button_text",
+            "claim_daily_bonus_button_text",
+        ):
+            value = str(
+                cls._first_onemin_section_scalar(section_rows, ("billing_settings_page",), alias) or ""
+            ).strip()
+            if value and value not in visible_actions:
+                visible_actions.append(value)
+        settings_remaining_credits = cls._parse_credit_int(
+            cls._first_onemin_section_scalar(
+                section_rows,
+                ("billing_settings_page",),
+                "current_credit",
+                "credit_balance",
+                "credit_balance_after_bonus",
+                "remaining_credits",
+                "current_balance",
+            )
+        )
 
-        remaining_credits = cls._parse_credit_int(
+        remaining_credits = settings_remaining_credits or cls._parse_credit_int(
             cls._first_scalar_for_aliases(
                 scalar_map,
                 "remaining_credits",
@@ -737,7 +980,14 @@ class BrowserActToolAdapter:
                     "Credits available",
                 ),
             )
-        ) or cls._latest_onemin_usage_remaining(usage_rows)
+        )
+        if remaining_credits is None:
+            remaining_credits = cls._latest_onemin_usage_remaining(usage_rows)
+        if remaining_credits is None:
+            remaining_credits = cls._parse_credit_int(
+                cls._first_scalar_for_aliases(scalar_map, "credit")
+                or cls._find_label_value(raw_text, ("Credit",))
+            )
         max_credits = cls._parse_credit_int(
             cls._first_scalar_for_aliases(
                 scalar_map,
@@ -790,11 +1040,155 @@ class BrowserActToolAdapter:
             cls._first_scalar_for_aliases(scalar_map, "rollover_enabled", "rollover")
             or raw_text
         )
+        plan_name = (
+            str(
+                cls._first_onemin_section_scalar(
+                    section_rows,
+                    ("billing_settings_page",),
+                    "plan_name",
+                    "billing_plan",
+                    "plan",
+                    "subscription_plan",
+                )
+                or ""
+            ).strip()
+            or
+            cls._first_scalar_for_aliases(scalar_map, "plan_name", "plan", "subscription_plan")
+            or cls._find_label_value(raw_text, ("Plan",))
+        )
+        billing_cycle = (
+            str(
+                cls._first_onemin_section_scalar(
+                    section_rows,
+                    ("billing_settings_page",),
+                    "billing_cycle",
+                    "cycle",
+                    "subscription_cycle",
+                )
+                or ""
+            ).strip()
+            or
+            cls._first_scalar_for_aliases(scalar_map, "billing_cycle", "cycle", "subscription_cycle")
+            or cls._find_label_value(raw_text, ("Billing Cycle", "Cycle"))
+        )
+        subscription_status = (
+            str(
+                cls._first_onemin_section_scalar(
+                    section_rows,
+                    ("billing_settings_page",),
+                    "subscription_status",
+                    "status",
+                )
+                or ""
+            ).strip()
+            or
+            cls._first_scalar_for_aliases(scalar_map, "subscription_status", "status")
+            or cls._find_label_value(raw_text, ("Subscription Status", "Status"))
+        )
+        daily_bonus_cta_text = str(
+            cls._first_onemin_section_scalar(
+                section_rows,
+                ("billing_settings_page",),
+                "unlock_free_credits_button_text",
+                "claim_free_credits_button_text",
+                "claim_daily_bonus_button_text",
+            )
+            or ""
+        ).strip()
+        for label in (
+            "Unlock Free Credits",
+            "Claim Free Credits",
+            "Claim Daily Bonus",
+            "Claim Bonus",
+            "Daily Bonus",
+            "Check In",
+            "Check-In",
+        ):
+            if not daily_bonus_cta_text and re.search(rf"\b{re.escape(label)}\b", raw_text, flags=re.IGNORECASE):
+                daily_bonus_cta_text = label
+                break
+        daily_visit_bonus_row = next(
+            (
+                row
+                for row in bonus_rows
+                if "daily_visit" in cls._normalize_lookup_key(row.get("bonus_type") or "")
+                or "every_day" in cls._normalize_lookup_key(row.get("description") or "")
+            ),
+            None,
+        )
+        daily_bonus_available = None
+        lowered_raw_text = raw_text.lower()
+        if daily_bonus_cta_text or daily_visit_bonus_row is not None:
+            daily_bonus_available = True
+        elif any(
+            marker in lowered_raw_text
+            for marker in (
+                "already claimed",
+                "claimed today",
+                "come back tomorrow",
+                "next claim",
+                "free credits unlocked",
+            )
+        ):
+            daily_bonus_available = False
+        daily_bonus_credits = (
+            daily_visit_bonus_row.get("bonus_credits")
+            if isinstance(daily_visit_bonus_row, dict)
+            else None
+        ) or cls._parse_credit_int(
+            cls._first_scalar_for_aliases(
+                scalar_map,
+                "daily_bonus_credits",
+                "bonus_credits",
+                "free_credit_amount",
+                "free_credits_amount",
+                "claim_amount",
+                "reward_credits",
+            )
+            or cls._find_label_value(
+                raw_text,
+                (
+                    "Daily bonus",
+                    "Bonus credits",
+                    "Daily reward",
+                    "Free credits reward",
+                    "Claim amount",
+                ),
+            )
+        )
+        usage_summary = cls._summarize_onemin_usage_rows(usage_rows)
+        latest_usage_at = usage_summary.get("latest_usage_at")
+        earliest_usage_at = usage_summary.get("earliest_usage_at")
+        latest_usage_credit = usage_summary.get("latest_usage_credit")
+        observed_usage_credits_total = usage_summary.get("observed_usage_credits_total")
+        observed_usage_window_hours = usage_summary.get("observed_usage_window_hours")
+        observed_usage_burn_credits_per_hour = usage_summary.get("observed_usage_burn_credits_per_hour")
         basis = "actual_billing_usage_page" if remaining_credits is not None else "page_seen_but_unparsed"
         structured_output_json = {
             "raw_text": raw_text,
             "label_map": label_map,
+            "visible_actions_json": visible_actions,
+            "visible_tabs_json": visible_tabs,
+            "billing_overview_json": {
+                "plan_name": plan_name or None,
+                "billing_cycle": billing_cycle or None,
+                "subscription_status": subscription_status or None,
+                "daily_bonus_cta_text": daily_bonus_cta_text or None,
+                "daily_bonus_available": daily_bonus_available,
+                "daily_bonus_credits": daily_bonus_credits,
+            },
+            "usage_summary_json": {
+                "usage_history_count": usage_summary.get("usage_history_count"),
+                "latest_usage_at": latest_usage_at,
+                "earliest_usage_at": earliest_usage_at,
+                "latest_usage_credit": latest_usage_credit,
+                "observed_usage_credits_total": observed_usage_credits_total,
+                "observed_usage_window_hours": observed_usage_window_hours,
+                "observed_usage_burn_credits_per_hour": observed_usage_burn_credits_per_hour,
+            },
         }
+        if bonus_rows:
+            structured_output_json["bonus_catalog_json"] = bonus_rows
         if usage_rows:
             structured_output_json["usage_history_json"] = usage_rows
         return {
@@ -808,6 +1202,19 @@ class BrowserActToolAdapter:
             "cycle_end_at": cycle_end_at,
             "topup_amount": topup_amount,
             "rollover_enabled": rollover_enabled,
+            "plan_name": plan_name or None,
+            "billing_cycle": billing_cycle or None,
+            "subscription_status": subscription_status or None,
+            "daily_bonus_cta_text": daily_bonus_cta_text or None,
+            "daily_bonus_available": daily_bonus_available,
+            "daily_bonus_credits": daily_bonus_credits,
+            "usage_history_count": usage_summary.get("usage_history_count"),
+            "latest_usage_at": latest_usage_at,
+            "earliest_usage_at": earliest_usage_at,
+            "latest_usage_credit": latest_usage_credit,
+            "observed_usage_credits_total": observed_usage_credits_total,
+            "observed_usage_window_hours": observed_usage_window_hours,
+            "observed_usage_burn_credits_per_hour": observed_usage_burn_credits_per_hour,
             "source_url": source_url,
             "basis": basis,
             "structured_output_json": structured_output_json,
@@ -1200,6 +1607,19 @@ class BrowserActToolAdapter:
                 "cycle_end_at": normalized.get("cycle_end_at"),
                 "topup_amount": normalized.get("topup_amount"),
                 "rollover_enabled": normalized.get("rollover_enabled"),
+                "plan_name": normalized.get("plan_name"),
+                "billing_cycle": normalized.get("billing_cycle"),
+                "subscription_status": normalized.get("subscription_status"),
+                "daily_bonus_cta_text": normalized.get("daily_bonus_cta_text"),
+                "daily_bonus_available": normalized.get("daily_bonus_available"),
+                "daily_bonus_credits": normalized.get("daily_bonus_credits"),
+                "usage_history_count": normalized.get("usage_history_count"),
+                "latest_usage_at": normalized.get("latest_usage_at"),
+                "earliest_usage_at": normalized.get("earliest_usage_at"),
+                "latest_usage_credit": normalized.get("latest_usage_credit"),
+                "observed_usage_credits_total": normalized.get("observed_usage_credits_total"),
+                "observed_usage_window_hours": normalized.get("observed_usage_window_hours"),
+                "observed_usage_burn_credits_per_hour": normalized.get("observed_usage_burn_credits_per_hour"),
                 "source_url": normalized.get("source_url"),
                 "basis": normalized.get("basis"),
                 "normalized_text": normalized_text,
@@ -1389,22 +1809,32 @@ class BrowserActToolAdapter:
         result_field_name = str(payload.get("result_field_name") or ("page_body" if workflow_kind == "page_extract" else "result_text")).strip() or ("page_body" if workflow_kind == "page_extract" else "result_text")
         dismiss_selectors = self._normalize_string_list(payload.get("dismiss_selectors"))
         output_dir = str(payload.get("output_dir") or "/docker/fleet/state/browseract_bootstrap").strip() or "/docker/fleet/state/browseract_bootstrap"
-        spec = self._build_workflow_spec(
-            workflow_name=workflow_name,
-            purpose=purpose,
-            login_url=login_url,
-            tool_url=tool_url,
-            workflow_kind=workflow_kind,
-            runtime_input_name=runtime_input_name,
-            prompt_selector=prompt_selector,
-            submit_selector=submit_selector,
-            result_selector=result_selector,
-            wait_selector=wait_selector,
-            title_selector=title_selector,
-            dismiss_selectors=dismiss_selectors,
-            result_field_name=result_field_name,
-            output_dir=output_dir,
-        )
+        explicit_spec = payload.get("workflow_spec_json") if isinstance(payload.get("workflow_spec_json"), dict) else None
+        if explicit_spec is not None:
+            spec = self._normalize_explicit_workflow_spec(
+                raw_spec=explicit_spec,
+                workflow_name=workflow_name,
+                purpose=purpose,
+                workflow_kind=workflow_kind,
+                output_dir=output_dir,
+            )
+        else:
+            spec = self._build_workflow_spec(
+                workflow_name=workflow_name,
+                purpose=purpose,
+                login_url=login_url,
+                tool_url=tool_url,
+                workflow_kind=workflow_kind,
+                runtime_input_name=runtime_input_name,
+                prompt_selector=prompt_selector,
+                submit_selector=submit_selector,
+                result_selector=result_selector,
+                wait_selector=wait_selector,
+                title_selector=title_selector,
+                dismiss_selectors=dismiss_selectors,
+                result_field_name=result_field_name,
+                output_dir=output_dir,
+            )
         slug = str(((spec.get("meta") or {}).get("slug")) or self._slugify(workflow_name))
         action_kind = str(request.action_kind or "workflow.spec_build") or "workflow.spec_build"
         normalized_text = "\n".join(
@@ -1811,6 +2241,107 @@ class BrowserActToolAdapter:
                 "status": "pending_browseract_seed",
                 "workflow_kind": workflow_kind,
             },
+        }
+
+    def _normalize_explicit_workflow_spec(
+        self,
+        *,
+        raw_spec: dict[str, object],
+        workflow_name: str,
+        purpose: str,
+        workflow_kind: str,
+        output_dir: str,
+    ) -> dict[str, object]:
+        nodes = raw_spec.get("nodes")
+        edges = raw_spec.get("edges")
+        if not isinstance(nodes, list) or not nodes:
+            raise ToolExecutionError("workflow_nodes_required:browseract.build_workflow_spec")
+        if not isinstance(edges, list) or not edges:
+            raise ToolExecutionError("workflow_edges_required:browseract.build_workflow_spec")
+
+        normalized_nodes: list[dict[str, object]] = []
+        for index, entry in enumerate(nodes, start=1):
+            if not isinstance(entry, dict):
+                raise ToolExecutionError("workflow_node_invalid:browseract.build_workflow_spec")
+            node_type = str(entry.get("type") or "").strip().lower()
+            if not node_type:
+                raise ToolExecutionError("workflow_node_type_required:browseract.build_workflow_spec")
+            normalized_nodes.append(
+                {
+                    "id": str(entry.get("id") or f"node_{index:02d}").strip() or f"node_{index:02d}",
+                    "label": str(entry.get("label") or f"Step {index}").strip() or f"Step {index}",
+                    "type": node_type,
+                    "config": dict(entry.get("config") or {}),
+                }
+            )
+
+        normalized_edges: list[list[str]] = []
+        for entry in edges:
+            source = ""
+            target = ""
+            if isinstance(entry, dict):
+                source = str(entry.get("source") or "").strip()
+                target = str(entry.get("target") or "").strip()
+            elif isinstance(entry, list) and len(entry) == 2:
+                source = str(entry[0] or "").strip()
+                target = str(entry[1] or "").strip()
+            if not source or not target:
+                raise ToolExecutionError("workflow_edge_invalid:browseract.build_workflow_spec")
+            normalized_edges.append([source, target])
+
+        normalized_inputs: list[dict[str, str]] = []
+        seen_inputs: set[str] = set()
+
+        def add_input(name: object, *, description: object = "", default_value: object = "") -> None:
+            normalized_name = str(name or "").strip()
+            if not normalized_name:
+                return
+            key = normalized_name.casefold()
+            if key in seen_inputs:
+                return
+            seen_inputs.add(key)
+            entry: dict[str, str] = {
+                "name": normalized_name,
+                "description": str(description or "").strip(),
+            }
+            default_text = str(default_value or "").strip()
+            if default_text:
+                entry["default_value"] = default_text
+            normalized_inputs.append(entry)
+
+        raw_inputs = raw_spec.get("inputs")
+        if not isinstance(raw_inputs, list):
+            raw_inputs = raw_spec.get("input_parameters")
+        if isinstance(raw_inputs, list):
+            for entry in raw_inputs:
+                if isinstance(entry, dict):
+                    add_input(
+                        entry.get("name") or entry.get("key") or entry.get("id"),
+                        description=entry.get("description") or entry.get("label"),
+                        default_value=entry.get("default_value") or entry.get("default") or entry.get("value"),
+                    )
+                elif isinstance(entry, str):
+                    add_input(entry)
+        for node in normalized_nodes:
+            config = dict(node.get("config") or {})
+            add_input(config.get("value_from_input"), description=config.get("description") or f"Runtime input for {node['label']}.")
+            add_input(config.get("value_from_secret"), description=config.get("description") or f"Secret input for {node['label']}.")
+
+        meta = dict(raw_spec.get("meta") or {})
+        meta["slug"] = str(meta.get("slug") or self._slugify(workflow_name)).strip() or self._slugify(workflow_name)
+        meta["output_dir"] = str(meta.get("output_dir") or output_dir).strip() or output_dir
+        meta["status"] = str(meta.get("status") or "pending_browseract_seed").strip() or "pending_browseract_seed"
+        meta["workflow_kind"] = str(meta.get("workflow_kind") or workflow_kind).strip() or workflow_kind
+
+        return {
+            "workflow_name": str(raw_spec.get("workflow_name") or workflow_name).strip() or workflow_name,
+            "description": str(raw_spec.get("description") or purpose).strip() or purpose,
+            "publish": bool(raw_spec.get("publish", True)),
+            "mcp_ready": bool(raw_spec.get("mcp_ready", False)),
+            "inputs": normalized_inputs,
+            "nodes": normalized_nodes,
+            "edges": normalized_edges,
+            "meta": meta,
         }
 
     def _normalize_string_list(self, raw: object) -> list[str]:

@@ -4570,6 +4570,18 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                         "billing_next_topup_at": slot.get("billing_next_topup_at"),
                         "billing_topup_amount": slot.get("billing_topup_amount"),
                         "billing_rollover_enabled": slot.get("billing_rollover_enabled"),
+                        "billing_plan_name": slot.get("billing_plan_name"),
+                        "billing_cycle": slot.get("billing_cycle"),
+                        "billing_subscription_status": slot.get("billing_subscription_status"),
+                        "billing_daily_bonus_cta_text": slot.get("billing_daily_bonus_cta_text"),
+                        "billing_daily_bonus_available": slot.get("billing_daily_bonus_available"),
+                        "billing_daily_bonus_credits": slot.get("billing_daily_bonus_credits"),
+                        "billing_usage_history_count": slot.get("billing_usage_history_count"),
+                        "billing_latest_usage_at": slot.get("billing_latest_usage_at"),
+                        "billing_earliest_usage_at": slot.get("billing_earliest_usage_at"),
+                        "billing_observed_usage_credits_total": slot.get("billing_observed_usage_credits_total"),
+                        "billing_observed_usage_window_hours": slot.get("billing_observed_usage_window_hours"),
+                        "billing_observed_usage_burn_credits_per_hour": slot.get("billing_observed_usage_burn_credits_per_hour"),
                         "member_reconciliation_at": slot.get("member_reconciliation_at"),
                         "member_reconciliation_count": slot.get("member_reconciliation_count"),
                         "burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
@@ -4657,6 +4669,16 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
     next_topup_epoch = 0.0
     topup_amount_at_next_window = 0.0
     topup_amount_known = False
+    daily_bonus_claimable_slot_count = 0
+    daily_bonus_unavailable_slot_count = 0
+    daily_bonus_unknown_slot_count = 0
+    daily_bonus_known_credit_total = 0.0
+    daily_bonus_known_credit_slot_count = 0
+    daily_bonus_claimable_unknown_amount_slot_count = 0
+    observed_usage_history_row_count = 0
+    observed_usage_burn_total = 0.0
+    observed_usage_burn_slot_count = 0
+    latest_observed_usage_at = None
     latest_member_reconciliation_at = None
     slot_count_with_member_reconciliation = 0
     for slot in slots:
@@ -4687,6 +4709,45 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
 
         if slot.get("last_billing_snapshot_at"):
             slot_count_with_billing_snapshot += 1
+
+        daily_bonus_available = slot.get("billing_daily_bonus_available")
+        daily_bonus_credits = slot.get("billing_daily_bonus_credits")
+        if daily_bonus_available is True:
+            daily_bonus_claimable_slot_count += 1
+            if daily_bonus_credits not in (None, ""):
+                try:
+                    daily_bonus_known_credit_total += float(daily_bonus_credits or 0.0)
+                    daily_bonus_known_credit_slot_count += 1
+                except Exception:
+                    daily_bonus_claimable_unknown_amount_slot_count += 1
+            else:
+                daily_bonus_claimable_unknown_amount_slot_count += 1
+        elif daily_bonus_available is False:
+            daily_bonus_unavailable_slot_count += 1
+        else:
+            daily_bonus_unknown_slot_count += 1
+
+        usage_history_count = slot.get("billing_usage_history_count")
+        try:
+            if usage_history_count not in (None, ""):
+                observed_usage_history_row_count += int(usage_history_count)
+        except Exception:
+            pass
+
+        observed_usage_burn = slot.get("billing_observed_usage_burn_credits_per_hour")
+        if observed_usage_burn not in (None, ""):
+            try:
+                observed_usage_burn_total += float(observed_usage_burn)
+                observed_usage_burn_slot_count += 1
+            except Exception:
+                pass
+
+        observed_usage_at_epoch = _iso_to_epoch(slot.get("billing_latest_usage_at"))
+        if observed_usage_at_epoch > 0:
+            latest_observed_usage_at = max(
+                latest_observed_usage_at or 0.0,
+                observed_usage_at_epoch,
+            )
 
         billing_topup_at = str(slot.get("billing_next_topup_at") or "").strip()
         billing_topup_epoch = _iso_to_epoch(billing_topup_at)
@@ -4727,6 +4788,33 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         topup_amount=topup_amount_at_next_window if topup_amount_known else None,
         now=now,
     )
+    observed_usage_burn_credits_per_hour = round(observed_usage_burn_total, 2) if observed_usage_burn_slot_count > 0 else None
+    free_plus_claimable_bonus = None
+    if selected_billing_free_known > 0 and daily_bonus_known_credit_slot_count > 0:
+        free_plus_claimable_bonus = round(float(selected_billing_free_total) + float(daily_bonus_known_credit_total), 2)
+    hours_with_claimable_bonus = None
+    current_burn = onemin.get("estimated_burn_credits_per_hour")
+    if free_plus_claimable_bonus not in (None, "") and current_burn not in (None, "", 0):
+        hours_with_claimable_bonus = round(float(free_plus_claimable_bonus) / float(current_burn), 2)
+    hours_at_observed_usage_pace = None
+    selected_billing_remaining = selected_billing_free_total if selected_billing_free_known > 0 else remaining_total
+    if (
+        selected_billing_remaining not in (None, "")
+        and observed_usage_burn_credits_per_hour not in (None, "", 0)
+    ):
+        hours_at_observed_usage_pace = round(
+            float(selected_billing_remaining) / float(observed_usage_burn_credits_per_hour),
+            2,
+        )
+    hours_with_claimable_bonus_at_observed_usage_pace = None
+    if (
+        free_plus_claimable_bonus not in (None, "")
+        and observed_usage_burn_credits_per_hour not in (None, "", 0)
+    ):
+        hours_with_claimable_bonus_at_observed_usage_pace = round(
+            float(free_plus_claimable_bonus) / float(observed_usage_burn_credits_per_hour),
+            2,
+        )
     onemin_aggregate = {
         "slot_count": len(slots),
         "slot_count_with_known_balance": sum(1 for slot in slots if slot.get("estimated_remaining_credits") is not None),
@@ -4765,6 +4853,20 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
         "avg_daily_burn_credits_7d": avg_daily_burn_7d,
         "next_topup_at": next_topup_at or None,
         "topup_amount": round(topup_amount_at_next_window, 2) if topup_amount_known else None,
+        "daily_bonus_claimable_slot_count": daily_bonus_claimable_slot_count,
+        "daily_bonus_unavailable_slot_count": daily_bonus_unavailable_slot_count,
+        "daily_bonus_unknown_slot_count": daily_bonus_unknown_slot_count,
+        "observed_usage_history_row_count": observed_usage_history_row_count,
+        "observed_usage_burn_credits_per_hour": observed_usage_burn_credits_per_hour,
+        "slot_count_with_observed_usage_burn": observed_usage_burn_slot_count,
+        "latest_observed_usage_at": latest_observed_usage_at,
+        "hours_remaining_at_observed_usage_pace": hours_at_observed_usage_pace,
+        "sum_claimable_daily_bonus_credits": round(daily_bonus_known_credit_total, 2) if daily_bonus_known_credit_slot_count > 0 else None,
+        "claimable_daily_bonus_slots_with_known_amount": daily_bonus_known_credit_slot_count,
+        "claimable_daily_bonus_slots_with_unknown_amount": daily_bonus_claimable_unknown_amount_slot_count,
+        "sum_free_credits_plus_claimable_daily_bonus": free_plus_claimable_bonus,
+        "hours_remaining_at_current_pace_including_claimable_daily_bonus": hours_with_claimable_bonus,
+        "hours_remaining_at_observed_usage_pace_including_claimable_daily_bonus": hours_with_claimable_bonus_at_observed_usage_pace,
         "latest_member_reconciliation_at": latest_member_reconciliation_at,
         "basis_summary": billing_basis_summary,
         "basis_counts": billing_basis_counts,
@@ -5373,6 +5475,66 @@ def _provider_health_report() -> dict[str, object]:
         latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
         latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
         latest_members = _latest_provider_member_reconciliation_snapshot(provider_key="onemin", account_name=account_name)
+        latest_billing_structured = dict(latest_billing.structured_output_json or {}) if latest_billing is not None else {}
+        latest_billing_overview = (
+            dict(latest_billing_structured.get("billing_overview_json") or {})
+            if isinstance(latest_billing_structured.get("billing_overview_json"), dict)
+            else {}
+        )
+        latest_billing_usage_summary = (
+            dict(latest_billing_structured.get("usage_summary_json") or {})
+            if isinstance(latest_billing_structured.get("usage_summary_json"), dict)
+            else {}
+        )
+        billing_plan_name = str(latest_billing_overview.get("plan_name") or "").strip() or None
+        billing_cycle = str(latest_billing_overview.get("billing_cycle") or "").strip() or None
+        billing_subscription_status = str(latest_billing_overview.get("subscription_status") or "").strip() or None
+        billing_daily_bonus_cta_text = str(latest_billing_overview.get("daily_bonus_cta_text") or "").strip() or None
+        billing_daily_bonus_available = latest_billing_overview.get("daily_bonus_available")
+        if not isinstance(billing_daily_bonus_available, bool):
+            billing_daily_bonus_available = None
+        billing_daily_bonus_credits = latest_billing_overview.get("daily_bonus_credits")
+        try:
+            if billing_daily_bonus_credits not in (None, ""):
+                billing_daily_bonus_credits = float(billing_daily_bonus_credits)
+            else:
+                billing_daily_bonus_credits = None
+        except Exception:
+            billing_daily_bonus_credits = None
+        billing_usage_history_count = latest_billing_usage_summary.get("usage_history_count")
+        try:
+            if billing_usage_history_count not in (None, ""):
+                billing_usage_history_count = int(billing_usage_history_count)
+            else:
+                billing_usage_history_count = None
+        except Exception:
+            billing_usage_history_count = None
+        billing_latest_usage_at = str(latest_billing_usage_summary.get("latest_usage_at") or "").strip() or None
+        billing_earliest_usage_at = str(latest_billing_usage_summary.get("earliest_usage_at") or "").strip() or None
+        billing_observed_usage_credits_total = latest_billing_usage_summary.get("observed_usage_credits_total")
+        try:
+            if billing_observed_usage_credits_total not in (None, ""):
+                billing_observed_usage_credits_total = float(billing_observed_usage_credits_total)
+            else:
+                billing_observed_usage_credits_total = None
+        except Exception:
+            billing_observed_usage_credits_total = None
+        billing_observed_usage_window_hours = latest_billing_usage_summary.get("observed_usage_window_hours")
+        try:
+            if billing_observed_usage_window_hours not in (None, ""):
+                billing_observed_usage_window_hours = float(billing_observed_usage_window_hours)
+            else:
+                billing_observed_usage_window_hours = None
+        except Exception:
+            billing_observed_usage_window_hours = None
+        billing_observed_usage_burn_credits_per_hour = latest_billing_usage_summary.get("observed_usage_burn_credits_per_hour")
+        try:
+            if billing_observed_usage_burn_credits_per_hour not in (None, ""):
+                billing_observed_usage_burn_credits_per_hour = float(billing_observed_usage_burn_credits_per_hour)
+            else:
+                billing_observed_usage_burn_credits_per_hour = None
+        except Exception:
+            billing_observed_usage_burn_credits_per_hour = None
         observed_spend = _observed_onemin_spend(api_key=key)
         observed_success_count = _observed_onemin_request_count(api_key=key)
         next_retry_at = 0.0
@@ -5416,6 +5578,18 @@ def _provider_health_report() -> dict[str, object]:
                 "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
                 "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
                 "billing_basis": latest_billing.basis if latest_billing is not None else None,
+                "billing_plan_name": billing_plan_name,
+                "billing_cycle": billing_cycle,
+                "billing_subscription_status": billing_subscription_status,
+                "billing_daily_bonus_cta_text": billing_daily_bonus_cta_text,
+                "billing_daily_bonus_available": billing_daily_bonus_available,
+                "billing_daily_bonus_credits": billing_daily_bonus_credits,
+                "billing_usage_history_count": billing_usage_history_count,
+                "billing_latest_usage_at": billing_latest_usage_at,
+                "billing_earliest_usage_at": billing_earliest_usage_at,
+                "billing_observed_usage_credits_total": billing_observed_usage_credits_total,
+                "billing_observed_usage_window_hours": billing_observed_usage_window_hours,
+                "billing_observed_usage_burn_credits_per_hour": billing_observed_usage_burn_credits_per_hour,
                 "member_reconciliation_at": latest_members.observed_at if latest_members is not None else None,
                 "member_reconciliation_count": len(latest_members.members_json) if latest_members is not None else 0,
                 "observed_consumed_credits": observed_spend,

@@ -25,15 +25,21 @@ class BrowserActContentTemplateTests(unittest.TestCase):
         daily_bonus = templates["onemin_daily_bonus_checkin_live"]
         self.assertEqual(daily_bonus["workflow_kind"], "page_extract")
         self.assertEqual(daily_bonus["login_url"], "https://app.1min.ai/login")
-        self.assertEqual(daily_bonus["tool_url"], "https://app.1min.ai/")
+        self.assertEqual(daily_bonus["tool_url"], "https://app.1min.ai/billing-usage")
         self.assertEqual(daily_bonus["result_field_name"], "daily_bonus_page")
+        self.assertIn("workflow_spec_json", daily_bonus)
+        self.assertEqual(daily_bonus["workflow_spec_json"]["meta"]["workflow_kind"], "page_extract")
 
         billing_usage = templates["onemin_billing_usage_reader_live"]
         self.assertEqual(billing_usage["workflow_kind"], "page_extract")
         self.assertEqual(billing_usage["login_url"], "https://app.1min.ai/login")
         self.assertEqual(billing_usage["tool_url"], "https://app.1min.ai/billing-usage")
-        self.assertEqual(billing_usage["result_field_name"], "billing_usage_page")
+        self.assertEqual(billing_usage["result_field_name"], "billing_usage_bonus_page")
         self.assertTrue(billing_usage["dismiss_selectors"])
+        self.assertIn("workflow_spec_json", billing_usage)
+        self.assertTrue(any(node["id"] == "unlock_free_credits" for node in billing_usage["workflow_spec_json"]["nodes"]))
+        self.assertTrue(any(node["id"] == "extract_pre_bonus_page" for node in billing_usage["workflow_spec_json"]["nodes"]))
+        self.assertTrue(any(node["id"] == "extract_billing_bonus_page" for node in billing_usage["workflow_spec_json"]["nodes"]))
 
         members = templates["onemin_members_reconciliation_live"]
         self.assertEqual(members["workflow_kind"], "page_extract")
@@ -41,6 +47,7 @@ class BrowserActContentTemplateTests(unittest.TestCase):
         self.assertEqual(members["tool_url"], "https://app.1min.ai/members")
         self.assertEqual(members["result_field_name"], "members_page")
         self.assertTrue(members["dismiss_selectors"])
+        self.assertIn("workflow_spec_json", members)
 
 
 if __name__ == "__main__":
