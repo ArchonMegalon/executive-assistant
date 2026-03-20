@@ -213,6 +213,79 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert "gmail.send" in callback.text
 
 
+def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    monkeypatch.setenv("EA_CF_ACCESS_TEAM_DOMAIN", "girschele.cloudflareaccess.com")
+    monkeypatch.setenv("EA_CF_ACCESS_AUD", "aud-123")
+
+    from app.api import dependencies as deps
+    from app.services.cloudflare_access import CloudflareAccessIdentity
+
+    monkeypatch.setattr(
+        deps,
+        "resolve_access_identity",
+        lambda **kwargs: CloudflareAccessIdentity(
+            principal_id="cf-email:browser@gmail.com",
+            email="browser@gmail.com",
+            subject="subject-browser",
+            display_name="Browser Gmail",
+            issuer="https://girschele.cloudflareaccess.com",
+            idp_name="google",
+            audiences=("aud-123",),
+            claims={"email": "browser@gmail.com", "sub": "subject-browser"},
+        ),
+    )
+
+    owner = _client(principal_id="ignored-browser")
+
+    landing = owner.get("/")
+    assert landing.status_code == 200
+    assert "Signed in via Cloudflare Access" in landing.text
+    assert "browser@gmail.com" in landing.text
+    assert "own assistant" in landing.text
+
+    started = owner.post(
+        "/google/connect",
+        data={"scope_bundle": "send"},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    state = query["state"][0]
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-browser",
+            "email": "browser@gmail.com",
+            "hd": "gmail.com",
+        },
+    )
+
+    callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
+    assert callback.status_code == 200
+    assert "Google Connected" in callback.text
+    assert "cf-email:browser@gmail.com" in callback.text
+
+
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:
     owner = _client(principal_id="exec-1")
     response = owner.get("/v1/providers/bindings?principal_id=exec-2")

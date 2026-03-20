@@ -28,6 +28,9 @@ def _clear_env() -> None:
         "DATABASE_URL",
         "EA_API_TOKEN",
         "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_CF_ACCESS_TEAM_DOMAIN",
+        "EA_CF_ACCESS_AUD",
+        "EA_CF_ACCESS_CERTS_URL",
     ):
         os.environ.pop(key, None)
 
@@ -41,6 +44,9 @@ def _isolated_env() -> None:
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
         "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
+        "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
+        "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
+        "EA_CF_ACCESS_CERTS_URL": os.environ.get("EA_CF_ACCESS_CERTS_URL"),
     }
     _clear_env()
     try:
@@ -167,6 +173,46 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
     assert profile.principal_source == "authenticated_header"
     assert header_context.principal_id == "ops-1"
     assert header_context.authenticated is True
+
+
+def test_prod_runtime_profile_allows_cloudflare_access_without_api_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_CF_ACCESS_TEAM_DOMAIN"] = "girschele.cloudflareaccess.com"
+    os.environ["EA_CF_ACCESS_AUD"] = "aud-123"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    assert profile.auth_mode == "access"
+
+    from app.api import dependencies as deps
+    from app.services.cloudflare_access import CloudflareAccessIdentity
+
+    monkeypatch.setattr(
+        deps,
+        "resolve_access_identity",
+        lambda **kwargs: CloudflareAccessIdentity(
+            principal_id="cf-email:user@gmail.com",
+            email="user@gmail.com",
+            subject="subject-123",
+            display_name="User Gmail",
+            issuer="https://girschele.cloudflareaccess.com",
+            idp_name="google",
+            audiences=("aud-123",),
+            claims={"email": "user@gmail.com", "sub": "subject-123"},
+        ),
+    )
+    container, _ = _container_for_current_settings()
+    container.orchestrator = SimpleNamespace(
+        fetch_operator_profile=lambda operator_id, principal_id: None,
+        upsert_operator_profile=lambda **kwargs: kwargs,
+    )
+
+    context = get_request_context(_request(headers={}), container=container)
+    assert context.principal_id == "cf-email:user@gmail.com"
+    assert context.authenticated is True
+    assert context.auth_source == "cloudflare_access"
+    assert context.access_email == "user@gmail.com"
 
 
 def test_resolve_principal_id_rejects_foreign_requested_principal() -> None:

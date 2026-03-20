@@ -3,8 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
+from fastapi.params import Depends as DependsMarker
 
 from app.container import AppContainer
+from app.services.cloudflare_access import (
+    CloudflareAccessIdentity,
+    build_operator_id,
+    build_operator_notes,
+    resolve_access_identity,
+)
 from app.settings import RuntimeProfile, resolve_runtime_profile
 
 
@@ -24,6 +31,50 @@ def _extract_token(request: Request) -> str:
 
 def _configured_api_token(container: AppContainer) -> str:
     return str(container.settings.auth.api_token or "").strip()
+
+
+def _provision_access_identity(container: AppContainer, identity: CloudflareAccessIdentity) -> None:
+    operator_id = build_operator_id(identity)
+    current = container.orchestrator.fetch_operator_profile(operator_id, principal_id=identity.principal_id)
+    notes = build_operator_notes(identity)
+    if (
+        current is not None
+        and current.display_name == identity.display_name
+        and current.status == "active"
+        and current.notes == notes
+    ):
+        return
+    container.orchestrator.upsert_operator_profile(
+        principal_id=identity.principal_id,
+        operator_id=operator_id,
+        display_name=identity.display_name,
+        roles=("cloudflare_access",),
+        trust_tier="standard",
+        status="active",
+        notes=notes,
+    )
+
+
+def get_cloudflare_access_identity(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> CloudflareAccessIdentity | None:
+    cached = getattr(request.state, "cloudflare_access_identity", None)
+    if isinstance(cached, CloudflareAccessIdentity):
+        return cached
+    if cached is False:
+        return None
+    try:
+        identity = resolve_access_identity(headers=request.headers, settings=container.settings.auth)
+    except Exception as exc:
+        setattr(request.state, "cloudflare_access_error", str(exc))
+        raise HTTPException(status_code=401, detail="cloudflare_access_invalid") from exc
+    if identity is None:
+        setattr(request.state, "cloudflare_access_identity", False)
+        return None
+    _provision_access_identity(container, identity)
+    setattr(request.state, "cloudflare_access_identity", identity)
+    return identity
 
 
 def _runtime_profile(container: AppContainer):
@@ -51,8 +102,16 @@ def _runtime_profile(container: AppContainer):
     )
 
 
-def _resolved_principal_id(request: Request, *, container: AppContainer, authenticated: bool) -> str:
+def _resolved_principal_id(
+    request: Request,
+    *,
+    container: AppContainer,
+    authenticated: bool,
+    access_identity: CloudflareAccessIdentity | None = None,
+) -> str:
     profile = _runtime_profile(container)
+    if access_identity is not None:
+        return access_identity.principal_id
     principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
     fallback_principal = str(container.settings.auth.default_principal_id or "").strip()
     if principal_id:
@@ -67,10 +126,17 @@ def _resolved_principal_id(request: Request, *, container: AppContainer, authent
 def require_request_auth(
     request: Request,
     container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> None:
+    if isinstance(access_identity, DependsMarker):
+        access_identity = get_cloudflare_access_identity(request, container)
     profile = _runtime_profile(container)
-    if profile.auth_mode != "token":
+    if access_identity is not None:
         return
+    if profile.auth_mode not in {"token", "token_or_access", "access"}:
+        return
+    if profile.auth_mode == "access":
+        raise HTTPException(status_code=401, detail="auth_required")
     expected = _configured_api_token(container)
     if not expected:
         raise HTTPException(status_code=401, detail="auth_required")
@@ -84,15 +150,33 @@ def require_request_auth(
 class RequestContext:
     principal_id: str
     authenticated: bool
+    auth_source: str = "anonymous"
+    access_email: str = ""
 
 
 def get_request_context(
     request: Request,
     container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> RequestContext:
+    if isinstance(access_identity, DependsMarker):
+        access_identity = get_cloudflare_access_identity(request, container)
     profile = _runtime_profile(container)
+    if access_identity is not None:
+        principal_id = _resolved_principal_id(
+            request,
+            container=container,
+            authenticated=True,
+            access_identity=access_identity,
+        )
+        return RequestContext(
+            principal_id=principal_id,
+            authenticated=True,
+            auth_source="cloudflare_access",
+            access_email=access_identity.email,
+        )
     authenticated = False
-    if profile.auth_mode == "token":
+    if profile.auth_mode in {"token", "token_or_access"}:
         expected = _configured_api_token(container)
         if not expected:
             raise HTTPException(status_code=401, detail="auth_required")
@@ -101,10 +185,18 @@ def get_request_context(
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True
 
+    elif profile.auth_mode == "access":
+        if not profile.default_principal_fallback_allowed:
+            raise HTTPException(status_code=401, detail="auth_required")
+
     principal_id = _resolved_principal_id(request, container=container, authenticated=authenticated)
     if not principal_id:
         raise HTTPException(status_code=401, detail="principal_required")
-    return RequestContext(principal_id=principal_id, authenticated=authenticated)
+    return RequestContext(
+        principal_id=principal_id,
+        authenticated=authenticated,
+        auth_source="api_token" if authenticated else "anonymous",
+    )
 
 
 def resolve_principal_id(requested_principal_id: str | None, context: RequestContext) -> str:
