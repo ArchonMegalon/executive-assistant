@@ -164,7 +164,7 @@ def test_ea_json_retries_writer_skill_after_bootstrap(monkeypatch) -> None:
 def test_humanize_text_falls_back_to_brain_when_external_humanizer_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
     source = (
-        "Chummer6 is pre-alpha. The proof shelf is real, the limits are real, and the next step should be honest "
+        "Chummer6 is still concept-stage. The proof shelf is real, the limits are real, and the next step should be honest "
         "instead of dressed up like a finished product."
     )
     monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
@@ -178,21 +178,21 @@ def test_humanize_text_falls_back_to_brain_when_external_humanizer_fails(monkeyp
         worker,
         "chat_json",
         lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
-            "humanized": "Chummer6 is still pre-alpha. What matters is that the proof shelf is real, the limits are visible, and the next step is stated plainly instead of pretending the product is finished."
+            "humanized": "Chummer6 is still concept-stage. What matters is that the proof shelf is real, the limits are visible, and the next step is stated plainly instead of pretending the product is finished."
         },
     )
 
     result = worker.humanize_text(source, target="guide:start_here:intro")
 
     assert "proof shelf" in result.lower()
-    assert "pre-alpha" in result.lower()
+    assert "concept" in result.lower()
     assert worker.HUMANIZER_EXTERNAL_LOCKED_OUT is True
 
 
 def test_humanize_text_rejects_aiish_external_output_before_brain_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
     source = (
-        "Chummer6 is pre-alpha, rough, and inspectable. The point is to show real receipts now, not sell a seamless journey."
+        "Chummer6 is still concept-stage, rough, and inspectable. The point is to show real receipts now, not sell a seamless journey."
     )
     monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
     monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "1")
@@ -205,7 +205,7 @@ def test_humanize_text_rejects_aiish_external_output_before_brain_fallback(monke
         worker,
         "chat_json",
         lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
-            "humanized": "Chummer6 is still rough and pre-alpha. The useful part is that the receipts are real now, and the copy does not pretend this thing is polished."
+            "humanized": "Chummer6 is still rough and concept-stage. The useful part is that the receipts are real now, and the copy does not pretend this thing is polished."
         },
     )
 
@@ -218,7 +218,7 @@ def test_humanize_text_rejects_aiish_external_output_before_brain_fallback(monke
 def test_humanize_text_uses_brain_when_required_without_external_humanizer(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
     source = (
-        "The current build is pre-alpha, but a player can still inspect what the math did and where the numbers came from."
+        "The current build is still concept-stage, but a player can inspect what the math did and where the numbers came from."
     )
     monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_REQUIRED", "1")
     monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "1")
@@ -234,14 +234,45 @@ def test_humanize_text_uses_brain_when_required_without_external_humanizer(monke
         worker,
         "chat_json",
         lambda prompt, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY: {
-            "humanized": "The current build is still pre-alpha, but a player can already inspect the math and see where the numbers came from."
+            "humanized": "The current build is still concept-stage, but a player can already inspect the math and see where the numbers came from."
         },
     )
 
     result = worker.humanize_text(source, target="guide:start_here:intro")
 
-    assert "pre-alpha" in result.lower()
+    assert "concept" in result.lower()
     assert "inspect the math" in result.lower()
+
+
+def test_recent_scene_rows_for_style_epoch_can_refuse_stale_fallback_rows(tmp_path: Path) -> None:
+    worker = _load_worker_module()
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {
+                        "target": "assets/hero/chummer6-hero.png",
+                        "composition": "over_shoulder_receipt",
+                        "style_epoch": {"epoch": 1, "run_id": "style-001"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original = worker.SCENE_LEDGER_PATH
+    worker.SCENE_LEDGER_PATH = ledger_path
+    try:
+        rows = worker.recent_scene_rows_for_style_epoch(
+            style_epoch={"epoch": 2, "run_id": "style-002"},
+            allow_fallback=False,
+        )
+    finally:
+        worker.SCENE_LEDGER_PATH = original
+
+    assert rows == []
 
 
 def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults() -> None:
@@ -288,13 +319,20 @@ def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults()
     assert normalized["observe"]["audience_needs"] == ["show table value first"]
     assert normalized["observe"]["source_signal_tags"] == ["future_rules_coverage"]
     assert normalized["observe"]["user_interest_signals"] == ["receipts over mystery math"]
-    assert normalized["orient"]["why_care"] == ["faster rulings"]
+    assert normalized["orient"]["why_care"] == [
+        "a clearer direction for future rulings tools",
+        "less trust-me math if the concept survives",
+        "a saner long-range path from prep to live play",
+    ]
     assert normalized["observe"]["risks"]
-    assert normalized["orient"]["signals_to_highlight"] == ["future rules coverage should be shown honestly"]
+    assert normalized["orient"]["signals_to_highlight"] == [
+        "future rules coverage should be shown honestly",
+        "edge-case handling should come with receipts instead of trust-me copy",
+    ]
     assert normalized["orient"]["humor_line"] == "Keep the wit dry, adult, and secondary to the actual point."
-    assert normalized["act"]["landing_tagline"] == "Shadowrun math, shown with receipts."
+    assert normalized["act"]["landing_tagline"] == "An idea for less mystical Shadowrun rulings."
     assert normalized["act"]["what_it_is"] == (
-        "Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math."
+        "Chummer6 is an idea about inspecting Shadowrun rulings instead of trusting folklore math or lucky table memory."
     )
 
 
@@ -304,10 +342,10 @@ def test_editorial_self_audit_rejects_ooda_math_certainty_and_scope_leaks() -> N
     assert (
         worker.editorial_self_audit_text(
             "A scriptable multi-era engine with deterministic logic.",
-            fallback="A rough local-first workbench that is trying to show its work.",
+            fallback="A rough idea that is trying to show where the receipts could come from.",
             context="ooda:act:what_it_is",
         )
-        == "A rough local-first workbench that is trying to show its work."
+        == "A rough idea that is trying to show where the receipts could come from."
     )
     assert (
         worker.editorial_self_audit_text(
@@ -320,10 +358,10 @@ def test_editorial_self_audit_rejects_ooda_math_certainty_and_scope_leaks() -> N
     assert (
         worker.editorial_self_audit_text(
             "Every bonus, penalty, and threshold has a clear provenance.",
-            fallback="Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math.",
+            fallback="Chummer6 is still an idea about making rulings easier to inspect instead of asking for trust-me math.",
             context="ooda:act:what_it_is",
         )
-        == "Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math."
+        == "Chummer6 is still an idea about making rulings easier to inspect instead of asking for trust-me math."
     )
 
 
@@ -519,6 +557,82 @@ def test_normalize_media_override_allows_receipt_backed_mechanics_claims() -> No
     assert normalized["title"] == "Replay ledger"
 
 
+def test_normalize_media_override_strips_unbacked_overlay_callouts_but_keeps_packet() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "part",
+        {
+            "badge": "UI",
+            "title": "Prep desk",
+            "subtitle": "Build and inspect",
+            "kicker": "Proof first",
+            "note": "Useful now.",
+            "meta": "preview",
+            "visual_prompt": "Prep desk scene with visible receipt traces.",
+            "overlay_hint": "receipt traces",
+            "visual_motifs": ["prep desk"],
+            "overlay_callouts": ["receipt traces", "AP -2 smartlink feed", "LOADOUT_VALID", "LIFESTYLE: STREET"],
+            "scene_contract": {
+                "subject": "a player building a runner",
+                "environment": "a prep desk",
+                "action": "checking a build",
+                "metaphor": "receipt-first prep",
+                "props": ["laptop", "notes"],
+                "overlays": ["receipt traces"],
+                "composition": "desk_still_life",
+                "palette": "cyan",
+                "mood": "focused",
+            },
+        },
+        {"slug": "ui", "title": "UI"},
+    )
+
+    assert normalized["overlay_callouts"] == ["receipt traces"]
+
+
+def test_normalize_media_override_strips_machine_overlay_labels_from_scene_contract() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "JACKPOINT",
+            "title": "JackPoint",
+            "subtitle": "Readable packets",
+            "kicker": "Receipts survive",
+            "note": "Future-facing.",
+            "meta": "preview",
+            "visual_prompt": (
+                "A dossier desk with live evidence threads and receipt markers. "
+                "Hovering digital 'VERIFIED' stamps glow in the air with metadata strings."
+            ),
+            "overlay_hint": "HUD style: Data-dossier classification stamps and rotating provenance hashes in the corners.",
+            "visual_motifs": ["dossier desk", "receipt threads"],
+            "overlay_callouts": ["receipt markers", "SIG_MATCH: 99.8%"],
+            "scene_contract": {
+                "subject": "a fixer sorting a dossier",
+                "environment": "a dim archive desk",
+                "action": "sorting evidence",
+                "metaphor": "dossier evidence wall",
+                "props": ["dossiers", "chips"],
+                "overlays": ["receipt markers", "PROVENANCE VERIFIED", "HW_ID: 0x882_DECK"],
+                "composition": "desk_still_life",
+                "palette": "cyan",
+                "mood": "focused",
+            },
+        },
+        {"slug": "jackpoint", "title": "JackPoint"},
+    )
+
+    assert normalized["overlay_callouts"] == ["receipt markers"]
+    assert normalized["scene_contract"]["overlays"] == ["receipt markers"]
+    assert "verified" not in normalized["visual_prompt"].lower()
+    assert "metadata" not in normalized["visual_prompt"].lower()
+    assert "hash" not in normalized["overlay_hint"].lower()
+    assert "hud style:" not in normalized["overlay_hint"].lower()
+
+
 def test_normalize_media_override_keeps_scene_fit_easter_eggs_but_strips_meta_humor() -> None:
     worker = _load_worker_module()
 
@@ -600,6 +714,161 @@ def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> N
     assert "easter_egg_kind" in normalized["scene_contract"]
 
 
+def test_normalize_media_override_strips_overliteralized_weapon_diagnostics_and_reanchors_scene() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "hero",
+        {
+            "badge": "PROTOCOL: CORE VERITY",
+            "title": "No More Trust-Me Math",
+            "subtitle": "An idea trace, not a finished tool.",
+            "kicker": "Inspect the direction.",
+            "note": "Concept-stage only.",
+            "meta": "concept",
+            "visual_prompt": (
+                "A weathered runner checks a customized Ares Predator pistol while a holographic HUD highlights "
+                "smartlink electronics, barrel rifling, and the weapon's accuracy and damage modifiers."
+            ),
+            "overlay_hint": "Display 'Link Verified' telemetry beside the weapon.",
+            "visual_motifs": ["runner", "receipt traces"],
+            "overlay_callouts": ["receipt traces", "EVIDENCE CHAIN"],
+            "scene_contract": {"composition": "city_edge"},
+        },
+        {},
+    )
+
+    lowered_prompt = normalized["visual_prompt"].lower()
+    assert "ares predator" not in lowered_prompt
+    assert "barrel rifling" not in lowered_prompt
+    assert "damage modifiers" not in lowered_prompt
+    assert "link verified" not in normalized["overlay_hint"].lower()
+    assert normalized["scene_contract"]["composition"] == "over_shoulder_receipt"
+    assert "receipt markers" in normalized["scene_contract"]["overlays"]
+
+
+def test_normalize_media_override_reanchors_generic_horizon_scene_contract_and_status_labels() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "SECURE_ARCHIVE",
+            "title": "RUNBOOK PRESS",
+            "subtitle": "Long-form Publishing",
+            "kicker": "Dossier Engine",
+            "note": "Linked to source truth.",
+            "meta": "LUA_DRIVEN | HASH_VERIFIED | ZERO_DRIFT",
+            "visual_prompt": "A data-broker inspects a ruggedized district guide on a cracked data-slate.",
+            "overlay_hint": "Mock 'Approval Chain' stamps and layout guides",
+            "visual_motifs": [
+                "a cyberpunk protagonist",
+                "Rust amber typography",
+                "Ruggedized hardware surfaces",
+            ],
+            "overlay_callouts": [
+                "Source Truth Verified",
+                "Artifact Ready for Print",
+            ],
+            "scene_contract": {
+                "subject": "a cyberpunk protagonist",
+                "environment": "a dangerous but inviting cyberpunk scene",
+                "action": "framing the next move before the chrome starts smoking",
+                "metaphor": "scene-aware cyberpunk guide art",
+                "props": ["wet chrome", "holographic receipts", "rain haze"],
+                "overlays": ["signal arcs"],
+                "composition": "horizon_boulevard",
+                "palette": "cyan-magenta neon",
+                "mood": "dangerous, curious, and slightly amused",
+            },
+        },
+        {"slug": "runbook-press", "title": "RUNBOOK PRESS"},
+    )
+
+    assert normalized["meta"] == "Concept lane | books that still point back to source"
+    assert normalized["scene_contract"]["subject"] == "a campaign writer marking up a district guide on a rugged slate"
+    assert normalized["scene_contract"]["composition"] == "dossier_desk"
+    assert "Source Truth Verified" not in normalized["overlay_callouts"]
+    assert "Artifact Ready for Print" not in normalized["overlay_callouts"]
+    assert "a cyberpunk protagonist" not in normalized["visual_motifs"]
+
+
+def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug_missing() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "BOOSTER_FIRST",
+            "title": "KARMA FORGE",
+            "subtitle": "Logic Foundry & Ruleset Governance",
+            "kicker": "CUSTOM LOGIC, GOVERNED",
+            "note": "The math is the law; the Forge is where you rewrite it.",
+            "meta": "Concept lane | future-facing and unpromised",
+            "visual_prompt": "Close-up of a scarred dwarf technician in a leather apron, using a petrol-cyan laser to etch glowing Shadowrun logic into a rust-amber core, heavy film grain, 35mm handheld, damp interior workshop.",
+            "overlay_hint": "VALIDATING_RULES_SIGNATURE",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {
+                "subject": "a cyberpunk protagonist",
+                "environment": "a dangerous but inviting cyberpunk scene",
+                "action": "framing the next move before the chrome starts smoking",
+                "metaphor": "scene-aware cyberpunk guide art",
+                "composition": "single_protagonist",
+            },
+        },
+        {"title": "KARMA FORGE"},
+    )
+
+    assert normalized["badge"] == "Concept // expensive lane"
+    assert normalized["kicker"] == "house rules with rollback dreams"
+    assert normalized["note"] == "An expensive experiment lane. API budget might get burned here and still produce nothing useful."
+    assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
+    assert normalized["overlay_hint"] == "compatibility markers and receipt traces"
+    assert normalized["scene_contract"]["subject"] == "a rulesmith forcing unstable house-rule chips into a governed forge bench"
+    assert normalized["scene_contract"]["environment"] == "a grimy workshop bench lit by sodium spill and terminal glow"
+    assert normalized["scene_contract"]["composition"] == "workshop_bench"
+
+
+def test_normalize_media_override_preserves_curated_scene_contract_for_known_horizon_assets() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "ARCHIVAL-GOVERNANCE",
+            "title": "RUNBOOK PRESS",
+            "subtitle": "LONG-FORM PUBLISHING LANE",
+            "kicker": "CODE-GOVERNED LORE",
+            "note": "The professional weight and authority of a physical handbook.",
+            "meta": "Concept lane | future-facing and unpromised",
+            "visual_prompt": "A cybernetic archivist in a heavy charcoal trench coat, Forge visual device showing glowing rust-amber data-shards merging into a digital book spine. Rainy night dockside storage unit setting, flickering fluorescent light, damp concrete. Documentary cyberpunk realism, 35mm film grain.",
+            "overlay_hint": "HUD callouts for 'Provenance Verified' and 'Governance Applied'.",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {
+                "subject": "an archivist sorting volatile evidence into usable shape",
+                "environment": "a dangerous but inviting cyberpunk scene",
+                "action": "hammering volatile rules into controlled shape",
+                "metaphor": "forge sparks and molten rules",
+                "composition": "workshop_bench",
+            },
+        },
+        {"title": "RUNBOOK PRESS"},
+    )
+
+    assert normalized["badge"] == "Concept // handbook lane"
+    assert normalized["kicker"] == "books that still remember the source"
+    assert normalized["note"] == "Long-form publishing is still an idea lane here, not a finished press."
+    assert normalized["meta"] == "Concept lane | books that still point back to source"
+    assert normalized["overlay_hint"] == "publication markers and manifest traces"
+    assert normalized["scene_contract"]["subject"] == "a campaign writer marking up a district guide on a rugged slate"
+    assert normalized["scene_contract"]["environment"] == "a safehouse desk covered in physical maps, clips, and coffee rings"
+    assert normalized["scene_contract"]["action"] == "turning loose notes into a dossier that still points back to source"
+    assert normalized["scene_contract"]["metaphor"] == "leaked field manual"
+    assert normalized["scene_contract"]["composition"] == "dossier_desk"
+
+
 def test_collect_interest_signals_prefers_public_safe_sources() -> None:
     worker = _load_worker_module()
 
@@ -609,6 +878,9 @@ def test_collect_interest_signals_prefers_public_safe_sources() -> None:
     assert "[feature:" in joined
     assert "[part:hub]" in joined
     assert "[horizon:karma-forge]" in joined
+    assert "feature:get_the_poc" not in joined
+    assert "feature:sign_in_follow" not in joined
+    assert "deterministic rules truth" not in joined.lower()
     assert "design_architecture" not in joined
     assert "design_milestones" not in joined
     assert "hub_readme" not in joined
@@ -623,6 +895,16 @@ def test_page_supporting_context_does_not_globalize_booster_copy() -> None:
         assert "booster" not in joined
 
 
+def test_page_supporting_context_filters_old_product_signals_from_root_pages() -> None:
+    worker = _load_worker_module()
+
+    joined = "\n".join(worker.page_supporting_context("start_here")).lower()
+
+    assert "get the poc" not in joined
+    assert "current drop" not in joined
+    assert "deterministic rules truth" not in joined
+
+
 def test_page_prompts_include_faq_and_help_ids() -> None:
     worker = _load_worker_module()
 
@@ -632,7 +914,7 @@ def test_page_prompts_include_faq_and_help_ids() -> None:
     assert worker.PAGE_PROMPTS["how_can_i_help"]["source"]
 
 
-def test_copy_quality_findings_requires_pre_alpha_posture_on_first_contact_pages() -> None:
+def test_copy_quality_findings_requires_concept_posture_on_first_contact_pages() -> None:
     worker = _load_worker_module()
 
     findings = worker.copy_quality_findings(
@@ -648,7 +930,7 @@ def test_copy_quality_findings_requires_pre_alpha_posture_on_first_contact_pages
     )
 
     joined = " ".join(findings).lower()
-    assert "pre-alpha" in joined
+    assert "concept-stage" in joined or "accidental-artifact" in joined
 
 
 def test_copy_quality_findings_flags_risky_page_specific_claims_outside_context() -> None:
@@ -724,6 +1006,26 @@ def test_copy_quality_findings_flags_totalizing_math_claims_on_root_pages() -> N
     assert "avoid universal math claims on root pages" in joined
 
 
+def test_copy_quality_findings_flags_grid_and_receipt_overclaims_on_root_pages() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "public_surfaces",
+        {
+            "intro": "This page maps the visible proof shelf and the current POC drop.",
+            "body": "The local-first build already works without a grid connection, keeps your data on your device, and every functioning mechanic includes a receipt you can trust.",
+            "kicker": "Download the build and trust the math.",
+        },
+        worker.PAGE_PROMPTS["public_surfaces"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "do not invent exact present-tense feature claims" in joined
+    assert "avoid universal math claims on root pages" in joined
+    assert "rules math is already settled" in joined
+
+
 def test_copy_quality_findings_requires_public_surfaces_intro_to_name_surfaces() -> None:
     worker = _load_worker_module()
 
@@ -796,6 +1098,24 @@ def test_copy_quality_findings_flags_frozen_bad_root_opening_patterns() -> None:
     assert "frozen bad-opening patterns" in joined
 
 
+def test_copy_quality_findings_flags_readme_imperative_opening_without_concept_posture() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "readme",
+        {
+            "intro": "Stop guessing your dice pools. Start auditing them.",
+            "body": "Check the public guide and the accidental traces.",
+            "kicker": "Stay skeptical.",
+        },
+        worker.PAGE_PROMPTS["readme"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "command-style invitation" in joined
+
+
 def test_copy_quality_findings_flags_soft_synthetic_page_phrasing() -> None:
     worker = _load_worker_module()
 
@@ -814,13 +1134,31 @@ def test_copy_quality_findings_flags_soft_synthetic_page_phrasing() -> None:
     assert "replace synthetic product phrasing" in joined
 
 
+def test_copy_quality_findings_flags_proof_of_concept_pitch_on_root_pages() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "what_chummer6_is",
+        {
+            "intro": "Chummer6 is a local-first rules prep surface.",
+            "body": "You can run the current Proof of Concept or download the current drop to see it in action.",
+            "kicker": "Judge the engine directly.",
+        },
+        worker.PAGE_PROMPTS["what_chummer6_is"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "runnable proof-of-concept" in joined
+
+
 def test_fallback_page_copy_is_reader_safe_for_what_chummer6_is() -> None:
     worker = _load_worker_module()
 
     row = worker.fallback_page_copy("what_chummer6_is", worker.PAGE_PROMPTS["what_chummer6_is"], {})
 
     assert row["intro"]
-    assert "local-first" in row["intro"].lower() or "local-first" in row["body"].lower()
+    assert "idea" in row["intro"].lower() or "concept" in row["body"].lower()
     worker.assert_public_reader_safe(row, context="page:what_chummer6_is:fallback")
 
 
@@ -830,11 +1168,58 @@ def test_fallback_page_copy_covers_faq_and_help_pages() -> None:
     faq_row = worker.fallback_page_copy("faq", worker.PAGE_PROMPTS["faq"], {})
     help_row = worker.fallback_page_copy("how_can_i_help", worker.PAGE_PROMPTS["how_can_i_help"], {})
 
-    assert "can you use it now" in faq_row["intro"].lower()
-    assert "download" in help_row["kicker"].lower()
+    assert "does anything usable actually exist yet" in faq_row["intro"].lower()
+    assert "critique" in help_row["kicker"].lower() or "reality checks" in help_row["kicker"].lower()
     assert "booster" not in json.dumps({"faq": faq_row, "help": help_row}).lower()
     worker.assert_public_reader_safe(faq_row, context="page:faq:fallback")
     worker.assert_public_reader_safe(help_row, context="page:how_can_i_help:fallback")
+
+
+def test_fallback_page_copy_covers_index_and_deeper_pages() -> None:
+    worker = _load_worker_module()
+
+    deeper = worker.fallback_page_copy("where_to_go_deeper", worker.PAGE_PROMPTS["where_to_go_deeper"], {})
+    parts = worker.fallback_page_copy("parts_index", worker.PAGE_PROMPTS["parts_index"], {})
+    horizons = worker.fallback_page_copy("horizons_index", worker.PAGE_PROMPTS["horizons_index"], {})
+
+    assert "concept" in deeper["kicker"].lower()
+    assert "part" in parts["intro"].lower()
+    assert "idea lanes" in horizons["intro"].lower()
+    worker.assert_public_reader_safe(deeper, context="page:where_to_go_deeper:fallback")
+    worker.assert_public_reader_safe(parts, context="page:parts_index:fallback")
+    worker.assert_public_reader_safe(horizons, context="page:horizons_index:fallback")
+
+
+def test_fallback_part_copy_is_reader_safe_for_core() -> None:
+    worker = _load_worker_module()
+
+    row = worker.fallback_part_copy("core", worker.PARTS["core"])
+
+    assert "idea" in row["when"].lower() or "trust" in row["why"].lower()
+    worker.assert_public_reader_safe(row, context="part:core:fallback")
+
+
+def test_fallback_horizon_copy_keeps_karma_forge_booster_honesty() -> None:
+    worker = _load_worker_module()
+
+    row = worker.fallback_horizon_copy("karma-forge", worker.HORIZONS["karma-forge"])
+
+    lowered = json.dumps(row).lower()
+    assert "booster" in lowered
+    assert "api" in lowered
+    assert "not" in row["why_waits"].lower() or "not" in row["meanwhile"].lower()
+    worker.assert_public_reader_safe(row, context="horizon:karma-forge:fallback")
+
+
+def test_fallback_horizon_copy_keeps_non_karma_horizons_free_of_booster_copy() -> None:
+    worker = _load_worker_module()
+
+    row = worker.fallback_horizon_copy("jackpoint", worker.HORIZONS["jackpoint"])
+
+    lowered = json.dumps(row).lower()
+    assert "booster" not in lowered
+    assert "participate" not in lowered
+    worker.assert_public_reader_safe(row, context="horizon:jackpoint:fallback")
 
 
 def test_media_easter_egg_allowed_is_optional_not_whitelist_only() -> None:
@@ -989,6 +1374,132 @@ def test_global_ooda_defaults_do_not_force_trolls_or_edgy_dev_snark() -> None:
     assert "future troublemakers" not in act["horizon_intro"].lower()
 
 
+def test_humanized_candidate_findings_rejects_new_root_page_overclaims() -> None:
+    worker = _load_worker_module()
+
+    source = (
+        "You can inspect the proof shelf, grab the current drop from releases, "
+        "and judge what is real before the project earns bigger promises."
+    )
+    candidate = (
+        "You can inspect the proof shelf while the build works without a grid connection, "
+        "and every result already includes trustworthy math receipts."
+    )
+
+    findings = worker.humanized_candidate_findings(source, candidate)
+
+    assert "introduced_math_certainty" in findings
+    assert "introduced_totalizing_claim" in findings
+    assert "introduced_specific_claim" in findings
+
+
+def test_finalize_copy_row_repairs_humanizer_reintroduced_page_overclaim(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+
+    def fake_humanize(mapping, keys, *, target_prefix: str, brain_only: bool):
+        if not brain_only:
+            mapping["body"] = "The build works without a grid connection, keeps your data on your device, and every result includes a trustworthy receipt."
+        return mapping
+
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", fake_humanize)
+    monkeypatch.setattr(
+        worker,
+        "polish_copy_row",
+        lambda **kwargs: worker.fallback_page_copy("public_surfaces", worker.PAGE_PROMPTS["public_surfaces"], {}),
+    )
+
+    finalized = worker.finalize_copy_row(
+        section_type="page",
+        name="public_surfaces",
+        row={
+            "intro": "The public surfaces are the guide, the proof shelf, the current drop, the horizon shelf, and the issue tracker.",
+            "body": "Use them to inspect what is real now.",
+            "kicker": "Start with what is visible.",
+        },
+        item=worker.PAGE_PROMPTS["public_surfaces"],
+        global_ooda={},
+        section_ooda={},
+        model=worker.DEFAULT_MODEL,
+        humanize_keys=("intro", "body", "kicker"),
+        target_prefix="guide:page:public_surfaces",
+        prefer_brain_humanizer=False,
+    )
+
+    lowered = json.dumps(finalized).lower()
+    assert "works without a grid connection" not in lowered
+    assert "every result includes" not in lowered
+    assert "public surfaces" in finalized["intro"].lower()
+
+
+def test_finalize_copy_row_prefers_curated_part_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+
+    def fake_humanize(mapping, keys, *, target_prefix: str, brain_only: bool):
+        if not brain_only:
+            mapping["why"] = "It settles arguments today with deterministic smartlink math and every point of karma already accounted for."
+        return mapping
+
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", fake_humanize)
+
+    finalized = worker.finalize_copy_row(
+        section_type="part",
+        name="core",
+        row={
+            "when": "A number looks wrong.",
+            "why": "Bad generated copy.",
+            "now": "More bad generated copy.",
+        },
+        item=worker.PARTS["core"],
+        global_ooda={},
+        section_ooda={},
+        model=worker.DEFAULT_MODEL,
+        humanize_keys=("when", "why", "now"),
+        target_prefix="guide:part:core",
+        prefer_brain_humanizer=False,
+    )
+
+    lowered = json.dumps(finalized).lower()
+    assert "smartlink" not in lowered
+    assert "karma" not in lowered
+    assert "trust" in finalized["why"].lower() or "responsibility" in finalized["why"].lower()
+
+
+def test_finalize_copy_row_prefers_curated_horizon_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+
+    def fake_humanize(mapping, keys, *, target_prefix: str, brain_only: bool):
+        if not brain_only:
+            mapping["why_waits"] = "Booster lane, maybe, sure, whatever."
+        return mapping
+
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", fake_humanize)
+
+    finalized = worker.finalize_copy_row(
+        section_type="horizon",
+        name="jackpoint",
+        row={
+            "hook": "Bad generated copy.",
+            "problem": "Bad generated copy.",
+            "table_scene": "- bad",
+            "meanwhile": "- bad",
+            "why_great": "Bad generated copy.",
+            "why_waits": "Bad generated copy.",
+            "pitch_line": "Bad generated copy.",
+        },
+        item=worker.HORIZONS["jackpoint"],
+        global_ooda={},
+        section_ooda={},
+        model=worker.DEFAULT_MODEL,
+        humanize_keys=("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
+        target_prefix="guide:horizon:jackpoint",
+        prefer_brain_humanizer=False,
+    )
+
+    lowered = json.dumps(finalized).lower()
+    assert "booster" not in lowered
+    assert "packet" in lowered or "provenance" in lowered
+
+
 def test_section_ooda_defaults_no_longer_force_troll_easter_eggs() -> None:
     worker = _load_worker_module()
 
@@ -1029,6 +1540,102 @@ def test_editorial_self_audit_rejects_soft_ooda_filler() -> None:
     )
 
 
+def test_editorial_self_audit_rejects_ooda_product_overclaim_language() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "A deterministic character and rules assistant designed for local-first play that survives device churn.",
+            fallback="An idea for less mystical Shadowrun rulings.",
+            context="ooda:act:what_it_is",
+        )
+        == "An idea for less mystical Shadowrun rulings."
+    )
+
+
+def test_editorial_self_audit_rejects_ooda_command_slogan_taglines() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "Stop guessing. Start auditing.",
+            fallback="An idea for less mystical Shadowrun rulings.",
+            context="ooda:act:landing_tagline",
+        )
+        == "An idea for less mystical Shadowrun rulings."
+    )
+
+
+def test_editorial_self_audit_rejects_section_ooda_drift_under_page_context() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "Stop guessing. This is the proof of concept that fixes the drift.",
+            fallback="Start with the idea, not the illusion of a product.",
+            context="page:what_chummer6_is:orient:sales_angle",
+        )
+        == "Start with the idea, not the illusion of a product."
+    )
+
+
+def test_editorial_self_audit_rejects_section_ooda_fake_status_or_year_range_claims() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "A runner slots a Lua-chip into the rig while Validation Passed alerts confirm 2050-2080 compatibility.",
+            fallback="A runner works a dangerous bench while the concept stays obviously unproven.",
+            context="horizon:karma-forge:orient:scene_logic",
+        )
+        == "A runner works a dangerous bench while the concept stays obviously unproven."
+    )
+
+
+def test_editorial_self_audit_rejects_page_level_exact_feature_overclaims() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "This local-first assistant survives device churn, offline sessions, and lets you audit every DV.",
+            fallback="Start with the guide and the proof shelf, then judge the rest cautiously.",
+            context="page:start_here:body",
+        )
+        == "Start with the guide and the proof shelf, then judge the rest cautiously."
+    )
+
+
+def test_copy_quality_findings_flags_readme_command_slogans() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "readme",
+        {
+            "intro": "An idea with receipts, maybe.",
+            "body": "Stop guessing. Start auditing. If something escaped into public view, maybe it helps.",
+            "kicker": "Treat it as spillover.",
+        },
+        worker.PAGE_PROMPTS["readme"],
+    )
+
+    joined = "\n".join(findings).lower()
+    assert "command-slogan" in joined or "command" in joined
+
+
+def test_editorial_self_audit_rejects_mechanics_values_inside_section_ooda_fields() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "Make the reader feel safe that DV 6P and AP -2 are already handled.",
+            fallback="Make the reader feel like the proof trail is becoming more trustworthy than table folklore.",
+            context="hero:hero:orient:emotional_goal",
+        )
+        == "Make the reader feel like the proof trail is becoming more trustworthy than table folklore."
+    )
+
+
 def test_normalize_ooda_compacts_list_shaped_decide_fields() -> None:
     worker = _load_worker_module()
 
@@ -1063,6 +1670,14 @@ def test_normalize_horizon_meanwhile_coerces_bullets() -> None:
     lines = [line for line in normalized.splitlines() if line.strip()]
     assert 2 <= len(lines) <= 4
     assert all(line.startswith("- ") for line in lines)
+
+
+def test_extract_json_accepts_first_valid_object_before_trailing_junk() -> None:
+    worker = _load_worker_module()
+
+    loaded = worker.extract_json('{"alpha": 1}\n{"beta": 2}')
+
+    assert loaded == {"alpha": 1}
 
 
 def test_normalize_horizon_meanwhile_splits_sentences_into_multiple_bullets() -> None:
@@ -1222,6 +1837,45 @@ def test_generate_overrides_can_skip_skill_audits_for_partial_regen(monkeypatch:
     assert overrides["meta"]["pack_skill_audit"]["reason"] == "partial_regen"
 
 
+def test_generate_overrides_falls_back_to_default_global_ooda_when_writer_returns_non_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = _load_worker_module()
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": ["multi_era_rulesets"], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "normalize_section_oodas_bundle", lambda *args, **kwargs: {name: {} for name in kwargs["section_items"].keys()})
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if "top-level keys observe, orient, decide, act" in prompt:
+            raise ValueError("response did not contain a JSON object")
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {
+                "start_here": {"intro": "Start.", "body": "Body.", "kicker": "Kick."},
+            }
+        return {"start_here": {}}
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        page_ids=["start_here"],
+        run_skill_audits=False,
+    )
+
+    assert overrides["ooda"]["act"]["landing_tagline"] == "An idea for less mystical Shadowrun rulings."
+    assert overrides["pages"]["start_here"]["intro"] == "Start with the idea, not the illusion of a product."
+
+
 def test_generate_overrides_can_force_single_page_batches_for_quality(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
     copy_prompts: list[str] = []
@@ -1278,6 +1932,7 @@ def test_generate_overrides_can_force_single_page_batches_for_quality(monkeypatc
 
 def test_generate_overrides_repairs_single_page_bundle_without_requested_key(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
+    prompts: list[str] = []
 
     monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
     monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
@@ -1285,12 +1940,22 @@ def test_generate_overrides_repairs_single_page_bundle_without_requested_key(mon
     monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
     monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
     monkeypatch.setattr(worker, "humanize_mapping_fields", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
     monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
     monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
-    monkeypatch.setattr(worker, "fallback_page_copy", lambda name, item, global_ooda: {"intro": "Fallback intro", "body": "Fallback body", "kicker": "Fallback kicker"})
+    monkeypatch.setattr(
+        worker,
+        "fallback_page_copy",
+        lambda name, item, global_ooda: {
+            "intro": "Start with the idea, not the illusion of a product.",
+            "body": "Read the guide, skim the horizon shelf, and treat any artifact you find as accidental spillover.",
+            "kicker": "Concept means maybe; any useful artifact is a bonus, not a promise.",
+        },
+    )
 
     def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        prompts.append(prompt)
         if "Each page id must map to an object with keys intro, body, kicker." in prompt:
             return {
                 "intro": "Direct intro",
@@ -1312,8 +1977,8 @@ def test_generate_overrides_repairs_single_page_bundle_without_requested_key(mon
         prefer_page_quality=True,
     )
 
-    assert overrides["pages"]["start_here"]["intro"] == "Direct intro"
-    assert overrides["pages"]["start_here"]["body"] == "Direct body"
+    assert overrides["pages"]["start_here"]["intro"] == "Start with the idea, not the illusion of a product."
+    assert any("Each page id must map to an object with keys intro, body, kicker." in prompt for prompt in prompts)
 
 
 def test_generate_overrides_retries_single_page_prompt_before_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1330,10 +1995,7 @@ def test_generate_overrides_retries_single_page_prompt_before_fallback(monkeypat
     monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
     monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
 
-    def should_not_fallback(name, item, global_ooda):
-        raise AssertionError("fallback should not be used when single-page retry succeeds")
-
-    monkeypatch.setattr(worker, "fallback_page_copy", should_not_fallback)
+    monkeypatch.setattr(worker, "fallback_page_copy", lambda name, item, global_ooda: {})
 
     def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
         prompts.append(prompt)
@@ -1342,7 +2004,7 @@ def test_generate_overrides_retries_single_page_prompt_before_fallback(monkeypat
         if "guide page `public_surfaces`" in prompt:
             return {
                 "intro": "The public surfaces are visible.",
-                "body": "You can read the guide, inspect the proof shelf, and grab the current drop.",
+                "body": "You can read the guide, inspect the proof shelf, and treat any stray artifact as provisional evidence instead of a product promise.",
                 "kicker": "Start with what is real now.",
             }
         return {"observe": {}, "orient": {}, "decide": {}, "act": {}}

@@ -132,7 +132,7 @@ def test_sanitize_scene_humor_drops_readable_meta_jokes_but_keeps_adult_in_world
     )
 
 
-def test_sanitize_media_row_disables_easter_eggs_for_non_showcase_targets() -> None:
+def test_sanitize_media_row_keeps_explicit_easter_eggs_for_non_showcase_targets() -> None:
     media = _load_module()
 
     row = media.sanitize_media_row(
@@ -160,10 +160,10 @@ def test_sanitize_media_row_disables_easter_eggs_for_non_showcase_targets() -> N
         },
     )
 
-    assert "troll" not in row["visual_prompt"].lower()
+    assert "troll" in row["visual_prompt"].lower()
     assert row["scene_contract"]["humor"] == ""
-    assert "easter_egg_kind" not in row["scene_contract"]
-    assert all("troll" not in entry.lower() for entry in row["visual_motifs"])
+    assert row["scene_contract"]["easter_egg_kind"] == "troll monitor sticker"
+    assert any("troll" in entry.lower() for entry in row["visual_motifs"])
 
 
 def test_sanitize_media_row_keeps_sparse_showcase_easter_egg_targets() -> None:
@@ -196,3 +196,220 @@ def test_sanitize_media_row_keeps_sparse_showcase_easter_egg_targets() -> None:
 
     assert "easter_egg_kind" in row["scene_contract"]
     assert row["scene_contract"]["humor"] == "The bastard thing finally behaves."
+
+
+def test_build_safe_onemin_prompt_does_not_force_troll_clause_without_explicit_request() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Grounded archive scene with dossier props.",
+        spec={
+            "media_row": {
+                "visual_prompt": "Grounded archive scene with dossier props.",
+                "scene_contract": {
+                    "subject": "an archivist",
+                    "environment": "a dim archive room",
+                    "action": "sorting receipts",
+                    "metaphor": "provenance before hype",
+                    "composition": "archive_room",
+                    "mood": "focused",
+                    "props": ["binders", "chips"],
+                    "overlays": ["receipt traces"],
+                },
+            }
+        },
+    )
+
+    assert "troll motif" not in prompt.lower()
+
+
+def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_requests_it() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Rulesmith forge scene.",
+        spec={
+            "media_row": {
+                "visual_prompt": "Rulesmith forge scene.",
+                "scene_contract": {
+                    "subject": "a rulesmith",
+                    "environment": "a forge bench",
+                    "action": "hammering volatile rules into shape",
+                    "composition": "workshop_bench",
+                    "mood": "intense",
+                    "easter_egg_kind": "troll forge patch",
+                    "easter_egg_placement": "on the apron strap",
+                    "easter_egg_detail": "classic Chummer troll embroidered as a forge patch",
+                    "easter_egg_visibility": "small but visible",
+                },
+            }
+        },
+    )
+
+    assert "troll motif" in prompt.lower()
+
+
+def test_build_safe_pollinations_prompt_does_not_force_troll_clause_without_explicit_request() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_pollinations_prompt(
+        prompt="Grounded archive scene with dossier props.",
+        spec={
+            "media_row": {
+                "visual_prompt": "Grounded archive scene with dossier props.",
+                "scene_contract": {
+                    "subject": "an archivist",
+                    "environment": "a dim archive room",
+                    "action": "sorting receipts",
+                    "metaphor": "provenance before hype",
+                    "composition": "archive_room",
+                    "mood": "focused",
+                },
+            }
+        },
+    )
+
+    assert "troll motif" not in prompt.lower()
+
+
+def test_contains_machine_overlay_language_flags_overliteralized_diagnostic_tokens() -> None:
+    media = _load_module()
+
+    assert media.contains_machine_overlay_language("Display Link Verified telemetry between screens.")
+    assert media.contains_machine_overlay_language("Weapon diagnostics explain the damage modifiers.")
+    assert media.contains_machine_overlay_language("Ares Predator smartlink electronics and barrel rifling.")
+
+
+def test_scene_rows_for_style_epoch_can_refuse_stale_fallback_rows() -> None:
+    media = _load_module()
+    ledger = {
+        "assets": [
+            {
+                "target": "assets/hero/chummer6-hero.png",
+                "composition": "over_shoulder_receipt",
+                "style_epoch": {"epoch": 1, "run_id": "style-001"},
+            }
+        ]
+    }
+
+    rows = media.scene_rows_for_style_epoch(
+        ledger,
+        style_epoch={"epoch": 2, "run_id": "style-002"},
+        allow_fallback=False,
+    )
+
+    assert rows == []
+
+
+def test_build_safe_onemin_prompt_can_carry_smartlink_and_lore_background_cues() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Rainy transit threshold scene.",
+        spec={
+            "media_row": {
+                "visual_prompt": "Rainy transit threshold scene with one reconnecting operator.",
+                "scene_contract": {
+                    "subject": "one reconnecting operator",
+                    "environment": "a rainy transit checkpoint",
+                    "action": "checking whether the ambush lane is still live",
+                    "metaphor": "trust rebuilt under pressure",
+                    "composition": "transit_checkpoint",
+                    "mood": "tense and focused",
+                },
+            }
+        },
+    )
+
+    lowered = prompt.lower()
+    assert "smartlink" in lowered or "threat posture" in lowered or "line-of-fire" in lowered
+    assert "dragon-warning mural" in lowered or "crossed-out draconic pictograms" in lowered
+
+
+def test_build_safe_onemin_prompt_can_carry_lore_scars_inside_dossier_or_workshop_scenes() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Safehouse publishing desk scene.",
+        spec={
+            "media_row": {
+                "visual_prompt": "A campaign writer marks up a district guide on a rugged slate at a cluttered desk.",
+                "scene_contract": {
+                    "subject": "a campaign writer marking up a district guide on a rugged slate",
+                    "environment": "a safehouse desk covered in physical maps and coffee rings",
+                    "action": "turning loose notes into a dossier that still points back to source",
+                    "metaphor": "leaked field manual",
+                    "composition": "dossier_desk",
+                    "mood": "focused and suspicious",
+                },
+            }
+        },
+    )
+
+    lowered = prompt.lower()
+    assert "anti-dragon sigil" in lowered or "runner superstition sticker" in lowered or "talismonger ward mark" in lowered
+
+
+def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_PROMPT_REFINEMENT_REQUIRED", raising=False)
+    monkeypatch.setattr(media, "env_value", lambda name: "wf-123" if name == "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID" else "")
+    monkeypatch.setattr(media, "shlex_command", lambda name: ["python3", "-c", "print('refined prompt from external lane')"])
+
+    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
+
+    assert refined == "refined prompt from external lane"
+
+
+def test_refine_prompt_with_ooda_falls_back_to_local_prompt_on_timeout_when_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_PROMPT_REFINEMENT_REQUIRED", raising=False)
+    monkeypatch.setattr(media, "env_value", lambda name: "wf-123" if name == "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID" else "")
+    monkeypatch.setattr(media, "shlex_command", lambda name: ["python3", "-c", "print('never reached')"])
+
+    def _timeout(*args, **kwargs):
+        raise media.subprocess.TimeoutExpired(cmd="refiner", timeout=media.prompt_refinement_timeout_seconds())
+
+    monkeypatch.setattr(media.subprocess, "run", _timeout)
+
+    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
+
+    assert refined == "base prompt"
+
+
+def test_sanitize_media_row_strips_machine_overlay_labels_from_render_prompts() -> None:
+    media = _load_module()
+
+    row = media.sanitize_media_row(
+        target="assets/horizons/jackpoint.png",
+        row={
+            "visual_prompt": (
+                "Dossier desk scene with receipt threads and hard evidence. "
+                "Hovering digital 'VERIFIED' stamps glow in the air with metadata strings."
+            ),
+            "overlay_hint": "HUD style: Data-dossier classification stamps and rotating provenance hashes in the corners.",
+            "visual_motifs": ["dossier desk", "receipt threads", "SIG_MATCH: 99.8%"],
+            "overlay_callouts": ["receipt markers", "PROVENANCE VERIFIED", "HW_ID: 0x882_DECK"],
+            "scene_contract": {
+                "subject": "a fixer sorting a dossier",
+                "environment": "a dim archive desk",
+                "action": "sorting evidence",
+                "metaphor": "dossier evidence wall",
+                "props": ["dossiers", "chips"],
+                "overlays": ["receipt markers", "AUDIT_PASS: 100%"],
+                "composition": "desk_still_life",
+                "palette": "cyan",
+                "mood": "focused",
+                "humor": "",
+            },
+        },
+    )
+
+    assert row["visual_motifs"] == ["dossier desk", "receipt threads"]
+    assert row["overlay_callouts"] == ["receipt markers"]
+    assert row["scene_contract"]["overlays"] == ["receipt markers"]
+    assert "verified" not in row["visual_prompt"].lower()
+    assert "metadata" not in row["visual_prompt"].lower()
+    assert row["overlay_hint"] == ""
