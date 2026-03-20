@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
     from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.health import router as health_router
     from app.api.routes.human import router as human_router
+    from app.api.routes.landing import router as landing_router
     from app.api.routes.memory import router as memory_router
     from app.api.routes.observations import router as observations_router
     from app.api.routes.plans import router as plans_router
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
+    app.include_router(landing_router)
     app.include_router(health_router)
     auth_dependency = [Depends(require_request_auth)]
     app.include_router(channels_router, dependencies=auth_dependency)

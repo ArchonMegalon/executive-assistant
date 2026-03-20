@@ -53,6 +53,7 @@ class GoogleOAuthStartPacket:
     requested_scopes: tuple[str, ...]
     state: str
     auth_url: str
+    redirect_uri: str
 
 
 @dataclass(frozen=True)
@@ -116,14 +117,17 @@ def build_google_oauth_start(
     *,
     principal_id: str,
     scope_bundle: str,
+    redirect_uri_override: str | None = None,
 ) -> GoogleOAuthStartPacket:
     config = load_google_oauth_config()
     normalized_bundle = normalize_scope_bundle(scope_bundle)
     requested_scopes = SCOPE_BUNDLES[normalized_bundle]
+    redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
     state = _encode_signed_state(
         {
             "principal_id": principal_id,
             "scope_bundle": normalized_bundle,
+            "redirect_uri": redirect_uri,
             "nonce": secrets.token_urlsafe(12),
             "issued_at": int(time.time()),
         },
@@ -133,7 +137,7 @@ def build_google_oauth_start(
         {
             "response_type": "code",
             "client_id": config.client_id,
-            "redirect_uri": config.redirect_uri,
+            "redirect_uri": redirect_uri,
             "scope": " ".join(requested_scopes),
             "access_type": "offline",
             "include_granted_scopes": "true",
@@ -147,6 +151,7 @@ def build_google_oauth_start(
         requested_scopes=requested_scopes,
         state=state,
         auth_url=f"{GOOGLE_AUTH_ENDPOINT}?{query}",
+        redirect_uri=redirect_uri,
     )
 
 
@@ -162,11 +167,12 @@ def complete_google_oauth_callback(
     if not principal_id:
         raise RuntimeError("google_oauth_principal_missing")
     scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "send"))
+    redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
     token_payload = _exchange_google_code_for_tokens(
         code=code,
         client_id=config.client_id,
         client_secret=config.client_secret,
-        redirect_uri=config.redirect_uri,
+        redirect_uri=redirect_uri,
     )
     userinfo = _fetch_google_userinfo(str(token_payload.get("access_token") or "").strip())
     google_subject = str(userinfo.get("sub") or "").strip()
