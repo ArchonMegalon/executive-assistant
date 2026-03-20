@@ -124,6 +124,8 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - translate internal jargon immediately or avoid it
 - this is pre-alpha: current proof surfaces may be real, but they are still rough, and future lanes are contingent rather than promised
 - when describing the future, write like there is a nonzero chance some of it never fully lands
+- until the Lua-backed rules coverage is genuinely complete, do not write as if the math is already settled, fully clear, or trustworthy end to end
+- on first-contact pages, say the project is trying to earn trust through visible proofs and receipts; do not claim that the whole rules corpus is already solved
 - humor should be sparse, dry, and useful; if the joke is not better than clear prose, skip it
 - a rare Shadowrun-lore jab at cursed code, corp-grade UX, busted patch rituals, or an overpriced cerebral-booster tier mindset is fine if it sharpens the point
 - sparse lore-bound vice metaphors like cram, jazz, novacoke, or stim-burnout are fine when they read like world flavor rather than real-world shock bait
@@ -169,6 +171,21 @@ SOFT_OODA_PHRASES: tuple[str, ...] = (
     "long-range scans",
     "version worth watching",
     "worth watching once",
+)
+OODA_RESTRICTED_TERMS: tuple[str, ...] = (
+    "booster",
+    "participate",
+    "booster_first",
+    "deterministic_truth",
+    "multi-era",
+    "multi era",
+    "multi_era",
+    "multi_era_rulesets",
+    "lua",
+    "lua_rules",
+    "scriptable",
+    "scripted rules",
+    "session shell",
 )
 SPARSE_EASTER_EGG_ASSET_TARGETS: frozenset[str] = frozenset(
     {
@@ -455,7 +472,15 @@ def editorial_self_audit_text(
         return str(fallback or "").strip()
     if context.startswith("ooda:") and any(phrase in lowered for phrase in OVERPLAYED_SNARK_PHRASES) and fallback:
         return str(fallback or "").strip()
-    if context.startswith("ooda:") and any(phrase in lowered for phrase in WEAK_COPY_PHRASES + SOFT_OODA_PHRASES) and fallback:
+    if context.startswith("ooda:") and any(phrase in lowered for phrase in WEAK_COPY_PHRASES + SOFT_OODA_PHRASES + PAGE_SOFT_FILLER_PHRASES) and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(phrase in lowered for phrase in PAGE_MATH_CERTAINTY_PHRASES) and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(pattern.search(cleaned) for pattern in TOTALIZING_PUBLIC_MATH_PATTERNS) and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(phrase in lowered for phrase in PAGE_RISKY_SPECIFIC_CLAIMS + PAGE_RISKY_GAME_DETAIL_TOKENS) and fallback:
+        return str(fallback or "").strip()
+    if context.startswith("ooda:") and any(term in lowered for term in OODA_RESTRICTED_TERMS) and fallback:
         return str(fallback or "").strip()
     if context.startswith("page:") or context.startswith("ooda:"):
         if any(term in original_lowered for term in ARCHITECTURE_HEAVY_TERMS) and fallback:
@@ -473,11 +498,10 @@ def media_asset_target(*, kind: str, item: dict[str, object]) -> str:
 
 
 def media_easter_egg_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
-    target = media_asset_target(kind=kind, item=item)
     policy = str(contract.get("easter_egg_policy") or "").strip().lower()
-    if policy in {"allow", "allowed", "showcase", "force"}:
-        return True
-    return target in SPARSE_EASTER_EGG_ASSET_TARGETS
+    if policy in {"deny", "denied", "forbid", "forbidden", "none", "off"}:
+        return False
+    return True
 
 
 def media_humor_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
@@ -752,6 +776,9 @@ WEAK_COPY_PHRASES: tuple[str, ...] = (
     "absolute rules-certainty",
     "absolute rules certainty",
     "guaranteed",
+    "zero-hallucination",
+    "hallucinates the math",
+    "hallucinating the math",
 )
 
 
@@ -804,6 +831,8 @@ def page_supporting_context(page_id: str) -> list[str]:
         "readme": ("what_you_can_do_today", "why_this_feels_different", "whats_real_now"),
         "start_here": ("what_you_can_do_today", "why_this_feels_different", "whats_real_now"),
         "what_chummer6_is": ("what_you_can_do_today", "why_this_feels_different"),
+        "faq": ("what_you_can_do_today", "whats_real_now"),
+        "how_can_i_help": ("what_you_can_do_today", "release_shelf"),
         "current_phase": ("whats_real_now", "coming_next"),
         "current_status": ("whats_real_now", "release_shelf"),
         "public_surfaces": ("what_you_can_do_today", "release_shelf"),
@@ -814,7 +843,45 @@ def page_supporting_context(page_id: str) -> list[str]:
     snippets = _public_card_buckets(*buckets_map.get(page, ()), limit=6)
     if page in {"public_surfaces", "where_to_go_deeper"}:
         snippets.extend(f"FAQ: {question}" for question in faq_questions[:3])
+    if page == "faq":
+        snippets.extend(f"FAQ: {question}" for question in faq_questions[:6])
+    if page == "how_can_i_help":
+        ctas = HELP.get("primary_ctas") if isinstance(HELP, dict) else []
+        snippets.extend(str(entry).strip() for entry in ctas if str(entry).strip())
     return snippets[:8]
+
+
+def faq_page_source() -> str:
+    questions: list[str] = []
+    for section in FAQ.values():
+        if not isinstance(section, dict):
+            continue
+        for entry in section.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            question = " ".join(str(entry.get("question") or "").split()).strip()
+            if question:
+                questions.append(question)
+    joined = "; ".join(questions[:6]).strip()
+    if joined:
+        joined = f" Common questions include: {joined}."
+    return (
+        "Answer the obvious public-reader questions in plain language: can I use this now, why trust it, what is rough, "
+        "and what should I click next." + joined
+    )
+
+
+def help_page_source() -> str:
+    help_data = HELP if isinstance(HELP, dict) else {}
+    feedback_lane = " ".join(str(help_data.get("public_feedback_lane") or "").split()).strip()
+    ctas = [str(entry).strip() for entry in help_data.get("primary_ctas") or [] if str(entry).strip()]
+    cta_text = "; ".join(ctas[:3]).strip()
+    joined_bits = [bit for bit in (feedback_lane, cta_text) if bit]
+    tail = f" Current public actions: {'; '.join(joined_bits)}." if joined_bits else ""
+    return (
+        "Explain how a normal human can help right now without sounding like operator onboarding. "
+        "Keep it on public feedback, current visible actions, and honest expectations." + tail
+    )
 
 
 def part_supporting_context(part_id: str) -> list[str]:
@@ -1978,9 +2045,12 @@ Rules:
 - do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
 - treat `supporting_public_context` as the safe boundary for exact present-tense feature claims
+- use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
 - if a capability is not explicit in the page source or supporting_public_context, stay at the level of proof shelf, release shelf, current drop, public guide, horizon shelf, issue tracker, or local-first posture
-- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, or similar feature details unless the page payload explicitly says them
+- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
+- avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
+- avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
 - keep the pre-alpha posture defensive and honest on first-contact pages
 - do not mention booster / participate caveats on general pages; reserve that expensive-lane explanation for the KARMA FORGE horizon unless a page payload explicitly requires it
 {PUBLIC_WRITER_RULES}
@@ -2029,6 +2099,13 @@ Rules:
 - avoid generic filler like toolkit, foundation, platform glue, digital handshake, or background systems unless the sentence becomes sharper by keeping them
 - do not tell the reader to fix docs, correct drift, or maintain the guide hierarchy
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
+- treat each page's `supporting_public_context` as the safe boundary for exact present-tense feature claims
+- use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
+- if a capability is not explicit in the page source or supporting_public_context, stay at the level of proof shelf, release shelf, current drop, public guide, horizon shelf, issue tracker, or local-first posture
+- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
+- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
+- avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
+- avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
 {PUBLIC_WRITER_RULES}
 
 Global OODA:
@@ -2086,7 +2163,7 @@ Rules:
 - make each part sound like its own place, not another templated glossary card
 - make the media scene-first, not icon soup
 - humor is optional; if the scene does not earn it, skip it
-- easter eggs are optional and sparse; most assets should not carry one
+- easter eggs are optional; any asset may carry one if the scene earns it, but no asset is required to have one
 - no literal on-image text or prompt leakage
 - `when` should sound like real user situations, not platform posture
 - `why` should cash out a visible benefit instead of abstract glue language
@@ -2161,7 +2238,7 @@ Rules:
 - do not reuse the same sentence stem across multiple horizons
 - the copy should feel distinct per horizon, not like one template with swapped nouns
 - humor is optional; if it does not sharpen the horizon, leave it out
-- easter eggs are optional and sparse; most horizon assets should not carry one
+- easter eggs are optional; any horizon asset may carry one if the scene earns it, but no asset is required to have one
 - `table_scene` must be a mini scene, not a one-sentence use-case stub
 - `table_scene` should feel like table dialogue, with a GM/player/Chummer rhythm when the concept allows it
 - `meanwhile` must be 2-4 bullet lines starting with `- `
@@ -2545,6 +2622,19 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             findings.append(
                 "Avoid specific subsystem, edition, or character-sheet examples unless the page context explicitly names them. Keep these root pages at the level of receipts, proof, current drop, and user-visible trust."
             )
+        math_certainty_phrases = [
+            phrase
+            for phrase in PAGE_MATH_CERTAINTY_PHRASES
+            if phrase in lowered and phrase not in source_context
+        ]
+        if math_certainty_phrases:
+            findings.append(
+                "Do not claim the rules math is already settled or end-to-end trustworthy on root pages. Keep the copy at visible proofs, receipts, and trust being earned instead of already won."
+            )
+        if any(pattern.search(combined) for pattern in TOTALIZING_PUBLIC_MATH_PATTERNS):
+            findings.append(
+                "Avoid universal math claims on root pages. Do not say every calculation, every bonus, or every threshold is already covered in pre-alpha; point readers to the proof shelf and current verified surfaces instead."
+            )
         soft_filler_phrases = [
             phrase
             for phrase in PAGE_SOFT_FILLER_PHRASES
@@ -2583,6 +2673,21 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             findings.append("Make the pre-alpha and proof-first posture explicit so the guide does not sound like a finished-product pitch.")
         if name == "readme" and not any(token in lowered for token in ("proof shelf", "release", "drop", "download")):
             findings.append("README should point the reader toward a real proof or download surface instead of staying at product-story altitude.")
+        intro_lowered = str(row.get("intro", "")).strip().lower()
+        intro_niche_tokens = [
+            phrase
+            for phrase in PAGE_RISKY_GAME_DETAIL_TOKENS
+            if phrase in intro_lowered and phrase not in source_context
+        ]
+        if intro_niche_tokens:
+            findings.append("Keep the opening line at table friction, visible proof, or current-state level. Do not open root pages with niche gear, modifier, or combat anecdotes.")
+        bad_intro_labels = [
+            label
+            for pattern, label in BAD_PAGE_OPENING_PATTERNS
+            if pattern.search(str(row.get("intro", "")).strip()) and not pattern.search(source_context)
+        ]
+        if bad_intro_labels:
+            findings.append("Rewrite the opening line. Frozen bad-opening patterns from earlier runs should not come back on root pages.")
         if name == "start_here" and not any(
             token in lowered for token in ("tonight", "next", "start", "download", "proof shelf", "release", "issue tracker")
         ):
@@ -2590,19 +2695,32 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         if name == "what_chummer6_is":
             if "local-first" not in lowered:
                 findings.append("Explain the local-first posture plainly so this page feels like a product difference instead of a generic rules app description.")
-            if not any(token in lowered for token in ("receipt", "proof", "show the math", "rules truth")):
-                findings.append("Tie WHAT_CHUMMER6_IS back to receipts, visible math, or rules truth instead of leaving the trust story abstract.")
+            if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust")):
+                findings.append("Tie WHAT_CHUMMER6_IS back to receipts, visible math, or trust being earned instead of leaving the trust story abstract.")
         if name == "current_phase" and not any(
             token in lowered for token in ("trust", "proof", "receipt", "math", "before polish", "before the paint")
         ):
             findings.append("CURRENT_PHASE should explain that trust work and receipts come before polish, not just that the build is early.")
         if name == "current_status" and not any(token in lowered for token in ("download", "current drop", "proof shelf", "guide", "horizon")):
             findings.append("CURRENT_STATUS should point to visible things a reader can click or inspect right now.")
+        if name == "current_status" and not any(token in intro_lowered for token in ("current", "today", "right now", "status")):
+            findings.append("CURRENT_STATUS should sound like an honest status readout in the opening line, not a generic product pitch.")
         if name == "public_surfaces":
             if not any(token in lowered for token in ("guide", "proof shelf", "release", "download", "issue tracker", "horizon")):
                 findings.append("PUBLIC_SURFACES should name the visible public surfaces directly instead of speaking in generalities.")
+            if not any(token in intro_lowered for token in ("public surface", "guide", "proof shelf", "release", "current drop", "issue tracker", "horizon")):
+                findings.append("PUBLIC_SURFACES should open by naming the visible surfaces, not with a generic product hook.")
             if any(token in lowered for token in ("booster", "participate")):
                 findings.append("Keep booster or participation framing out of general public-surface copy unless the page source explicitly requires it.")
+        if name == "faq" and not any(
+            token in intro_lowered
+            for token in ("question", "questions", "answer", "answers", "can i use", "use it now", "what works", "what is rough", "what's rough")
+        ):
+            findings.append("FAQ should open like practical user questions are being answered, not like another landing-page pitch.")
+        if name == "how_can_i_help" and not any(
+            token in intro_lowered for token in ("help", "report", "issue", "test", "download", "try")
+        ):
+            findings.append("HOW_CAN_I_HELP should open with a concrete help action, not with another product summary.")
     if section_type == "part":
         if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
             findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
@@ -2695,9 +2813,13 @@ Revision rules:
 - avoid generic filler like toolkit, foundation, digital handshake, background systems, or vague future posture
 - keep the output public-safe, reader-first, and distinct
 - do not add exact current capabilities that are not explicit in the section context
+- for root/page copy, treat global OODA as tone guidance only; exact facts must come from the page source or supporting public context
 - if the section context is vague, stay grounded in proof shelf, current drop, guide, release shelf, horizon shelf, issue tracker, or local-first posture instead of inventing narrower feature claims
 - do not improvise subsystem, edition, or character-sheet specifics unless the section context explicitly names them
 - for root/page copy, replace unsupported subsystem specifics with reader-visible proof surfaces, current drop, route names, or local-first posture
+- for root/page copy, replace unsupported repo-wide hints like multi-era support, scripted-rule internals, or mobile-ready claims with proof surfaces, local-first posture, or the current drop unless the page context explicitly names them
+- for root/page copy, replace niche gear, augment, or modifier anecdotes with general table-friction language unless the page context explicitly names them
+- for root/page copy, replace certainty words like deterministic truth or solved math with rougher language about proofs, receipts, inspection, and trust still being earned
 - keep booster / participate caveats scoped to KARMA FORGE-style expensive-horizon copy unless the section context explicitly requires them
 - no markdown fences
 {PUBLIC_WRITER_RULES}
@@ -2730,8 +2852,9 @@ def build_page_grounding_rescue_prompt(
 Task: return a JSON object only with keys intro, body, kicker.
 
 Hard rules:
-- use only facts that are explicit in the page source, supporting public context, or global OODA
-- do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, or other narrow feature claims unless the provided context explicitly names them
+- use only facts that are explicit in the page source or supporting public context; use global OODA only for tone and ordering
+- do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, multi-era support, mobile-ready behavior, or other narrow feature claims unless the provided context explicitly names them
+- replace niche gear, augment, or modifier anecdotes with general table-friction language unless the page context explicitly names them
 - stay grounded in proof shelf, current drop, release shelf, public guide, horizon shelf, issue tracker, receipts, and local-first posture
 - keep the page defensive and honest about pre-alpha reality
 - avoid generic filler like designed to make, providing, ensuring that, built to, or similar soft product mush
@@ -2767,7 +2890,7 @@ Return valid JSON only.
 def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str, object]) -> dict[str, str]:
     page_id = str(name or "").strip()
     act = dict(global_ooda.get("act") or {}) if isinstance(global_ooda, dict) else {}
-    tagline = str(act.get("landing_tagline") or "Shadowrun rules truth, with receipts.").strip()
+    tagline = str(act.get("landing_tagline") or "Shadowrun math, shown with receipts.").strip()
     if page_id == "readme":
         return {
             "intro": f"{tagline} Chummer6 is pre-alpha, but the proof surfaces are already real.",
@@ -2783,8 +2906,20 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
     if page_id == "what_chummer6_is":
         return {
             "intro": "Chummer6 is a local-first Shadowrun rules workbench that shows its math instead of asking for trust.",
-            "body": "The point is visible rules truth with receipts. You can inspect the proof shelf, follow the current drop from releases, and judge what is real before the project earns any bigger promises.",
+            "body": "The point is visible math with receipts, not blind trust. You can inspect the proof shelf, follow the current drop from releases, and judge what is real before the project earns any bigger promises.",
             "kicker": "It is pre-alpha, rough, and useful exactly to the degree that the evidence is already on the table.",
+        }
+    if page_id == "faq":
+        return {
+            "intro": "Practical questions first: can you use it now, what is rough, and why trust any of it at all?",
+            "body": "Yes, you can inspect the proof shelf and grab the current POC from releases today. The build is still pre-alpha and rough, but it is local-first and already tries to show its work through receipts and integrity hints instead of asking for blind trust.",
+            "kicker": "Treat it like a field test with evidence, not a polished product launch.",
+        }
+    if page_id == "how_can_i_help":
+        return {
+            "intro": "Help means testing the rough build, reporting what breaks, and pointing at the next thing worth making less bad.",
+            "body": "Grab the latest POC from releases, stress the current proof surfaces, and use the issue tracker when the math or guide falls over. If a future lane looks more useful than the current list, say so plainly and we can judge it against real table friction instead of wishful thinking.",
+            "kicker": "The useful public moves are simple: download, test, report, repeat.",
         }
     if page_id == "current_phase":
         return {
@@ -3082,13 +3217,13 @@ def _excerpt_labels(signals: dict[str, object]) -> list[str]:
 
 def _interest_signals_from_tags(tags: list[str]) -> list[str]:
     mapping = {
-        "multi_era_rulesets": "multiple Shadowrun rules eras",
-        "sr4_support": "SR4 support is visible in the live code",
-        "sr5_support": "SR5 support is visible in the live code",
-        "sr6_support": "SR6 support is visible in the live code",
-        "lua_rules": "scripted rules can cover ugly edge cases",
+        "multi_era_rulesets": "future rules coverage should be shown honestly",
+        "sr4_support": "proof surfaces should show what rule coverage exists today",
+        "sr5_support": "proof surfaces should show what rule coverage exists today",
+        "sr6_support": "proof surfaces should show what rule coverage exists today",
+        "lua_rules": "edge-case handling should come with receipts instead of trust-me copy",
         "offline_play": "offline-safe play matters",
-        "installable_pwa": "installable play surfaces exist",
+        "installable_pwa": "downloadable proof builds matter",
         "explain_receipts": "the math should explain itself",
         "provenance_receipts": "modifiers should show where they came from",
         "runtime_stacks": "runtime bundles should stay legible",
@@ -3103,12 +3238,36 @@ def _interest_signals_from_tags(tags: list[str]) -> list[str]:
     return seen
 
 
+def _public_signal_tags_from_tags(tags: list[str]) -> list[str]:
+    mapping = {
+        "deterministic_truth": "proof_receipts",
+        "explain_receipts": "proof_receipts",
+        "provenance_receipts": "provenance_receipts",
+        "future_horizons": "future_lanes",
+        "runsite_artifacts": "public_downloads",
+        "offline_play": "offline_play",
+        "public_guide": "public_guide",
+        "multi_era_rulesets": "future_rules_coverage",
+        "lua_rules": "receipt_driven_edge_cases",
+        "local_first_play": "local_first_play",
+        "session_events": "session_continuity",
+        "runtime_stacks": "readable_surfaces",
+    }
+    seen: list[str] = []
+    for tag in tags:
+        value = mapping.get(str(tag))
+        if value and value not in seen:
+            seen.append(value)
+    return seen
+
+
 def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
     tags = [str(tag).strip() for tag in signals.get("tags", []) if str(tag).strip()]
     highlights = _interest_signals_from_tags(tags)
+    public_tags = _public_signal_tags_from_tags(tags)
     return {
         "observe": {
-            "source_signal_tags": tags or ["chummer6"],
+            "source_signal_tags": public_tags or ["proof_receipts", "offline_play", "public_guide"],
             "source_excerpt_labels": _excerpt_labels(signals) or ["core_readme", "ui_readme", "play_readme"],
             "audience_needs": [
                 "what this does for a real table",
@@ -3119,7 +3278,7 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             or [
                 "readable receipts instead of mystery math",
                 "offline-safe local-first play",
-                "multi-era and scripted-rules flexibility",
+                "a proof shelf that shows what is real today",
             ],
             "risks": [
                 "sliding back into repo-topology talk",
@@ -3129,7 +3288,7 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
         },
         "orient": {
             "audience": "players, GMs, and curious tinkerers who want Chummer6 explained from the table inward",
-            "promise": "clear Shadowrun rules truth with receipts, local-first play, and fewer arguments about what just happened",
+            "promise": "inspectable Shadowrun math with receipts, local-first play, and fewer arguments about what just happened",
             "tension": "the project is getting larger and more specialized, so the guide has to stay human before it starts sounding architectural",
             "why_care": [
                 "faster rulings under pressure",
@@ -3137,7 +3296,7 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
                 "a clearer path from prep to live play",
             ],
             "current_focus": [
-                "trustworthy rules behavior",
+                "credible proof surfaces",
                 "honest public surfaces",
                 "future ideas that feel like table upgrades instead of slideware",
             ],
@@ -3145,10 +3304,10 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             "humor_line": "Keep the wit dry, adult, and secondary to the actual point.",
             "signals_to_highlight": highlights
             or [
-                "multi-era support",
-                "scripted rules for edge cases",
                 "receipts and provenance",
+                "proof shelf and public releases",
                 "local-first session resilience",
+                "pre-alpha honesty over fake polish",
             ],
             "banned_terms": [
                 "visitor center",
@@ -3171,9 +3330,9 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             "cta_strategy": "invite readers to test, watch, or pitch better ideas without sounding pushy or synthetic",
         },
         "act": {
-            "landing_tagline": "Shadowrun rules truth, with receipts.",
-            "landing_intro": "Chummer6 is a pre-alpha attempt to make Shadowrun rulings faster, clearer, and easier to trust when the table is loud and the stakes are dumb.",
-            "what_it_is": "Chummer6 is a local-first, multi-era Shadowrun rules engine and prep surface that shows its work instead of asking you to trust mystery math.",
+            "landing_tagline": "Shadowrun math, shown with receipts.",
+            "landing_intro": "Chummer6 is a pre-alpha attempt to make Shadowrun rulings easier to inspect while the table is loud and the stakes are dumb.",
+            "what_it_is": "Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math.",
             "watch_intro": "If you care about receipts, recoverable sessions, and future tools that might become useful instead of decorative, this is the rough version worth watching.",
             "horizon_intro": "Horizons are contingent future lanes worth watching only after the current proof surfaces are solid enough to carry them.",
         },
@@ -3194,7 +3353,14 @@ def normalize_ooda(result: dict[str, object], signals: dict[str, object]) -> dic
         cleaned = _listish(raw)
         if not cleaned:
             cleaned = _listish(defaults["observe"].get(key))
-        observe[key] = cleaned
+        observe[key] = [
+            editorial_self_audit_text(
+                entry,
+                fallback=str(fallback).strip(),
+                context=f"ooda:observe:{key}",
+            )
+            for entry, fallback in zip(cleaned, _listish(defaults["observe"].get(key)) + cleaned)
+        ]
 
     orient: dict[str, object] = {}
     for key in ("audience", "promise", "tension", "visual_direction", "humor_line"):
@@ -3810,6 +3976,12 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
     "what_chummer6_is": {
         "source": "Explain what Chummer6 is becoming for players and GMs, why it matters at the table, and what feels different from older opaque tools. Keep repo and architecture talk below the product story.",
     },
+    "faq": {
+        "source": faq_page_source(),
+    },
+    "how_can_i_help": {
+        "source": help_page_source(),
+    },
     "where_to_go_deeper": {
         "source": "Explain where to read next, what to trust, and where to report confusion. Do not use blueprint, drift, hierarchy, governance, or repo-maintainer language.",
     },
@@ -3842,6 +4014,11 @@ PAGE_RISKY_SPECIFIC_CLAIMS: tuple[str, ...] = (
     "on your phone",
     "your phone",
     "total precision",
+    "multi-era",
+    "scripted rules",
+    "lua-scripted",
+    "mobile-ready",
+    "live data",
 )
 PAGE_RISKY_GAME_DETAIL_TOKENS: tuple[str, ...] = (
     "stat change",
@@ -3852,11 +4029,49 @@ PAGE_RISKY_GAME_DETAIL_TOKENS: tuple[str, ...] = (
     "health",
     "sr4",
     "sr5",
+    "vision modifiers",
+    "combat turns",
+    "augmentations",
+    "karma spend",
+    "street sam",
+    "smartlink",
+    "optics",
+    "dice-pool math",
+    "dice pool math",
 )
 PAGE_SOFT_FILLER_PHRASES: tuple[str, ...] = (
     "session shell",
     "character engine",
     "local-first system",
+    "designed to give",
+    "delivers a",
+)
+PAGE_MATH_CERTAINTY_PHRASES: tuple[str, ...] = (
+    "the math is clear",
+    "math is clear",
+    "rules truth",
+    "deterministic truth",
+    "deterministic answers",
+    "deterministic core",
+    "deterministic rules engine",
+    "deterministic rules truth",
+    "deterministic math",
+    "deterministic logic",
+    "core logic today",
+    "every stat and threshold",
+    "every dice pool",
+    "fully scripted",
+    "fully functional",
+)
+BAD_PAGE_OPENING_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bsmartlink\b|\boptics\b", re.IGNORECASE), "niche_gear_hook"),
+    (re.compile(r"\bvision modifiers?\b|\bcombat turns?\b", re.IGNORECASE), "mechanics_hook"),
+    (re.compile(r"\bkarma spend\b|\bstreet sam\b|\baugmentations?\b", re.IGNORECASE), "character_build_hook"),
+    (re.compile(r"\bdice pools?\b[^.!?\n]{0,24}\bmodifier", re.IGNORECASE), "modifier_hook"),
+)
+TOTALIZING_PUBLIC_MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bevery\s+(?:calculation|bonus|penalty|modifier|threshold|value|stat|rule)\b", re.IGNORECASE),
+    re.compile(r"\ball\s+(?:calculations|bonuses|penalties|modifiers|thresholds|values|stats|rules)\b", re.IGNORECASE),
 )
 
 def chunk_mapping(mapping: dict[str, object], *, size: int) -> list[dict[str, object]]:
@@ -4099,8 +4314,24 @@ def generate_overrides(
                     trace(f"page bundle repair: {page_id}")
                     page_rows[page_id] = normalize_single_page_bundle_candidate(page_bundle, page_id=page_id)
                 except Exception:
-                    trace(f"page bundle fallback: {page_id}")
-                    page_rows[page_id] = fallback_page_copy(page_id, dict(item), ooda)
+                    try:
+                        trace(f"page single retry: {page_id}")
+                        page_rows[page_id] = normalize_single_page_bundle_candidate(
+                            chat_json(
+                                build_page_prompt(
+                                    page_id,
+                                    dict(item),
+                                    global_ooda=ooda,
+                                    section_ooda=dict(page_oodas.get(page_id) or {}),
+                                ),
+                                model=model,
+                                skill_key=PUBLIC_WRITER_SKILL_KEY,
+                            ),
+                            page_id=page_id,
+                        )
+                    except Exception:
+                        trace(f"page bundle fallback: {page_id}")
+                        page_rows[page_id] = fallback_page_copy(page_id, dict(item), ooda)
         except Exception as exc:
             raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
     for page_id, row in list(page_rows.items()):

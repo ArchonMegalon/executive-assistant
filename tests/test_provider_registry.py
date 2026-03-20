@@ -161,6 +161,26 @@ def test_provider_registry_exposes_executable_onemin_specialist_binding(
     assert "media_transform" in state.capabilities
 
 
+def test_provider_registry_exposes_google_gmail_oauth_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("google_gmail")
+
+    assert state is not None
+    assert state.provider_key == "google_gmail"
+    assert state.auth_mode == "oauth"
+    assert state.state == "configured"
+    assert "oauth_connect" in state.capabilities
+    assert "gmail_send" in state.capabilities
+
+
 def test_provider_registry_routes_onemin_specialist_capability_with_aliases() -> None:
     registry = ProviderRegistryService()
 

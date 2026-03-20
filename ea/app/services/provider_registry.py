@@ -379,6 +379,32 @@ class ProviderRegistryService:
                 ),
             ),
             ProviderBinding(
+                provider_key="google_gmail",
+                display_name="Google Gmail",
+                executable=False,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="google_gmail",
+                        capability_key="oauth_connect",
+                        tool_name="provider.google_gmail.oauth_connect",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="google_gmail",
+                        capability_key="gmail_send",
+                        tool_name="provider.google_gmail.gmail_send",
+                        executable=False,
+                    ),
+                    ProviderCapability(
+                        provider_key="google_gmail",
+                        capability_key="gmail_smoke_test",
+                        tool_name="provider.google_gmail.gmail_smoke_test",
+                        executable=False,
+                    ),
+                ),
+                source="catalog",
+            ),
+            ProviderBinding(
                 provider_key="prompting_systems",
                 display_name="Prompting Systems",
                 executable=False,
@@ -691,6 +717,13 @@ class ProviderRegistryService:
             "browseract": ("BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1"),
             "browserly": ("BROWSERLY_API_KEY",),
             "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
+            "google_gmail": (
+                "EA_GOOGLE_OAUTH_CLIENT_ID",
+                "EA_GOOGLE_OAUTH_CLIENT_SECRET",
+                "EA_GOOGLE_OAUTH_REDIRECT_URI",
+                "EA_GOOGLE_OAUTH_STATE_SECRET",
+                "EA_PROVIDER_SECRET_KEY",
+            ),
             "magixai": ("AI_MAGICX_API_KEY",),
             "markupgo": ("MARKUPGO_API_KEY",),
             "onemin": _onemin_secret_env_names(),
@@ -705,6 +738,8 @@ class ProviderRegistryService:
             return "internal"
         if binding.provider_key == "gemini_vortex":
             return "cli"
+        if binding.provider_key == "google_gmail":
+            return "oauth"
         if self._secret_env_names(binding.provider_key):
             return "api_key"
         return "catalog"
@@ -718,6 +753,17 @@ class ProviderRegistryService:
             argv = shlex.split(command)
             executable = argv[0] if argv else "gemini"
             return bool(shutil.which(executable))
+        if auth_mode == "oauth" and binding.provider_key == "google_gmail":
+            return all(
+                str(os.environ.get(name) or "").strip()
+                for name in (
+                    "EA_GOOGLE_OAUTH_CLIENT_ID",
+                    "EA_GOOGLE_OAUTH_CLIENT_SECRET",
+                    "EA_GOOGLE_OAUTH_REDIRECT_URI",
+                    "EA_GOOGLE_OAUTH_STATE_SECRET",
+                    "EA_PROVIDER_SECRET_KEY",
+                )
+            )
         return any(str(os.environ.get(name) or "").strip() for name in self._secret_env_names(binding.provider_key))
 
     def binding_state(

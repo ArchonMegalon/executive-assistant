@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import importlib.util
 from pathlib import Path
 
@@ -276,7 +277,7 @@ def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults()
             "act": {
                 "landing_tagline": "Shadowrun rules truth, with receipts.",
                 "landing_intro": "Intro.",
-                "what_it_is": "What it is.",
+                "what_it_is": "A scriptable character engine built for multi-era support with deterministic logic.",
                 "watch_intro": "Watch it.",
                 "horizon_intro": "Horizons.",
             },
@@ -285,9 +286,45 @@ def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults()
     )
 
     assert normalized["observe"]["audience_needs"] == ["show table value first"]
+    assert normalized["observe"]["source_signal_tags"] == ["future_rules_coverage"]
+    assert normalized["observe"]["user_interest_signals"] == ["receipts over mystery math"]
     assert normalized["orient"]["why_care"] == ["faster rulings"]
     assert normalized["observe"]["risks"]
-    assert normalized["orient"]["signals_to_highlight"] == ["multi-era support"]
+    assert normalized["orient"]["signals_to_highlight"] == ["future rules coverage should be shown honestly"]
+    assert normalized["orient"]["humor_line"] == "Keep the wit dry, adult, and secondary to the actual point."
+    assert normalized["act"]["landing_tagline"] == "Shadowrun math, shown with receipts."
+    assert normalized["act"]["what_it_is"] == (
+        "Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math."
+    )
+
+
+def test_editorial_self_audit_rejects_ooda_math_certainty_and_scope_leaks() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.editorial_self_audit_text(
+            "A scriptable multi-era engine with deterministic logic.",
+            fallback="A rough local-first workbench that is trying to show its work.",
+            context="ooda:act:what_it_is",
+        )
+        == "A rough local-first workbench that is trying to show its work."
+    )
+    assert (
+        worker.editorial_self_audit_text(
+            "The math is clear now.",
+            fallback="Trust is still being earned through proofs and receipts.",
+            context="ooda:act:landing_intro",
+        )
+        == "Trust is still being earned through proofs and receipts."
+    )
+    assert (
+        worker.editorial_self_audit_text(
+            "Every bonus, penalty, and threshold has a clear provenance.",
+            fallback="Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math.",
+            context="ooda:act:what_it_is",
+        )
+        == "Chummer6 is a local-first Shadowrun rules workbench that is trying to show its work instead of asking you to trust mystery math."
+    )
 
 
 def test_normalize_section_ooda_falls_back_when_fields_are_sparse() -> None:
@@ -482,7 +519,7 @@ def test_normalize_media_override_allows_receipt_backed_mechanics_claims() -> No
     assert normalized["title"] == "Replay ledger"
 
 
-def test_normalize_media_override_strips_forced_easter_eggs_and_meta_humor_for_non_showcase_targets() -> None:
+def test_normalize_media_override_keeps_scene_fit_easter_eggs_but_strips_meta_humor() -> None:
     worker = _load_worker_module()
 
     normalized = worker.normalize_media_override(
@@ -518,10 +555,10 @@ def test_normalize_media_override_strips_forced_easter_eggs_and_meta_humor_for_n
         {"slug": "ui", "title": "UI"},
     )
 
-    assert "troll" not in normalized["visual_prompt"].lower()
     assert normalized["scene_contract"]["humor"] == ""
-    assert "easter_egg_kind" not in normalized["scene_contract"]
-    assert all("troll" not in entry.lower() for entry in normalized["visual_motifs"])
+    assert normalized["scene_contract"]["easter_egg_kind"] == "troll monitor sticker"
+    assert "troll" in normalized["visual_prompt"].lower()
+    assert any("troll" in entry.lower() for entry in normalized["visual_motifs"])
 
 
 def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> None:
@@ -586,6 +623,15 @@ def test_page_supporting_context_does_not_globalize_booster_copy() -> None:
         assert "booster" not in joined
 
 
+def test_page_prompts_include_faq_and_help_ids() -> None:
+    worker = _load_worker_module()
+
+    assert "faq" in worker.PAGE_PROMPTS
+    assert "how_can_i_help" in worker.PAGE_PROMPTS
+    assert worker.PAGE_PROMPTS["faq"]["source"]
+    assert worker.PAGE_PROMPTS["how_can_i_help"]["source"]
+
+
 def test_copy_quality_findings_requires_pre_alpha_posture_on_first_contact_pages() -> None:
     worker = _load_worker_module()
 
@@ -623,6 +669,133 @@ def test_copy_quality_findings_flags_risky_page_specific_claims_outside_context(
     assert "do not invent exact present-tense feature claims" in joined
 
 
+def test_copy_quality_findings_flags_unsupported_root_page_scope_leakage() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "current_status",
+        {
+            "intro": "The mobile-ready interface already handles live data across a multi-era engine.",
+            "body": "Tonight you can validate augmentations, combat turns, and karma spend with lua-scripted precision.",
+            "kicker": "Take it for a spin.",
+        },
+        worker.PAGE_PROMPTS["current_status"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "do not invent exact present-tense feature claims" in joined
+    assert "avoid specific subsystem, edition, or character-sheet examples" in joined
+
+
+def test_copy_quality_findings_flags_math_certainty_on_root_pages() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "what_chummer6_is",
+        {
+            "intro": "Chummer6 already delivers rules truth.",
+            "body": "The deterministic rules engine now settles every stat and threshold.",
+            "kicker": "Trust the math.",
+        },
+        worker.PAGE_PROMPTS["what_chummer6_is"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "rules math is already settled" in joined
+
+
+def test_copy_quality_findings_flags_totalizing_math_claims_on_root_pages() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "what_chummer6_is",
+        {
+            "intro": "Chummer6 replaces trust-me math with visible proof.",
+            "body": "Every bonus, penalty, and threshold in the current drop carries a provenance receipt.",
+            "kicker": "Check the proof shelf before you trust it.",
+        },
+        worker.PAGE_PROMPTS["what_chummer6_is"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "avoid universal math claims on root pages" in joined
+
+
+def test_copy_quality_findings_requires_public_surfaces_intro_to_name_surfaces() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "public_surfaces",
+        {
+            "intro": "Chummer6 keeps the receipts visible.",
+            "body": "You can read the guide, inspect the proof shelf, check the horizon shelf, and hit the issue tracker.",
+            "kicker": "Start with what is real.",
+        },
+        worker.PAGE_PROMPTS["public_surfaces"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "public_surfaces should open by naming the visible surfaces" in joined
+
+
+def test_copy_quality_findings_requires_help_page_to_open_with_help_action() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "how_can_i_help",
+        {
+            "intro": "Chummer6 is a rough local-first prep surface.",
+            "body": "Grab the current drop, test it, and file issues when the math breaks.",
+            "kicker": "Help us by stress-testing what is real.",
+        },
+        worker.PAGE_PROMPTS["how_can_i_help"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "how_can_i_help should open with a concrete help action" in joined
+
+
+def test_copy_quality_findings_requires_faq_page_to_open_like_answers() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "faq",
+        {
+            "intro": "Chummer6 is a rough local-first prep surface.",
+            "body": "You can use it today, and the current drop is on the releases page.",
+            "kicker": "Check what works and report what breaks.",
+        },
+        worker.PAGE_PROMPTS["faq"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "faq should open like practical user questions are being answered" in joined
+
+
+def test_copy_quality_findings_flags_frozen_bad_root_opening_patterns() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "readme",
+        {
+            "intro": "Stop burning your prep time arguing over whether a smartlink bonus stacks with your custom optics.",
+            "body": "Check the proof shelf and current drop.",
+            "kicker": "Keep it rough and honest.",
+        },
+        worker.PAGE_PROMPTS["readme"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "frozen bad-opening patterns" in joined
+
+
 def test_copy_quality_findings_flags_soft_synthetic_page_phrasing() -> None:
     worker = _load_worker_module()
 
@@ -649,6 +822,30 @@ def test_fallback_page_copy_is_reader_safe_for_what_chummer6_is() -> None:
     assert row["intro"]
     assert "local-first" in row["intro"].lower() or "local-first" in row["body"].lower()
     worker.assert_public_reader_safe(row, context="page:what_chummer6_is:fallback")
+
+
+def test_fallback_page_copy_covers_faq_and_help_pages() -> None:
+    worker = _load_worker_module()
+
+    faq_row = worker.fallback_page_copy("faq", worker.PAGE_PROMPTS["faq"], {})
+    help_row = worker.fallback_page_copy("how_can_i_help", worker.PAGE_PROMPTS["how_can_i_help"], {})
+
+    assert "can you use it now" in faq_row["intro"].lower()
+    assert "download" in help_row["kicker"].lower()
+    assert "booster" not in json.dumps({"faq": faq_row, "help": help_row}).lower()
+    worker.assert_public_reader_safe(faq_row, context="page:faq:fallback")
+    worker.assert_public_reader_safe(help_row, context="page:how_can_i_help:fallback")
+
+
+def test_media_easter_egg_allowed_is_optional_not_whitelist_only() -> None:
+    worker = _load_worker_module()
+
+    assert worker.media_easter_egg_allowed(kind="part", item={"slug": "ui"}, contract={}) is True
+    assert worker.media_easter_egg_allowed(
+        kind="part",
+        item={"slug": "ui"},
+        contract={"easter_egg_policy": "deny"},
+    ) is False
 
 
 def test_part_supporting_context_does_not_inject_booster_copy_into_hub() -> None:
@@ -1117,3 +1314,51 @@ def test_generate_overrides_repairs_single_page_bundle_without_requested_key(mon
 
     assert overrides["pages"]["start_here"]["intro"] == "Direct intro"
     assert overrides["pages"]["start_here"]["body"] == "Direct body"
+
+
+def test_generate_overrides_retries_single_page_prompt_before_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    prompts: list[str] = []
+
+    monkeypatch.setattr(worker, "collect_interest_signals", lambda: {"tags": [], "snippets": []})
+    monkeypatch.setattr(worker, "resolve_style_epoch", lambda increment=True: {"epoch": 1})
+    monkeypatch.setattr(worker, "scene_ledger_summary", lambda rows: [])
+    monkeypatch.setattr(worker, "recent_scene_rows", lambda: [])
+    monkeypatch.setattr(worker, "normalize_ooda", lambda result, signals: {"act": {}, "decide": {}, "orient": {}, "observe": {}})
+    monkeypatch.setattr(worker, "humanize_mapping_fields_with_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker, "polish_copy_row", lambda **kwargs: kwargs["row"])
+    monkeypatch.setattr(worker, "scene_plan_pack_audit", lambda overrides: {"status": "ok"})
+    monkeypatch.setattr(worker, "editorial_pack_audit", lambda overrides: {"status": "ok"})
+
+    def should_not_fallback(name, item, global_ooda):
+        raise AssertionError("fallback should not be used when single-page retry succeeds")
+
+    monkeypatch.setattr(worker, "fallback_page_copy", should_not_fallback)
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        prompts.append(prompt)
+        if "Each page id must map to an object with keys intro, body, kicker." in prompt:
+            return {"wrong_key": "miss"}
+        if "guide page `public_surfaces`" in prompt:
+            return {
+                "intro": "The public surfaces are visible.",
+                "body": "You can read the guide, inspect the proof shelf, and grab the current drop.",
+                "kicker": "Start with what is real now.",
+            }
+        return {"observe": {}, "orient": {}, "decide": {}, "act": {}}
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+
+    overrides = worker.generate_overrides(
+        include_parts=False,
+        include_horizons=False,
+        include_hero_media=False,
+        model="ea-groundwork",
+        reused_ooda={"observe": {}, "orient": {}, "decide": {}, "act": {}},
+        page_ids=["public_surfaces"],
+        run_skill_audits=False,
+        prefer_page_quality=True,
+    )
+
+    assert overrides["pages"]["public_surfaces"]["intro"] == "The public surfaces are visible."
+    assert any("guide page `public_surfaces`" in prompt for prompt in prompts)
