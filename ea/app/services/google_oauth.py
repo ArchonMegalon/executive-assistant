@@ -12,10 +12,12 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from app.container import AppContainer
 from app.domain.models import ConnectorBinding, ProviderBindingRecord
+
+if TYPE_CHECKING:
+    from app.container import AppContainer
 
 GOOGLE_PROVIDER_KEY = "google_gmail"
 GOOGLE_CONNECTOR_NAME = "google_workspace"

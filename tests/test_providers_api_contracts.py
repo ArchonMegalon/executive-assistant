@@ -158,6 +158,94 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
 
 
+def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-onboarding")
+
+    started = owner.post(
+        "/v1/onboarding/start",
+        json={
+            "workspace_name": "Ops Desk",
+            "workspace_mode": "team",
+            "region": "AT",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "selected_channels": ["google", "telegram", "whatsapp"],
+        },
+    )
+    assert started.status_code == 200
+    started_body = started.json()
+    assert started_body["status"] == "started"
+    assert started_body["workspace"]["name"] == "Ops Desk"
+    assert started_body["selected_channels"] == ["google", "telegram", "whatsapp"]
+
+    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "core"})
+    assert google.status_code == 200
+    google_body = google.json()
+    assert google_body["google_start"]["ready"] is True
+    assert google_body["google_start"]["requested_bundle"] == "core"
+    assert google_body["google_start"]["oauth_bundle"] == "verify"
+    assert "https://www.googleapis.com/auth/gmail.metadata" in google_body["google_start"]["requested_scopes"]
+    assert google_body["channels"]["google"]["status"] == "ready_to_connect"
+
+    telegram = owner.post(
+        "/v1/onboarding/telegram/start",
+        json={
+            "telegram_ref": "@opsdesk",
+            "history_mode": "future_only",
+            "assistant_surfaces": ["dm", "group"],
+        },
+    )
+    assert telegram.status_code == 200
+    telegram_body = telegram.json()
+    assert telegram_body["telegram_start"]["status"] == "guided_manual"
+    assert telegram_body["channels"]["telegram"]["status"] == "guided_manual"
+
+    whatsapp = owner.post(
+        "/v1/onboarding/whatsapp/import-export",
+        json={
+            "export_label": "March export",
+            "selected_chat_labels": ["Family", "Ops"],
+            "include_media": True,
+        },
+    )
+    assert whatsapp.status_code == 200
+    whatsapp_body = whatsapp.json()
+    assert whatsapp_body["whatsapp_export"]["status"] == "export_planned"
+    assert whatsapp_body["channels"]["whatsapp"]["status"] == "export_planned"
+
+    finalized = owner.post(
+        "/v1/onboarding/finalize",
+        json={
+            "retention_mode": "metadata_first",
+            "metadata_only_channels": ["telegram"],
+            "allow_drafts": True,
+            "allow_action_suggestions": True,
+            "allow_auto_briefs": True,
+        },
+    )
+    assert finalized.status_code == 200
+    finalized_body = finalized.json()
+    assert finalized_body["status"] == "ready_for_brief"
+    assert finalized_body["privacy"]["retention_mode"] == "metadata_first"
+    assert finalized_body["privacy"]["metadata_only_channels"] == ["telegram"]
+    assert finalized_body["brief_preview"]["headline"].startswith("Ops Desk")
+
+    status = owner.get("/v1/onboarding/status")
+    assert status.status_code == 200
+    status_body = status.json()
+    assert status_body["workspace"]["mode"] == "team"
+    assert status_body["channels"]["google"]["status"] == "ready_to_connect"
+    assert status_body["channels"]["telegram"]["status"] == "guided_manual"
+    assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
+    assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected account."
+
+
 def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
@@ -169,8 +257,17 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     landing = owner.get("/")
     assert landing.status_code == 200
-    assert "Executive Assistant" in landing.text
-    assert "Connect Google" in landing.text
+    assert "Your assistant across Gmail, Telegram, and WhatsApp." in landing.text
+    assert "Start setup" in landing.text
+
+    setup = owner.get("/setup")
+    assert setup.status_code == 200
+    assert "Create Workspace" in setup.text
+    assert "Choose WhatsApp Path" in setup.text
+
+    privacy = owner.get("/privacy")
+    assert privacy.status_code == 200
+    assert "What the assistant stores and where" in privacy.text
 
     started = owner.post(
         "/google/connect",
@@ -208,7 +305,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google Connected" in callback.text
+    assert "Google is now linked to this assistant" in callback.text
     assert "browser@gmail.example" in callback.text
     assert "gmail.send" in callback.text
 
@@ -246,7 +343,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert landing.status_code == 200
     assert "Signed in via Cloudflare Access" in landing.text
     assert "browser@gmail.com" in landing.text
-    assert "own assistant" in landing.text
+    assert "principal-scoped" in landing.text
 
     started = owner.post(
         "/google/connect",
@@ -282,7 +379,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google Connected" in callback.text
+    assert "Google is now linked to this assistant" in callback.text
     assert "cf-email:browser@gmail.com" in callback.text
 
 

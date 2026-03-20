@@ -30,6 +30,7 @@ from app.services.channel_runtime import ChannelRuntimeService, build_channel_ru
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.orchestrator import RewriteOrchestrator, build_artifact_repo, build_default_orchestrator
+from app.services.onboarding import OnboardingService, build_onboarding_service
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService
 from app.services.proactive_horizon import ProactiveHorizonService
@@ -115,6 +116,7 @@ class AppContainer:
     brain_router: BrainRouterService
     cognitive_load: CognitiveLoadService
     proactive_horizon: ProactiveHorizonService
+    onboarding: OnboardingService
     readiness: ReadinessService
 
 
@@ -174,6 +176,11 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         task_contracts=task_contracts,
         channel_runtime=channel_runtime,
     )
+    onboarding = build_onboarding_service(
+        settings=settings,
+        provider_registry=provider_registry,
+        tool_runtime=tool_runtime,
+    )
     return AppContainer(
         settings=settings,
         runtime_profile=profile,
@@ -190,6 +197,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         brain_router=brain_router,
         cognitive_load=cognitive_load,
         proactive_horizon=proactive_horizon,
+        onboarding=onboarding,
         readiness=ReadinessService(settings),
     )
 
