@@ -166,7 +166,7 @@ def test_sanitize_media_row_strips_explicit_easter_eggs_for_non_sparse_targets()
     assert not any("troll" in entry.lower() for entry in row["visual_motifs"])
 
 
-def test_sanitize_media_row_keeps_sparse_showcase_easter_egg_targets() -> None:
+def test_sanitize_media_row_strips_sparse_showcase_easter_egg_targets_from_karma_forge() -> None:
     media = _load_module()
 
     row = media.sanitize_media_row(
@@ -194,8 +194,8 @@ def test_sanitize_media_row_keeps_sparse_showcase_easter_egg_targets() -> None:
         },
     )
 
-    assert "easter_egg_kind" in row["scene_contract"]
-    assert row["scene_contract"]["humor"] == "The bastard thing finally behaves."
+    assert "easter_egg_kind" not in row["scene_contract"]
+    assert row["scene_contract"]["humor"] == ""
 
 
 def test_build_safe_onemin_prompt_does_not_force_troll_clause_without_explicit_request() -> None:
@@ -223,6 +223,12 @@ def test_build_safe_onemin_prompt_does_not_force_troll_clause_without_explicit_r
     assert "troll motif" not in prompt.lower()
 
 
+def test_first_contact_targets_do_not_get_sparse_karma_forge_easter_egg_allowance() -> None:
+    media = _load_module()
+
+    assert media.easter_egg_allowed_for_target("assets/horizons/karma-forge.png") is False
+
+
 def test_build_safe_onemin_prompt_does_not_force_human_presence_for_environment_map_targets() -> None:
     media = _load_module()
 
@@ -246,7 +252,7 @@ def test_build_safe_onemin_prompt_does_not_force_human_presence_for_environment_
     assert "Human presence must be obvious" not in prompt
 
 
-def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_requests_it() -> None:
+def test_build_safe_onemin_prompt_does_not_keep_troll_clause_for_karma_forge_even_when_requested() -> None:
     media = _load_module()
 
     prompt = media.build_safe_onemin_prompt(
@@ -270,7 +276,7 @@ def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_reque
         },
     )
 
-    assert "troll motif" in prompt.lower()
+    assert "troll motif" not in prompt.lower()
 
 
 def test_build_safe_onemin_prompt_does_not_force_troll_clause_for_non_sparse_targets_even_with_explicit_fields() -> None:

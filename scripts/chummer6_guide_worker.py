@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
 import json
 import os
@@ -63,24 +64,24 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "palette": "petrol cyan, rust amber, wet charcoal",
         "lighting": "practical lamps, sodium spill, rain reflections",
         "realism_mode": "documentary cyberpunk realism",
-        "lens_grammar": "35mm and 50mm handheld intimacy",
-        "texture_treatment": "fine film grain and scratched hardware surfaces",
+        "lens_grammar": "28mm and 40mm layered frames with strong foreground obstruction and visible room depth",
+        "texture_treatment": "fine film grain, scratched hardware surfaces, denser prop layering, and harder focal separation",
         "signage_treatment": "icon-first transit grime and cropped labels",
         "troll_material_style": "worn stickers, scratched pins, faded decals",
         "weather_bias": "rain-biased night exterior or damp interior carry-over",
         "humor_ceiling": "wry and restrained",
     },
     {
-        "style_family": "neon_docu_realism",
-        "palette": "acid teal, sodium peach, bruise violet",
-        "lighting": "thin neon spill over believable practical light",
-        "realism_mode": "grounded reportage with sharp subject isolation",
-        "lens_grammar": "40mm reportage frames and over-shoulder evidence shots",
-        "texture_treatment": "cleaner edges, colder glass, subtle electronic bloom",
-        "signage_treatment": "pictograms, lane lights, and half-obscured public markers",
-        "troll_material_style": "enamel pins, transit stickers, CRT mascots",
-        "weather_bias": "humid night air and reflective surfaces",
-        "humor_ceiling": "lightly wry and not showy",
+        "style_family": "shadowrun_cover_realism",
+        "palette": "signal cyan, warning red, nicotine ivory",
+        "lighting": "hard practical key light with shaped neon accents and dense shadow",
+        "realism_mode": "grounded cover-art realism with obvious focal storytelling and stronger graphic punch",
+        "lens_grammar": "28mm and 40mm graphic frames with strong foreground shapes, diagonal energy, and layered depth",
+        "texture_treatment": "sharper silhouettes, tactile props, wet surfaces, restrained bloom, and higher semantic prop density",
+        "signage_treatment": "pictograms, hazard stripes, cropped glyphs, never readable words",
+        "troll_material_style": "enamel pins, transit stickers, scratched charm decals",
+        "weather_bias": "humid exteriors and heat-loaded interiors with reflective carry-over",
+        "humor_ceiling": "dry, sparse, and scene-native",
     },
     {
         "style_family": "corp_decay_noir",
@@ -99,8 +100,8 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "palette": "forge orange, machine green, midnight steel",
         "lighting": "task lamps, monitor glow, and hard industrial spill",
         "realism_mode": "tactile shop-floor realism with cinematic contrast",
-        "lens_grammar": "28mm environment frames and close prop clusters",
-        "texture_treatment": "grease, powder, heat haze, and metal wear",
+        "lens_grammar": "28mm environment frames and dense close prop clusters with layered control hardware",
+        "texture_treatment": "grease, powder, heat haze, metal wear, and visibly packed work surfaces",
         "signage_treatment": "warning icons, hazard bands, stamped surfaces",
         "troll_material_style": "patches, tool decals, hazard stickers",
         "weather_bias": "indoor heat with outdoor rain suggested secondarily",
@@ -266,7 +267,6 @@ SECTION_OODA_DRIFT_PHRASES: tuple[str, ...] = (
 )
 SPARSE_EASTER_EGG_ASSET_TARGETS: frozenset[str] = frozenset(
     {
-        "assets/hero/chummer6-hero.png",
         "assets/horizons/karma-forge.png",
     }
 )
@@ -277,6 +277,11 @@ SPARSE_HUMOR_ASSET_TARGETS: frozenset[str] = frozenset(
     }
 )
 BOOSTER_REFERENCE_HORIZON = "karma-forge"
+LEGACY_PART_SLUGS: dict[str, str] = {
+    "ui-kit": "ui_kit",
+    "hub-registry": "hub_registry",
+    "media-factory": "media_factory",
+}
 MEDIA_META_HUMOR_TOKENS: tuple[str, ...] = (
     " dev ",
     " developer",
@@ -304,6 +309,7 @@ MEDIA_READABLE_JOKE_TOKENS: tuple[str, ...] = (
 )
 COMPOSITION_SLUG_RE = re.compile(r"^[a-zA-Z0-9_-]{2,80}$")
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
+SURFACE_HEAVY_COMPOSITIONS = TABLEAU_COMPOSITIONS | {"desk_still_life", "dossier_desk", "loadout_table"}
 ARCHITECTURE_HEAVY_TERMS: tuple[str, ...] = (
     "architecture",
     "architectural",
@@ -711,6 +717,16 @@ def sanitize_media_humor(text: str) -> str:
     return cleaned
 
 
+def contains_meta_humor_language(text: str) -> bool:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return False
+    lowered = f" {cleaned.lower()} "
+    return any(token in lowered for token in MEDIA_META_HUMOR_TOKENS) or any(
+        token in lowered for token in MEDIA_READABLE_JOKE_TOKENS
+    )
+
+
 def _mentions_troll_motif(text: str) -> bool:
     lowered = " ".join(str(text or "").split()).strip().lower()
     if "troll" not in lowered:
@@ -821,10 +837,11 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
 
     checked = 0
     tableau = 0
+    surface_heavy = 0
     invalid: list[dict[str, str]] = []
 
     def audit_row(scope: str, *, target: str, row: object) -> None:
-        nonlocal checked, tableau
+        nonlocal checked, tableau, surface_heavy
         if not isinstance(row, dict):
             return
         contract = row.get("scene_contract")
@@ -846,6 +863,8 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
         normalized = composition.lower().replace("-", "_")
         if normalized in TABLEAU_COMPOSITIONS:
             tableau += 1
+        if normalized in SURFACE_HEAVY_COMPOSITIONS:
+            surface_heavy += 1
         if not re.fullmatch(r"[a-z0-9_]{2,80}", normalized):
             invalid.append({"scope": scope, "composition": composition})
 
@@ -862,10 +881,13 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
         "status": "ok",
         "checked": checked,
         "tableau_count": tableau,
+        "surface_heavy_count": surface_heavy,
         "invalid_compositions": invalid,
     }
     if tableau > 2:
         raise RuntimeError(f"scene_plan_audit_failed:tableau_count:{tableau}")
+    if surface_heavy > 5:
+        raise RuntimeError(f"scene_plan_audit_failed:surface_heavy_count:{surface_heavy}")
     if invalid:
         raise RuntimeError(f"scene_plan_audit_failed:invalid_compositions:{invalid[:4]}")
     return summary
@@ -1048,10 +1070,10 @@ def page_supporting_context(page_id: str) -> list[str]:
         curated_fallbacks = {
             "readme": [
                 "Start with the guide, not with assumptions about a working product.",
-                "If you find a proof shelf or rough artifact, treat it as spillover rather than support.",
+                "If you find a proof shelf or rough artifact, treat it as a trace of the idea rather than support.",
             ],
             "start_here": [
-                "See what is real now before you trust any accidental trace.",
+                "See what is real now before you trust any lucky trace.",
                 "Start with the guide and horizon shelf, not with a fantasy about a finished tool.",
             ],
             "what_chummer6_is": [
@@ -1060,15 +1082,15 @@ def page_supporting_context(page_id: str) -> list[str]:
             ],
             "current_phase": [
                 "Trust work and visible reasoning still come before polish.",
-                "If anything looks usable, assume it is a rough trace rather than a settled surface.",
+                "The work is still about making the idea inspectable before pretending the product is ready.",
             ],
             "current_status": [
-                "The reliable public story is still the guide, the horizon shelf, and a few accidental traces.",
-                "Treat any concrete artifact as provisional spillover that may break or vanish.",
+                "The reliable public story is still the guide, the horizon shelf, and a few rough traces.",
+                "Any concrete artifact may still break, move, or vanish without ceremony.",
             ],
             "public_surfaces": [
                 "The guide, horizon shelf, and issue tracker are the deliberate public surfaces.",
-                "Anything else should be read as spillover, not as a dependable product path.",
+                "Anything else should be read as a rough trace, not as a dependable product path.",
             ],
         }
         snippets = list(curated_fallbacks.get(page, []))
@@ -1778,6 +1800,7 @@ Voice rules:
 - `when` should name concrete user situations, not vague platform posture
 - `why` should cash out a visible reader benefit instead of abstract coordination language
 - `now` should say what is true today plus one honest limit if the canon implies it
+- if the part label sounds internal, translate it into the human-facing job a reader would actually care about
 - avoid generic filler like toolkit, platform glue, digital handshake, or background systems
 {PUBLIC_WRITER_RULES}
 
@@ -1893,6 +1916,7 @@ Section OODA:
 Requirements:
 - `table_scene` must read like a real table moment, not a one-line reminder
 - `table_scene` should be 5-9 short lines with speaker labels or obviously playable dialogue beats
+- avoid the default symmetrical five-line GM/player exchange; let the scene breathe, interrupt itself, or switch speaker mix when that fits the horizon better
 - `meanwhile` must be 2-4 bullet lines starting with `- `
 - `problem`, `why_great`, and `why_waits` should each be one tight paragraph
 - `pitch_line` should invite a better future idea without sounding corporate
@@ -2286,8 +2310,12 @@ def normalize_section_oodas_bundle(
     normalized: dict[str, dict[str, object]] = {}
     for name, item in section_items.items():
         row = result.get(name)
+        if not isinstance(row, dict) and section_type == "part":
+            legacy_name = LEGACY_PART_SLUGS.get(name)
+            if legacy_name:
+                row = result.get(legacy_name)
         if not isinstance(row, dict):
-            raise ValueError(f"missing section OODA bundle row: {section_type}/{name}")
+            row = {}
         normalized[name] = normalize_section_ooda(
             row,
             section_type=section_type,
@@ -2300,6 +2328,11 @@ def normalize_section_oodas_bundle(
 
 def build_page_prompt(page_id: str, item: dict[str, object], *, global_ooda: dict[str, object] | None = None, section_ooda: dict[str, object] | None = None) -> str:
     supporting_context = page_supporting_context(page_id)
+    role_hint = {
+        "readme": "README is the front-door pitch and map. It should explain what the idea is trying to fix and which shelves are worth checking, not read like a checklist.",
+        "start_here": "START_HERE is the orientation page. It should route the reader toward the next useful shelf or action.",
+        "current_status": "CURRENT_STATUS is the honest present-tense readout. It should sound like status, not another concept pitch.",
+    }.get(page_id, "Keep the page role clear and distinct.")
     return f"""You are writing downstream-only copy for the human-facing Chummer6 guide page `{page_id}`.
 
 Task: return a JSON object only with keys intro, body, kicker.
@@ -2326,10 +2359,14 @@ Rules:
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
 - keep the concept / idea posture defensive and honest on first-contact pages
+- vary the defensive honesty language; do not repeat the same rough-trace or accidental-evidence disclaimer on every page
 - do not mention booster / participate caveats on general pages; reserve that expensive-lane explanation for the KARMA FORGE horizon unless a page payload explicitly requires it
 {PUBLIC_WRITER_RULES}
 
 Page id: {page_id}
+Page role:
+{role_hint}
+
 Current source:
 {item.get("source", "")}
 
@@ -2353,6 +2390,11 @@ def build_pages_bundle_prompt(*, items: dict[str, dict[str, object]], global_ood
             "source": str(item.get("source", "")).strip(),
             "supporting_public_context": page_supporting_context(page_id),
             "section_ooda": section_oodas.get(page_id, {}),
+            "page_role": {
+                "readme": "front-door pitch and map",
+                "start_here": "orientation and next-step routing",
+                "current_status": "present-tense status readout",
+            }.get(page_id, "distinct public guide page"),
         }
     return f"""You are writing downstream-only copy for multiple human-facing Chummer6 guide pages.
 
@@ -2368,6 +2410,7 @@ Rules:
 - avoid internal jargon unless it is immediately translated
 - keep each page compact and useful
 - make each page feel distinct instead of reusing one sentence frame
+- make README, START_HERE, and CURRENT_STATUS feel like different jobs, not three defensive rewrites of the same disclaimer
 - lead with one concrete table pain, payoff, or proof signal instead of abstract platform framing
 - each page body should name at least two specific present-tense truths, proofs, or user actions when the canon supports them
 - avoid generic filler like toolkit, foundation, platform glue, digital handshake, or background systems unless the sentence becomes sharper by keeping them
@@ -2380,6 +2423,7 @@ Rules:
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
+- vary the defensive honesty language across the set; do not keep repeating rough traces, accidental evidence, or identical spillover warnings page after page
 {PUBLIC_WRITER_RULES}
 
 Global OODA:
@@ -2438,10 +2482,12 @@ Rules:
 - no markdown fences
 - keep copy grounded and useful
 - make each part sound like its own place, not another templated glossary card
+- if a part label sounds internal, translate it into a human-facing concept instead of repeating the module name back at the reader
 - make the media scene-first, not icon soup
 - humor is optional; if the scene does not earn it, skip it
 - easter eggs are optional; any asset may carry one if the scene earns it, but no asset is required to have one
 - no literal on-image text or prompt leakage
+- do not make gloved hands, scarred hands, or anonymous hand close-ups the primary focal subject
 - `when` should sound like real user situations, not platform posture
 - `why` should cash out a visible benefit instead of abstract glue language
 - `now` should say what is true today plus one honest limit when the canon implies it
@@ -2521,7 +2567,11 @@ Rules:
 - easter eggs are optional; any horizon asset may carry one if the scene earns it, but no asset is required to have one
 - `table_scene` must be a mini scene, not a one-sentence use-case stub
 - `table_scene` should feel like table dialogue, with a GM/player/Chummer rhythm when the concept allows it
+- vary `table_scene` cadence across the set; do not give every horizon the same tidy five-line exchange
+- across the bundle, mix beat counts, speaker mixes, and the occasional unlabeled action beat when the scene earns it
+- do not let every horizon end on the same neat mic-drop line or identical GM/player rhythm
 - `meanwhile` must be 2-4 bullet lines starting with `- `
+- do not make gloved hands, scarred hands, or anonymous hand close-ups the primary focal subject of the media scene
 - prefer pain -> scene -> invisible system action -> payoff -> realism
 - if access posture, booster guidance, or free-later intent exists in canon, carry that into `why_waits` and `pitch_line` instead of improvising a vague delay story
 
@@ -2588,17 +2638,50 @@ def normalize_single_page_bundle_candidate(result: dict[str, object], *, page_id
     return cleaned
 
 
+def fallback_media_seed(kind: str, *, name: str, item: dict[str, object]) -> dict[str, str]:
+    title = str(item.get("title") or item.get("slug") or name).strip() or name
+    if kind == "part":
+        subtitle = str(item.get("tagline") or item.get("why") or item.get("when") or title).strip() or title
+        return {
+            "badge": "Concept // part",
+            "title": title,
+            "subtitle": subtitle,
+            "kicker": "public job, not finished software",
+            "note": "Treat this as a concept lane with a few rough traces, not a dependable surface.",
+            "overlay_hint": "subtle diegetic context markers",
+            "visual_prompt": f"{title}; grounded Shadowrun part scene; tactile props; no readable text",
+        }
+    subtitle = str(item.get("hook") or item.get("problem") or item.get("use_case") or title).strip() or title
+    return {
+        "badge": "Concept // horizon",
+        "title": title,
+        "subtitle": subtitle,
+        "kicker": "future lane, not a promise",
+        "note": "Treat this as a concept lane with rough public traces, not a finished feature.",
+        "overlay_hint": "subtle diegetic context markers",
+        "visual_prompt": f"{title}; grounded Shadowrun horizon scene; tactile props; no readable text",
+    }
+
+
 def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
     copy_rows: dict[str, dict[str, str]] = {}
     media_rows: dict[str, dict[str, object]] = {}
     for name, item in items.items():
         row = result.get(name)
         if not isinstance(row, dict):
-            raise ValueError(f"missing part bundle row: {name}")
+            legacy_name = LEGACY_PART_SLUGS.get(name)
+            if legacy_name:
+                row = result.get(legacy_name)
+        if not isinstance(row, dict):
+            copy_rows[name] = fallback_part_copy(name, item)
+            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
+            continue
         copy = row.get("copy")
         media = row.get("media")
         if not isinstance(copy, dict) or not isinstance(media, dict):
-            raise ValueError(f"invalid part bundle row: {name}")
+            copy_rows[name] = fallback_part_copy(name, item)
+            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
+            continue
         cleaned_copy = {
             key: editorial_self_audit_text(
                 str(copy.get(key, "")).strip(),
@@ -2608,8 +2691,11 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
             if str(copy.get(key, "")).strip()
         }
         if len(cleaned_copy) < 3:
-            raise ValueError(f"insufficient part copy: {name}")
-        media_cleaned = normalize_media_override("part", dict(media), item)
+            cleaned_copy = fallback_part_copy(name, item)
+        try:
+            media_cleaned = normalize_media_override("part", dict(media), item)
+        except Exception:
+            media_cleaned = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
     return copy_rows, media_rows
@@ -2621,11 +2707,15 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
     for name, item in items.items():
         row = result.get(name)
         if not isinstance(row, dict):
-            raise ValueError(f"missing horizon bundle row: {name}")
+            copy_rows[name] = fallback_horizon_copy(name, item)
+            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
+            continue
         copy = row.get("copy")
         media = row.get("media")
         if not isinstance(copy, dict) or not isinstance(media, dict):
-            raise ValueError(f"invalid horizon bundle row: {name}")
+            copy_rows[name] = fallback_horizon_copy(name, item)
+            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
+            continue
         cleaned_copy = {
             key: editorial_self_audit_text(
                 str(copy.get(key, "")).strip(),
@@ -2635,8 +2725,11 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
             if str(copy.get(key, "")).strip()
         }
         if len(cleaned_copy) < 7:
-            raise ValueError(f"insufficient horizon copy: {name}")
-        media_cleaned = normalize_media_override("horizon", dict(media), item)
+            cleaned_copy = fallback_horizon_copy(name, item)
+        try:
+            media_cleaned = normalize_media_override("horizon", dict(media), item)
+        except Exception:
+            media_cleaned = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
     return copy_rows, media_rows
@@ -2665,7 +2758,7 @@ def _copy_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
     return {
         "pages": {
             page_id: {
-                key: _trim_audit_text(value, limit=360)
+                key: _trim_structured_audit_text(value, limit=1600)
                 for key, value in dict(row).items()
                 if isinstance(value, str)
             }
@@ -2674,7 +2767,7 @@ def _copy_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
         },
         "parts": {
             part_id: {
-                key: _trim_audit_text(value, limit=240)
+                key: _trim_structured_audit_text(value, limit=480)
                 for key, value in dict(row).items()
                 if isinstance(value, str)
             }
@@ -2684,9 +2777,9 @@ def _copy_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
         "horizons": {
             horizon_id: {
                 key: (
-                    _trim_structured_audit_text(value, limit=1200)
+                    _trim_structured_audit_text(value, limit=1600)
                     if key in {"table_scene", "meanwhile"}
-                    else _trim_audit_text(value, limit=260)
+                    else _trim_structured_audit_text(value, limit=520)
                 )
                 for key, value in dict(row).items()
                 if isinstance(value, str)
@@ -2855,28 +2948,120 @@ COPY_KEYS_BY_SECTION: dict[str, tuple[str, ...]] = {
 
 
 def normalize_horizon_meanwhile(text: str) -> str:
-    raw = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    def _normalize_raw(value: object) -> str:
+        raw_text = str(value or "").strip()
+        if not raw_text:
+            return ""
+        normalized = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = normalized.replace("\\r\\n", "\n").replace("\\r", "\n").replace("\\n", "\n")
+        while len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {'"', "'"}:
+            candidate = normalized[1:-1].strip()
+            if not candidate:
+                break
+            normalized = candidate
+        return normalized.strip()
+
+    def _flatten_entries(value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            normalized = _normalize_raw(value)
+            return [line.strip() for line in normalized.split("\n") if line.strip()]
+        if isinstance(value, list):
+            flattened: list[str] = []
+            for entry in value:
+                flattened.extend(_flatten_entries(entry))
+            return flattened
+        if isinstance(value, dict):
+            for key in ("meanwhile", "items", "bullets", "lines", "entries"):
+                if key in value:
+                    return _flatten_entries(value.get(key))
+            flattened: list[str] = []
+            for entry in value.values():
+                flattened.extend(_flatten_entries(entry))
+            return flattened
+        return [str(value).strip()]
+
+    def _clean_entry(value: str) -> str:
+        candidate = _normalize_raw(value)
+        candidate = re.sub(r"^(?:[-*•]\s*|\d+[.)]\s*)", "", candidate).strip(" \t\"'")
+        candidate = " ".join(candidate.split()).strip(" ,.;:-")
+        if candidate and candidate[0].islower():
+            candidate = candidate[0].upper() + candidate[1:]
+        return candidate
+
+    raw = _normalize_raw(text)
     if not raw:
         return ""
-    lines = [line.strip() for line in raw.split("\n") if line.strip()]
-    if 2 <= len(lines) <= 4 and all(line.startswith("- ") for line in lines):
-        return "\n".join(lines)
-    compact = " ".join(raw.split()).strip(" .")
-    if not compact:
-        return ""
-    seeded = re.sub(r"\s+and\s+", "; ", compact, flags=re.IGNORECASE)
-    parts = [
-        part.strip(" ,.;:-")
-        for part in re.split(r";\s+|,\s+|\.\s+", seeded)
-        if part.strip(" ,.;:-")
-    ]
+    parsed_entries: list[str] = []
+    parse_candidate = raw
+    for _ in range(2):
+        if not parse_candidate or parse_candidate[0] not in "[{\"":
+            break
+        try:
+            loaded = json.loads(parse_candidate)
+        except Exception:
+            break
+        flattened = _flatten_entries(loaded)
+        if flattened:
+            parsed_entries = flattened
+            break
+        if isinstance(loaded, str):
+            parse_candidate = _normalize_raw(loaded)
+            continue
+        break
+    if not parsed_entries and "[" in raw and "]" in raw:
+        bracketed = raw[raw.find("[") : raw.rfind("]") + 1].strip()
+        try:
+            literal_loaded = ast.literal_eval(bracketed)
+        except Exception:
+            literal_loaded = None
+        flattened_literal = _flatten_entries(literal_loaded)
+        if flattened_literal:
+            parsed_entries = flattened_literal
+    lines = parsed_entries or [line.strip() for line in raw.split("\n") if line.strip()]
     cleaned_parts: list[str] = []
-    for part in parts:
-        candidate = part[0].upper() + part[1:] if part and part[0].islower() else part
-        if candidate and candidate not in cleaned_parts:
-            cleaned_parts.append(candidate)
+    seen_lowered: set[str] = set()
+    for line in lines:
+        candidate = _clean_entry(line)
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if lowered in seen_lowered:
+            continue
+        seen_lowered.add(lowered)
+        cleaned_parts.append(candidate)
     if not cleaned_parts:
-        cleaned_parts = [compact]
+        compact = " ".join(raw.split()).strip(" .")
+        if not compact:
+            return ""
+        seeded = re.sub(r"\s+and\s+", "; ", compact, flags=re.IGNORECASE)
+        parts = [
+            _clean_entry(part)
+            for part in re.split(r";\s+|,\s+|\.\s+", seeded)
+            if part.strip(" ,.;:-")
+        ]
+        cleaned_parts = [part for part in parts if part]
+    if len(cleaned_parts) <= 1:
+        compact = " ".join(raw.split()).strip(" .")
+        seeded = re.sub(r"\s+and\s+", "; ", compact, flags=re.IGNORECASE)
+        split_parts = [
+            _clean_entry(part)
+            for part in re.split(r";\s+|,\s+|\.\s+", seeded)
+            if part.strip(" ,.;:-")
+        ]
+        deduped_split: list[str] = []
+        seen_split: set[str] = set()
+        for part in split_parts:
+            lowered = part.lower()
+            if not part or lowered in seen_split:
+                continue
+            seen_split.add(lowered)
+            deduped_split.append(part)
+        if len(deduped_split) >= 2:
+            cleaned_parts = deduped_split
+    if not cleaned_parts:
+        return ""
     if len(cleaned_parts) == 1:
         return f"- {cleaned_parts[0]}"
     return "\n".join(f"- {entry}" for entry in cleaned_parts[:4])
@@ -2890,6 +3075,17 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     ).strip()
     lowered = combined.lower()
     findings: list[str] = []
+    truncated_fields = [
+        key
+        for key in COPY_KEYS_BY_SECTION.get(section_type, ())
+        if str(row.get(key, "")).strip().endswith(("…", "..."))
+    ]
+    if truncated_fields:
+        findings.append(
+            "Replace truncated public copy. Do not leave clipped words or trailing ellipses in fields like "
+            + ", ".join(truncated_fields[:4])
+            + "."
+        )
     if section_type == "page":
         source_context = " ".join(
             [
@@ -2950,7 +3146,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append(
-                "Do not pitch a runnable proof-of-concept or dependable build on root pages. If you mention artifacts at all, frame them as stray, accidental, or provisional spillover instead of a product path."
+                "Do not pitch a runnable proof-of-concept or dependable build on root pages. If you mention artifacts at all, frame them as rough, provisional traces instead of a product path."
             )
         if page_supporting_context(name) and not any(
             token in lowered
@@ -2975,13 +3171,17 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
                 "accident",
                 "accidental",
                 "spillover",
+                "trace",
+                "rough",
+                "not dependable",
+                "not stable",
                 "provisional",
                 "not a product",
                 "not a promise",
             )
         ):
             findings.append("Make the concept-stage and accidental-artifact posture explicit so the guide does not sound like a rough product pitch.")
-        if name == "readme" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "spillover")):
+        if name == "readme" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough")):
             findings.append("README should point the reader toward the public guide, future lanes, issue tracker, or clearly provisional artifacts instead of staying at product-story altitude.")
         intro_lowered = str(row.get("intro", "")).strip().lower()
         if name == "readme" and re.match(r"^(stop|start|grab|download|use)\b", intro_lowered):
@@ -2996,7 +3196,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append(
-                "README should not lean on command-slogan copy that makes the project sound ready to use. Keep the tone closer to concept, inspection, and accidental traces."
+                "README should not lean on command-slogan copy that makes the project sound ready to use. Keep the tone closer to concept, inspection, and rough traces."
             )
         intro_niche_tokens = [
             phrase
@@ -3016,23 +3216,37 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             token in lowered for token in ("next", "start", "read", "watch", "guide", "horizon", "issue tracker", "if you find")
         ):
             findings.append("START_HERE should tell the reader what to inspect or watch next, not just why the project matters in the abstract.")
+        if name == "start_here" and not any(
+            token in lowered for token in ("what_chummer6_is", "current status", "current_status", "horizon", "issue tracker", "read", "start here")
+        ):
+            findings.append("START_HERE should route the reader toward the next useful shelf or action instead of repeating README posture.")
         if name == "what_chummer6_is":
             if not any(token in lowered for token in ("concept", "idea", "experiment", "direction")):
                 findings.append("Explain WHAT_CHUMMER6_IS as a concept or direction first, not as a product already standing on its own feet.")
-            if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "accident", "accidental", "artifact", "spillover", "trace")):
-                findings.append("Tie WHAT_CHUMMER6_IS back to trust, receipts, or accidental traces instead of leaving the trust story abstract.")
+            if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "artifact", "spillover", "trace", "rough")):
+                findings.append("Tie WHAT_CHUMMER6_IS back to trust, receipts, or rough traces instead of leaving the trust story abstract.")
         if name == "current_phase" and not any(
             token in lowered for token in ("trust", "receipt", "math", "before polish", "before the paint", "concept", "idea")
         ):
             findings.append("CURRENT_PHASE should explain that concept work and trust work still come before anything product-shaped.")
-        if name == "current_status" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "spillover", "concept")):
+        if name == "current_status" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough", "concept")):
             findings.append("CURRENT_STATUS should point to visible explanation surfaces or clearly provisional artifacts, not drift back into generic product status talk.")
         if name == "current_status" and not any(token in intro_lowered for token in ("current", "today", "right now", "status")):
             findings.append("CURRENT_STATUS should sound like an honest status readout in the opening line, not a generic product pitch.")
+        if any(
+            phrase in intro_lowered
+            for phrase in (
+                "the honest thing on offer right now",
+                "there is no dependable software surface",
+                "right now the dependable public surface",
+                "still closer to an idea than to a dependable tool",
+            )
+        ):
+            findings.append("Keep root-page openings distinct. Do not recycle the same defensive disclaimer frame across the public guide.")
         if name == "public_surfaces":
-            if not any(token in lowered for token in ("guide", "issue tracker", "horizon", "artifact", "spillover", "public surface")):
+            if not any(token in lowered for token in ("guide", "issue tracker", "horizon", "artifact", "trace", "public surface")):
                 findings.append("PUBLIC_SURFACES should name the visible public surfaces directly instead of speaking in generalities.")
-            if not any(token in intro_lowered for token in ("public surface", "guide", "issue tracker", "horizon", "artifact", "spillover")):
+            if not any(token in intro_lowered for token in ("public surface", "guide", "issue tracker", "horizon", "artifact", "trace")):
                 findings.append("PUBLIC_SURFACES should open by naming the visible surfaces, not with a generic product hook.")
             if any(token in lowered for token in ("booster", "participate")):
                 findings.append("Keep booster or participation framing out of general public-surface copy unless the page source explicitly requires it.")
@@ -3048,10 +3262,40 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     if section_type == "part":
         if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
             findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
+        if re.search(r"\b(?:you|your)\b", lowered):
+            findings.append("Keep part copy in a detached public voice. Avoid abrupt second-person phrasing like 'you' or 'your'.")
+        now_lowered = str(row.get("now", "")).strip().lower()
+        if any(token in now_lowered for token in ("migrating", "migration", "forensic auditing", "forensic audit")):
+            findings.append("Keep the part `now` field reader-facing. Do not describe internal migration or audit chores when the reader needs the visible public consequence.")
+        if any(
+            phrase in now_lowered
+            for phrase in (
+                "today it is mostly",
+                "right now it is mostly",
+                "for now it is mostly",
+                "today it is more",
+                "today it is closer to",
+            )
+        ):
+            findings.append("Make each part `now` field name a distinct present-tense trace or missing seam instead of repeating the same generic disclaimer.")
+        if name == "hub-registry" and any(
+            token in lowered for token in ("replaces", "ensures", "guarantees", "keeps everything labeled", "stops drift")
+        ):
+            findings.append("Keep Hub Registry in concept or future-tense posture. Do not describe it as a live public service that already replaces chaos today.")
+        if name == "hub-registry" and not any(token in lowered for token in ("artifact", "shelf", "catalog", "intake", "label", "archive")):
+            findings.append("Translate Hub Registry into the public job it would do: labeling, shelving, or cataloging rough artifacts so they do not turn into rumor.")
+        if name == "media-factory" and not any(token in lowered for token in ("packet", "image", "render", "publish", "artifact", "media")):
+            findings.append("Translate Media Factory into the public job it would do: turning rough packets or images into cleaner artifacts without cutting the source loose.")
+        if name == "ui" and not any(token in lowered for token in ("inspect", "sheet", "build", "cross-check", "compare", "proof")):
+            findings.append("Keep UI tied to inspectable builds and visible cross-checking instead of abstract technical chores.")
+        if name == "ui-kit" and not any(token in lowered for token in ("shared visual", "shared cues", "same language", "surface", "chrome")):
+            findings.append("Keep UI Kit tied to the shared visual language a reader would actually notice instead of internal design-system maintenance talk.")
     if section_type == "horizon":
         rollout = horizon_rollout_context(name, item)
         access_posture = rollout["access_posture"].lower()
         free_later_intent = rollout["free_later_intent"]
+        meanwhile_lowered = str(row.get("meanwhile", "")).replace("\r\n", "\n").replace("\r", "\n").lower()
+        why_waits_lowered = str(row.get("why_waits", "")).strip().lower()
         table_scene_lines = [
             line.strip()
             for line in str(row.get("table_scene", "")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -3066,6 +3310,27 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             findings.append("Make `table_scene` a fuller mini-scene with 5-9 short playable beats.")
         if meanwhile_lines and (len(meanwhile_lines) < 2 or len(meanwhile_lines) > 4 or any(not line.startswith("- ") for line in meanwhile_lines)):
             findings.append("Format `meanwhile` as 2-4 short bullet lines starting with `- `.")
+        if name == "table-pulse" and any(line.count(",") >= 2 for line in meanwhile_lines):
+            findings.append("Keep TABLE PULSE `meanwhile` in short cautionary sentences, not comma-heavy feature-list bullets.")
+        if any(
+            token in meanwhile_lowered
+            for token in ("provenance", "cache recovery", "manifests", "vendor dashboards")
+        ):
+            findings.append("Translate `meanwhile` into plain public language. Do not rely on internal shorthand like provenance, cache recovery, manifests, or vendor dashboards without explaining the user-facing consequence.")
+        if any(
+            phrase in meanwhile_lowered or phrase in why_waits_lowered
+            for phrase in (
+                "this lane",
+                "future-facing",
+                "only matters if",
+                "publication prep",
+                "behind the scenes",
+                "one-way export",
+            )
+        ):
+            findings.append("Keep `meanwhile` and `why_waits` reader-facing. Avoid internal status-board language like lane management, publication prep, or behind-the-scenes process talk.")
+        if "booster-first" in meanwhile_lowered or "booster-first" in why_waits_lowered or "booster first" in meanwhile_lowered or "booster first" in why_waits_lowered:
+            findings.append("Translate booster-first into plain public language like optional paid preview or booster preview. Do not rely on internal shorthand.")
         if access_posture == "booster_first" and not any(token in lowered for token in ("booster", "preview", "participate")):
             findings.append("Explain the booster-first preview posture plainly instead of implying a vague wait.")
         if free_later_intent and not any(
@@ -3074,10 +3339,12 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ):
             findings.append("State the broad-access or free-later intent when canon provides it.")
         if name == BOOSTER_REFERENCE_HORIZON:
-            if not ("api" in lowered and ("ui" in lowered or "account" in lowered)):
-                findings.append("Explain that the booster promise is API-side consumption for development and does not restrict normal UI/account use.")
+            if "paid booster preview" in lowered or "paid booster previews" in lowered:
+                findings.append("Translate booster disclosure into plain public language like optional paid preview. Do not lean on booster-internal phrasing.")
+            if not any(token in lowered for token in ("expensive", "review-heavy", "careful review", "booster-first", "preview")):
+                findings.append("Explain that this lane stays expensive and review-heavy even in preview.")
             if not any(token in lowered for token in ("no promise", "not promise", "might get nothing", "may get nothing", "nothing useful", "not guaranteed")):
-                findings.append("Say plainly that spending the API capacity does not promise a useful or shippable result.")
+                findings.append("Say plainly that this lane may still produce nothing useful or shippable.")
     for phrase in WEAK_COPY_PHRASES:
         if phrase in lowered:
             findings.append(f"Replace generic filler like '{phrase}' with a sharper table-facing, proof-facing, or user-action detail.")
@@ -3221,26 +3488,26 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
     tagline = str(act.get("landing_tagline") or "An idea for less mystical Shadowrun math.").strip()
     if page_id == "readme":
         return {
-            "intro": f"{tagline} Chummer6 is still closer to an idea than to a dependable tool.",
-            "body": "The honest thing on offer right now is the direction: less mystical Shadowrun rulings, more visible reasoning, and maybe the occasional rough trace that hints at where the work could go. If you find a guide page, proof trace, or stray build, treat it as spillover from the idea, not as a supported product surface.",
-            "kicker": "Assume almost nothing exists on purpose until it survives repeated scrutiny.",
+            "intro": "Chummer6 is still concept-stage: an idea for table rulings that are easier to inspect before anyone is asked to trust them.",
+            "body": "The project is chasing visible reasoning instead of trust-me table lore. What exists in public is still mostly guide work, future lanes, issue threads, and the occasional rough artifact that escaped into view by accident.",
+            "kicker": "If the idea sounds useful, read the guide and judge the rough traces cautiously.",
         }
     if page_id == "start_here":
         return {
-            "intro": "Start with the idea, not the illusion of a product.",
-            "body": "There is no dependable software surface to promise here. Read the guide first, skim the horizon shelf, and if you happen to find a proof artifact or stray build, treat it as accidental evidence of the direction rather than something you should trust.",
-            "kicker": "Concept means maybe; any useful artifact is a bonus, not a promise.",
+            "intro": "If you only look once, use this page to choose the next shelf.",
+            "body": "Start with the short explanation if you want the pitch, Current Status if you want the honest public state, the future lanes if you want the ambition, and the issue tracker if you want to watch reality push back on the idea.",
+            "kicker": "Pick the shelf that matches your curiosity and move.",
         }
     if page_id == "what_chummer6_is":
         return {
-            "intro": "Chummer6 is an idea about making Shadowrun rulings less mystical.",
-            "body": "The ambition is visible reasoning instead of trust-me math, but the honest present tense is still concept work with occasional spillover. If something inspectable exists, good; if it does not, the direction still matters more than the lucky trace.",
+            "intro": "Chummer6 is an idea about letting Shadowrun math show its work.",
+            "body": "The ambition is visible reasoning instead of trust-me answers, but the honest present tense is still concept work with only a few inspectable traces. If something concrete exists, good; if it does not, the direction still matters more than the lucky artifact.",
             "kicker": "Judge the direction first and the stray evidence second.",
         }
     if page_id == "faq":
         return {
             "intro": "Practical question first: does anything usable actually exist yet?",
-            "body": "Not in a dependable product sense. There may be guide pages, issue threads, or stray artifacts worth inspecting, but they should be read as experiments or spillover, not as promised software.",
+            "body": "Not in a dependable product sense. There may be guide pages, issue threads, or stray artifacts worth inspecting, but they should be read as experiments or lucky public traces, not as promised software.",
             "kicker": "If something works today, treat it as lucky evidence, not stable support.",
         }
     if page_id == "how_can_i_help":
@@ -3252,25 +3519,25 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
     if page_id == "where_to_go_deeper":
         return {
             "intro": "Go deeper only after you decide whether the idea itself sounds worth following.",
-            "body": "Stay with the guide and horizons if you want the public story. Drop into repos or issues only when you want to inspect the rough spillover or argue about a specific implementation choice.",
+            "body": "Stay with the guide and horizons if you want the public story. Drop into repos or issues only when you want to inspect stray implementation evidence or argue about a specific choice.",
             "kicker": "Start with the concept; only chase artifacts when the concept earns it.",
         }
     if page_id == "current_phase":
         return {
-            "intro": "The current phase is still concept work pretending to be less abstract.",
-            "body": "The project is still trying to pin down trust, receipts, and boundaries before it earns the right to call itself software. If something visible exists, it is better read as a rough trace of the idea than as proof that the whole thing is alive.",
-            "kicker": "Concept first, rough trace second.",
+            "intro": "The current phase is trust work before product posture.",
+            "body": "The project is still trying to make rulings inspectable, bounded, and worth trusting before it earns the right to call itself software. In public that mostly shows up as a clearer guide, a sharper horizon shelf, an issue tracker, and the occasional rough artifact that still needs to be treated as accidental evidence instead of support.",
+            "kicker": "Read the guide, watch the horizons, and assume the artifacts are still rough.",
         }
     if page_id == "current_status":
         return {
-            "intro": "The current status is closer to idea with spillover than to product with support.",
-            "body": "What you can reliably expect is a public explanation and a horizon map. Anything more concrete than that should be treated as accidental, provisional, and likely to break or vanish without ceremony.",
-            "kicker": "If you find something useful, count it as evidence of intent, not a contract.",
+            "intro": "Status first: the guide is solid, and everything else is still provisional.",
+            "body": "What is consistently visible today is the guide, the horizon shelf, and a few rough artifacts. Anything more concrete than that may still break, move, or vanish without ceremony.",
+            "kicker": "Treat the explanations as current and the software traces as provisional.",
         }
     if page_id == "public_surfaces":
         return {
-            "intro": "The public surfaces are mostly explanation, future lanes, and whatever accidental traces escaped into view.",
-            "body": "The guide, horizon shelf, and issue tracker are the deliberate public story. If there is a proof artifact, rough build, or screenshot, treat it as provisional spillover instead of a dependable product surface.",
+            "intro": "The deliberate public surfaces are the guide, the horizon shelf, and the issue tracker.",
+            "body": "If there is a proof artifact, rough build, or screenshot, treat it as a rough trace instead of a dependable product surface.",
             "kicker": "The safe assumption is still that almost nothing exists on purpose.",
         }
     if page_id == "parts_index":
@@ -3293,42 +3560,42 @@ def fallback_part_copy(name: str, item: dict[str, object]) -> dict[str, str]:
         "core": {
             "when": "If this idea ever becomes trustworthy, core is where the math accountability would have to live.",
             "why": "Right now it mostly marks the responsibility that would need to exist before anyone should trust a rules engine.",
-            "now": "Nothing solid to promise yet; at best there are rough traces and experiments.",
+            "now": "Today it mostly shows up as trust language, rough receipts, and arguments about what the math would need to explain before anyone should lean on it.",
         },
         "ui": {
             "when": "If something user-facing ever becomes real, UI is where people would feel the idea instead of just reading about it.",
             "why": "It would eventually turn abstract rules intent into something a person could inspect.",
-            "now": "Today it is mostly a direction, not a dependable surface.",
+            "now": "Right now this mostly means rough workbench traces that show how a build might become inspectable. It is still not a user surface that has earned trust.",
         },
         "mobile": {
             "when": "If this concept ever survives real table chaos, mobile is where that claim would get tested hardest.",
             "why": "It is the imagined jump from prep talk to software that could survive actual play.",
-            "now": "Right now it is mostly future pressure, not present capability.",
+            "now": "Today mobile is still mostly pressure from the real table: reconnects, bad signal, and movement are the test, not a solved lane.",
         },
         "hub": {
             "when": "If there is ever a hosted front door, hub is the layer that would have to keep it coherent.",
             "why": "It represents the hosted identity and coordination story the concept would need later.",
-            "now": "For now it is mostly intent and public posture, not something to rely on.",
+            "now": "For now it mostly means public posture, a few hosted traces, and a lot of honesty about how little should be treated as dependable.",
         },
         "ui-kit": {
             "when": "If the project ever stops looking accidental, UI Kit is part of how that would happen.",
-            "why": "Shared visual primitives would keep future surfaces from looking like unrelated experiments pretending to be one product.",
-            "now": "Today it is more design gravity than dependable software.",
+            "why": "A shared visual language would make future surfaces easier to read instead of forcing every reader to relearn the interface from scratch.",
+            "now": "Publicly, this mostly shows up as repeated visual cues across rough guide and proof surfaces so the idea stops looking accidental. It is not a polished system you should rely on yet.",
         },
         "hub-registry": {
-            "when": "If artifacts ever become common enough to matter, registry is the layer that would stop them becoming folklore.",
-            "why": "Without it, future outputs would just pile up as unlabeled exceptions and rumors.",
-            "now": "Right now it is mostly a responsibility marker, not a finished capability.",
+            "when": "Registry is where public artifacts would stay findable instead of turning into rumor.",
+            "why": "It helps a reader tell which artifact is current, which one is rough, and where each one came from.",
+            "now": "Publicly, the job is simple: keep artifacts findable and comparable instead of making people guess which file matters.",
         },
         "media-factory": {
             "when": "If the concept ever produces polished packets or imagery, media-factory is the lane that would have to do it without lying.",
             "why": "It is the imagined render plant for outputs that still need provenance and restraint.",
-            "now": "Today it is closer to an aspiration than a dependable factory.",
+            "now": "Today it mostly means rough packet and image work that still has to prove it can clean things up without cutting the source trail loose.",
         },
         "design": {
-            "when": "You want to understand what the idea is trying to become before you care whether any artifact exists today.",
-            "why": "It keeps the public story tied to one plan instead of a pile of clever guesses and lucky leaks.",
-            "now": "Design is still the strongest thing here because the concept is more real than the software.",
+            "when": "Somebody wants to understand what the idea is trying to become before caring whether any artifact exists today.",
+            "why": "It gives a reader one place to see what the project is aiming for before stray artifacts start sending mixed signals.",
+            "now": "Publicly, the design shelf is still the clearest explanation of what the project wants to become, which is why it often makes more sense than the software traces around it.",
         },
     }.get(str(name or "").strip())
     if isinstance(curated, dict):
@@ -3347,9 +3614,11 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "problem": "A reconnect should be annoying, not campaign-threatening.",
             "table_scene": "\n".join(
                 [
+                    "The dead zone lifts just as the van starts rolling again.",
                     "GM: Your phone died; the run did not.",
                     "Player: Good. I only want to lose battery, not state.",
                     "Rigger: The loadout came back where I left it.",
+                    "Chummer6: Missed actions replayed. Current penalties still attached.",
                     "Face: So we keep moving instead of rebuilding the scene from memory.",
                     "GM: That is the whole fantasy.",
                 ]
@@ -3357,7 +3626,7 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "meanwhile": "\n".join(
                 [
                     "- Shared-state continuity only counts if reconnects are boring and honest.",
-                    "- Reconnect chaos, cache recovery, and conflict cleanup still have to stop lying before this becomes real.",
+                    "- Reconnect chaos and drift cleanup still have to stop lying before this becomes real.",
                 ]
             ),
             "why_great": "It could let the session survive dirty reconnects without making the table re-litigate what was true five minutes ago.",
@@ -3372,8 +3641,9 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
                     "Player: I thought this build was clean.",
                     "GM: ALICE says the weak point shows up on turn two, not after the campaign starts.",
                     "Decker: Good. I would rather get roasted by a preflight than by the whole table.",
+                    "Chummer6: The hallway goes loud, your soak folds, and the plan stops being clever.",
                     "Player: Show me the evidence, not the vibes.",
-                    "GM: Exactly.",
+                    "GM: Exactly. Humiliation is cheaper in preview.",
                 ]
             ),
             "meanwhile": "\n".join(
@@ -3383,7 +3653,7 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
                 ]
             ),
             "why_great": "It could catch weak assumptions before they become public embarrassment or campaign drag.",
-            "why_waits": "Advice that sounds clever but cannot show its work is worse than silence, so this lane stays future-tense until the evidence holds.",
+            "why_waits": "Advice that sounds clever but cannot show its work is worse than silence, so this stays hypothetical until the evidence holds.",
             "pitch_line": "Catch the weak build before the table has to.",
         },
         "karma-forge": {
@@ -3392,43 +3662,45 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "table_scene": "\n".join(
                 [
                     "GM: I want the house rule, not the forked-code religion that comes with it.",
+                    "Chummer6: Diff strip loaded. Two collisions, one rollback path, one approval still pending.",
                     "Player: Fine, but I want to know whether it still plays nice with the rest of the sheet.",
                     "Rigger: And I want rollback before somebody ships a clever disaster.",
+                    "A stamped approval card lands on the bench and nobody trusts it yet.",
                     "GM: That is why this is a forge and not a pastebin.",
                     "Player: Good. Keep the receipts hotter than the hype.",
                 ]
             ),
             "meanwhile": "\n".join(
                 [
-                    "- Approval, compatibility, and rollback still eat real effort before this lane is safe.",
-                    "- Booster here only means the dev may burn API-side budget on experiments; normal UI use on your account stays the same unless you built your own tooling on that same API budget.",
-                    "- Broader access later is still the hope, but nobody should read this as a promise that anything useful or shippable comes out of the spend.",
+                    "- Approval, compatibility, and rollback still eat real effort before any ruleset preview is safe.",
+                    "- It is still expensive, review-heavy, and easy to overpromise if the receipts are weak.",
+                    "- Broader access later is still the hope, but nobody should read that as a promise that the work lands cleanly or soon.",
                 ]
             ),
             "why_great": "It could let tables evolve rules without splintering into silent canon, unreadable forks, or post-hoc apology culture.",
-            "why_waits": "This stays booster-first while the lane is still expensive to operate safely, and even then the honest promise is only API-side experiment budget for development work; you may still get nothing useful out of it.",
+            "why_waits": "At most this starts as an optional paid preview through the booster lane while safe review still costs real effort, and even then the pass may still produce nothing useful or shippable.",
             "pitch_line": "Evolve the rules without pretending every clever hack deserves to become canon.",
         },
         "jackpoint": {
-            "hook": "Finished-feeling packets that keep their provenance attached.",
+            "hook": "Finished-feeling packets that still show where the facts came from.",
             "problem": "Dossiers and recaps get much less useful the moment polish starts making facts up.",
             "table_scene": "\n".join(
                 [
-                    "GM: The brief finally reads like something you would hand to a nervous team.",
-                    "Face: Good. Pretty is cheap; usable is the hard part.",
-                    "Decker: The citations still point back to the real evidence.",
-                    "Rigger: So the packet can move fast without turning into fiction.",
-                    "GM: That is the point.",
+                    "Face: The packet finally tells me which guard swaps at 02:10 and which door was chained shut last night.",
+                    "GM: Good. Brief the team from that instead of from my raw notes.",
+                    "Decker: Every claim still points back to the witness note, camera grab, or receipt it came from.",
+                    "Rigger: So if one timing is wrong, we can see which source lied instead of arguing with the whole dossier.",
+                    "GM: Exactly. Clean enough to brief from, honest enough to cross-check.",
                 ]
             ),
             "meanwhile": "\n".join(
                 [
-                    "- Editorial polish only counts if provenance survives it.",
-                    "- This lane has to prove it can feel finished without severing the facts underneath.",
+                    "- The packet still has to stay readable without hiding where each claim came from.",
+                    "- If polish makes the facts feel cleaner than they were, the whole thing gets less trustworthy, not more.",
                 ]
             ),
             "why_great": "It could turn grim notes into packets people actually want to open, use, and share at the table.",
-            "why_waits": "A polished dossier that lies is just a prettier liability, so this stays future-facing until the receipts survive the shine.",
+            "why_waits": "A dossier that reads beautifully but blurs the evidence is still a bad brief, so this stays hypothetical until the proof survives the polish.",
             "pitch_line": "Make the packet feel finished without making the facts up.",
         },
         "runsite": {
@@ -3436,9 +3708,11 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "problem": "A briefing is still doing half the work if the table cannot read the space.",
             "table_scene": "\n".join(
                 [
+                    "A ghosted floor plan climbs the wet concrete between the crates.",
                     "GM: Here is the site before anyone has to improvise the floor plan from memory.",
                     "Player: Good. I would like to know where the exits are before I need one.",
                     "Rigger: Route overlay makes sense for once.",
+                    "Chummer6: West stair choke point marked. Two cleaner ingress lanes still open.",
                     "Face: So the room stops being a surprise punishment box.",
                     "GM: Exactly.",
                 ]
@@ -3454,25 +3728,27 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "pitch_line": "Make the site legible before the run makes it urgent.",
         },
         "runbook-press": {
-            "hook": "Long-form books that feel governed instead of duct-taped together.",
+            "hook": "Long-form books that stay coherent after the second panic revision.",
             "problem": "A real primer should not need ten tools, three dashboards, and a superstition to stay coherent.",
             "table_scene": "\n".join(
                 [
                     "Writer: I want the handbook, not a graveyard of near-final exports.",
                     "GM: And I want the book to stay reusable after the first panic revision.",
+                    "Fresh proof tabs hang off the layout rail while the old version sulks in a tray.",
                     "Player: If it looks finished, it should still point back to real source truth.",
                     "Writer: Exactly. Long form without folklore.",
+                    "Chummer6: Source anchors intact. Reuse survives this revision.",
                     "GM: That would be a first.",
                 ]
             ),
             "meanwhile": "\n".join(
                 [
-                    "- Long-form publishing has to keep manifests, provenance, and reuse intact instead of outsourcing truth to vendor dashboards.",
-                    "- This lane only matters if a book can feel finished without becoming impossible to maintain.",
+                    "- A long guide is only worth it if later revisions still point back to the source instead of turning into copy-paste folklore.",
+                    "- If every update turns the book into salvage work, nobody should pretend the work is ready.",
                 ]
             ),
             "why_great": "It could make primers, handbooks, and campaign books feel like real products instead of heroic document salvage.",
-            "why_waits": "Long form only pays off once publication prep stops shredding provenance and reuse behind the scenes.",
+            "why_waits": "A handbook only earns trust once revisions stop making the source harder to trace and the next edition less reusable.",
             "pitch_line": "Publish the book without turning it into an archaeological site.",
         },
         "table-pulse": {
@@ -3482,6 +3758,7 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
                 [
                     "GM: I know the energy broke somewhere, I just cannot point to the exact moment.",
                     "Player: Show me the drift after the session, not while I am still in the scene.",
+                    "Chummer6: Spotlight weight spiked after the third interruption, then one player vanished for twenty minutes of airtime.",
                     "Face: Spotlight balance would be nice without live surveillance vibes.",
                     "GM: Good. Post-session coaching, not a hall monitor.",
                     "Player: That line matters.",
@@ -3489,8 +3766,8 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             ),
             "meanwhile": "\n".join(
                 [
-                    "- This lane only works if consent, privacy, and bounded post-session use stay explicit.",
-                    "- Coaching has to stay diagnostic and optional instead of drifting into fake live authority.",
+                    "- This lane only works if the consent boundary stays obvious and the replay stays easy to ignore.",
+                    "- The feedback has to stay post-session coaching instead of drifting into a live authority voice over the table.",
                 ]
             ),
             "why_great": "It could help a GM see where pacing, interruptions, or spotlight balance broke without pretending the software ran the table.",
@@ -3694,6 +3971,8 @@ def finalize_copy_row(
         target_prefix=target_prefix,
         brain_only=prefer_brain_humanizer,
     )
+    if section_type == "horizon" and "meanwhile" in current:
+        current["meanwhile"] = normalize_horizon_meanwhile(str(current.get("meanwhile") or ""))
     findings = copy_quality_findings(section_type, name, current, item)
     try:
         assert_public_reader_safe(current, context=f"{section_type}:{name}:final")
@@ -3718,6 +3997,8 @@ def finalize_copy_row(
         target_prefix=target_prefix,
         brain_only=True,
     )
+    if section_type == "horizon" and "meanwhile" in repaired:
+        repaired["meanwhile"] = normalize_horizon_meanwhile(str(repaired.get("meanwhile") or ""))
     repaired_findings = copy_quality_findings(section_type, name, repaired, item)
     try:
         assert_public_reader_safe(repaired, context=f"{section_type}:{name}:final_repaired")
@@ -4175,6 +4456,7 @@ Requirements:
 - avoid branded weapon models, exact diagnostics, exact modifier labels, or named telemetry unless the source explicitly demands them
 - visual_prompt must describe an actual cyberpunk scene, not a brochure cover
 - visual_prompt must center one memorable focal subject, setup, or action instead of generic poster collage
+- do not make gloved hands, scarred hands, or anonymous hand close-ups the main subject unless the asset is specifically about proof-on-props
 - if the section implies a person or team, choose a believable protagonist instead of abstract symbols
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, or crash-test simulation, make that metaphor visibly legible in-scene
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
@@ -4490,11 +4772,17 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "source truth",
                 "tactical dossier",
                 "governed ruleset evolution",
-                "prototype logic",
-                "dossier metadata hud",
-                "artifact-driven",
-                "spatial awareness",
-            )
+            "prototype logic",
+            "dossier metadata hud",
+            "artifact-driven",
+            "spatial awareness",
+            "sync complete",
+            "grid offline",
+            "lua code",
+            "lua-backed",
+            "combat modifiers",
+            "declassified",
+        )
         ):
             return True
         letters = [char for char in cleaned_text if char.isalpha()]
@@ -4504,20 +4792,38 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
 
     def infer_overlay_hint(*, asset_key: str, scene_contract: dict[str, object], item_title: str) -> str:
         lowered_asset_key = str(asset_key or "").strip().lower()
+        if lowered_asset_key == "hero":
+            return "build-state provenance traces and trust markers"
+        if lowered_asset_key == "design":
+            return "route strings and scope brackets"
+        if lowered_asset_key == "core":
+            return "cross-check ticks and receipt markers"
+        if lowered_asset_key == "hub":
+            return "state alignment bands and relay seam markers"
+        if lowered_asset_key == "ui":
+            return "source-rule markers and modifier origin tags"
+        if lowered_asset_key == "ui-kit":
+            return "alignment bands and surface fit checks"
+        if lowered_asset_key == "mobile":
+            return "gesture taps and reconnect markers"
         if lowered_asset_key == "runbook-press":
             return "publication markers and manifest traces"
+        if lowered_asset_key == "media-factory":
+            return "trim guides and publication arrows"
+        if lowered_asset_key == "hub-registry":
+            return "catalog tags and provenance anchors"
         if lowered_asset_key == "jackpoint":
-            return "provenance stamps and dossier markers"
+            return "source anchors and redaction bars"
         if lowered_asset_key == "karma-forge":
-            return "compatibility markers and receipt traces"
+            return "compatibility seals and rollback markers"
         if lowered_asset_key == "nexus-pan":
-            return "signal bars and receipt traces"
+            return "signal halos and continuity arcs"
         if lowered_asset_key == "runsite":
-            return "route markers and hotspot traces"
+            return "route markers and hotspot cones"
         if lowered_asset_key == "table-pulse":
-            return "pulse traces and spotlight markers"
+            return "spotlight drift arcs and pacing gaps"
         if lowered_asset_key == "alice":
-            return "branch traces and preflight markers"
+            return "branch traces and risk silhouettes"
         tokens = " ".join(
             [
                 asset_key,
@@ -4530,20 +4836,38 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 " ".join(str(entry).strip() for entry in (scene_contract.get("overlays") or []) if str(entry).strip()),
             ]
         ).lower()
-        if any(token in tokens for token in ("jackpoint", "dossier", "archive", "provenance", "evidence")):
-            return "provenance stamps and dossier markers"
+        if any(token in tokens for token in ("hero", "intake tray", "trust marker", "build-state", "clinic intake")):
+            return "build-state provenance traces and trust markers"
+        if any(token in tokens for token in ("design", "route string", "scope bracket", "planning corner", "surface callout")):
+            return "route strings and scope brackets"
+        if any(token in tokens for token in ("core", "review bench", "cross-examining", "dice tray", "rule chip")):
+            return "cross-check ticks and receipt markers"
+        if any(token in tokens for token in ("hub", "relay spine", "state alignment", "remote-presence", "service rack")):
+            return "state alignment bands and relay seam markers"
+        if any(token in tokens for token in ("mobile", "platform marker", "crowd rail", "gesture", "reconnect")):
+            return "gesture taps and reconnect markers"
+        if any(token in tokens for token in ("ui-kit", "component rail", "alignment band", "surface fit")):
+            return "alignment bands and surface fit checks"
+        if any(token in tokens for token in ("ui", "review bench", "rule chip", "modifier", "source-rule")):
+            return "source-rule markers and modifier origin tags"
+        if any(token in tokens for token in ("media-factory", "render", "publish", "proof", "output rack", "approval rail")):
+            return "trim guides and publication arrows"
+        if any(token in tokens for token in ("hub-registry", "intake", "archive", "provenance anchor", "compatibility shelf")):
+            return "catalog tags and provenance anchors"
+        if any(token in tokens for token in ("jackpoint", "dossier", "provenance", "evidence")):
+            return "source anchors and redaction bars"
         if any(token in tokens for token in ("karma-forge", "forge", "rulesmith", "compatibility", "rollback", "rule", "lattice")):
-            return "compatibility markers and receipt traces"
+            return "compatibility seals and rollback markers"
         if any(token in tokens for token in ("nexus-pan", "signal", "cable", "handshake", "link", "reconnect", "data-jack")):
-            return "signal bars and receipt traces"
+            return "signal halos and continuity arcs"
         if any(token in tokens for token in ("runsite", "route", "district", "ingress", "hotspot")):
-            return "route markers and hotspot traces"
+            return "route markers and hotspot cones"
         if any(token in tokens for token in ("runbook", "press", "publication", "manifest")):
             return "publication markers and manifest traces"
         if any(token in tokens for token in ("table-pulse", "pulse", "spotlight", "pacing", "table")):
-            return "pulse traces and spotlight markers"
+            return "spotlight drift arcs and pacing gaps"
         if any(token in tokens for token in ("alice", "simulation", "x-ray", "branch", "preflight")):
-            return "branch traces and preflight markers"
+            return "branch traces and risk silhouettes"
         return "receipt markers and bounded HUD traces"
 
     def sanitize_visual_prompt_text(
@@ -4609,50 +4933,90 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, str]] = {
             "hero": {
-                "badge": "Idea Trace",
+                "badge": "Trust Check",
                 "kicker": "concept, not contract",
                 "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
             },
+            "core": {
+                "badge": "Rule Receipt",
+                "kicker": "show the ruling, not the folklore",
+                "note": "A rules-trace idea, not a finished authority surface.",
+            },
+            "ui": {
+                "badge": "Build Check",
+                "kicker": "cross-check the sheet before it bites",
+                "note": "A build-inspection idea, not a finished user surface.",
+            },
+            "mobile": {
+                "badge": "Handoff Trace",
+                "kicker": "catch the session state mid-stride",
+                "note": "A continuity idea for motion and reconnects, not a dependable mobile app.",
+            },
+            "hub": {
+                "badge": "Hosted Lane",
+                "kicker": "your footprint, held together under pressure",
+                "note": "A hosted-coordination idea, not a stable service promise.",
+            },
+            "ui-kit": {
+                "badge": "Shared Chrome",
+                "kicker": "one visual language across rough surfaces",
+                "note": "A shared-surface idea, not a finished design system.",
+            },
+            "hub-registry": {
+                "badge": "Artifact Customs",
+                "kicker": "label the rough packet before rumor wins",
+                "note": "A provenance-shelf idea, not a finished registry product.",
+            },
+            "media-factory": {
+                "badge": "Packet Refinery",
+                "kicker": "make the packet readable without scrubbing the trail",
+                "note": "A packet-cleanup idea, not a live media studio.",
+            },
+            "design": {
+                "badge": "Route Map",
+                "kicker": "choose the next honest surface",
+                "note": "A planning lane, not a promise that the next surface already exists.",
+            },
             "nexus-pan": {
-                "badge": "Concept // reconnect",
+                "badge": "Reconnect Idea",
                 "kicker": "continuity without fake certainty",
                 "note": "A reconnect idea, not a dependable continuity feature.",
             },
             "alice": {
-                "badge": "Concept // preflight",
+                "badge": "Preflight Idea",
                 "kicker": "show the weak point before it hurts",
                 "note": "A preflight thought experiment, not an oracle.",
             },
             "karma-forge": {
-                "badge": "Concept // expensive lane",
+                "badge": "Expensive Lane",
                 "kicker": "house rules with rollback dreams",
-                "note": "An expensive experiment lane. API budget might get burned here and still produce nothing useful.",
+                "note": "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature.",
             },
             "jackpoint": {
-                "badge": "Concept // dossier",
+                "badge": "Dossier Lane",
                 "kicker": "packets that still point back to source",
                 "note": "The idea is provenance that survives polish, not instant finished output.",
             },
             "runsite": {
-                "badge": "Concept // briefing space",
+                "badge": "Briefing Space",
                 "kicker": "make the room legible before it shoots back",
                 "note": "A planning aid idea, not a live tactical shell.",
             },
             "runbook-press": {
-                "badge": "Concept // handbook lane",
+                "badge": "Handbook Lane",
                 "kicker": "books that still remember the source",
                 "note": "Long-form publishing is still an idea lane here, not a finished press.",
             },
             "table-pulse": {
-                "badge": "Concept // post-session",
+                "badge": "Post-Session",
                 "kicker": "spotlight drift after the dust settles",
-                "note": "Post-session coaching only, if this lane ever becomes more than an idea.",
+                "note": "Post-session coaching only, if it ever becomes more than an idea.",
             },
         }
         if lowered_key in curated:
             return curated[lowered_key]
         return {
-            "badge": "Concept Trace" if kind == "hero" else "Concept Lane",
+            "badge": "Idea Trace" if kind == "hero" else "Idea Lane",
             "kicker": "idea first, survival uncertain",
             "note": "Treat any visible trace as provisional spillover, not a promise.",
         }
@@ -4661,31 +5025,125 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, object]] = {
             "hero": {
-                "subject": "one runner checking a suspect receipt trail before trusting the ruling",
-                "environment": "a rain-streaked street-front kiosk and alley mouth",
-                "action": "checking whether the receipt trail earns trust before the run moves",
-                "metaphor": "receipt-first trust check",
-                "props": ["worn commlink", "thermal-paper receipt trail", "rain haze"],
-                "overlays": ["receipt markers", "target posture brackets", "cause-and-effect traces"],
+                "subject": "one streetdoc-style operator checking whether a rough runner dossier deserves trust",
+                "environment": "a clinic triage bay with hanging gear rails, sample trays, and one lit slate",
+                "action": "deciding whether the build trail survives triage and deserves trust before the next job leaves the room",
+                "metaphor": "triage truth check",
+                "props": ["hanging gear rail", "sample tray", "lit slate"],
+                "overlays": ["build-state provenance traces", "target posture brackets", "trust markers"],
+                "composition": "clinic_intake",
+                "palette": "clinic white, bruise blue, arterial amber",
+                "mood": "wary, tactile, and first-contact honest",
+            },
+            "core": {
+                "subject": "one rules referee cross-checking dice, chips, and a fragile rules trace",
+                "environment": "a battered review bench with dice trays, clipped tags, and one sheet surface under hard work light",
+                "action": "cross-examining the ruling before it turns into folklore",
+                "metaphor": "receipt-first cross examination",
+                "props": ["dice tray", "clipped tags", "rule chips"],
+                "overlays": ["cause-and-effect traces", "receipt markers", "target posture brackets"],
                 "composition": "over_shoulder_receipt",
+                "palette": "tungsten gold, ledger cream, oxidized blue",
+                "mood": "forensic, skeptical, and grounded",
+            },
+            "ui": {
+                "subject": "one player comparing a live build across a wall slate and a clipped hanging sheet",
+                "environment": "a locker-shelf review bay with one vertical display, one hanging slate, and gear cards in motion",
+                "action": "cross-checking a build before the session punishes the wrong assumption",
+                "metaphor": "mirror split build review",
+                "props": ["vertical wall slate", "hanging sheet", "gear cards"],
+                "overlays": ["build-state deltas", "inspection brackets", "shared component echoes"],
+                "composition": "review_bay",
+                "palette": "locker oxblood, smoked glass, worklight ivory",
+                "mood": "practical, inspectable, and slightly tense",
+            },
+            "mobile": {
+                "subject": "one runner catching the live-play trace while threading through a crowded station edge",
+                "environment": "a packed station mezzanine with a handheld, platform markers, and moving bodies at the edge",
+                "action": "recovering the session state mid-stride before the next connection closes",
+                "metaphor": "platform-edge recovery",
+                "props": ["rugged handheld", "platform marker", "crowd rail"],
+                "overlays": ["signal halos", "reconnect markers", "route-weighting brackets"],
+                "composition": "platform_edge",
+                "palette": "station graphite, route red, station white",
+                "mood": "hurried, resilient, and compressed",
+            },
+            "hub": {
+                "subject": "one operator checking whether the hosted lane is still coherent under pressure",
+                "environment": "a service rack corridor with cable runs, control slabs, and remote presence seams",
+                "action": "keeping the hosted coordination lane coherent without pretending the chaos went away",
+                "metaphor": "relay spine under pressure",
+                "props": ["service rack", "control slab", "cable bundle"],
+                "overlays": ["remote-presence seams", "state alignment bands", "warning glyphs"],
+                "composition": "service_rack",
+                "palette": "rack graphite, relay green, cold porcelain",
+                "mood": "contained, pressurized, and watchful",
+            },
+            "ui-kit": {
+                "subject": "one designer tuning shared interface parts across real surfaces instead of mockup wallpaper",
+                "environment": "an improvised surface lab with component rails, acetate overlays, and a lit demo plinth",
+                "action": "aligning live chrome across surfaces before the style fragments into folklore",
+                "metaphor": "shared chrome across rough surfaces",
+                "props": ["component rail", "acetate overlay", "demo plinth"],
+                "overlays": ["component echoes", "alignment bands", "surface fit checks"],
+                "composition": "mirror_split",
+                "palette": "powder ivory, lacquer red, smoked cyan",
+                "mood": "precise, tactile, and intentionally built",
+            },
+            "hub-registry": {
+                "subject": "one registrar deciding where a rough artifact belongs before it becomes rumor",
+                "environment": "an archive shelf lane with bins, hanging tags, scanner rails, and compatibility shelves",
+                "action": "sorting an artifact into shelf, label, and provenance lanes",
+                "metaphor": "artifact customs desk",
+                "props": ["archive bins", "hanging tags", "compatibility shelves"],
+                "overlays": ["catalog tags", "compatibility bands", "provenance anchors"],
+                "composition": "archive_room",
+                "palette": "archive umber, intake orange, oxidized green",
+                "mood": "methodical, dusty, and quietly suspicious",
+            },
+            "media-factory": {
+                "subject": "one operator turning a rough packet into something readable without losing the receipts",
+                "environment": "a vertical render bay with output racks, trim bins, hanging frames, and approval rails",
+                "action": "washing rough source material into a publishable packet while the receipts stay visible",
+                "metaphor": "packet wash line under publication pressure",
+                "props": ["output rack", "trim bin", "approval rail"],
+                "overlays": ["publication-path arrows", "trim guides", "approval bands"],
+                "composition": "render_lane",
+                "palette": "ink black, print magenta, cooled steel",
+                "mood": "busy, mechanical, and evidence-bound",
+            },
+            "design": {
+                "subject": "one planner mapping the future shape of the tool across a wall of rough public surfaces",
+                "environment": "a quiet planning corner with pinned cards, route strings, and clipped shelf mockups",
+                "action": "deciding which visible surface earns the next bit of honesty",
+                "metaphor": "concept map with public consequences",
+                "props": ["pinned cards", "route strings", "shelf mockups"],
+                "overlays": ["direction arrows", "surface callouts", "scope brackets"],
+                "composition": "conspiracy_wall",
+                "palette": "paper gray, dried teal, worklight amber",
+                "mood": "deliberate, strategic, and still provisional",
             },
             "nexus-pan": {
                 "subject": "a rigger nursing a patched commlink mesh back to life",
-                "environment": "a rain-streaked van interior parked beside a loading dock",
+                "environment": "a hot van interior parked beneath a loading-dock awning",
                 "action": "checking whether a dirty reconnect preserved the run state or lied about it",
                 "metaphor": "hardware handshake under pressure",
-                "props": ["patched commlink rig", "wet cable bundle", "portable relay deck"],
+                "props": ["patched commlink rig", "heat-blown cable bundle", "portable relay deck"],
                 "overlays": ["signal halos", "route weighting arcs", "posture brackets"],
-                "composition": "solo_operator",
+                "composition": "van_interior",
+                "palette": "storm cobalt, relay green, moonlit gray",
+                "mood": "frazzled, technical, and still moving",
             },
             "alice": {
                 "subject": "a wary analyst walking through a volatile preflight sim",
-                "environment": "a cramped simulation lab with wet glass and practical lamps",
+                "environment": "a wet-glass simulation bay with practical lamps and fogged partitions",
                 "action": "pulling a branching x-ray of the weak build through the air",
                 "metaphor": "branching simulation grid",
                 "props": ["branching sim panes", "diagnostic chips", "fogged lab glass"],
                 "overlays": ["branch traces", "preflight markers", "risk silhouettes"],
                 "composition": "simulation_lab",
+                "palette": "bruise violet, lab mint, dull brass",
+                "mood": "clinical, tense, and predictive",
             },
             "karma-forge": {
                 "subject": "a rulesmith forcing unstable house-rule chips into a governed forge bench",
@@ -4695,15 +5153,19 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "props": ["rule lattice", "forge tools", "rollback seals"],
                 "overlays": ["compatibility markers", "rollback seals", "receipt traces"],
                 "composition": "workshop_bench",
+                "palette": "forge orange, audit green, midnight iron",
+                "mood": "volatile, expensive, and controlled",
             },
             "jackpoint": {
                 "subject": "a fixer assembling a hot dossier from real evidence and dirty notes",
-                "environment": "a cramped archive office with coffee rings and rain on the window",
+                "environment": "a backroom evidence loft with coffee rings and rain on the window",
                 "action": "sorting volatile evidence into a packet that still points back to source",
                 "metaphor": "dossier evidence wall",
                 "props": ["dossier folders", "evidence chips", "binder clips"],
-                "overlays": ["provenance stamps", "receipt traces", "source anchors"],
+                "overlays": ["source anchors", "redaction bars", "evidence pins"],
                 "composition": "dossier_desk",
+                "palette": "coffee umber, evidence red, archive gray",
+                "mood": "nervy, editorial, and streetwise",
             },
             "runsite": {
                 "subject": "a rigger plotting ingress lanes across a projected floor plan",
@@ -4713,24 +5175,30 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "props": ["wireframe floor plan", "shipping crate", "route pins"],
                 "overlays": ["route markers", "threat posture cones", "ingress arcs"],
                 "composition": "district_map",
+                "palette": "concrete blue, hazard chalk, wet amber",
+                "mood": "alert, spatial, and field-bound",
             },
             "runbook-press": {
-                "subject": "a campaign writer marking up a district guide on a rugged slate",
-                "environment": "a safehouse desk covered in physical maps, clips, and coffee rings",
-                "action": "turning loose notes into a dossier that still points back to source",
-                "metaphor": "leaked field manual",
-                "props": ["district guide slate", "paper map stack", "binder clips"],
-                "overlays": ["layout guides", "source anchors", "approval path arrows"],
-                "composition": "dossier_desk",
+                "subject": "a campaign writer pushing raw district material through a rail-side proof room",
+                "environment": "a rail-side proof room with rollers, map drawers, clipped proof strips, and a lit print rail",
+                "action": "turning loose district notes into a governed handbook artifact without losing the source trail",
+                "metaphor": "revision rail with source memory",
+                "props": ["ink rollers", "map drawer", "proof rail"],
+                "overlays": ["layout guides", "source anchors", "publication-path arrows"],
+                "composition": "proof_room",
+                "palette": "ink blue, plate silver, warm paper",
+                "mood": "craft-heavy, editorial, and careful",
             },
             "table-pulse": {
                 "subject": "a tired orc GM replaying the session after everyone else has gone home",
-                "environment": "a cramped apartment table after the run, lit by rain and soycaf steam",
+                "environment": "a late-night booth after the run, lit by rain and soycaf steam",
                 "action": "reviewing where pacing and spotlight drifted after the table cooled off",
                 "metaphor": "post-session heat web",
                 "props": ["cooling soycaf mug", "dice tray", "glowing tablet"],
                 "overlays": ["spotlight drift arcs", "pacing gaps", "conversation heat traces"],
-                "composition": "solo_operator",
+                "composition": "forensic_replay",
+                "palette": "booth maroon, nicotine amber, cold cyan echo",
+                "mood": "spent, reflective, and a little haunted",
             },
         }
         return dict(curated.get(lowered_key, {}))
@@ -4739,6 +5207,14 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated = {
             "hero": "Idea stage | accidental public traces only",
+            "core": "Concept lane | rule receipts before folklore",
+            "ui": "Concept lane | build inspection, not finished UX",
+            "mobile": "Concept lane | continuity under motion, not deployment",
+            "hub": "Concept lane | hosted coordination, still provisional",
+            "ui-kit": "Concept lane | shared chrome across rough surfaces",
+            "hub-registry": "Concept lane | provenance shelves before polish",
+            "media-factory": "Concept lane | packet cleanup, not a live studio",
+            "design": "Concept lane | route map, not roadmap theater",
             "nexus-pan": "Concept lane | reconnect fantasy, not deployment",
             "alice": "Concept lane | preflight, not oracle",
             "karma-forge": "Concept lane | expensive experiments, no promises",
@@ -4749,7 +5225,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         }
         if lowered_key in curated:
             return curated[lowered_key]
-        return "Concept lane | accidental traces, not stable software" if kind == "hero" else "Concept lane | future-facing and unpromised"
+        return "Concept lane | accidental traces, not stable software" if kind == "hero" else "Concept lane | still provisional and unpromised"
 
     def needs_concept_meta_refresh(text: str) -> bool:
         cleaned_text = " ".join(str(text or "").split()).strip()
@@ -4815,7 +5291,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             subject = "a rulesmith at a dangerous workbench"
         environment = str(defaults.get("environment") or "a dangerous but inviting cyberpunk scene")
         if not locked_defaults and ("bunker" in lowered or "archive" in lowered or "dossier" in lowered):
-            environment = "a cramped archive or bunker office lit by sodium spill"
+            environment = "an archive or bunker office lit by sodium spill"
         elif not locked_defaults and "office" in lowered:
             environment = "a rain-streaked office lit by sodium spill"
         elif not locked_defaults and "blueprint" in lowered:
@@ -4879,20 +5355,28 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         elif not locked_defaults and ("horizon" in lowered or asset_key in {"horizons-index", "hero"}):
             composition = "city_edge"
         preferred_compositions = {
-            "hero": "over_shoulder_receipt",
-            "nexus-pan": "solo_operator",
+            "hero": "clinic_intake",
+            "core": "over_shoulder_receipt",
+            "ui": "review_bay",
+            "mobile": "platform_edge",
+            "hub": "service_rack",
+            "ui-kit": "mirror_split",
+            "hub-registry": "archive_room",
+            "media-factory": "render_lane",
+            "design": "conspiracy_wall",
+            "nexus-pan": "van_interior",
             "alice": "simulation_lab",
             "karma-forge": "workshop_bench",
             "jackpoint": "dossier_desk",
             "runsite": "district_map",
-            "runbook-press": "dossier_desk",
-            "table-pulse": "solo_operator",
+            "runbook-press": "proof_room",
+            "table-pulse": "forensic_replay",
         }
         preferred = preferred_compositions.get(asset_key)
-        if preferred and composition in {"single_protagonist", "service_rack", "desk_still_life", "city_edge"}:
+        if preferred and composition in {"single_protagonist", "service_rack", "desk_still_life", "city_edge", "solo_operator", "transit_checkpoint", "workshop"}:
             composition = preferred
-        palette = "cyan-magenta neon"
-        mood = "dangerous, curious, and slightly amused"
+        palette = str(defaults.get("palette") or "cyan-magenta neon")
+        mood = str(defaults.get("mood") or "dangerous, curious, and slightly amused")
         humor = ""
         if locked_defaults:
             props = list(defaults.get("props") or ["wet chrome", "holographic receipts", "rain haze"])
@@ -4940,6 +5424,17 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         locked_defaults = bool(asset_scene_defaults(asset_key))
         if not isinstance(raw, dict):
             return default
+        if locked_defaults:
+            contract: dict[str, object] = dict(default)
+            for key in ("easter_egg_kind", "easter_egg_placement", "easter_egg_detail", "easter_egg_visibility", "easter_egg_policy", "humor_policy"):
+                value = str(raw.get(key, "")).strip()
+                if value:
+                    contract[key] = value
+            humor = str(raw.get("humor", "")).strip()
+            if humor:
+                contract["humor"] = humor
+            contract["visual_prompt"] = visual_prompt
+            return contract
         contract: dict[str, object] = dict(default)
         for key in ("subject", "environment", "action", "metaphor", "palette", "mood", "humor"):
             value = str(raw.get(key, "")).strip()
@@ -4967,14 +5462,22 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             if value:
                 contract[key] = value
         preferred_compositions = {
-            "hero": "over_shoulder_receipt",
-            "nexus-pan": "solo_operator",
+            "hero": "clinic_intake",
+            "core": "over_shoulder_receipt",
+            "ui": "review_bay",
+            "mobile": "platform_edge",
+            "hub": "service_rack",
+            "ui-kit": "mirror_split",
+            "hub-registry": "archive_room",
+            "media-factory": "render_lane",
+            "design": "conspiracy_wall",
+            "nexus-pan": "van_interior",
             "alice": "simulation_lab",
             "karma-forge": "workshop_bench",
             "jackpoint": "dossier_desk",
             "runsite": "district_map",
-            "runbook-press": "dossier_desk",
-            "table-pulse": "solo_operator",
+            "runbook-press": "proof_room",
+            "table-pulse": "forensic_replay",
         }
         preferred = preferred_compositions.get(asset_key)
         if preferred and str(contract.get("composition") or "").strip().lower() in {
@@ -4983,6 +5486,9 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "desk_still_life",
             "city_edge",
             "horizon_boulevard",
+            "solo_operator",
+            "transit_checkpoint",
+            "workshop",
         }:
             contract["composition"] = preferred
         # Keep the prompt close by so downstream renderers can reason over both.
@@ -4996,6 +5502,21 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         overlay_hint: str,
         item_title: str,
     ) -> list[str]:
+        scene_label_map = {
+            "hero": "intake truth check",
+            "hub": "relay spine",
+            "ui-kit": "shared chrome",
+            "hub-registry": "artifact customs",
+            "media-factory": "packet refinery",
+            "nexus-pan": "hardware handshake",
+            "alice": "preflight branch scan",
+            "karma-forge": "governed rules forge",
+            "jackpoint": "dossier provenance",
+            "runsite": "threat map",
+            "runbook-press": "proof rail",
+            "table-pulse": "post-session heat web",
+        }
+        scene_label = scene_label_map.get(asset_key, str(item_title or "").strip() or str(asset_key or "").strip())
         motifs: list[str] = []
         for key in ("subject", "environment", "action", "metaphor"):
             value = str(scene_contract.get(key, "")).strip()
@@ -5005,11 +5526,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             value = scene_contract.get(key)
             if isinstance(value, list):
                 motifs.extend(str(entry).strip() for entry in value if str(entry).strip())
-        for candidate in (
-            overlay_hint,
-            f"{item_title} scene",
-            f"{asset_key} context",
-        ):
+        for candidate in (overlay_hint, scene_label):
             cleaned_candidate = str(candidate or "").strip()
             if cleaned_candidate:
                 motifs.append(cleaned_candidate)
@@ -5033,7 +5550,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             cleaned_entry = str(entry).strip()
             if cleaned_entry and not looks_like_status_label(cleaned_entry):
                 callouts.append(cleaned_entry)
-        if overlay_hint.strip() and not looks_like_status_label(overlay_hint):
+        if len(callouts) < 3 and overlay_hint.strip() and not looks_like_status_label(overlay_hint):
             callouts.append(overlay_hint.strip())
         deduped: list[str] = []
         seen: set[str] = set()
@@ -5057,12 +5574,20 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         fallback_fields = fallback_media_fields(asset_key="hero", kind="hero")
         if looks_like_status_label(str(normalized["badge"])):
             normalized["badge"] = fallback_fields["badge"]
+        if contains_meta_humor_language(str(normalized["title"])):
+            normalized["title"] = "Chummer6"
+        if contains_meta_humor_language(str(normalized["subtitle"])):
+            normalized["subtitle"] = "An idea about letting the math show its work before the table has to improvise trust."
         if looks_like_status_label(str(normalized["kicker"])) or re.match(r"^(stop|start|grab|download|use|trust)\b", str(normalized["kicker"]).strip().lower()):
+            normalized["kicker"] = fallback_fields["kicker"]
+        if contains_meta_humor_language(str(normalized["kicker"])):
             normalized["kicker"] = fallback_fields["kicker"]
         if re.match(r"^(stop|start|grab|download|use|trust)\b", str(normalized["subtitle"]).strip().lower()):
             normalized["subtitle"] = "An idea about letting the math show its work before the table has to improvise trust."
         normalized["meta"] = str(normalized.get("meta", "")).strip()
-        if needs_concept_meta_refresh(str(normalized["meta"])) or "proof of intent" in str(normalized["meta"]).lower():
+        if contains_meta_humor_language(str(normalized["note"])):
+            normalized["note"] = fallback_fields["note"]
+        if needs_concept_meta_refresh(str(normalized["meta"])) or contains_meta_humor_language(str(normalized["meta"])) or "proof of intent" in str(normalized["meta"]).lower():
             normalized["meta"] = fallback_media_meta(asset_key="hero", kind="hero")
         normalized["scene_contract"] = normalize_scene_contract(
             normalized.get("scene_contract"),
@@ -5079,7 +5604,9 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             str(normalized["visual_prompt"]),
             fallback=fallback_visual_prompt,
         )
-        if contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
+        if asset_scene_defaults("hero"):
+            normalized["visual_prompt"] = fallback_visual_prompt
+        if asset_scene_defaults("hero") or contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
             normalized["overlay_hint"] = infer_overlay_hint(
                 asset_key="hero",
                 scene_contract=normalized["scene_contract"],
@@ -5137,6 +5664,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             scope="hero_media:hero.visual_motifs",
             receipt_refs=_mechanics_receipt_refs(item),
         )
+        if asset_scene_defaults("hero"):
+            motifs = []
         normalized["visual_motifs"] = motifs or infer_visual_motifs(
             asset_key="hero",
             scene_contract=normalized["scene_contract"],
@@ -5153,6 +5682,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             scope="hero_media:hero.overlay_callouts",
             receipt_refs=_mechanics_receipt_refs(item),
         )
+        if asset_scene_defaults("hero"):
+            callouts = []
         normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
             scene_contract=normalized["scene_contract"],
             overlay_hint=str(normalized["overlay_hint"]),
@@ -5174,14 +5705,37 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     normalized["meta"] = str(normalized.get("meta", "")).strip()
     asset_key = asset_slug(item)
     fallback_fields = fallback_media_fields(asset_key=asset_key, kind=kind)
+    curated_titles = {
+        "hub": ("Relay Spine", "Hosted coordination under pressure."),
+        "ui-kit": ("Shared Chrome", "One visual language surviving across rough surfaces."),
+        "hub-registry": ("Artifact Customs", "Intake, labels, and provenance before rumor."),
+        "media-factory": ("Packet Refinery", "Rough packets cleaned up without washing out the trail."),
+    }
     if looks_like_status_label(str(normalized["badge"])):
         normalized["badge"] = fallback_fields["badge"]
+    if contains_meta_humor_language(str(normalized["title"])):
+        normalized["title"] = str(item.get("title") or item.get("slug") or kind).strip() or "Concept lane"
+    title_lowered = str(normalized["title"]).strip().lower()
+    if asset_key in curated_titles and title_lowered in {
+        str(item.get("title") or "").strip().lower(),
+        asset_key,
+        asset_key.replace("-", " "),
+    }:
+        normalized["title"] = curated_titles[asset_key][0]
+        normalized["subtitle"] = curated_titles[asset_key][1]
     if looks_like_status_label(str(normalized["subtitle"])) or contains_machine_overlay_language(str(normalized["subtitle"])):
         normalized["subtitle"] = (
             str(item.get("hook") or item.get("why") or item.get("problem") or item.get("title") or "").strip()
             or fallback_fields["note"]
         )
+    if contains_meta_humor_language(str(normalized["subtitle"])):
+        normalized["subtitle"] = (
+            str(item.get("hook") or item.get("why") or item.get("problem") or item.get("title") or "").strip()
+            or fallback_fields["note"]
+        )
     if looks_like_status_label(str(normalized["kicker"])) or re.match(r"^(stop|start|grab|download|use|trust)\b", str(normalized["kicker"]).strip().lower()):
+        normalized["kicker"] = fallback_fields["kicker"]
+    if contains_meta_humor_language(str(normalized["kicker"])):
         normalized["kicker"] = fallback_fields["kicker"]
     note_lowered = str(normalized["note"]).strip().lower()
     if any(
@@ -5200,7 +5754,9 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         )
     ):
         normalized["note"] = fallback_fields["note"]
-    if needs_concept_meta_refresh(str(normalized["meta"])):
+    if contains_meta_humor_language(str(normalized["note"])):
+        normalized["note"] = fallback_fields["note"]
+    if needs_concept_meta_refresh(str(normalized["meta"])) or contains_meta_humor_language(str(normalized["meta"])):
         normalized["meta"] = fallback_media_meta(asset_key=asset_key, kind=kind)
     normalized["scene_contract"] = normalize_scene_contract(
         normalized.get("scene_contract"),
@@ -5217,7 +5773,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         str(normalized["visual_prompt"]),
         fallback=fallback_visual_prompt,
     )
-    if contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
+    if asset_scene_defaults(asset_key):
+        normalized["visual_prompt"] = fallback_visual_prompt
+    locked_scene_defaults = bool(asset_scene_defaults(asset_key))
+    if locked_scene_defaults or contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
         normalized["overlay_hint"] = infer_overlay_hint(
             asset_key=asset_key,
             scene_contract=normalized["scene_contract"],
@@ -5259,6 +5818,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         scope=f"{kind}_media:{item.get('slug', item.get('title', kind))}.visual_motifs",
         receipt_refs=_mechanics_receipt_refs(item),
     )
+    if locked_scene_defaults:
+        motifs = []
     normalized["visual_motifs"] = motifs or infer_visual_motifs(
         asset_key=str(item.get("slug", item.get("title", "horizon"))),
         scene_contract=normalized["scene_contract"],
@@ -5275,6 +5836,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         scope=f"{kind}_media:{item.get('slug', item.get('title', kind))}.overlay_callouts",
         receipt_refs=_mechanics_receipt_refs(item),
     )
+    if locked_scene_defaults:
+        callouts = []
     normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
         scene_contract=normalized["scene_contract"],
         overlay_hint=str(normalized["overlay_hint"]),
