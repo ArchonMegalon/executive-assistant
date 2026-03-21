@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import inspect
 import json
+import mimetypes
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -15,6 +17,12 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult, artifact_preview_text, now_utc_iso
+from app.services.browseract_ui_service_catalog import (
+    BrowserActUiServiceDefinition,
+    browseract_ui_service_by_service_key,
+    browseract_ui_service_by_tool,
+)
+from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.tool_execution_connector_dispatch_adapter import ConnectorDispatchToolAdapter
 
@@ -335,9 +343,18 @@ class BrowserActToolAdapter:
     def __init__(self, *, connector_dispatch: ConnectorDispatchToolAdapter) -> None:
         self._connector_dispatch = connector_dispatch
         self._chatplayground_audit = None
+        self._crezlo_property_tour = None
         self._gemini_web_generate = None
         self._onemin_billing_usage = None
         self._onemin_member_reconciliation = None
+        self._ui_service_callbacks: dict[str, object] = {
+            "mootion_movie": self._create_mootion_movie_direct,
+            "browseract.mootion_movie": self._create_mootion_movie_direct,
+            "avomap_flyover": self._create_avomap_flyover_direct,
+            "browseract.avomap_flyover": self._create_avomap_flyover_direct,
+            "booka_book": self._create_booka_book_direct,
+            "browseract.booka_book": self._create_booka_book_direct,
+        }
 
     @staticmethod
     def _looks_like_cloudflare_challenge(payload: dict[str, object]) -> bool:
@@ -1780,6 +1797,2210 @@ class BrowserActToolAdapter:
                 "source_url": page_url,
                 "account_label": account_label,
                 "basis": normalized.get("basis"),
+            },
+        )
+
+    @staticmethod
+    def _browseract_safe_input_value(value: object) -> object:
+        if isinstance(value, (dict, list, tuple, set)):
+            try:
+                return json.dumps(value, ensure_ascii=True)
+            except Exception:
+                return _extract_textish(value)
+        return value
+
+    @staticmethod
+    def _browseract_redacted_runtime_inputs(values: dict[str, object]) -> dict[str, object]:
+        safe: dict[str, object] = {}
+        for key, value in values.items():
+            normalized = str(key or "").strip()
+            lowered = normalized.lower()
+            if not normalized or any(marker in lowered for marker in ("password", "secret", "token", "cookie")):
+                continue
+            if lowered in {
+                "login_email",
+                "crezlo_login_email",
+                "browseract_username",
+                "username",
+                "email",
+            }:
+                continue
+            safe[normalized] = value
+        return safe
+
+    @classmethod
+    def _crezlo_redacted_runtime_inputs(cls, values: dict[str, object]) -> dict[str, object]:
+        return cls._browseract_redacted_runtime_inputs(values)
+
+    @staticmethod
+    def _browseract_service_result_title(
+        *,
+        payload: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> str:
+        return (
+            str(payload.get("result_title") or payload.get("title") or payload.get(service.output_label) or "").strip()
+            or service.name
+        )
+
+    @classmethod
+    def _resolve_browseract_ui_service_target(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> tuple[str, str]:
+        run_url = str(payload.get("run_url") or "").strip()
+        workflow_id = str(payload.get("workflow_id") or "").strip()
+        if not run_url:
+            for key in (*service.binding_run_url_keys, "run_url"):
+                value = str(binding_metadata.get(key) or "").strip()
+                if value:
+                    run_url = value
+                    break
+        if not workflow_id:
+            for key in (*service.binding_workflow_id_keys, "workflow_id"):
+                value = str(binding_metadata.get(key) or "").strip()
+                if value:
+                    workflow_id = value
+                    break
+        return run_url, workflow_id
+
+    @staticmethod
+    def _binding_service_account_email(
+        *,
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> str:
+        service_accounts = binding_metadata.get("service_accounts_json")
+        if not isinstance(service_accounts, dict):
+            return ""
+        for service_name in service.browseract_service_names:
+            account = service_accounts.get(service_name)
+            if not isinstance(account, dict):
+                continue
+            email = str(
+                account.get("account_email")
+                or account.get("email")
+                or account.get("login_email")
+                or ""
+            ).strip()
+            if email:
+                return email
+        return ""
+
+    @classmethod
+    def _browseract_ui_service_runtime_credentials(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object]:
+        login_email = str(
+            payload.get("login_email")
+            or payload.get("browseract_username")
+            or binding_metadata.get("login_email")
+            or binding_metadata.get("browseract_username")
+            or binding_metadata.get("username")
+            or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
+            or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
+            or "the.girscheles@gmail.com"
+        ).strip()
+        login_password = str(
+            payload.get("login_password")
+            or payload.get("browseract_password")
+            or binding_metadata.get("login_password")
+            or binding_metadata.get("browseract_password")
+            or binding_metadata.get("password")
+            or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
+            or "rangersofB5"
+        ).strip()
+        credentials: dict[str, object] = {}
+        if login_email:
+            credentials["browseract_username"] = login_email
+        if login_password:
+            credentials["browseract_password"] = login_password
+        return credentials
+
+    @classmethod
+    def _build_browseract_ui_runtime_inputs(
+        cls,
+        *,
+        payload: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object]:
+        runtime_inputs = payload.get("runtime_inputs_json")
+        resolved: dict[str, object] = dict(runtime_inputs) if isinstance(runtime_inputs, dict) else {}
+        for payload_key, runtime_key in service.payload_to_runtime_inputs.items():
+            value = payload.get(payload_key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+            resolved[runtime_key] = cls._browseract_safe_input_value(value)
+        if "title" not in resolved:
+            title = str(payload.get("title") or payload.get("result_title") or "").strip()
+            if title:
+                resolved["title"] = title
+        for required_input in service.required_runtime_inputs:
+            value = resolved.get(required_input)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise ToolExecutionError(f"runtime_input_required:{service.tool_name}:{required_input}")
+        return resolved
+
+    @staticmethod
+    def _maybe_url_text(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if text.lower().startswith(("http://", "https://")):
+            return text
+        return ""
+
+    @classmethod
+    def _browseract_url_entries(cls, value: object, *, limit: int = 128) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = []
+        seen: set[str] = set()
+
+        def _add(label: object, url: object) -> None:
+            normalized_url = cls._maybe_url_text(url)
+            if not normalized_url or normalized_url in seen or len(entries) >= limit:
+                return
+            seen.add(normalized_url)
+            entries.append((cls._normalize_lookup_key(label), normalized_url))
+
+        def _visit(node: object, key_hint: str = "") -> None:
+            if len(entries) >= limit or node is None:
+                return
+            if isinstance(node, dict):
+                for raw_key, nested in node.items():
+                    if len(entries) >= limit:
+                        break
+                    normalized_key = cls._normalize_lookup_key(raw_key)
+                    if isinstance(nested, (str, int, float, bool)):
+                        _add(normalized_key, nested)
+                    _visit(nested, normalized_key or key_hint)
+                return
+            if isinstance(node, (list, tuple, set)):
+                for nested in node:
+                    if len(entries) >= limit:
+                        break
+                    _visit(nested, key_hint)
+                return
+            if isinstance(node, str):
+                for match in re.findall(r"https?://[^\s<>'\"\\)]+", node):
+                    _add(key_hint, match)
+
+        _visit(value)
+        return entries
+
+    @classmethod
+    def _first_browseract_url_for_markers(
+        cls,
+        entries: list[tuple[str, str]],
+        *,
+        key_markers: tuple[str, ...],
+        suffixes: tuple[str, ...] = (),
+    ) -> str:
+        for key, url in entries:
+            if key and any(marker in key for marker in key_markers):
+                return url
+        if suffixes:
+            for _key, url in entries:
+                lowered = urlparse(url).path.lower()
+                if any(lowered.endswith(suffix) for suffix in suffixes):
+                    return url
+        return ""
+
+    @classmethod
+    def _normalize_browseract_ui_service_payload(
+        cls,
+        *,
+        service: BrowserActUiServiceDefinition,
+        response: dict[str, object],
+        workflow_id: str,
+        requested_url: str,
+        requested_inputs: dict[str, object],
+        result_title: str,
+    ) -> dict[str, object]:
+        normalized_payload = cls._browseract_normalization_payload(response)
+        scalar_map = cls._browseract_scalar_map(normalized_payload)
+        text_candidates = cls._browseract_text_candidates(normalized_payload)
+        raw_text = "\n\n".join(text_candidates).strip()
+        url_entries = cls._browseract_url_entries(normalized_payload)
+        asset_urls = [url for _label, url in url_entries if url != requested_url]
+        public_url = cls._first_scalar_for_aliases(
+            scalar_map,
+            "public_url",
+            "public_link",
+            "share_url",
+            "share_link",
+            "preview_url",
+            "viewer_url",
+            "live_url",
+            "hosted_url",
+        ) or cls._first_browseract_url_for_markers(
+            url_entries,
+            key_markers=("public", "share", "preview", "viewer", "view", "live", "hosted"),
+        )
+        editor_url = cls._first_scalar_for_aliases(
+            scalar_map,
+            "editor_url",
+            "edit_url",
+            "admin_url",
+            "dashboard_url",
+            "builder_url",
+            "studio_url",
+        ) or cls._first_browseract_url_for_markers(
+            url_entries,
+            key_markers=("editor", "admin", "dashboard", "builder", "studio"),
+        )
+        asset_url = cls._first_scalar_for_aliases(
+            scalar_map,
+            "asset_url",
+            "result_url",
+            "video_url",
+            "movie_url",
+            "flyover_url",
+            "book_url",
+            "pdf_url",
+            "file_url",
+        ) or cls._first_browseract_url_for_markers(
+            url_entries,
+            key_markers=("asset", "result", "video", "movie", "flyover", "book", "pdf", "file"),
+            suffixes=(".mp4", ".mov", ".webm", ".m4v", ".pdf", ".epub", ".jpg", ".jpeg", ".png"),
+        )
+        download_url = cls._first_scalar_for_aliases(
+            scalar_map,
+            "download_url",
+            "export_url",
+        ) or cls._first_browseract_url_for_markers(
+            url_entries,
+            key_markers=("download", "export"),
+            suffixes=(".mp4", ".mov", ".webm", ".m4v", ".pdf", ".epub"),
+        )
+        asset_url = asset_url or download_url or (asset_urls[0] if asset_urls else "")
+        task_id = ""
+        try:
+            task_id = cls._browseract_task_id(response)
+        except Exception:
+            task_id = ""
+        render_status = (
+            cls._first_scalar_for_aliases(
+                scalar_map,
+                "render_status",
+                "result_status",
+                "generation_status",
+                "status",
+                "task_status",
+                "state",
+            )
+            or cls._browseract_task_status(response)
+            or ("completed" if cls._browseract_output_has_content(normalized_payload) else "unknown")
+        )
+        if asset_url and asset_url not in asset_urls:
+            asset_urls.insert(0, asset_url)
+        structured_output_json = {
+            "service_key": service.service_key,
+            "capability_key": service.capability_key,
+            "tool_name": service.tool_name,
+            "result_title": result_title or service.name,
+            "render_status": render_status or "unknown",
+            "asset_url": asset_url or None,
+            "download_url": download_url or None,
+            "public_url": public_url or None,
+            "editor_url": editor_url or None,
+            "asset_urls": asset_urls,
+            "workflow_id": workflow_id or None,
+            "task_id": task_id or None,
+            "requested_url": requested_url,
+            "requested_inputs": cls._browseract_redacted_runtime_inputs(requested_inputs),
+            "raw_text": raw_text,
+            "label_map": scalar_map,
+            "url_entries": [{"label": label, "url": url} for label, url in url_entries],
+            "workflow_output_json": normalized_payload if isinstance(normalized_payload, dict) else {"value": normalized_payload},
+        }
+        normalized_text = "\n".join(
+            line
+            for line in (
+                f"Service: {service.name}",
+                f"Result title: {result_title}" if result_title else "",
+                f"Render status: {render_status}" if render_status else "",
+                f"Asset URL: {asset_url}" if asset_url else "",
+                f"Download URL: {download_url}" if download_url and download_url != asset_url else "",
+                f"Public URL: {public_url}" if public_url else "",
+                f"Editor URL: {editor_url}" if editor_url else "",
+                f"Requested URL: {requested_url}" if requested_url else "",
+                f"Task ID: {task_id}" if task_id else "",
+            )
+            if line
+        )
+        return {
+            "service_key": service.service_key,
+            "result_title": result_title or service.name,
+            "render_status": render_status or "unknown",
+            "asset_url": asset_url or None,
+            "download_url": download_url or None,
+            "public_url": public_url or None,
+            "editor_url": editor_url or None,
+            "asset_urls": asset_urls,
+            "workflow_id": workflow_id or None,
+            "task_id": task_id or None,
+            "requested_url": requested_url,
+            "normalized_text": normalized_text or (raw_text[:500] if raw_text else ""),
+            "preview_text": artifact_preview_text(normalized_text or raw_text),
+            "mime_type": "application/json",
+            "structured_output_json": structured_output_json,
+        }
+
+    @classmethod
+    def _crezlo_find_matching_scalar(cls, value: object, *, markers: tuple[str, ...]) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized_key = cls._normalize_lookup_key(key)
+                if any(marker in normalized_key for marker in markers):
+                    text = _extract_textish(nested)
+                    if text:
+                        return text
+            for nested in value.values():
+                text = cls._crezlo_find_matching_scalar(nested, markers=markers)
+                if text:
+                    return text
+            return ""
+        if isinstance(value, (list, tuple, set)):
+            for nested in value:
+                text = cls._crezlo_find_matching_scalar(nested, markers=markers)
+                if text:
+                    return text
+            return ""
+        return ""
+
+    @staticmethod
+    def _crezlo_maybe_url(value: object) -> str:
+        text = str(value or "").strip()
+        lowered = text.lower()
+        if lowered.startswith(("http://", "https://", "browseract://")):
+            return text
+        return ""
+
+    @staticmethod
+    def _crezlo_api_base() -> str:
+        return str(os.getenv("EA_CREZLO_API_BASE") or "https://crezlo.net/api/seller").strip().rstrip("/")
+
+    @staticmethod
+    def _crezlo_default_workspace_id() -> str:
+        return (
+            str(os.getenv("EA_CREZLO_WORKSPACE_ID") or "").strip()
+            or str(os.getenv("CREZLO_WORKSPACE_ID") or "").strip()
+            or "019d0cff-3282-70a9-9c5a-20dfdce7f3fe"
+        )
+
+    @staticmethod
+    def _crezlo_default_workspace_domain() -> str:
+        return (
+            str(os.getenv("EA_CREZLO_WORKSPACE_DOMAIN") or "").strip()
+            or str(os.getenv("CREZLO_WORKSPACE_DOMAIN") or "").strip()
+            or "ea-property-tours-20260320.crezlotours.com"
+        )
+
+    @classmethod
+    def _resolve_crezlo_workspace(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+    ) -> dict[str, str]:
+        workspace_id = str(
+            payload.get("workspace_id")
+            or binding_metadata.get("crezlo_workspace_id")
+            or binding_metadata.get("browseract_crezlo_workspace_id")
+            or cls._crezlo_default_workspace_id()
+        ).strip()
+        workspace_domain = str(
+            payload.get("workspace_domain")
+            or binding_metadata.get("crezlo_workspace_domain")
+            or binding_metadata.get("browseract_crezlo_workspace_domain")
+            or cls._crezlo_default_workspace_domain()
+        ).strip()
+        workspace_base_url = str(
+            payload.get("workspace_base_url")
+            or binding_metadata.get("crezlo_workspace_base_url")
+            or binding_metadata.get("browseract_crezlo_workspace_base_url")
+            or (f"https://{workspace_domain}" if workspace_domain else "")
+        ).strip()
+        workspace_tours_url = str(
+            payload.get("workspace_tours_url")
+            or binding_metadata.get("crezlo_workspace_tours_url")
+            or binding_metadata.get("browseract_crezlo_workspace_tours_url")
+            or (f"{workspace_base_url.rstrip('/')}/admin/tours" if workspace_base_url else "")
+        ).strip()
+        return {
+            "workspace_id": workspace_id,
+            "workspace_domain": workspace_domain,
+            "workspace_base_url": workspace_base_url,
+            "workspace_tours_url": workspace_tours_url,
+        }
+
+    @classmethod
+    def _crezlo_api_request(
+        cls,
+        method: str,
+        path: str,
+        *,
+        access_token: str,
+        payload: dict[str, object] | None = None,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        if not access_token:
+            raise ToolExecutionError("crezlo_access_token_missing")
+        url = cls._crezlo_api_base() + path
+        if query:
+            url += "?" + urlencode(query)
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "EA-Crezlo/1.0",
+        }
+        data = None
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ToolExecutionError(f"crezlo_api_http_error:{exc.code}:{detail[:240]}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolExecutionError(f"crezlo_api_transport_error:{exc.reason}") from exc
+        try:
+            loaded = json.loads(body)
+        except Exception as exc:
+            raise ToolExecutionError("crezlo_api_response_invalid") from exc
+        return loaded if isinstance(loaded, dict) else {"data": loaded}
+
+    @staticmethod
+    def _crezlo_login(
+        *,
+        login_email: str,
+        login_password: str,
+        timeout_seconds: int = 120,
+    ) -> str:
+        email = str(login_email or "").strip()
+        password = str(login_password or "").strip()
+        if not email:
+            raise ToolExecutionError("crezlo_login_email_missing")
+        if not password:
+            raise ToolExecutionError("crezlo_login_password_missing")
+        payload = json.dumps(
+            {
+                "email_id": email,
+                "auth_type": "email",
+                "password": password,
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{BrowserActToolAdapter._crezlo_api_base()}/login?product_type=accounts",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "https://accounts.crezlo.com",
+                "Referer": "https://accounts.crezlo.com/",
+                "User-Agent": "EA-Crezlo/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ToolExecutionError(f"crezlo_login_http_error:{exc.code}:{detail[:240]}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolExecutionError(f"crezlo_login_transport_error:{exc.reason}") from exc
+        try:
+            loaded = json.loads(body)
+        except Exception as exc:
+            raise ToolExecutionError("crezlo_login_response_invalid") from exc
+        if not isinstance(loaded, dict):
+            raise ToolExecutionError("crezlo_login_response_invalid")
+        data = loaded.get("data") if isinstance(loaded.get("data"), dict) else {}
+        token = str(data.get("access_token") or loaded.get("access_token") or "").strip()
+        if not token:
+            raise ToolExecutionError("crezlo_login_access_token_missing")
+        return token
+
+    @staticmethod
+    def _crezlo_worker_script_path() -> Path:
+        explicit = str(os.getenv("EA_CREZLO_PROPERTY_TOUR_WORKER") or "").strip()
+        if explicit:
+            return Path(explicit).expanduser()
+        resolved = Path(__file__).resolve()
+        for parent in resolved.parents:
+            candidate = parent / "scripts" / "crezlo_property_tour_worker.py"
+            if candidate.exists():
+                return candidate
+        return resolved.parents[0] / "scripts" / "crezlo_property_tour_worker.py"
+
+    @classmethod
+    def _run_crezlo_property_tour_worker(
+        cls,
+        *,
+        packet: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        script_path = cls._crezlo_worker_script_path()
+        if not script_path.exists():
+            raise ToolExecutionError(f"crezlo_worker_missing:{script_path}")
+        try:
+            completed = subprocess.run(
+                ["python3", str(script_path)],
+                input=json.dumps(packet, ensure_ascii=True),
+                text=True,
+                capture_output=True,
+                timeout=max(120, timeout_seconds),
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise ToolExecutionError("python3_missing:crezlo_property_tour_worker") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ToolExecutionError("crezlo_worker_timeout") from exc
+        raw = str(completed.stdout or "").strip()
+        if not raw:
+            detail = str(completed.stderr or "").strip()
+            raise ToolExecutionError(f"crezlo_worker_empty_output:{detail[:400]}")
+        last_line = raw.splitlines()[-1].strip()
+        try:
+            loaded = json.loads(last_line)
+        except Exception as exc:
+            raise ToolExecutionError(f"crezlo_worker_non_json:{last_line[:400]}") from exc
+        if completed.returncode != 0:
+            detail = str((loaded if isinstance(loaded, dict) else {}).get("error") or completed.stderr or raw).strip()
+            raise ToolExecutionError(f"crezlo_worker_failed:{detail[:400]}")
+        if not isinstance(loaded, dict):
+            raise ToolExecutionError("crezlo_worker_invalid_output")
+        return loaded
+
+    @staticmethod
+    def _ui_service_worker_script_path(service_key: str) -> Path:
+        service = browseract_ui_service_by_service_key(service_key)
+        normalized = str(service_key or "").strip().lower()
+        env_map = {
+            "mootion_movie": "EA_MOOTION_MOVIE_WORKER",
+            "avomap_flyover": "EA_AVOMAP_FLYOVER_WORKER",
+            "booka_book": "EA_BOOKA_BOOK_WORKER",
+            "browseract_template_service": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
+        }
+        filename_map = {
+            "mootion_movie": "mootion_movie_worker.py",
+            "avomap_flyover": "avomap_flyover_worker.py",
+            "booka_book": "booka_book_worker.py",
+            "browseract_template_service": "browseract_template_service_worker.py",
+        }
+        worker_name = str(service.worker_script_name if service is not None else "").strip()
+        if worker_name:
+            normalized = "browseract_template_service" if worker_name == "browseract_template_service_worker.py" else normalized
+        explicit = str(os.getenv(env_map.get(normalized, "")) or "").strip()
+        if explicit:
+            return Path(explicit).expanduser()
+        filename = worker_name or filename_map.get(normalized, "")
+        if not filename:
+            return Path("")
+        docker_candidate = Path("/docker/EA/scripts") / filename
+        if docker_candidate.exists():
+            return docker_candidate
+        resolved = Path(__file__).resolve()
+        for parent in resolved.parents:
+            candidate = parent / "scripts" / filename
+            if candidate.exists():
+                return candidate
+        return resolved.parents[0] / "scripts" / filename
+
+    @staticmethod
+    def _ui_service_publisher_script_path() -> Path:
+        explicit = str(os.getenv("EA_PUBLIC_RESULT_PUBLISHER") or "").strip()
+        if explicit:
+            return Path(explicit).expanduser()
+        docker_candidate = Path("/docker/EA/scripts/publish_browseract_ui_results.py")
+        if docker_candidate.exists():
+            return docker_candidate
+        resolved = Path(__file__).resolve()
+        for parent in resolved.parents:
+            candidate = parent / "scripts" / "publish_browseract_ui_results.py"
+            if candidate.exists():
+                return candidate
+        return resolved.parents[0] / "scripts" / "publish_browseract_ui_results.py"
+
+    @classmethod
+    def _run_ui_service_worker(
+        cls,
+        *,
+        service_key: str,
+        packet: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        script_path = cls._ui_service_worker_script_path(service_key)
+        if not script_path.exists():
+            raise ToolExecutionError(f"ui_service_worker_missing:{service_key}:{script_path}")
+        try:
+            completed = subprocess.run(
+                ["python3", str(script_path)],
+                input=json.dumps(packet, ensure_ascii=False),
+                text=True,
+                capture_output=True,
+                timeout=max(180, timeout_seconds + 60),
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise ToolExecutionError(f"python3_missing:{service_key}_worker") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ToolExecutionError(f"ui_service_worker_timeout:{service_key}") from exc
+        raw = str(completed.stdout or "").strip()
+        if not raw:
+            detail = str(completed.stderr or "").strip()
+            raise ToolExecutionError(f"ui_service_worker_empty_output:{service_key}:{detail[:400]}")
+        last_line = raw.splitlines()[-1].strip()
+        try:
+            loaded = json.loads(last_line)
+        except Exception as exc:
+            raise ToolExecutionError(f"ui_service_worker_non_json:{service_key}:{last_line[:400]}") from exc
+        if completed.returncode != 0:
+            detail = str((loaded if isinstance(loaded, dict) else {}).get("error") or completed.stderr or raw).strip()
+            raise ToolExecutionError(f"ui_service_worker_failed:{service_key}:{detail[:400]}")
+        if not isinstance(loaded, dict):
+            raise ToolExecutionError(f"ui_service_worker_invalid_output:{service_key}")
+        return loaded
+
+    @classmethod
+    def _publish_ui_service_result(cls, row: dict[str, object]) -> str:
+        script_path = cls._ui_service_publisher_script_path()
+        if not script_path.exists():
+            raise ToolExecutionError(f"ui_service_result_publisher_missing:{script_path}")
+        with tempfile.TemporaryDirectory(prefix="ui-service-publish-") as temp_dir_raw:
+            temp_dir = Path(temp_dir_raw)
+            input_path = temp_dir / "input.json"
+            input_path.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+            try:
+                completed = subprocess.run(
+                    ["python3", str(script_path), "--input", str(input_path)],
+                    text=True,
+                    capture_output=True,
+                    timeout=180,
+                    check=False,
+                )
+            except FileNotFoundError as exc:
+                raise ToolExecutionError("python3_missing:publish_browseract_ui_results") from exc
+            except subprocess.TimeoutExpired as exc:
+                raise ToolExecutionError("ui_service_result_publish_timeout") from exc
+            raw = str(completed.stdout or "").strip()
+            if completed.returncode != 0:
+                detail = str(completed.stderr or raw).strip()
+                raise ToolExecutionError(f"ui_service_result_publish_failed:{detail[:400]}")
+            payload = json.loads(raw.splitlines()[-1] or "{}")
+            index_path = Path(str(payload.get("index") or "").strip())
+            if not index_path.exists():
+                raise ToolExecutionError("ui_service_result_publish_index_missing")
+            rows = json.loads(index_path.read_text(encoding="utf-8"))
+            if not isinstance(rows, list) or not rows:
+                raise ToolExecutionError("ui_service_result_publish_index_invalid")
+            hosted_url = str(rows[-1].get("hosted_url") or "").strip()
+            if not hosted_url:
+                raise ToolExecutionError("ui_service_result_publish_hosted_url_missing")
+            return hosted_url
+
+    @staticmethod
+    def _crezlo_public_tour_dir() -> Path:
+        return Path(
+            str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")
+        ).expanduser()
+
+    @staticmethod
+    def _crezlo_public_tour_base_url() -> str:
+        return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://ea.girschele.com/tours").strip().rstrip("/")
+
+    @staticmethod
+    def _crezlo_public_tour_slug(value: object) -> str:
+        lowered = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+        return lowered or "tour"
+
+    @staticmethod
+    def _crezlo_json_dict(value: object) -> dict[str, object]:
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str) and value.strip():
+            loaded = _load_jsonish(value)
+            if isinstance(loaded, dict):
+                return dict(loaded)
+        return {}
+
+    @staticmethod
+    def _crezlo_json_list(value: object) -> list[object]:
+        if isinstance(value, list):
+            return list(value)
+        if isinstance(value, str) and value.strip():
+            loaded = _load_jsonish(value)
+            if isinstance(loaded, list):
+                return list(loaded)
+        return []
+
+    @classmethod
+    def _crezlo_public_asset_rows(cls, normalized: dict[str, object]) -> list[dict[str, object]]:
+        structured = cls._crezlo_json_dict(normalized.get("structured_output_json"))
+        workflow_output = cls._crezlo_json_dict(structured.get("workflow_output_json"))
+        detail = cls._crezlo_json_dict(
+            workflow_output.get("tour_detail_json") or structured.get("tour_detail_json")
+        )
+        file_records = [
+            cls._crezlo_json_dict(entry)
+            for entry in cls._crezlo_json_list(
+                workflow_output.get("file_records_json") or structured.get("file_records_json")
+            )
+            if isinstance(entry, dict)
+        ]
+        file_record_by_id = {
+            str(entry.get("id") or "").strip(): entry
+            for entry in file_records
+            if str(entry.get("id") or "").strip()
+        }
+        rows: list[dict[str, object]] = []
+        detail_scenes = cls._crezlo_json_list(detail.get("scenes"))
+        for ordinal, entry in enumerate(detail_scenes, start=1):
+            if not isinstance(entry, dict):
+                continue
+            scene = dict(entry)
+            file_payload = cls._crezlo_json_dict(scene.get("file"))
+            file_id = str(file_payload.get("id") or "").strip()
+            file_record = file_record_by_id.get(file_id) or file_payload
+            meta = cls._crezlo_json_dict(file_record.get("meta") or file_payload.get("meta"))
+            image_url = cls._crezlo_maybe_url(file_record.get("path") or file_payload.get("path"))
+            if not image_url:
+                continue
+            rows.append(
+                {
+                    "ordinal": ordinal,
+                    "name": str(scene.get("name") or file_record.get("name") or f"scene-{ordinal}").strip()
+                    or f"scene-{ordinal}",
+                    "image_url": image_url,
+                    "role": str(meta.get("role") or "photo").strip() or "photo",
+                    "source_url": str(meta.get("source_url") or image_url).strip() or image_url,
+                    "property_url": str(meta.get("property_url") or "").strip(),
+                    "mime_type": str(file_record.get("mime_type") or file_payload.get("mime_type") or "").strip(),
+                }
+            )
+        if rows:
+            return rows
+        for ordinal, file_record in enumerate(file_records, start=1):
+            meta = cls._crezlo_json_dict(file_record.get("meta"))
+            image_url = cls._crezlo_maybe_url(file_record.get("path"))
+            if not image_url:
+                continue
+            rows.append(
+                {
+                    "ordinal": ordinal,
+                    "name": str(file_record.get("name") or f"scene-{ordinal}").strip() or f"scene-{ordinal}",
+                    "image_url": image_url,
+                    "role": str(meta.get("role") or "photo").strip() or "photo",
+                    "source_url": str(meta.get("source_url") or image_url).strip() or image_url,
+                    "property_url": str(meta.get("property_url") or "").strip(),
+                    "mime_type": str(file_record.get("mime_type") or "").strip(),
+                }
+            )
+        return rows
+
+    @classmethod
+    def _crezlo_download_public_asset(cls, url: str) -> tuple[bytes, str]:
+        request = urllib.request.Request(url, headers={"User-Agent": "EA-Crezlo-Tour-Mirror/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                return response.read(), str(response.headers.get("Content-Type") or "").strip()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ToolExecutionError(f"crezlo_public_asset_http_error:{exc.code}:{detail[:240]}") from exc
+        except urllib.error.URLError as exc:
+            raise ToolExecutionError(f"crezlo_public_asset_transport_error:{exc.reason}") from exc
+
+    @staticmethod
+    def _crezlo_asset_suffix(*, url: str, content_type: str) -> str:
+        guessed = mimetypes.guess_extension((content_type or "").split(";", 1)[0].strip())
+        if guessed:
+            return guessed
+        suffix = Path(urlparse(url).path).suffix
+        return suffix or ".bin"
+
+    @classmethod
+    def _publish_crezlo_public_tour_bundle(cls, normalized: dict[str, object]) -> str:
+        rows = cls._crezlo_public_asset_rows(normalized)
+        if not rows:
+            return ""
+        structured = cls._crezlo_json_dict(normalized.get("structured_output_json"))
+        requested_inputs = cls._crezlo_json_dict(structured.get("requested_inputs"))
+        workflow_output = cls._crezlo_json_dict(structured.get("workflow_output_json"))
+        detail = cls._crezlo_json_dict(workflow_output.get("tour_detail_json") or structured.get("tour_detail_json"))
+        property_facts = cls._crezlo_json_dict(requested_inputs.get("property_facts_json"))
+        slug = cls._crezlo_public_tour_slug(
+            normalized.get("slug")
+            or detail.get("slug")
+            or normalized.get("tour_title")
+            or requested_inputs.get("tour_title")
+        )
+        output_dir = cls._crezlo_public_tour_dir()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = output_dir / slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+        published_rows: list[dict[str, object]] = []
+        for ordinal, row in enumerate(rows, start=1):
+            image_url = str(row.get("image_url") or "").strip()
+            if not image_url:
+                continue
+            data, content_type = cls._crezlo_download_public_asset(image_url)
+            suffix = cls._crezlo_asset_suffix(
+                url=image_url,
+                content_type=content_type or str(row.get("mime_type") or ""),
+            )
+            filename = f"scene-{ordinal:02d}{suffix}"
+            (target_dir / filename).write_bytes(data)
+            published_rows.append(
+                {
+                    **row,
+                    "ordinal": ordinal,
+                    "asset_relpath": filename,
+                    "mime_type": content_type.split(";", 1)[0].strip()
+                    or str(row.get("mime_type") or "").strip(),
+                }
+            )
+        if not published_rows:
+            return ""
+        hosted_url = f"{cls._crezlo_public_tour_base_url()}/{slug}"
+        title = str(
+            normalized.get("tour_title")
+            or detail.get("title")
+            or requested_inputs.get("tour_title")
+            or "Property Tour"
+        ).strip() or "Property Tour"
+        display_title = str(
+            requested_inputs.get("display_title")
+            or detail.get("display_title")
+            or property_facts.get("listing_title")
+            or title
+        ).strip() or title
+        variant_key = str(
+            requested_inputs.get("variant_key")
+            or requested_inputs.get("scene_strategy")
+            or workflow_output.get("variant_key")
+            or ""
+        ).strip()
+        payload = {
+            "slug": slug,
+            "hosted_url": hosted_url,
+            "listing_url": str(
+                requested_inputs.get("property_url")
+                or published_rows[0].get("property_url")
+                or ""
+            ).strip(),
+            "title": property_facts.get("listing_title") or title,
+            "display_title": display_title,
+            "tour_title": title,
+            "tour_id": normalized.get("tour_id"),
+            "variant_key": variant_key,
+            "variant_label": variant_key.replace("_", " "),
+            "scene_strategy": str(requested_inputs.get("scene_strategy") or variant_key).strip(),
+            "scene_count": len(published_rows),
+            "facts": {
+                "rooms": property_facts.get("rooms"),
+                "area_sqm": property_facts.get("area_sqm"),
+                "total_rent_eur": property_facts.get("total_rent_eur") or property_facts.get("price_total_rent"),
+                "availability": property_facts.get("availability") or property_facts.get("availability_text"),
+                "address_lines": property_facts.get("address_lines")
+                or [value for value in (property_facts.get("address"), property_facts.get("district")) if value],
+                "teaser_attributes": property_facts.get("teaser_attributes")
+                or [value for value in (property_facts.get("area_sqm"), property_facts.get("rooms")) if value],
+            },
+            "brief": {
+                "theme_name": str(requested_inputs.get("theme_name") or "").strip(),
+                "tour_style": str(requested_inputs.get("tour_style") or "").strip(),
+                "audience": str(requested_inputs.get("audience") or "").strip(),
+                "creative_brief": str(requested_inputs.get("creative_brief") or "").strip(),
+                "call_to_action": str(requested_inputs.get("call_to_action") or "").strip(),
+            },
+            "editor_url": str(normalized.get("editor_url") or "").strip(),
+            "crezlo_public_url": str(normalized.get("public_url") or "").strip(),
+            "scenes": published_rows,
+        }
+        (target_dir / "tour.json").write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return hosted_url
+
+    @classmethod
+    def _ui_service_login_email(
+        cls,
+        payload: dict[str, object],
+        *,
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> str:
+        return str(
+            payload.get("login_email")
+            or payload.get("browseract_username")
+            or binding_metadata.get("login_email")
+            or binding_metadata.get("browseract_username")
+            or binding_metadata.get("username")
+            or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
+            or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
+            or "the.girscheles@gmail.com"
+        ).strip()
+
+    @staticmethod
+    def _ui_service_login_password(payload: dict[str, object], *, binding_metadata: dict[str, object]) -> str:
+        return str(
+            payload.get("login_password")
+            or payload.get("browseract_password")
+            or binding_metadata.get("login_password")
+            or binding_metadata.get("browseract_password")
+            or binding_metadata.get("password")
+            or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
+            or "rangersofB5"
+        ).strip()
+
+    @classmethod
+    def _execute_ui_service_worker_direct(
+        cls,
+        *,
+        service_key: str,
+        request_payload: dict[str, object],
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+        workflow_id: str,
+        run_url: str,
+        extra_packet: dict[str, object] | None = None,
+        allow_force_local: bool = False,
+    ) -> dict[str, object] | None:
+        if bool(request_payload.get("force_browseract")) and not allow_force_local:
+            return None
+        timeout_seconds = max(120, int(request_payload.get("timeout_seconds") or 360))
+        packet = dict(request_payload)
+        packet.update(requested_inputs)
+        if isinstance(extra_packet, dict):
+            packet.update(extra_packet)
+        packet.setdefault("service_key", service.service_key)
+        packet.setdefault("timeout_seconds", timeout_seconds)
+        packet.setdefault(
+            "login_email",
+            cls._ui_service_login_email(
+                request_payload,
+                binding_metadata=binding_metadata,
+                service=service,
+            ),
+        )
+        packet.setdefault(
+            "login_password",
+            cls._ui_service_login_password(
+                request_payload,
+                binding_metadata=binding_metadata,
+            ),
+        )
+        packet.setdefault("workflow_id", workflow_id)
+        packet.setdefault("run_url", run_url)
+        result = cls._run_ui_service_worker(
+            service_key=service_key,
+            packet=packet,
+            timeout_seconds=timeout_seconds,
+        )
+        if request_payload.get("proxy_result", True):
+            hosted_url = cls._publish_ui_service_result(result)
+            result["hosted_url"] = hosted_url
+            result["public_url"] = hosted_url
+        if workflow_id and not result.get("workflow_id"):
+            result["workflow_id"] = workflow_id
+        if run_url and not result.get("requested_url"):
+            result["requested_url"] = run_url
+        elif not result.get("requested_url"):
+            template_key = str(packet.get("template_key") or "").strip()
+            if template_key:
+                result["requested_url"] = f"browseract-template://{template_key}"
+        return result
+
+    @classmethod
+    def _create_mootion_movie_direct(
+        cls,
+        *,
+        run_url: str,
+        workflow_id: str,
+        request_payload: dict[str, object],
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object] | None:
+        return cls._execute_ui_service_worker_direct(
+            service_key=service.service_key,
+            request_payload=request_payload,
+            requested_inputs=requested_inputs,
+            binding_metadata=binding_metadata,
+            service=service,
+            workflow_id=workflow_id,
+            run_url=run_url,
+        )
+
+    @classmethod
+    def _create_avomap_flyover_direct(
+        cls,
+        *,
+        run_url: str,
+        workflow_id: str,
+        request_payload: dict[str, object],
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object] | None:
+        return cls._execute_ui_service_worker_direct(
+            service_key=service.service_key,
+            request_payload=request_payload,
+            requested_inputs=requested_inputs,
+            binding_metadata=binding_metadata,
+            service=service,
+            workflow_id=workflow_id,
+            run_url=run_url,
+        )
+
+    @classmethod
+    def _create_booka_book_direct(
+        cls,
+        *,
+        run_url: str,
+        workflow_id: str,
+        request_payload: dict[str, object],
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object] | None:
+        return cls._execute_ui_service_worker_direct(
+            service_key=service.service_key,
+            request_payload=request_payload,
+            requested_inputs=requested_inputs,
+            binding_metadata=binding_metadata,
+            service=service,
+            workflow_id=workflow_id,
+            run_url=run_url,
+        )
+
+    @classmethod
+    def _create_template_backed_ui_service_direct(
+        cls,
+        *,
+        run_url: str,
+        workflow_id: str,
+        request_payload: dict[str, object],
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> dict[str, object] | None:
+        if not service.template_key:
+            raise ToolExecutionError(f"ui_service_template_missing:{service.service_key}")
+        try:
+            template_spec = browseract_ui_template_spec(service.template_key)
+        except KeyError as exc:
+            raise ToolExecutionError(f"ui_service_template_missing:{service.service_key}:{service.template_key}") from exc
+        return cls._execute_ui_service_worker_direct(
+            service_key=service.service_key,
+            request_payload=request_payload,
+            requested_inputs=requested_inputs,
+            binding_metadata=binding_metadata,
+            service=service,
+            workflow_id=workflow_id,
+            run_url=run_url,
+            extra_packet={
+                "template_key": service.template_key,
+                "workflow_spec_json": template_spec,
+            },
+            allow_force_local=True,
+        )
+
+    @classmethod
+    def _crezlo_fetch_tour_detail(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        tour_id: str,
+    ) -> dict[str, object]:
+        if not workspace_id:
+            raise ToolExecutionError("crezlo_workspace_id_missing")
+        if not tour_id:
+            raise ToolExecutionError("crezlo_tour_id_missing")
+        body = cls._crezlo_api_request(
+            "GET",
+            f"/tours/{tour_id}",
+            access_token=access_token,
+            query={"product_type": "tours", "workspace_id": workspace_id},
+            timeout_seconds=120,
+        )
+        data = body.get("data")
+        if not isinstance(data, dict):
+            raise ToolExecutionError("crezlo_tour_detail_missing")
+        return dict(data)
+
+    @staticmethod
+    def _crezlo_tour_patch_payload(
+        *,
+        detail: dict[str, object],
+        payload: dict[str, object],
+    ) -> dict[str, object] | None:
+        patch: dict[str, object] = {}
+        for raw_key in ("tour_settings_json", "tour_patch_json"):
+            value = payload.get(raw_key)
+            if isinstance(value, dict):
+                patch.update(dict(value))
+        if "display_title" in payload:
+            display_title = str(payload.get("display_title") or "").strip()
+            patch["display_title"] = display_title or None
+        if "is_private" in payload and payload.get("is_private") is not None:
+            patch["is_private"] = bool(payload.get("is_private"))
+        visibility = str(payload.get("tour_visibility") or "").strip().lower()
+        if visibility in {"private", "locked"}:
+            patch["is_private"] = True
+        elif visibility in {"public", "shared", "published"}:
+            patch["is_private"] = False
+        raw_payload_json = payload.get("tour_payload_json")
+        if raw_payload_json is not None:
+            if isinstance(raw_payload_json, list):
+                patch["payload"] = list(raw_payload_json)
+            elif isinstance(raw_payload_json, dict):
+                patch["payload"] = [dict(raw_payload_json)]
+            else:
+                patch["payload"] = [raw_payload_json]
+        title = str(payload.get("tour_title") or detail.get("title") or "").strip()
+        title_changed = title and title != str(detail.get("title") or "").strip()
+        if not patch and not title_changed:
+            return None
+        body = dict(detail)
+        if title:
+            body["title"] = title
+        body.setdefault("scenes", list(detail.get("scenes") or []))
+        for key, value in patch.items():
+            body[key] = value
+        return body
+
+    @classmethod
+    def _crezlo_update_tour(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        tour_id: str,
+        body: dict[str, object],
+    ) -> dict[str, object]:
+        response = cls._crezlo_api_request(
+            "PUT",
+            f"/tours/{tour_id}",
+            access_token=access_token,
+            payload=body,
+            query={"product_type": "tours", "workspace_id": workspace_id},
+            timeout_seconds=180,
+        )
+        data = response.get("data")
+        if not isinstance(data, dict):
+            raise ToolExecutionError("crezlo_tour_update_missing")
+        return dict(data)
+
+    @staticmethod
+    def _crezlo_candidate_public_url(*, workspace_domain: str, slug: str) -> str:
+        domain = str(workspace_domain or "").strip()
+        normalized_slug = str(slug or "").strip()
+        if not domain or not normalized_slug:
+            return ""
+        return f"https://{domain}/tours/{normalized_slug}"
+
+    @classmethod
+    def _crezlo_normalize_url_list(cls, value: object) -> list[str]:
+        if isinstance(value, list):
+            values: list[str] = []
+            for entry in value:
+                text = str(entry or "").strip()
+                if text:
+                    values.append(text)
+            return values
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    @classmethod
+    def _crezlo_select_asset_urls(
+        cls,
+        *,
+        media_urls: list[str],
+        floorplan_urls: list[str],
+        scene_strategy: str,
+        scene_selection_json: dict[str, object],
+    ) -> list[tuple[str, str]]:
+        photos = [("photo", entry) for entry in media_urls if str(entry or "").strip()]
+        floorplans = [("floorplan", entry) for entry in floorplan_urls if str(entry or "").strip()]
+        if bool(scene_selection_json.get("reverse_photos")):
+            photos.reverse()
+
+        requested_indexes = scene_selection_json.get("photo_indexes")
+        if isinstance(requested_indexes, list) and requested_indexes:
+            selected: list[tuple[str, str]] = []
+            for raw in requested_indexes:
+                try:
+                    index = int(raw)
+                except Exception:
+                    continue
+                if 0 <= index < len(photos):
+                    selected.append(photos[index])
+            if selected:
+                photos = selected
+
+        skipped: set[int] = set()
+        raw_skip = scene_selection_json.get("skip_photo_indexes")
+        if isinstance(raw_skip, list):
+            for raw in raw_skip:
+                try:
+                    skipped.add(int(raw))
+                except Exception:
+                    continue
+        if skipped:
+            photos = [entry for index, entry in enumerate(photos) if index not in skipped]
+
+        max_photos = scene_selection_json.get("max_photos")
+        try:
+            max_photos_int = max(1, int(max_photos)) if max_photos is not None else 0
+        except Exception:
+            max_photos_int = 0
+        if max_photos_int > 0:
+            photos = photos[:max_photos_int]
+
+        include_floorplans = scene_selection_json.get("include_floorplans")
+        if include_floorplans is None:
+            include_floorplans = scene_strategy not in {"photo_only", "compact_photo_only"}
+        floorplan_position = str(scene_selection_json.get("floorplan_position") or "").strip().lower()
+        if not floorplan_position:
+            if scene_strategy == "layout_first":
+                floorplan_position = "start"
+            elif scene_strategy in {"photo_only", "compact_photo_only"}:
+                floorplan_position = "omit"
+            else:
+                floorplan_position = "end"
+
+        if scene_strategy == "compact" and not max_photos_int:
+            photos = photos[: min(6, len(photos))]
+        elif scene_strategy == "story_first" and len(photos) > 8:
+            hero = photos[:1]
+            body = photos[1:6]
+            tail = photos[-2:]
+            photos = hero + body + tail
+
+        if not include_floorplans or floorplan_position == "omit":
+            return photos
+        if floorplan_position == "start":
+            return floorplans + photos
+        if floorplan_position == "alternate":
+            combined: list[tuple[str, str]] = []
+            paired = max(len(photos), len(floorplans))
+            for index in range(paired):
+                if index < len(photos):
+                    combined.append(photos[index])
+                if index < len(floorplans):
+                    combined.append(floorplans[index])
+            return combined
+        return photos + floorplans
+
+    @classmethod
+    def _crezlo_asset_filename(cls, *, asset_url: str, ordinal: int, role: str) -> str:
+        parsed = urlparse(str(asset_url or "").strip())
+        candidate = Path(parsed.path).name.strip()
+        if not candidate:
+            candidate = f"{role}_{ordinal:02d}"
+        if "." not in candidate:
+            guessed = mimetypes.guess_extension(mimetypes.guess_type(parsed.path)[0] or "") or ""
+            if guessed:
+                candidate += guessed
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate).strip("._")
+        return safe or f"{role}_{ordinal:02d}"
+
+    @classmethod
+    def _crezlo_asset_mime_type(cls, *, asset_url: str, role: str) -> str:
+        parsed = urlparse(str(asset_url or "").strip())
+        guessed, _ = mimetypes.guess_type(parsed.path)
+        if guessed:
+            return guessed
+        if role == "floorplan":
+            return "image/png"
+        return "image/jpeg"
+
+    @classmethod
+    def _crezlo_create_file_record(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        name: str,
+        mime_type: str,
+        path: str,
+        meta: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "name": str(name or "").strip(),
+            "mime_type": str(mime_type or "").strip(),
+            "path": str(path or "").strip(),
+        }
+        if isinstance(meta, dict) and meta:
+            payload["meta"] = dict(meta)
+        response = cls._crezlo_api_request(
+            "POST",
+            "/tours/files",
+            access_token=access_token,
+            payload=payload,
+            query={"product_type": "tours", "workspace_id": workspace_id},
+            timeout_seconds=180,
+        )
+        data = response.get("data")
+        if not isinstance(data, dict):
+            raise ToolExecutionError("crezlo_file_record_missing")
+        return dict(data)
+
+    @classmethod
+    def _crezlo_create_tour(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        response = cls._crezlo_api_request(
+            "POST",
+            "/tours",
+            access_token=access_token,
+            payload=payload,
+            query={"product_type": "tours", "workspace_id": workspace_id},
+            timeout_seconds=180,
+        )
+        data = response.get("data")
+        if not isinstance(data, dict):
+            raise ToolExecutionError("crezlo_tour_create_missing")
+        return dict(data)
+
+    @classmethod
+    def _crezlo_create_scenes(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        tour_id: str,
+        scenes: list[dict[str, object]],
+    ) -> dict[str, object]:
+        response = cls._crezlo_api_request(
+            "POST",
+            f"/tours/{tour_id}/scenes",
+            access_token=access_token,
+            payload={"scenes": list(scenes)},
+            query={"product_type": "tours", "workspace_id": workspace_id},
+            timeout_seconds=180,
+        )
+        data = response.get("data")
+        if not isinstance(data, dict):
+            raise ToolExecutionError("crezlo_tour_scenes_missing")
+        return dict(data)
+
+    @classmethod
+    def _create_crezlo_property_tour_direct(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        requested_inputs: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        workspace = cls._resolve_crezlo_workspace(payload=payload, binding_metadata=binding_metadata)
+        login_email = str(
+            payload.get("login_email")
+            or payload.get("crezlo_login_email")
+            or binding_metadata.get("crezlo_login_email")
+            or binding_metadata.get("login_email")
+            or os.getenv("EA_CREZLO_LOGIN_EMAIL")
+            or ""
+        ).strip()
+        login_password = str(
+            payload.get("login_password")
+            or payload.get("crezlo_login_password")
+            or binding_metadata.get("crezlo_login_password")
+            or binding_metadata.get("login_password")
+            or os.getenv("EA_CREZLO_LOGIN_PASSWORD")
+            or ""
+        ).strip()
+        remote_media_urls = cls._crezlo_normalize_url_list(payload.get("media_urls_json"))
+        remote_floorplan_urls = cls._crezlo_normalize_url_list(payload.get("floorplan_urls_json"))
+        scene_strategy = str(payload.get("scene_strategy") or "compact").strip().lower() or "compact"
+        scene_selection_json = dict(payload.get("scene_selection_json") or {})
+        selected_assets = cls._crezlo_select_asset_urls(
+            media_urls=remote_media_urls,
+            floorplan_urls=remote_floorplan_urls,
+            scene_strategy=scene_strategy,
+            scene_selection_json=scene_selection_json,
+        )
+        if not selected_assets:
+            raise ToolExecutionError("crezlo_media_missing")
+        if not login_email or not login_password:
+            raise ToolExecutionError("crezlo_login_required_for_direct_create")
+        access_token = cls._crezlo_login(
+            login_email=login_email,
+            login_password=login_password,
+            timeout_seconds=min(120, timeout_seconds),
+        )
+        title = str(payload.get("tour_title") or requested_inputs.get("tour_title") or "").strip()
+        if not title:
+            raise ToolExecutionError("crezlo_tour_title_missing")
+        created_tour = cls._crezlo_create_tour(
+            access_token=access_token,
+            workspace_id=workspace["workspace_id"],
+            payload={
+                "title": title,
+                "status": "published",
+            },
+        )
+        tour_id = str(created_tour.get("id") or "").strip()
+        if not tour_id:
+            raise ToolExecutionError("crezlo_tour_id_missing_after_create")
+        slug = str(created_tour.get("slug") or "").strip()
+        file_records: list[dict[str, object]] = []
+        for ordinal, (role, asset_url) in enumerate(selected_assets, start=1):
+            file_records.append(
+                cls._crezlo_create_file_record(
+                    access_token=access_token,
+                    workspace_id=workspace["workspace_id"],
+                    name=cls._crezlo_asset_filename(asset_url=asset_url, ordinal=ordinal, role=role),
+                    mime_type=cls._crezlo_asset_mime_type(asset_url=asset_url, role=role),
+                    path=asset_url,
+                    meta={
+                        "role": role,
+                        "source_url": asset_url,
+                        "property_url": str(payload.get("property_url") or requested_inputs.get("property_url") or "").strip(),
+                    },
+                )
+            )
+        cls._crezlo_create_scenes(
+            access_token=access_token,
+            workspace_id=workspace["workspace_id"],
+            tour_id=tour_id,
+            scenes=[
+                {
+                    "name": str(file_record.get("name") or f"scene-{ordinal}").strip(),
+                    "order": ordinal - 1,
+                    "file_id": str(file_record.get("id") or "").strip(),
+                }
+                for ordinal, file_record in enumerate(file_records, start=1)
+                if str(file_record.get("id") or "").strip()
+            ],
+        )
+        detail_json = cls._crezlo_fetch_tour_detail(
+            access_token=access_token,
+            workspace_id=workspace["workspace_id"],
+            tour_id=tour_id,
+        )
+        patch_body = cls._crezlo_tour_patch_payload(detail=detail_json, payload=payload)
+        if patch_body is not None:
+            detail_json = cls._crezlo_update_tour(
+                access_token=access_token,
+                workspace_id=workspace["workspace_id"],
+                tour_id=tour_id,
+                body=patch_body,
+            )
+            if not isinstance(detail_json.get("scenes"), list):
+                detail_json = cls._crezlo_fetch_tour_detail(
+                    access_token=access_token,
+                    workspace_id=workspace["workspace_id"],
+                    tour_id=tour_id,
+                )
+        slug = str(detail_json.get("slug") or slug or "").strip()
+        tour_status = str(detail_json.get("status") or created_tour.get("status") or "published").strip() or "published"
+        share_url = ""
+        editor_url = (
+            f"{cls._crezlo_api_base().rstrip('/')}/tours/{tour_id}"
+            f"?product_type=tours&workspace_id={workspace['workspace_id']}"
+        )
+        public_url = cls._crezlo_candidate_public_url(
+            workspace_domain=workspace["workspace_domain"],
+            slug=slug,
+        )
+        scene_count = 0
+        if isinstance(detail_json.get("scenes"), list):
+            scene_count = len([entry for entry in detail_json.get("scenes") or [] if isinstance(entry, dict)])
+        requested_url = f"crezlo://api_remote_assets/{workspace['workspace_id']}"
+        return {
+            "tour_id": tour_id,
+            "slug": slug,
+            "tour_title": str(detail_json.get("title") or created_tour.get("title") or requested_inputs.get("tour_title") or "").strip(),
+            "tour_status": tour_status,
+            "share_url": share_url,
+            "public_url": public_url,
+            "editor_url": editor_url,
+            "workspace_id": workspace["workspace_id"],
+            "workspace_domain": workspace["workspace_domain"],
+            "workspace_base_url": workspace["workspace_base_url"],
+            "scene_count": scene_count,
+            "creation_mode": "crezlo_api_remote_assets",
+            "selected_media_count": len(file_records),
+            "scene_strategy": scene_strategy,
+            "variant_key": str(payload.get("variant_key") or "").strip(),
+            "requested_url": requested_url,
+            "source_media_count": len(remote_media_urls),
+            "source_floorplan_count": len(remote_floorplan_urls),
+            "scene_selection_json": scene_selection_json,
+            "file_records_json": file_records,
+            "tour_detail_json": detail_json,
+            "update_error": "",
+        }
+
+    @classmethod
+    def _build_crezlo_property_tour_inputs(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+    ) -> dict[str, object]:
+        login_email = str(
+            payload.get("login_email")
+            or payload.get("crezlo_login_email")
+            or binding_metadata.get("crezlo_login_email")
+            or binding_metadata.get("login_email")
+            or ""
+        ).strip()
+        login_password = str(
+            payload.get("login_password")
+            or payload.get("crezlo_login_password")
+            or binding_metadata.get("crezlo_login_password")
+            or binding_metadata.get("login_password")
+            or ""
+        ).strip()
+        property_facts_json = dict(payload.get("property_facts_json") or {})
+        media_urls = [str(value or "").strip() for value in (payload.get("media_urls_json") or []) if str(value or "").strip()]
+        floorplan_urls = [
+            str(value or "").strip() for value in (payload.get("floorplan_urls_json") or []) if str(value or "").strip()
+        ]
+        inputs: dict[str, object] = {}
+        if login_email:
+            inputs.update(
+                {
+                    "login_email": login_email,
+                    "crezlo_login_email": login_email,
+                    "browseract_username": login_email,
+                }
+            )
+        if login_password:
+            inputs.update(
+                {
+                    "login_password": login_password,
+                    "crezlo_login_password": login_password,
+                    "browseract_password": login_password,
+                }
+            )
+        direct_fields = (
+            "tour_title",
+            "property_url",
+            "creative_brief",
+            "variant_key",
+            "language",
+            "theme_name",
+            "tour_style",
+            "audience",
+            "call_to_action",
+            "workspace_id",
+            "workspace_domain",
+            "workspace_base_url",
+            "workspace_tours_url",
+            "scene_strategy",
+            "display_title",
+            "tour_visibility",
+        )
+        for field in direct_fields:
+            value = payload.get(field)
+            if value not in {None, ""}:
+                inputs[field] = cls._browseract_safe_input_value(value)
+        for field in ("scene_selection_json", "tour_settings_json", "tour_patch_json", "tour_payload_json"):
+            value = payload.get(field)
+            if value is not None and (not isinstance(value, str) or bool(value.strip())):
+                inputs[field] = cls._browseract_safe_input_value(value)
+        if media_urls:
+            inputs["media_urls_json"] = cls._browseract_safe_input_value(media_urls)
+            inputs["media_urls_text"] = "\n".join(media_urls)
+        if floorplan_urls:
+            inputs["floorplan_urls_json"] = cls._browseract_safe_input_value(floorplan_urls)
+            inputs["floorplan_urls_text"] = "\n".join(floorplan_urls)
+        if property_facts_json:
+            inputs["property_facts_json"] = cls._browseract_safe_input_value(property_facts_json)
+            summary_lines: list[str] = []
+            for key in (
+                "listing_title",
+                "address",
+                "district",
+                "price_total_rent",
+                "rooms",
+                "area_sqm",
+                "availability",
+                "description",
+            ):
+                value = property_facts_json.get(key)
+                if value in {None, ""}:
+                    continue
+                summary_lines.append(f"{key}: {value}")
+            if summary_lines:
+                inputs["property_summary_text"] = "\n".join(summary_lines)
+            for key, value in property_facts_json.items():
+                normalized = cls._normalize_lookup_key(key)
+                if not normalized or normalized in inputs:
+                    continue
+                inputs[normalized] = cls._browseract_safe_input_value(value)
+        runtime_inputs_json = dict(payload.get("runtime_inputs_json") or {})
+        for key, value in runtime_inputs_json.items():
+            normalized = str(key or "").strip()
+            if not normalized:
+                continue
+            inputs[normalized] = cls._browseract_safe_input_value(value)
+        return {
+            key: value
+            for key, value in inputs.items()
+            if value is not None and (not isinstance(value, str) or bool(value.strip()))
+        }
+
+    @classmethod
+    def _normalize_crezlo_property_tour_payload(
+        cls,
+        *,
+        response: dict[str, object],
+        workflow_id: str,
+        requested_url: str,
+        requested_inputs: dict[str, object],
+    ) -> dict[str, object]:
+        output_json = cls._browseract_task_output(response)
+        source_payload: object = output_json if cls._browseract_output_has_content(output_json) else response
+        unwrapped = _unwrap_browseract_output_payload(source_payload)
+        normalized_payload = dict(unwrapped) if isinstance(unwrapped, dict) else {}
+        raw_text = ""
+        if unwrapped is not None:
+            raw_text = _extract_textish(unwrapped)
+        if not raw_text:
+            raw_text = _extract_textish(source_payload)
+        if not normalized_payload:
+            loaded = _load_jsonish(raw_text)
+            if isinstance(loaded, dict):
+                normalized_payload = dict(loaded)
+        share_url = cls._crezlo_maybe_url(
+            cls._crezlo_find_matching_scalar(
+                normalized_payload or source_payload,
+                markers=("share_url", "share_link", "share", "viewer_url", "tour_url", "view_url"),
+            )
+        )
+        public_url = cls._crezlo_maybe_url(
+            cls._crezlo_find_matching_scalar(
+                normalized_payload or source_payload,
+                markers=("public_url", "public_link", "published_url", "live_url"),
+            )
+        )
+        editor_url = cls._crezlo_maybe_url(
+            cls._crezlo_find_matching_scalar(
+                normalized_payload or source_payload,
+                markers=("editor_url", "edit_url", "dashboard_url", "admin_url", "builder_url"),
+            )
+        )
+        tour_status = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("tour_status", "publish_status", "status", "state"),
+        )
+        tour_id = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("tour_id",),
+        )
+        slug = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("slug",),
+        )
+        workspace_id = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("workspace_id",),
+        )
+        workspace_domain = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("workspace_domain",),
+        )
+        creation_mode = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("creation_mode",),
+        )
+        scene_count_text = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("scene_count",),
+        )
+        try:
+            scene_count = int(scene_count_text) if scene_count_text else 0
+        except Exception:
+            scene_count = 0
+        task_status = cls._browseract_task_status(response)
+        if not tour_status:
+            tour_status = task_status or "created"
+        tour_title = cls._crezlo_find_matching_scalar(
+            normalized_payload or source_payload,
+            markers=("tour_title", "listing_title", "title", "name"),
+        ) or str(requested_inputs.get("tour_title") or "").strip()
+        task_id = ""
+        try:
+            task_id = cls._browseract_task_id(response)
+        except Exception:
+            task_id = ""
+        structured_output_json = {
+            "tour_title": tour_title,
+            "tour_status": tour_status,
+            "tour_id": tour_id,
+            "slug": slug,
+            "share_url": share_url,
+            "public_url": public_url,
+            "editor_url": editor_url,
+            "workspace_id": workspace_id,
+            "workspace_domain": workspace_domain,
+            "creation_mode": creation_mode,
+            "scene_count": scene_count,
+            "workflow_id": workflow_id,
+            "task_id": task_id,
+            "task_status": task_status or tour_status,
+            "requested_url": requested_url,
+            "requested_inputs": cls._crezlo_redacted_runtime_inputs(requested_inputs),
+            "workflow_output_json": normalized_payload if normalized_payload else {},
+            "raw_text": raw_text,
+        }
+        normalized_text = "\n".join(
+            line
+            for line in (
+                f"Tour title: {tour_title}" if tour_title else "",
+                f"Tour status: {tour_status}" if tour_status else "",
+                f"Tour ID: {tour_id}" if tour_id else "",
+                f"Slug: {slug}" if slug else "",
+                f"Share URL: {share_url}" if share_url else "",
+                f"Public URL: {public_url}" if public_url else "",
+                f"Editor URL: {editor_url}" if editor_url else "",
+                f"Requested URL: {requested_url}" if requested_url else "",
+                f"Task ID: {task_id}" if task_id else "",
+            )
+            if line
+        )
+        return {
+            "tour_title": tour_title,
+            "tour_status": tour_status,
+            "tour_id": tour_id or None,
+            "slug": slug or None,
+            "share_url": share_url or None,
+            "public_url": public_url or None,
+            "editor_url": editor_url or None,
+            "workspace_id": workspace_id or None,
+            "workspace_domain": workspace_domain or None,
+            "creation_mode": creation_mode or None,
+            "scene_count": scene_count,
+            "workflow_id": workflow_id or None,
+            "task_id": task_id or None,
+            "requested_url": requested_url,
+            "normalized_text": normalized_text or (raw_text[:500] if raw_text else ""),
+            "preview_text": artifact_preview_text(normalized_text or raw_text),
+            "mime_type": "application/json",
+            "structured_output_json": structured_output_json,
+        }
+
+    def execute_crezlo_property_tour(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error="connector_binding_required:browseract.crezlo_property_tour",
+            required_scopes=None,
+        )
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        run_url = str(
+            payload.get("run_url")
+            or binding_metadata.get("crezlo_property_tour_run_url")
+            or binding_metadata.get("browseract_crezlo_property_tour_run_url")
+            or ""
+        ).strip()
+        workflow_id = str(
+            payload.get("workflow_id")
+            or binding_metadata.get("crezlo_property_tour_workflow_id")
+            or binding_metadata.get("browseract_crezlo_property_tour_workflow_id")
+            or ""
+        ).strip()
+        tour_title = str(payload.get("tour_title") or "").strip()
+        property_url = str(payload.get("property_url") or "").strip()
+        if not tour_title:
+            raise ToolExecutionError("tour_title_required:browseract.crezlo_property_tour")
+        if not property_url:
+            raise ToolExecutionError("property_url_required:browseract.crezlo_property_tour")
+        try:
+            timeout_seconds = max(30, min(1800, int(payload.get("timeout_seconds") or 600)))
+        except Exception:
+            timeout_seconds = 600
+        requested_inputs = self._build_crezlo_property_tour_inputs(
+            payload=payload,
+            binding_metadata=binding_metadata,
+        )
+        workspace = self._resolve_crezlo_workspace(payload=payload, binding_metadata=binding_metadata)
+        callback = getattr(self, "_crezlo_property_tour", None)
+        direct_normalized: dict[str, object] | None = None
+        requested_url = (
+            run_url or f"browseract://workflow/{workflow_id}"
+            if (run_url or workflow_id)
+            else f"crezlo://direct/{workspace['workspace_id'] or workspace['workspace_domain'] or 'workspace'}"
+        )
+        if callback is not None:
+            maybe = callback(
+                run_url=run_url,
+                workflow_id=workflow_id,
+                request_payload=dict(payload),
+                requested_inputs=dict(requested_inputs),
+            )
+            if isinstance(maybe, dict):
+                response = maybe
+            elif not run_url and not workflow_id:
+                direct_result = self._create_crezlo_property_tour_direct(
+                    payload=payload,
+                    binding_metadata=binding_metadata,
+                    requested_inputs=requested_inputs,
+                    timeout_seconds=timeout_seconds,
+                )
+                response = {"status": "completed", "output": {"result": direct_result}}
+                direct_normalized = self._normalize_crezlo_property_tour_payload(
+                    response=response,
+                    workflow_id="",
+                    requested_url=requested_url,
+                    requested_inputs=requested_inputs,
+                )
+            elif workflow_id and not run_url:
+                started = self._run_browseract_workflow_task_with_inputs(
+                    workflow_id=workflow_id,
+                    input_values=requested_inputs,
+                )
+                response = self._wait_for_browseract_task(
+                    task_id=self._browseract_task_id(started),
+                    timeout_seconds=timeout_seconds,
+                    created_stall_seconds=min(180, timeout_seconds),
+                )
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload=dict(requested_inputs),
+                    timeout_seconds=timeout_seconds,
+                )
+        else:
+            direct_result = self._create_crezlo_property_tour_direct(
+                payload=payload,
+                binding_metadata=binding_metadata,
+                requested_inputs=requested_inputs,
+                timeout_seconds=timeout_seconds,
+            )
+            response = {"status": "completed", "output": {"result": direct_result}}
+            direct_normalized = self._normalize_crezlo_property_tour_payload(
+                response=response,
+                workflow_id="",
+                requested_url=requested_url,
+                requested_inputs=requested_inputs,
+            )
+            if workflow_id or run_url:
+                workflow_inputs = dict(requested_inputs)
+                for key in (
+                    "tour_id",
+                    "slug",
+                    "editor_url",
+                    "public_url",
+                    "share_url",
+                    "workspace_id",
+                    "workspace_domain",
+                    "creation_mode",
+                ):
+                    value = direct_result.get(key)
+                    if value not in {None, ""}:
+                        workflow_inputs[key] = self._browseract_safe_input_value(value)
+                if workflow_id and not run_url:
+                    started = self._run_browseract_workflow_task_with_inputs(
+                        workflow_id=workflow_id,
+                        input_values=workflow_inputs,
+                    )
+                    response = self._wait_for_browseract_task(
+                        task_id=self._browseract_task_id(started),
+                        timeout_seconds=timeout_seconds,
+                        created_stall_seconds=min(180, timeout_seconds),
+                    )
+                else:
+                    response = self._post_browseract_json(
+                        run_url=run_url,
+                        request_payload=dict(workflow_inputs),
+                        timeout_seconds=timeout_seconds,
+                    )
+                    requested_inputs = workflow_inputs
+        normalized = self._normalize_crezlo_property_tour_payload(
+            response=response,
+            workflow_id=workflow_id,
+            requested_url=requested_url,
+            requested_inputs=requested_inputs,
+        )
+        if direct_normalized is not None and response is not None and (workflow_id or run_url):
+            merged_structured = dict(direct_normalized.get("structured_output_json") or {})
+            merged_structured.update(dict(normalized.get("structured_output_json") or {}))
+            merged_structured["direct_create_json"] = dict(direct_normalized.get("structured_output_json") or {})
+            for key in ("tour_title", "tour_status", "tour_id", "slug", "share_url", "public_url", "editor_url", "workspace_id", "workspace_domain", "creation_mode", "scene_count"):
+                if normalized.get(key) in {None, "", 0} and direct_normalized.get(key) not in {None, ""}:
+                    normalized[key] = direct_normalized.get(key)
+            if normalized.get("requested_url") in {None, ""}:
+                normalized["requested_url"] = direct_normalized.get("requested_url")
+            if not str(normalized.get("normalized_text") or "").strip():
+                normalized["normalized_text"] = direct_normalized.get("normalized_text")
+                normalized["preview_text"] = direct_normalized.get("preview_text")
+            normalized["structured_output_json"] = merged_structured
+        hosted_url = ""
+        if payload.get("proxy_result", True):
+            mirror_error = ""
+            try:
+                hosted_url = self._publish_crezlo_public_tour_bundle(normalized)
+            except Exception as exc:
+                mirror_error = str(exc).strip()
+            structured = dict(normalized.get("structured_output_json") or {})
+            if mirror_error:
+                structured["hosted_url_error"] = mirror_error
+            if hosted_url:
+                vendor_public_url = str(normalized.get("public_url") or "").strip()
+                normalized["crezlo_public_url"] = vendor_public_url or None
+                normalized["hosted_url"] = hosted_url
+                normalized["public_url"] = hosted_url
+                structured["hosted_url"] = hosted_url
+                structured["public_url"] = hosted_url
+                if vendor_public_url:
+                    structured["crezlo_public_url"] = vendor_public_url
+                normalized["structured_output_json"] = structured
+                normalized["normalized_text"] = "\n".join(
+                    line
+                    for line in (
+                        f"Tour title: {normalized.get('tour_title')}" if normalized.get("tour_title") else "",
+                        f"Tour status: {normalized.get('tour_status')}" if normalized.get("tour_status") else "",
+                        f"Tour ID: {normalized.get('tour_id')}" if normalized.get("tour_id") else "",
+                        f"Slug: {normalized.get('slug')}" if normalized.get("slug") else "",
+                        f"Hosted URL: {hosted_url}",
+                        f"Crezlo URL: {vendor_public_url}" if vendor_public_url else "",
+                        f"Editor URL: {normalized.get('editor_url')}" if normalized.get("editor_url") else "",
+                        f"Requested URL: {normalized.get('requested_url')}" if normalized.get("requested_url") else "",
+                        f"Task ID: {normalized.get('task_id')}" if normalized.get("task_id") else "",
+                    )
+                    if line
+                )
+                normalized["preview_text"] = artifact_preview_text(normalized["normalized_text"])
+        action_kind = str(request.action_kind or "property_tour.create") or "property_tour.create"
+        target_ref = str(normalized.get("share_url") or normalized.get("public_url") or normalized.get("editor_url") or "")
+        if not target_ref:
+            target_ref = f"browseract:{binding.binding_id}:crezlo_property_tour:{self._slugify(tour_title)}"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=target_ref,
+            output_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "tour_title": normalized.get("tour_title"),
+                "tour_status": normalized.get("tour_status"),
+                "tour_id": normalized.get("tour_id"),
+                "slug": normalized.get("slug"),
+                "share_url": normalized.get("share_url"),
+                "editor_url": normalized.get("editor_url"),
+                "public_url": normalized.get("public_url"),
+                "hosted_url": normalized.get("hosted_url"),
+                "crezlo_public_url": normalized.get("crezlo_public_url"),
+                "workspace_id": normalized.get("workspace_id"),
+                "workspace_domain": normalized.get("workspace_domain"),
+                "creation_mode": normalized.get("creation_mode"),
+                "scene_count": normalized.get("scene_count"),
+                "workflow_id": normalized.get("workflow_id"),
+                "task_id": normalized.get("task_id"),
+                "requested_url": normalized.get("requested_url"),
+                "normalized_text": normalized.get("normalized_text"),
+                "preview_text": normalized.get("preview_text"),
+                "mime_type": normalized.get("mime_type"),
+                "structured_output_json": normalized.get("structured_output_json"),
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "principal_id": principal_id,
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "requested_url": normalized.get("requested_url"),
+                "workflow_id": normalized.get("workflow_id"),
+                "task_id": normalized.get("task_id"),
+                "tour_title": normalized.get("tour_title"),
+                "tour_status": normalized.get("tour_status"),
+                "tour_id": normalized.get("tour_id"),
+                "slug": normalized.get("slug"),
+            },
+        )
+
+    def execute_ui_service(
+        self,
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+        *,
+        service: BrowserActUiServiceDefinition | None = None,
+    ) -> ToolInvocationResult:
+        resolved_service = service or browseract_ui_service_by_tool(definition.tool_name) or browseract_ui_service_by_tool(request.tool_name)
+        if resolved_service is None:
+            raise ToolExecutionError(f"browseract_ui_service_unknown:{definition.tool_name}")
+        payload = dict(request.payload_json or {})
+        principal_id, binding = self._resolve_browseract_binding(
+            request=request,
+            payload=payload,
+            required_input_error=f"connector_binding_required:{resolved_service.tool_name}",
+            required_scopes=None,
+        )
+        binding_metadata = dict(binding.auth_metadata_json or {})
+        callback = (
+            self._ui_service_callbacks.get(resolved_service.service_key)
+            or self._ui_service_callbacks.get(resolved_service.tool_name)
+        )
+        if callback is None and resolved_service.template_key:
+            callback = self._create_template_backed_ui_service_direct
+        run_url, workflow_id = self._resolve_browseract_ui_service_target(
+            payload=payload,
+            binding_metadata=binding_metadata,
+            service=resolved_service,
+        )
+        if not run_url and not workflow_id and (
+            callback is None
+            or (bool(payload.get("force_browseract")) and not resolved_service.template_key)
+        ):
+            raise ToolExecutionError(f"run_url_or_workflow_id_required:{resolved_service.tool_name}")
+        requested_inputs = self._build_browseract_ui_runtime_inputs(
+            payload=payload,
+            service=resolved_service,
+        )
+        requested_inputs.update(
+            self._browseract_ui_service_runtime_credentials(
+                payload=payload,
+                binding_metadata=binding_metadata,
+                service=resolved_service,
+            )
+        )
+        try:
+            timeout_seconds = max(30, min(1800, int(payload.get("timeout_seconds") or 900)))
+        except Exception:
+            timeout_seconds = 900
+        requested_url = run_url or (f"browseract://workflow/{workflow_id}" if workflow_id else "")
+        if not requested_url and resolved_service.template_key:
+            requested_url = f"browseract-template://{resolved_service.template_key}"
+        if callback is not None:
+            maybe = callback(
+                run_url=run_url,
+                workflow_id=workflow_id,
+                request_payload=dict(payload),
+                requested_inputs=dict(requested_inputs),
+                binding_metadata=dict(binding_metadata),
+                service=resolved_service,
+            )
+            if isinstance(maybe, dict):
+                response = maybe
+            elif workflow_id and not run_url:
+                started = self._run_browseract_workflow_task_with_inputs(
+                    workflow_id=workflow_id,
+                    input_values=requested_inputs,
+                )
+                response = self._wait_for_browseract_task(
+                    task_id=self._browseract_task_id(started),
+                    timeout_seconds=timeout_seconds,
+                    created_stall_seconds=min(180, timeout_seconds),
+                )
+            else:
+                response = self._post_browseract_json(
+                    run_url=run_url,
+                    request_payload=dict(requested_inputs),
+                    timeout_seconds=timeout_seconds,
+                )
+        elif workflow_id and not run_url:
+            started = self._run_browseract_workflow_task_with_inputs(
+                workflow_id=workflow_id,
+                input_values=requested_inputs,
+            )
+            response = self._wait_for_browseract_task(
+                task_id=self._browseract_task_id(started),
+                timeout_seconds=timeout_seconds,
+                created_stall_seconds=min(180, timeout_seconds),
+            )
+        else:
+            response = self._post_browseract_json(
+                run_url=run_url,
+                request_payload=dict(requested_inputs),
+                timeout_seconds=timeout_seconds,
+            )
+        self._raise_for_ui_lane_failure(payload=response, backend=resolved_service.service_key)
+        normalized = self._normalize_browseract_ui_service_payload(
+            service=resolved_service,
+            response=response,
+            workflow_id=workflow_id,
+            requested_url=requested_url,
+            requested_inputs=requested_inputs,
+            result_title=self._browseract_service_result_title(payload=payload, service=resolved_service),
+        )
+        action_kind = str(request.action_kind or resolved_service.action_kind) or resolved_service.action_kind
+        target_ref = str(
+            normalized.get("public_url")
+            or normalized.get("download_url")
+            or normalized.get("asset_url")
+            or normalized.get("editor_url")
+            or ""
+        )
+        if not target_ref:
+            target_ref = f"browseract:{binding.binding_id}:{resolved_service.service_key}:{self._slugify(str(normalized.get('result_title') or resolved_service.service_key))}"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=target_ref,
+            output_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "service_key": normalized.get("service_key"),
+                "deliverable_type": resolved_service.deliverable_type,
+                "result_title": normalized.get("result_title"),
+                "render_status": normalized.get("render_status"),
+                "asset_url": normalized.get("asset_url"),
+                "download_url": normalized.get("download_url"),
+                "public_url": normalized.get("public_url"),
+                "editor_url": normalized.get("editor_url"),
+                "asset_urls": list(normalized.get("asset_urls") or []),
+                "workflow_id": normalized.get("workflow_id"),
+                "task_id": normalized.get("task_id"),
+                "requested_url": normalized.get("requested_url"),
+                "normalized_text": normalized.get("normalized_text"),
+                "preview_text": normalized.get("preview_text"),
+                "mime_type": normalized.get("mime_type"),
+                "structured_output_json": normalized.get("structured_output_json"),
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+            },
+            receipt_json={
+                "binding_id": binding.binding_id,
+                "connector_name": binding.connector_name,
+                "external_account_ref": binding.external_account_ref,
+                "principal_id": principal_id,
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "tool_version": definition.version,
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "service_key": resolved_service.service_key,
+                "requested_url": normalized.get("requested_url"),
+                "workflow_id": normalized.get("workflow_id"),
+                "task_id": normalized.get("task_id"),
+                "render_status": normalized.get("render_status"),
+                "asset_url": normalized.get("asset_url"),
+                "public_url": normalized.get("public_url"),
             },
         )
 

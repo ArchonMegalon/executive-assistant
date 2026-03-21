@@ -993,6 +993,320 @@ def test_skill_catalog_can_execute_browseract_bootstrap_manager_skill() -> None:
     assert session_body["artifacts"][0]["skill_key"] == "browseract_bootstrap_manager"
 
 
+def test_skill_catalog_can_execute_create_property_tour_skill() -> None:
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "create_property_tour",
+            "task_key": "create_property_tour",
+            "name": "Create Property Tour",
+            "description": "Planner-executed Crezlo property tour builder for steerable real-estate walkthrough variants.",
+            "deliverable_type": "property_tour_packet",
+            "default_risk_class": "medium",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.crezlo_property_tour", "artifact_repository"],
+            "evidence_requirements": ["property_listing", "tour_brief", "property_media"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships"],
+            "memory_writes": [],
+            "tags": ["browseract", "crezlo", "property", "tour"],
+            "input_schema_json": {
+                "type": "object",
+                "required": ["binding_id", "tour_title", "property_url"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "workflow_id": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "tour_title": {"type": "string"},
+                    "property_url": {"type": "string"},
+                    "media_urls_json": {"type": "array", "items": {"type": "string"}},
+                    "floorplan_urls_json": {"type": "array", "items": {"type": "string"}},
+                    "property_facts_json": {"type": "object"},
+                    "creative_brief": {"type": "string"},
+                    "variant_key": {"type": "string"},
+                    "language": {"type": "string"},
+                    "theme_name": {"type": "string"},
+                    "tour_style": {"type": "string"},
+                    "audience": {"type": "string"},
+                    "call_to_action": {"type": "string"},
+                    "runtime_inputs_json": {"type": "object"},
+                    "timeout_seconds": {"type": "integer"},
+                    "login_email": {"type": "string"},
+                    "login_password": {"type": "string"},
+                },
+            },
+            "output_schema_json": {
+                "type": "object",
+                "required": ["deliverable_type"],
+                "properties": {
+                    "deliverable_type": {"const": "property_tour_packet"},
+                    "tour_title": {"type": "string"},
+                    "tour_status": {"type": "string"},
+                    "share_url": {"type": ["string", "null"]},
+                    "editor_url": {"type": ["string", "null"]},
+                    "public_url": {"type": ["string", "null"]},
+                    "hosted_url": {"type": ["string", "null"]},
+                    "crezlo_public_url": {"type": ["string", "null"]},
+                    "workflow_id": {"type": ["string", "null"]},
+                    "task_id": {"type": ["string", "null"]},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["BrowserAct"],
+                "output": ["Crezlo"],
+                "notes": ["Steerable property-tour workflow backed by a BrowserAct Crezlo template."],
+            },
+            "tool_policy_json": {"allowed_tools": ["browseract.crezlo_property_tour", "artifact_repository"]},
+            "evaluation_cases_json": [{"case_key": "create_property_tour_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "medium",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "crezlo_property_tour",
+                "browseract_failure_strategy": "retry",
+                "browseract_max_attempts": 2,
+                "browseract_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "create_property_tour"
+    assert created.json()["task_key"] == "create_property_tour"
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "crezlo-workspace-1",
+            "scope_json": {"scopes": ["browseract", "crezlo"]},
+            "auth_metadata_json": {"crezlo_property_tour_workflow_id": "wf-crezlo-1"},
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    container = client.app.state.container
+
+    def _fake_crezlo_property_tour(**kwargs: object) -> dict[str, object]:
+        requested_inputs = dict(kwargs.get("requested_inputs") or {})
+        return {
+            "task_id": "task-crezlo-skill-1",
+            "status": "completed",
+            "output": {
+                "result": {
+                    "tour_title": requested_inputs["tour_title"],
+                    "tour_status": "published",
+                    "share_url": "https://tours.crezlo.com/share/augarten-variant-b",
+                    "editor_url": "https://tours.crezlo.com/admin/tours/augarten-variant-b",
+                    "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/augarten-variant-b",
+                }
+            },
+        }
+
+    container.tool_execution._browseract_crezlo_property_tour = _fake_crezlo_property_tour
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "create_property_tour", "goal": "create a steerable property tour"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "create_property_tour"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_crezlo_property_tour",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "create_property_tour",
+            "goal": "create a steerable property tour",
+            "input_json": {
+                "binding_id": binding_id,
+                "tour_title": "Augarten Variant B",
+                "property_url": "https://www.willhaben.at/listing/augarten",
+                "theme_name": "Editorial Bright",
+                "creative_brief": "Lead with the loggia, natural light, and practical flow for young professionals.",
+                "variant_key": "variant_b",
+                "media_urls_json": [
+                    "https://assets.example/augarten-photo-1.jpg",
+                    "https://assets.example/augarten-photo-2.jpg",
+                ],
+                "floorplan_urls_json": ["https://assets.example/augarten-floorplan-1.jpg"],
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "create_property_tour"
+    assert body["task_key"] == "create_property_tour"
+    assert body["kind"] == "property_tour_packet"
+    assert body["structured_output_json"]["tour_title"] == "Augarten Variant B"
+    assert body["structured_output_json"]["share_url"] == "https://tours.crezlo.com/share/augarten-variant-b"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "create_property_tour"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.crezlo_property_tour",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "create_property_tour"
+
+
+def test_skill_catalog_can_execute_create_mootion_movie_skill() -> None:
+    client = _client()
+
+    created = client.post(
+        "/v1/skills",
+        json={
+            "skill_key": "create_mootion_movie",
+            "task_key": "create_mootion_movie",
+            "name": "Create Mootion Movie",
+            "description": "Steerable BrowserAct-backed Mootion movie generator for short clips and property teasers.",
+            "deliverable_type": "mootion_movie_packet",
+            "default_risk_class": "medium",
+            "default_approval_class": "none",
+            "workflow_template": "tool_then_artifact",
+            "allowed_tools": ["browseract.mootion_movie", "artifact_repository"],
+            "evidence_requirements": ["service_prompt", "ui_render_request", "browseract_template"],
+            "memory_write_policy": "none",
+            "memory_reads": ["entities", "relationships"],
+            "memory_writes": [],
+            "tags": ["browseract", "mootion", "video", "movie"],
+            "input_schema_json": {
+                "type": "object",
+                "required": ["binding_id", "script_text"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "workflow_id": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "runtime_inputs_json": {"type": "object"},
+                    "timeout_seconds": {"type": "integer"},
+                    "result_title": {"type": "string"},
+                    "script_text": {"type": "string"},
+                    "visual_style": {"type": "string"},
+                    "aspect_ratio": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+            },
+            "output_schema_json": {
+                "type": "object",
+                "required": ["deliverable_type"],
+                "properties": {
+                    "deliverable_type": {"const": "mootion_movie_packet"},
+                    "service_key": {"type": "string"},
+                    "result_title": {"type": "string"},
+                    "render_status": {"type": "string"},
+                    "asset_url": {"type": ["string", "null"]},
+                    "public_url": {"type": ["string", "null"]},
+                    "editor_url": {"type": ["string", "null"]},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            "authority_profile_json": {"authority_class": "draft", "review_class": "operator"},
+            "provider_hints_json": {
+                "primary": ["BrowserAct"],
+                "output": ["Mootion"],
+            },
+            "tool_policy_json": {"allowed_tools": ["browseract.mootion_movie", "artifact_repository"]},
+            "evaluation_cases_json": [{"case_key": "create_mootion_movie_golden", "priority": "medium"}],
+            "budget_policy_json": {
+                "class": "medium",
+                "workflow_template": "tool_then_artifact",
+                "pre_artifact_capability_key": "mootion_movie",
+                "browseract_failure_strategy": "retry",
+                "browseract_max_attempts": 2,
+                "browseract_retry_backoff_seconds": 1,
+            },
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["skill_key"] == "create_mootion_movie"
+
+    binding = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"scopes": ["browseract", "mootion"]},
+            "auth_metadata_json": {"mootion_movie_workflow_id": "wf-mootion-1"},
+            "status": "enabled",
+        },
+    )
+    assert binding.status_code == 200
+    binding_id = binding.json()["binding_id"]
+
+    container = client.app.state.container
+
+    def _fake_mootion_movie(**kwargs: object) -> dict[str, object]:
+        requested_inputs = dict(kwargs.get("requested_inputs") or {})
+        return {
+            "task_id": "task-mootion-skill-1",
+            "status": "completed",
+            "output": {
+                "result": {
+                    "title": requested_inputs.get("title") or "Brigittenau Mood Reel",
+                    "status": "rendered",
+                    "video_url": "https://cdn.example/mootion/brigittenau-mood-reel.mp4",
+                    "preview_url": "https://viewer.example/mootion/brigittenau-mood-reel",
+                    "editor_url": "https://mootion.com/projects/brigittenau-mood-reel",
+                }
+            },
+        }
+
+    container.tool_execution._browseract_ui_service_callbacks["mootion_movie"] = _fake_mootion_movie
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "create_mootion_movie", "goal": "create a property teaser movie"},
+    )
+    assert compiled.status_code == 200
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_mootion_movie",
+        "step_artifact_save",
+    ]
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "create_mootion_movie",
+            "goal": "create a property teaser movie",
+            "input_json": {
+                "binding_id": binding_id,
+                "script_text": "Present the Augarten and Kahlenberg properties as a fast-paced comparison teaser.",
+                "title": "Brigittenau Mood Reel",
+                "visual_style": "cinematic_real_estate",
+                "aspect_ratio": "16:9",
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["skill_key"] == "create_mootion_movie"
+    assert body["kind"] == "mootion_movie_packet"
+    assert body["structured_output_json"]["service_key"] == "mootion_movie"
+    assert body["structured_output_json"]["asset_url"] == "https://cdn.example/mootion/brigittenau-mood-reel.mp4"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "create_mootion_movie"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "browseract.mootion_movie",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "create_mootion_movie"
+
+
 def test_skill_catalog_can_execute_browseract_bootstrap_manager_for_page_extract_templates() -> None:
     client = _client()
 

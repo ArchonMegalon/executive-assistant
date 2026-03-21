@@ -28,6 +28,8 @@ def create_app() -> FastAPI:
     from app.api.routes.plans import router as plans_router
     from app.api.routes.policy import router as policy_router
     from app.api.routes.providers import router as providers_router
+    from app.api.routes.public_results import router as public_results_router
+    from app.api.routes.public_tours import router as public_tours_router
     from app.api.routes.responses import router as responses_router
     from app.api.routes.rewrite import router as rewrite_router
     from app.api.routes.skills import router as skills_router
@@ -38,6 +40,8 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     app.include_router(landing_router)
+    app.include_router(public_results_router)
+    app.include_router(public_tours_router)
     app.include_router(health_router)
     auth_dependency = [Depends(require_request_auth)]
     app.include_router(channels_router, dependencies=auth_dependency)

@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Callable
 
 from app.domain.models import ToolInvocationRequest, ToolInvocationResult
+from app.services.browseract_ui_service_catalog import (
+    BrowserActUiServiceDefinition,
+    browseract_ui_service_by_capability,
+    browseract_ui_service_definitions,
+)
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_runtime import ToolRuntimeService
 
@@ -338,3 +343,140 @@ def register_builtin_browseract_onemin_member_reconciliation(
         "browseract.onemin_member_reconciliation",
         browseract_adapter.execute_onemin_member_reconciliation,
     )
+
+
+def register_builtin_browseract_crezlo_property_tour(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("browseract.crezlo_property_tour") is None:
+        tool_runtime.upsert_tool(
+            tool_name="browseract.crezlo_property_tour",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "required": ["binding_id", "tour_title", "property_url"],
+                "properties": {
+                    "binding_id": {"type": "string"},
+                    "workspace_id": {"type": "string"},
+                    "workspace_domain": {"type": "string"},
+                    "workspace_base_url": {"type": "string"},
+                    "workspace_tours_url": {"type": "string"},
+                    "workflow_id": {"type": "string"},
+                    "run_url": {"type": "string"},
+                    "tour_title": {"type": "string"},
+                    "property_url": {"type": "string"},
+                    "media_urls_json": {"type": "array", "items": {"type": "string"}},
+                    "floorplan_urls_json": {"type": "array", "items": {"type": "string"}},
+                    "scene_strategy": {"type": "string"},
+                    "scene_selection_json": {"type": "object"},
+                    "property_facts_json": {"type": "object"},
+                    "creative_brief": {"type": "string"},
+                    "variant_key": {"type": "string"},
+                    "language": {"type": "string"},
+                    "theme_name": {"type": "string"},
+                    "tour_style": {"type": "string"},
+                    "audience": {"type": "string"},
+                    "call_to_action": {"type": "string"},
+                    "display_title": {"type": "string"},
+                    "tour_visibility": {"type": "string"},
+                    "tour_settings_json": {"type": "object"},
+                    "tour_patch_json": {"type": "object"},
+                    "tour_payload_json": {"type": ["object", "array", "string", "number", "boolean"]},
+                    "is_private": {"type": "boolean"},
+                    "runtime_inputs_json": {"type": "object"},
+                    "timeout_seconds": {"type": "integer"},
+                    "login_email": {"type": "string"},
+                    "login_password": {"type": "string"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": ["tour_title", "tour_status", "tool_name", "action_kind"],
+                "properties": {
+                    "tour_title": {"type": "string"},
+                    "tour_status": {"type": "string"},
+                    "tour_id": {"type": ["string", "null"]},
+                    "slug": {"type": ["string", "null"]},
+                    "share_url": {"type": ["string", "null"]},
+                    "editor_url": {"type": ["string", "null"]},
+                    "public_url": {"type": ["string", "null"]},
+                    "hosted_url": {"type": ["string", "null"]},
+                    "crezlo_public_url": {"type": ["string", "null"]},
+                    "workspace_id": {"type": ["string", "null"]},
+                    "workspace_domain": {"type": ["string", "null"]},
+                    "creation_mode": {"type": ["string", "null"]},
+                    "scene_count": {"type": "integer"},
+                    "workflow_id": {"type": ["string", "null"]},
+                    "task_id": {"type": ["string", "null"]},
+                    "requested_url": {"type": "string"},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            policy_json={"builtin": True, "action_kind": "property_tour.create"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("browseract.crezlo_property_tour", browseract_adapter.execute_crezlo_property_tour)
+
+
+def register_builtin_browseract_ui_service(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+    service: BrowserActUiServiceDefinition,
+) -> None:
+    if tool_runtime.get_tool(service.tool_name) is None:
+        tool_runtime.upsert_tool(
+            tool_name=service.tool_name,
+            version="v1",
+            input_schema_json=service.input_schema_json(),
+            output_schema_json=service.output_schema_json(),
+            policy_json={"builtin": True, "action_kind": service.action_kind},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler(
+        service.tool_name,
+        lambda request, definition, service=service: browseract_adapter.execute_ui_service(
+            request,
+            definition,
+            service=service,
+        ),
+    )
+
+
+def register_builtin_browseract_ui_service_by_capability(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+    capability_key: str,
+) -> None:
+    service = browseract_ui_service_by_capability(capability_key)
+    if service is None:
+        return
+    register_builtin_browseract_ui_service(
+        tool_runtime=tool_runtime,
+        register_handler=register_handler,
+        browseract_adapter=browseract_adapter,
+        service=service,
+    )
+
+
+def register_builtin_browseract_ui_services(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    for service in browseract_ui_service_definitions():
+        register_builtin_browseract_ui_service(
+            tool_runtime=tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=browseract_adapter,
+            service=service,
+        )

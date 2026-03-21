@@ -98,6 +98,55 @@ def test_provider_registry_routes_browseract_workflow_spec_repair_with_alias_hin
     assert route.executable is True
 
 
+def test_provider_registry_routes_crezlo_property_tour_with_alias_hints() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="create_property_tour",
+        provider_hints=("BrowserAct", "Crezlo"),
+        allowed_tools=("browseract.crezlo_property_tour", "artifact_repository"),
+    )
+    assert route.provider_key == "browseract"
+    assert route.capability_key == "crezlo_property_tour"
+    assert route.tool_name == "browseract.crezlo_property_tour"
+    assert route.executable is True
+
+
+@pytest.mark.parametrize(
+    ("capability_key", "provider_hints", "allowed_tool", "expected_tool"),
+    [
+        ("create_mootion_movie", ("BrowserAct", "Mootion"), "browseract.mootion_movie", "browseract.mootion_movie"),
+        ("route_flyover", ("BrowserAct", "AvoMap"), "browseract.avomap_flyover", "browseract.avomap_flyover"),
+        ("first_book_ai", ("BrowserAct", "Booka"), "browseract.booka_book", "browseract.booka_book"),
+        ("apixdrive", ("BrowserAct", "ApiX-Drive"), "browseract.apixdrive_workspace_reader", "browseract.apixdrive_workspace_reader"),
+        ("approvethis", ("BrowserAct", "ApproveThis"), "browseract.approvethis_queue_reader", "browseract.approvethis_queue_reader"),
+        ("metasurvey", ("BrowserAct", "MetaSurvey"), "browseract.metasurvey_results_reader", "browseract.metasurvey_results_reader"),
+        ("nonverbia", ("BrowserAct", "Nonverbia"), "browseract.nonverbia_workspace_reader", "browseract.nonverbia_workspace_reader"),
+        ("documentation_ai", ("BrowserAct", "Documentation.AI"), "browseract.documentation_ai_workspace_reader", "browseract.documentation_ai_workspace_reader"),
+        ("invoiless", ("BrowserAct", "Invoiless"), "browseract.invoiless_workspace_reader", "browseract.invoiless_workspace_reader"),
+        ("markupgo", ("BrowserAct", "MarkupGo"), "browseract.markupgo_workspace_reader", "browseract.markupgo_workspace_reader"),
+        ("paperguide", ("BrowserAct", "Paperguide"), "browseract.paperguide_workspace_reader", "browseract.paperguide_workspace_reader"),
+        ("peekshot", ("BrowserAct", "PeekShot"), "browseract.peekshot_workspace_reader", "browseract.peekshot_workspace_reader"),
+        ("unmixr", ("BrowserAct", "Unmixr AI"), "browseract.unmixr_workspace_reader", "browseract.unmixr_workspace_reader"),
+        ("vizologi", ("BrowserAct", "Vizologi"), "browseract.vizologi_workspace_reader", "browseract.vizologi_workspace_reader"),
+    ],
+)
+def test_provider_registry_routes_browseract_ui_services_with_alias_hints(
+    capability_key: str,
+    provider_hints: tuple[str, ...],
+    allowed_tool: str,
+    expected_tool: str,
+) -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key=capability_key,
+        provider_hints=provider_hints,
+        allowed_tools=(allowed_tool, "artifact_repository"),
+    )
+    assert route.provider_key == "browseract"
+    assert route.tool_name == expected_tool
+    assert route.executable is True
+
+
 def test_provider_registry_routes_chatplayground_audit_with_aliases() -> None:
     registry = ProviderRegistryService()
     route = registry.route_tool_by_capability(
