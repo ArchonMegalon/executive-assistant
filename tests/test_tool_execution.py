@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from itertools import count
+from pathlib import Path
 
 import pytest
 
@@ -3113,6 +3114,736 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_mem
     assert result.output_json["owner_mismatches"][0]["email"] == "other@example.com"
     assert result.output_json["structured_output_json"]["persisted_snapshot"]["member_count"] == 2
     assert tool_runtime.get_tool("browseract.onemin_member_reconciliation") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_browseract_crezlo_property_tour_definition() -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="crezlo-workspace-1",
+        scope_json={},
+        auth_metadata_json={"crezlo_property_tour_workflow_id": "wf-crezlo-1"},
+        status="enabled",
+    )
+
+    def _fake_crezlo_property_tour(**kwargs: object) -> dict[str, object]:
+        requested_inputs = dict(kwargs.get("requested_inputs") or {})
+        assert requested_inputs["tour_title"] == "Kahlenberg Variant A"
+        assert requested_inputs["property_url"] == "https://www.willhaben.at/listing/kahlenberg"
+        assert requested_inputs["theme_name"] == "Cinematic Warm"
+        return {
+            "task_id": "task-crezlo-1",
+            "status": "completed",
+            "output": {
+                "result": {
+                    "tour_title": requested_inputs["tour_title"],
+                    "tour_status": "published",
+                    "share_url": "https://tours.crezlo.com/share/kahlenberg-variant-a",
+                    "editor_url": "https://tours.crezlo.com/admin/tours/kahlenberg-variant-a",
+                    "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-a",
+                }
+            },
+        }
+
+    service._browseract_crezlo_property_tour = _fake_crezlo_property_tour
+    registry._rows.pop("browseract.crezlo_property_tour", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.crezlo_property_tour"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-crezlo-tour-1",
+            step_id="step-browseract-crezlo-tour-1",
+            tool_name="browseract.crezlo_property_tour",
+            action_kind="property_tour.create",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "tour_title": "Kahlenberg Variant A",
+                "property_url": "https://www.willhaben.at/listing/kahlenberg",
+                "theme_name": "Cinematic Warm",
+                "media_urls_json": [
+                    "https://assets.example/photo-1.jpg",
+                    "https://assets.example/photo-2.jpg",
+                ],
+                "floorplan_urls_json": [
+                    "https://assets.example/floorplan-1.jpg",
+                ],
+                "property_facts_json": {
+                    "listing_title": "Exklusive 2 Zimmer Wohnung mit Blick auf den Kahlenberg",
+                    "rooms": "2",
+                    "area_sqm": "58",
+                },
+                "login_email": "the.girscheles@gmail.com",
+                "login_password": "rangersofB5",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.crezlo_property_tour"
+    assert result.output_json["tour_status"] == "published"
+    assert result.output_json["share_url"] == "https://tours.crezlo.com/share/kahlenberg-variant-a"
+    assert result.output_json["workflow_id"] == "wf-crezlo-1"
+    structured = result.output_json["structured_output_json"]
+    assert structured["requested_url"] == "browseract://workflow/wf-crezlo-1"
+    assert structured["requested_inputs"]["theme_name"] == "Cinematic Warm"
+    assert "login_password" not in structured["requested_inputs"]
+    assert "login_email" not in structured["requested_inputs"]
+    assert tool_runtime.get_tool("browseract.crezlo_property_tour") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_browseract_mootion_movie_definition() -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_mootion_movie(**kwargs: object) -> dict[str, object]:
+        requested_inputs = dict(kwargs.get("requested_inputs") or {})
+        assert requested_inputs["prompt"] == "Create a cinematic teaser for the Brigittenau shortlist."
+        assert requested_inputs["visual_style"] == "cinematic_real_estate"
+        assert requested_inputs["aspect_ratio"] == "16:9"
+        return {
+            "task_id": "task-mootion-1",
+            "status": "completed",
+            "output": {
+                "result": {
+                    "title": "Brigittenau Shortlist Teaser",
+                    "status": "rendered",
+                    "video_url": "https://cdn.example/mootion/brigittenau-shortlist.mp4",
+                    "download_url": "https://cdn.example/mootion/brigittenau-shortlist.mp4?download=1",
+                    "preview_url": "https://viewer.example/mootion/brigittenau-shortlist",
+                    "editor_url": "https://mootion.com/projects/brigittenau-shortlist",
+                }
+            },
+        }
+
+    service._browseract_ui_service_callbacks["mootion_movie"] = _fake_mootion_movie
+    registry._rows.pop("browseract.mootion_movie", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.mootion_movie"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-mootion-1",
+            step_id="step-browseract-mootion-1",
+            tool_name="browseract.mootion_movie",
+            action_kind="movie.render",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "script_text": "Create a cinematic teaser for the Brigittenau shortlist.",
+                "title": "Brigittenau Shortlist Teaser",
+                "visual_style": "cinematic_real_estate",
+                "aspect_ratio": "16:9",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.mootion_movie"
+    assert result.output_json["service_key"] == "mootion_movie"
+    assert result.output_json["result_title"] == "Brigittenau Shortlist Teaser"
+    assert result.output_json["render_status"] == "rendered"
+    assert result.output_json["asset_url"] == "https://cdn.example/mootion/brigittenau-shortlist.mp4"
+    assert result.output_json["public_url"] == "https://viewer.example/mootion/brigittenau-shortlist"
+    assert result.output_json["editor_url"] == "https://mootion.com/projects/brigittenau-shortlist"
+    assert result.output_json["workflow_id"] == "wf-mootion-1"
+    structured = result.output_json["structured_output_json"]
+    assert structured["requested_inputs"]["prompt"] == "Create a cinematic teaser for the Brigittenau shortlist."
+    assert tool_runtime.get_tool("browseract.mootion_movie") is not None
+
+
+def test_tool_execution_service_injects_ui_service_credentials_for_browseract_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "mootion_movie_workflow_id": "wf-mootion-1",
+            "service_accounts_json": {
+                "Mootion": {
+                    "account_email": "binding-mootion@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_workflow(self, *, workflow_id: str, input_values: dict[str, object]) -> dict[str, object]:
+        captured["workflow_id"] = workflow_id
+        captured["input_values"] = dict(input_values)
+        return {"task_id": "task-mootion-2"}
+
+    def _fake_wait(self, *, task_id: str, timeout_seconds: int, created_stall_seconds: int = 120) -> dict[str, object]:
+        captured["task_id"] = task_id
+        captured["timeout_seconds"] = timeout_seconds
+        captured["created_stall_seconds"] = created_stall_seconds
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "output": {
+                "result": {
+                    "title": "Workflow Credential Smoke",
+                    "status": "rendered",
+                    "video_url": "https://cdn.example/mootion/workflow-credential-smoke.mp4",
+                    "preview_url": "https://viewer.example/mootion/workflow-credential-smoke",
+                }
+            },
+        }
+
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_EMAIL", "env-default@example.com")
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-pass-123")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_browseract_workflow_task_with_inputs", _fake_run_workflow)
+    monkeypatch.setattr(BrowserActToolAdapter, "_wait_for_browseract_task", _fake_wait)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-mootion-credentials-1",
+            step_id="step-browseract-mootion-credentials-1",
+            tool_name="browseract.mootion_movie",
+            action_kind="movie.render",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "script_text": "Create a cinematic teaser for the Brigittenau shortlist.",
+                "title": "Workflow Credential Smoke",
+                "force_browseract": True,
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert captured["workflow_id"] == "wf-mootion-1"
+    assert captured["input_values"] == {
+        "prompt": "Create a cinematic teaser for the Brigittenau shortlist.",
+        "title": "Workflow Credential Smoke",
+        "browseract_username": "binding-mootion@example.com",
+        "browseract_password": "env-pass-123",
+    }
+    assert result.output_json["asset_url"] == "https://cdn.example/mootion/workflow-credential-smoke.mp4"
+    assert result.output_json["public_url"] == "https://viewer.example/mootion/workflow-credential-smoke"
+    assert result.output_json["workflow_id"] == "wf-mootion-1"
+    assert result.output_json["structured_output_json"]["requested_inputs"]["prompt"] == (
+        "Create a cinematic teaser for the Brigittenau shortlist."
+    )
+    assert "browseract_username" not in result.output_json["structured_output_json"]["requested_inputs"]
+    assert "browseract_password" not in result.output_json["structured_output_json"]["requested_inputs"]
+
+
+def test_tool_execution_service_uses_binding_account_email_for_direct_ui_worker_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "AvoMap": {
+                    "account_email": "binding-avomap@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["service_key"] = service_key
+        captured["packet"] = dict(packet)
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "service_key": "avomap_flyover",
+            "result_title": "Brigittenau Flyover Direct",
+            "render_status": "completed",
+            "asset_url": "https://cdn.example/avomap/brigittenau-flyover.mp4",
+            "editor_url": "https://app.avomap.com/projects/brigittenau-flyover",
+            "mime_type": "video/mp4",
+            "structured_output_json": {
+                "result_title": "Brigittenau Flyover Direct",
+                "render_status": "completed",
+            },
+        }
+
+    def _fake_publish(cls, row: dict[str, object]) -> str:
+        captured["published_row"] = dict(row)
+        return "https://ea.girschele.com/results/avomap/brigittenau-flyover"
+
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_EMAIL", "env-default@example.com")
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-direct-pass")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+    monkeypatch.setattr(BrowserActToolAdapter, "_publish_ui_service_result", classmethod(_fake_publish))
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-avomap-direct-1",
+            step_id="step-browseract-avomap-direct-1",
+            tool_name="browseract.avomap_flyover",
+            action_kind="map.flyover_render",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "route_data": "LINESTRING(16.3665 48.2356, 16.3727 48.2392)",
+                "title": "Brigittenau Flyover Direct",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert captured["service_key"] == "avomap_flyover"
+    assert captured["packet"]["login_email"] == "binding-avomap@example.com"
+    assert captured["packet"]["login_password"] == "env-direct-pass"
+    assert captured["packet"]["route_data"] == "LINESTRING(16.3665 48.2356, 16.3727 48.2392)"
+    assert result.output_json["public_url"] == "https://ea.girschele.com/results/avomap/brigittenau-flyover"
+    assert result.output_json["asset_url"] == "https://cdn.example/avomap/brigittenau-flyover.mp4"
+    assert result.output_json["structured_output_json"]["requested_inputs"]["route_data"] == (
+        "LINESTRING(16.3665 48.2356, 16.3727 48.2392)"
+    )
+    assert "login_email" not in result.output_json["structured_output_json"]["requested_inputs"]
+    assert "login_password" not in result.output_json["structured_output_json"]["requested_inputs"]
+
+
+def test_tool_execution_service_executes_template_backed_ui_worker_without_workflow_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "Paperguide": {
+                    "account_email": "binding-paperguide@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["service_key"] = service_key
+        captured["packet"] = dict(packet)
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "service_key": "paperguide_workspace_reader",
+            "result_title": "Paperguide Research Surface",
+            "render_status": "completed",
+            "asset_path": "/tmp/paperguide-research-surface.html",
+            "mime_type": "text/html",
+            "editor_url": "https://paperguide.ai/workspace/research",
+            "raw_text": "Paperguide workspace captured.",
+            "structured_output_json": {
+                "service": "Paperguide",
+                "template_key": "paperguide_workspace_reader",
+                "render_status": "completed",
+            },
+        }
+
+    def _fake_publish(cls, row: dict[str, object]) -> str:
+        captured["published_row"] = dict(row)
+        return "https://ea.girschele.com/results/paperguide-research-surface"
+
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-template-pass")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+    monkeypatch.setattr(BrowserActToolAdapter, "_publish_ui_service_result", classmethod(_fake_publish))
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-paperguide-direct-1",
+            step_id="step-browseract-paperguide-direct-1",
+            tool_name="browseract.paperguide_workspace_reader",
+            action_kind="workspace.capture",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "page_url": "https://paperguide.ai/workspace/research",
+                "title": "Paperguide Research Surface",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    packet = dict(captured["packet"])
+    assert captured["service_key"] == "paperguide_workspace_reader"
+    assert packet["login_email"] == "binding-paperguide@example.com"
+    assert packet["login_password"] == "env-template-pass"
+    assert packet["template_key"] == "paperguide_workspace_reader"
+    assert packet["workflow_spec_json"]["meta"]["slug"] == "paperguide_workspace_reader"
+    assert packet["workflow_spec_json"]["meta"]["workflow_kind"] == "page_extract"
+    assert packet["page_url"] == "https://paperguide.ai/workspace/research"
+    assert result.output_json["public_url"] == "https://ea.girschele.com/results/paperguide-research-surface"
+    assert result.output_json["editor_url"] == "https://paperguide.ai/workspace/research"
+    assert result.output_json["requested_url"] == "browseract-template://paperguide_workspace_reader"
+    assert result.output_json["structured_output_json"]["requested_inputs"]["page_url"] == (
+        "https://paperguide.ai/workspace/research"
+    )
+
+
+def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_remote_assets_without_browseract_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="crezlo-workspace-1",
+        scope_json={},
+        auth_metadata_json={
+            "crezlo_workspace_id": "workspace-crezlo-1",
+            "crezlo_workspace_domain": "ea-property-tours-20260320.crezlotours.com",
+        },
+        status="enabled",
+    )
+
+    created_files: list[dict[str, object]] = []
+    created_scenes: list[dict[str, object]] = []
+
+    def _fake_login(*, login_email: str, login_password: str, timeout_seconds: int = 120) -> str:
+        assert login_email == "the.girscheles@gmail.com"
+        assert login_password == "rangersofB5"
+        return "crezlo-token-1"
+
+    def _fake_create_tour(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        assert access_token == "crezlo-token-1"
+        assert workspace_id == "workspace-crezlo-1"
+        assert payload["title"] == "Kahlenberg Variant B"
+        assert payload["status"] == "published"
+        return {
+            "id": "tour-crezlo-2",
+            "title": "Kahlenberg Variant B",
+            "slug": "kahlenberg-variant-b",
+            "status": "published",
+        }
+
+    def _fake_create_file_record(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        name: str,
+        mime_type: str,
+        path: str,
+        meta: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        assert access_token == "crezlo-token-1"
+        assert workspace_id == "workspace-crezlo-1"
+        created_files.append(
+            {
+                "name": name,
+                "mime_type": mime_type,
+                "path": path,
+                "meta": dict(meta or {}),
+            }
+        )
+        return {
+            "id": f"file-{len(created_files)}",
+            "name": name,
+            "mime_type": mime_type,
+            "path": path,
+            "meta": dict(meta or {}),
+        }
+
+    def _fake_create_scenes(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        tour_id: str,
+        scenes: list[dict[str, object]],
+    ) -> dict[str, object]:
+        assert access_token == "crezlo-token-1"
+        assert workspace_id == "workspace-crezlo-1"
+        assert tour_id == "tour-crezlo-2"
+        created_scenes.extend(scenes)
+        return {"data": list(scenes)}
+
+    def _fake_fetch(cls, *, access_token: str, workspace_id: str, tour_id: str) -> dict[str, object]:
+        assert access_token == "crezlo-token-1"
+        assert workspace_id == "workspace-crezlo-1"
+        assert tour_id == "tour-crezlo-2"
+        return {
+            "id": tour_id,
+            "title": "Kahlenberg Variant B",
+            "slug": "kahlenberg-variant-b",
+            "status": "published",
+            "payload": [],
+            "scenes": [
+                {"id": "scene-1", "file": {"id": "file-1"}},
+                {"id": "scene-2", "file": {"id": "file-2"}},
+                {"id": "scene-3", "file": {"id": "file-3"}},
+            ],
+            "display_title": None,
+            "is_private": False,
+            "workspace_id": workspace_id,
+            "folder": None,
+        }
+
+    def _fake_update(
+        cls,
+        *,
+        access_token: str,
+        workspace_id: str,
+        tour_id: str,
+        body: dict[str, object],
+    ) -> dict[str, object]:
+        assert body["title"] == "Kahlenberg Variant B"
+        assert body["display_title"] == "Kahlenberg Panorama"
+        assert body["is_private"] is False
+        return {
+            "id": tour_id,
+            "title": body["title"],
+            "slug": "kahlenberg-variant-b",
+            "status": "published",
+            "payload": [],
+            "display_title": body["display_title"],
+            "is_private": body["is_private"],
+            "workspace_id": workspace_id,
+            "folder": None,
+            "scenes": [
+                {"id": "scene-1", "file": {"id": "file-1"}},
+                {"id": "scene-2", "file": {"id": "file-2"}},
+                {"id": "scene-3", "file": {"id": "file-3"}},
+            ],
+        }
+
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_login", staticmethod(_fake_login))
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_create_tour", classmethod(_fake_create_tour))
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_create_file_record", classmethod(_fake_create_file_record))
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_create_scenes", classmethod(_fake_create_scenes))
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_fetch_tour_detail", classmethod(_fake_fetch))
+    monkeypatch.setattr(BrowserActToolAdapter, "_crezlo_update_tour", classmethod(_fake_update))
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_publish_crezlo_public_tour_bundle",
+        classmethod(lambda cls, normalized: "https://ea.girschele.com/tours/kahlenberg-variant-b"),
+    )
+
+    registry._rows.pop("browseract.crezlo_property_tour", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.crezlo_property_tour"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-crezlo-tour-2",
+            step_id="step-browseract-crezlo-tour-2",
+            tool_name="browseract.crezlo_property_tour",
+            action_kind="property_tour.create",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "tour_title": "Kahlenberg Variant B",
+                "property_url": "https://www.willhaben.at/listing/kahlenberg",
+                "scene_strategy": "layout_first",
+                "scene_selection_json": {"max_photos": 2, "include_floorplans": True},
+                "display_title": "Kahlenberg Panorama",
+                "tour_visibility": "public",
+                "media_urls_json": [
+                    "https://assets.example/photo-1.jpg",
+                    "https://assets.example/photo-2.jpg",
+                ],
+                "floorplan_urls_json": [
+                    "https://assets.example/floorplan-1.jpg",
+                ],
+                "login_email": "the.girscheles@gmail.com",
+                "login_password": "rangersofB5",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.crezlo_property_tour"
+    assert result.output_json["tour_status"] == "published"
+    assert result.output_json["tour_id"] == "tour-crezlo-2"
+    assert result.output_json["slug"] == "kahlenberg-variant-b"
+    assert result.output_json["creation_mode"] == "crezlo_api_remote_assets"
+    assert result.output_json["scene_count"] == 3
+    assert result.output_json["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert result.output_json["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
+    assert result.output_json["workflow_id"] is None
+    assert result.output_json["requested_url"] == "crezlo://direct/workspace-crezlo-1"
+    assert result.output_json["editor_url"] == "https://crezlo.net/api/seller/tours/tour-crezlo-2?product_type=tours&workspace_id=workspace-crezlo-1"
+    structured = result.output_json["structured_output_json"]
+    assert structured["tour_id"] == "tour-crezlo-2"
+    assert structured["slug"] == "kahlenberg-variant-b"
+    assert structured["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert structured["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert structured["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
+    assert structured["requested_inputs"]["scene_strategy"] == "layout_first"
+    assert [entry["meta"]["role"] for entry in created_files] == ["floorplan", "photo", "photo"]
+    assert [entry["path"] for entry in created_files] == [
+        "https://assets.example/floorplan-1.jpg",
+        "https://assets.example/photo-1.jpg",
+        "https://assets.example/photo-2.jpg",
+    ]
+    assert created_scenes == [
+        {"name": created_files[0]["name"], "order": 0, "file_id": "file-1"},
+        {"name": created_files[1]["name"], "order": 1, "file_id": "file-2"},
+        {"name": created_files[2]["name"], "order": 2, "file_id": "file-3"},
+    ]
+    assert tool_runtime.get_tool("browseract.crezlo_property_tour") is not None
+
+
+def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://ea.example/tours")
+
+    def _fake_download(cls, url: str) -> tuple[bytes, str]:
+        return (f"asset:{url}".encode("utf-8"), "image/jpeg")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_crezlo_download_public_asset",
+        classmethod(_fake_download),
+    )
+
+    hosted_url = BrowserActToolAdapter._publish_crezlo_public_tour_bundle(
+        {
+            "tour_title": "Kahlenberg Variant B",
+            "tour_id": "tour-crezlo-2",
+            "slug": "kahlenberg-variant-b",
+            "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b",
+            "editor_url": "https://crezlo.net/api/seller/tours/tour-crezlo-2?product_type=tours&workspace_id=workspace-crezlo-1",
+            "structured_output_json": {
+                "requested_inputs": {
+                    "tour_title": "Kahlenberg Variant B",
+                    "property_url": "https://www.willhaben.at/listing/kahlenberg",
+                    "scene_strategy": "layout_first",
+                    "display_title": "Kahlenberg Panorama",
+                    "theme_name": "Cinematic Warm",
+                    "tour_style": "guided walkthrough",
+                    "audience": "renters",
+                    "creative_brief": "Lead with the view and floorplan clarity.",
+                    "call_to_action": "Book a viewing.",
+                    "property_facts_json": {
+                        "listing_title": "Exklusive 2 Zimmer Wohnung mit Blick auf den Kahlenberg",
+                        "rooms": 2,
+                        "area_sqm": 58,
+                        "total_rent_eur": 897,
+                        "availability": "ab sofort",
+                        "address_lines": ["1200 Wien"],
+                        "teaser_attributes": ["Kahlenbergblick"],
+                    },
+                },
+                "workflow_output_json": {
+                    "file_records_json": [
+                        {
+                            "id": "file-1",
+                            "name": "floorplan.jpg",
+                            "path": "https://assets.example/floorplan.jpg",
+                            "mime_type": "image/jpeg",
+                            "meta": {
+                                "role": "floorplan",
+                                "source_url": "https://assets.example/floorplan.jpg",
+                                "property_url": "https://www.willhaben.at/listing/kahlenberg",
+                            },
+                        },
+                        {
+                            "id": "file-2",
+                            "name": "living-room.jpg",
+                            "path": "https://assets.example/living-room.jpg",
+                            "mime_type": "image/jpeg",
+                            "meta": {
+                                "role": "photo",
+                                "source_url": "https://assets.example/living-room.jpg",
+                                "property_url": "https://www.willhaben.at/listing/kahlenberg",
+                            },
+                        },
+                    ],
+                },
+            },
+        }
+    )
+
+    assert hosted_url == "https://ea.example/tours/kahlenberg-variant-b"
+    bundle_dir = tmp_path / "kahlenberg-variant-b"
+    assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://assets.example/floorplan.jpg"
+    assert (bundle_dir / "scene-02.jpg").read_bytes() == b"asset:https://assets.example/living-room.jpg"
+    payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert payload["hosted_url"] == "https://ea.example/tours/kahlenberg-variant-b"
+    assert payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
+    assert payload["listing_url"] == "https://www.willhaben.at/listing/kahlenberg"
+    assert payload["scene_count"] == 2
+    assert payload["brief"]["creative_brief"] == "Lead with the view and floorplan clarity."
+    assert payload["scenes"][0]["asset_relpath"] == "scene-01.jpg"
+
+
+def test_crezlo_worker_script_path_resolves_existing_worker() -> None:
+    path = BrowserActToolAdapter._crezlo_worker_script_path()
+    assert path.name == "crezlo_property_tour_worker.py"
+    assert path.exists()
 
 
 def test_tool_execution_service_self_heals_missing_builtin_onemin_code_generate_definition(

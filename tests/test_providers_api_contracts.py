@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import urllib.parse
+from pathlib import Path
 
 import pytest
 
@@ -189,9 +190,13 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     google_body = google.json()
     assert google_body["google_start"]["ready"] is True
     assert google_body["google_start"]["requested_bundle"] == "core"
-    assert google_body["google_start"]["oauth_bundle"] == "verify"
+    assert google_body["google_start"]["oauth_bundle"] == "core"
     assert "https://www.googleapis.com/auth/gmail.metadata" in google_body["google_start"]["requested_scopes"]
+    assert "https://www.googleapis.com/auth/gmail.modify" in google_body["google_start"]["requested_scopes"]
+    assert "https://www.googleapis.com/auth/calendar" in google_body["google_start"]["requested_scopes"]
     assert google_body["channels"]["google"]["status"] == "ready_to_connect"
+    google_query = urllib.parse.parse_qs(urllib.parse.urlparse(google_body["google_start"]["auth_url"]).query)
+    assert google_query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
 
     telegram = owner.post(
         "/v1/onboarding/telegram/start",
@@ -243,7 +248,7 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["channels"]["google"]["status"] == "ready_to_connect"
     assert status_body["channels"]["telegram"]["status"] == "guided_manual"
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
-    assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected account."
+    assert status_body["next_step"] == "Complete Google Core consent to unlock the full current EA Google grant."
 
 
 def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -280,6 +285,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     parsed = urllib.parse.urlparse(location)
     query = urllib.parse.parse_qs(parsed.query)
     state = query["state"][0]
+    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
 
     from app.services import google_oauth as google_service
 
@@ -353,6 +359,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert started.status_code == 303
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
+    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
     state = query["state"][0]
 
     from app.services import google_oauth as google_service
@@ -571,6 +578,124 @@ def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
     assert "direct 1min API" in body["note"]
 
 
+def test_onemin_billing_refresh_forwards_full_provider_api_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    from app.api.routes import providers as providers_route
+
+    observed: dict[str, object] = {}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return ([], [], [], 1, 0, False)
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={
+            "provider_api_all_accounts": True,
+            "provider_api_continue_on_rate_limit": True,
+        },
+    )
+    assert response.status_code == 200
+    assert observed["include_members"] is True
+    assert observed["all_accounts"] is True
+    assert observed["continue_on_rate_limit"] is True
+
+
+def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner-1@example.com",
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                        "owner_email": "owner-2@example.com",
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                        "owner_email": "owner-3@example.com",
+                    },
+                ]
+            }
+        ),
+    )
+
+    from app.api.routes import providers as providers_route
+
+    calls: list[str] = []
+
+    def fake_refresh_account(*, account_name: str, owner_email: str, include_members: bool, timeout_seconds: int):
+        calls.append(account_name)
+        if account_name == "ONEMIN_AI_API_KEY":
+            raise RuntimeError("onemin_login_http_429")
+        billing_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        member_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        return billing_result, member_result if include_members else None
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
+    monkeypatch.setattr(providers_route.time, "sleep", lambda *_args, **_kwargs: None)
+
+    billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+        include_members=True,
+        timeout_seconds=180,
+        all_accounts=True,
+        continue_on_rate_limit=True,
+    )
+
+    assert calls == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+    ]
+    assert attempted_count == 3
+    assert skipped_count == 0
+    assert rate_limited is True
+    assert len(errors) == 1
+    assert errors[0]["tool_name"] == "onemin.api.billing_refresh"
+    assert [row["account_label"] for row in billing_results] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+    ]
+    assert [row["account_label"] for row in member_results] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+    ]
+
+
 def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
     owner = _client(principal_id="exec-1")
 
@@ -597,3 +722,109 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     assert review_light["backend"] == "chatplayground"
     assert review_light["health_provider_key"] == "chatplayground"
     assert review_light["providers"][0]["provider_key"] == "browseract"
+
+
+def test_public_tour_routes_serve_bundle_html_json_and_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "kahlenberg-layout-first"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    asset_path = bundle_dir / "scene-01.jpg"
+    asset_path.write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Kahlenberg Tour",
+                "display_title": "Kahlenberg Tour",
+                "variant_key": "layout_first",
+                "variant_label": "layout first",
+                "scene_count": 1,
+                "listing_url": "https://example.test/listing",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "facts": {
+                    "rooms": 2,
+                    "area_sqm": 58,
+                    "total_rent_eur": 897,
+                    "availability": "ab sofort",
+                    "address_lines": ["1200 Wien"],
+                    "teaser_attributes": ["Kahlenbergblick"],
+                },
+                "brief": {
+                    "theme_name": "Calm daylight",
+                    "tour_style": "layout first",
+                    "audience": "flat hunters",
+                    "creative_brief": "Lead with plan clarity.",
+                    "call_to_action": "Book a viewing.",
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "image_url": "https://example.test/original.jpg",
+                        "source_url": "https://example.test/original.jpg",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+
+    page = client.get(f"/tours/{slug}")
+    assert page.status_code == 200
+    assert "EA Property Tour" in page.text
+    assert f"/tours/files/{slug}/scene-01.jpg" in page.text
+
+    payload = client.get(f"/tours/{slug}.json")
+    assert payload.status_code == 200
+    assert payload.json()["slug"] == slug
+
+    asset = client.get(f"/tours/files/{slug}/scene-01.jpg")
+    assert asset.status_code == 200
+    assert asset.content == b"fake-jpeg-data"
+    assert asset.headers["content-type"].startswith("image/jpeg")
+
+
+def test_public_results_no_longer_shadow_tour_routes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    result_dir = tmp_path / "results"
+    result_bundle = result_dir / "movie-demo"
+    result_bundle.mkdir(parents=True)
+    (result_bundle / "asset.html").write_text("<html><body>movie</body></html>", encoding="utf-8")
+    (result_bundle / "result.json").write_text(
+        json.dumps(
+            {
+                "slug": "movie-demo",
+                "title": "Movie Demo",
+                "service_key": "mootion_movie",
+                "summary": "Demo movie",
+                "body_text": "Demo movie",
+                "mime_type": "text/html",
+                "viewer_kind": "html",
+                "asset_relpath": "asset.html",
+                "hosted_url": "https://ea.example/results/movie-demo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_RESULT_DIR", str(result_dir))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
+
+    client = _client(principal_id="exec-public-result")
+
+    result_page = client.get("/results/movie-demo")
+    assert result_page.status_code == 200
+    assert "Movie Demo" in result_page.text
+
+    missing_tour = client.get("/tours/movie-demo")
+    assert missing_tour.status_code == 404
+    assert missing_tour.json()["error"]["code"] == "tour_not_found"
