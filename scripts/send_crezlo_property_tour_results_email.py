@@ -302,6 +302,7 @@ def main() -> int:
                 "tour_id": row.get("tour_id"),
             },
         )
+        public_browser_url = str(row.get("hosted_url") or row.get("public_url") or "").strip()
         receipts.append(
             {
                 "run_key": run_key,
@@ -309,6 +310,8 @@ def main() -> int:
                 "variant_key": variant_key,
                 "subject": subject,
                 "tour_id": row.get("tour_id"),
+                "public_browser_url": public_browser_url,
+                "hosted_url": row.get("hosted_url"),
                 "public_url": row.get("public_url"),
                 "editor_url": row.get("editor_url"),
                 "emailit_response": response,
