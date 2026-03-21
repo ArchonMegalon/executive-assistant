@@ -102,12 +102,22 @@ def build_release_matrix(*, manifest_path: Path, base_url: str) -> dict[str, obj
     ]
     order = {"windows": 0, "macos": 1, "linux": 2, "unknown": 9}
     artifacts.sort(key=lambda row: (order.get(str(row.get("platform") or ""), 9), str(row.get("arch") or ""), str(row.get("head") or ""), str(row.get("kind") or ""), str(row.get("platform_label") or "")))
+    preferred_kind_order = ("installer", "dmg", "pkg", "portable", "archive", "artifact")
+    present_kinds = [str(item.get("kind") or "").strip() for item in artifacts if str(item.get("kind") or "").strip()]
+    archive_only = bool(artifacts) and all(kind == "archive" for kind in present_kinds)
+    primary_kind = next((kind for kind in preferred_kind_order if kind in present_kinds), "artifact")
+    primary_consumer_ready = primary_kind in {"installer", "dmg", "pkg", "portable"}
     return {
         "version": str(payload.get("version") or "unknown").strip(),
         "channel": str(payload.get("channel") or "unknown").strip(),
         "publishedAt": str(payload.get("publishedAt") or "unknown").strip(),
         "source_manifest": str(manifest_path),
         "base_url": base_url,
+        "archiveOnly": archive_only,
+        "primaryArtifactKind": primary_kind,
+        "primaryArtifactConsumerReady": primary_consumer_ready,
+        "frontDoorDownloadPosture": "advanced_manual_preview_only" if archive_only else "preview_artifacts_available",
+        "frontDoorPrimaryCtaEligible": primary_consumer_ready,
         "artifacts": artifacts,
     }
 

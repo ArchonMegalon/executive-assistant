@@ -54,11 +54,48 @@ def test_build_release_matrix_normalizes_platform_arch_and_kind(tmp_path: Path) 
 
     assert matrix["version"] == "v-test"
     assert len(matrix["artifacts"]) == 2
+    assert matrix["archiveOnly"] is False
+    assert matrix["primaryArtifactKind"] == "dmg"
+    assert matrix["frontDoorDownloadPosture"] == "preview_artifacts_available"
+    assert matrix["primaryArtifactConsumerReady"] is True
+    assert matrix["frontDoorPrimaryCtaEligible"] is True
     assert matrix["artifacts"][0]["platform"] == "windows"
     assert matrix["artifacts"][0]["kind"] == "archive"
     assert matrix["artifacts"][1]["platform"] == "macos"
     assert matrix["artifacts"][1]["arch"] == "arm64"
     assert matrix["artifacts"][1]["kind"] == "dmg"
+
+
+def test_build_release_matrix_demotes_archive_only_shelves(tmp_path: Path) -> None:
+    builder = _load_module()
+    manifest = tmp_path / "releases.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": "v-archive",
+                "channel": "preview",
+                "publishedAt": "2026-03-21T02:00:00Z",
+                "downloads": [
+                    {
+                        "id": "avalonia-win-x64",
+                        "platform": "Chummer 6 Avalonia Windows x64",
+                        "url": "/downloads/files/chummer-win-x64.zip",
+                        "sha256": "def",
+                        "sizeBytes": 84,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    matrix = builder.build_release_matrix(manifest_path=manifest, base_url="https://chummer.run")
+
+    assert matrix["archiveOnly"] is True
+    assert matrix["primaryArtifactKind"] == "archive"
+    assert matrix["primaryArtifactConsumerReady"] is False
+    assert matrix["frontDoorDownloadPosture"] == "advanced_manual_preview_only"
+    assert matrix["frontDoorPrimaryCtaEligible"] is False
 
 
 def test_default_manifest_path_honors_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
