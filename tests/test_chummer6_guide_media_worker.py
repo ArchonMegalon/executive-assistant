@@ -36,13 +36,13 @@ def test_provider_order_preserves_explicit_runtime_priority(monkeypatch: pytest.
     assert media.provider_order() == ["onemin", "magixai", "browseract_prompting_systems"]
 
 
-def test_provider_order_defaults_to_magix_then_onemin_before_browseract(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_order_defaults_to_onemin_before_browseract_and_magix(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_IMAGE_PROVIDER_ORDER", raising=False)
     monkeypatch.setattr(media, "LOCAL_ENV", {})
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
-    assert media.provider_order() == ["magixai", "media_factory", "onemin", "browseract_magixai", "browseract_prompting_systems"]
+    assert media.provider_order() == ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"]
 
 
 def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,6 +223,29 @@ def test_build_safe_onemin_prompt_does_not_force_troll_clause_without_explicit_r
     assert "troll motif" not in prompt.lower()
 
 
+def test_build_safe_onemin_prompt_does_not_force_human_presence_for_environment_map_targets() -> None:
+    media = _load_module()
+
+    prompt = media.build_safe_onemin_prompt(
+        prompt="Wide work-zone map scene.",
+        spec={
+            "target": "assets/pages/parts-index.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "a walkable room map",
+                    "environment": "an open warehouse floor with several work zones",
+                    "action": "connecting the zones with route lines",
+                    "metaphor": "a walkable map of work zones instead of a menu",
+                    "composition": "district_map",
+                    "mood": "grounded",
+                },
+            },
+        },
+    )
+
+    assert "Human presence must be obvious" not in prompt
+
+
 def test_build_safe_onemin_prompt_keeps_troll_clause_when_scene_explicitly_requests_it() -> None:
     media = _load_module()
 
@@ -300,6 +323,125 @@ def test_build_safe_pollinations_prompt_does_not_force_troll_clause_without_expl
     assert "troll motif" not in prompt.lower()
 
 
+def test_build_safe_pollinations_prompt_adds_hero_and_map_specific_hard_blocks() -> None:
+    media = _load_module()
+
+    hero_prompt = media.build_safe_pollinations_prompt(
+        prompt="Hero prep scene.",
+        spec={
+            "target": "assets/hero/chummer6-hero.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "one runner",
+                    "environment": "a prep wall threshold",
+                    "action": "checking whether the build trail deserves trust",
+                    "composition": "street_front",
+                    "mood": "tense",
+                },
+            },
+        },
+    )
+    horizons_prompt = media.build_safe_pollinations_prompt(
+        prompt="Wide horizon map.",
+        spec={
+            "target": "assets/pages/horizons-index.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "future lanes",
+                    "environment": "a rain-slick interchange",
+                    "action": "splitting into possible routes",
+                    "composition": "horizon_boulevard",
+                    "mood": "grounded",
+                },
+            },
+        },
+    )
+
+    assert "no crate desk" in hero_prompt.lower()
+    assert "no central signboard" in horizons_prompt.lower()
+
+
+def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
+    media = _load_module()
+
+    hero_prompt = media.build_safe_onemin_prompt(
+        prompt="Hero prep scene.",
+        spec={
+            "target": "assets/hero/chummer6-hero.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "one runner",
+                    "environment": "a prep wall threshold",
+                    "action": "checking whether the build trail deserves trust",
+                    "composition": "street_front",
+                    "mood": "tense",
+                },
+            },
+        },
+    )
+    what_prompt = media.build_safe_onemin_prompt(
+        prompt="What-is scene.",
+        spec={
+            "target": "assets/pages/what-chummer6-is.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "one runner",
+                    "environment": "a review bay",
+                    "action": "cross-checking receipts on a standing trace surface",
+                    "composition": "review_bay",
+                    "mood": "focused",
+                },
+            },
+        },
+    )
+
+    assert "no seated alley brood" in hero_prompt.lower()
+    assert "no face-only portrait" in what_prompt.lower()
+
+
+def test_page_media_row_does_not_literalize_page_id_as_metaphor() -> None:
+    media = _load_module()
+
+    loaded = media.load_media_overrides()
+    pages = loaded["pages"]
+    section_ooda = loaded["section_ooda"]["pages"]
+
+    def page_media_row(page_id: str, *, role: str, composition_hint: str):
+        page_row = pages.get(page_id)
+        ooda_row = section_ooda.get(page_id)
+        act = ooda_row.get("act") if isinstance(ooda_row.get("act"), dict) else {}
+        observe = ooda_row.get("observe") if isinstance(ooda_row.get("observe"), dict) else {}
+        orient = ooda_row.get("orient") if isinstance(ooda_row.get("orient"), dict) else {}
+        decide = ooda_row.get("decide") if isinstance(ooda_row.get("decide"), dict) else {}
+        interests = observe.get("likely_interest") if isinstance(observe.get("likely_interest"), list) else []
+        concrete = observe.get("concrete_signals") if isinstance(observe.get("concrete_signals"), list) else []
+        return {
+            "title": role,
+            "subtitle": str(page_row.get("intro", "")).strip(),
+            "kicker": str(page_row.get("kicker", "")).strip(),
+            "note": str(page_row.get("body", "")).strip(),
+            "overlay_hint": str(decide.get("overlay_priority", "")).strip() or str(orient.get("visual_devices", "")).strip(),
+            "visual_prompt": str(act.get("visual_prompt_seed", "")).strip(),
+            "visual_motifs": [str(entry).strip() for entry in interests if str(entry).strip()],
+            "overlay_callouts": [str(entry).strip() for entry in concrete if str(entry).strip()],
+            "scene_contract": {
+                "subject": str(orient.get("focal_subject") or "a cyberpunk protagonist").strip(),
+                "environment": str(orient.get("scene_logic") or str(page_row.get("body", "")).strip()).strip(),
+                "action": str(act.get("paragraph_seed", "")).strip() or str(act.get("one_liner", "")).strip(),
+                "metaphor": "",
+                "props": [],
+                "overlays": [],
+                "composition": composition_hint,
+                "palette": str(orient.get("visual_devices", "")).strip(),
+                "mood": str(orient.get("emotional_goal", "")).strip(),
+                "humor": "",
+            },
+        }
+
+    row = page_media_row("current_status", role="current-status banner", composition_hint="street_front")
+    assert row["scene_contract"]["metaphor"] == ""
+
+
 def test_contains_machine_overlay_language_flags_overliteralized_diagnostic_tokens() -> None:
     media = _load_module()
 
@@ -351,7 +493,7 @@ def test_build_safe_onemin_prompt_can_carry_smartlink_and_lore_background_cues()
 
     lowered = prompt.lower()
     assert "smartlink" in lowered or "threat posture" in lowered or "line-of-fire" in lowered
-    assert "dragon-warning mural" in lowered or "crossed-out draconic pictograms" in lowered
+    assert "dragon-warning pictograms" in lowered or "crossed-out draconic pictograms" in lowered
 
 
 def test_build_safe_onemin_prompt_can_carry_lore_scars_inside_dossier_or_workshop_scenes() -> None:

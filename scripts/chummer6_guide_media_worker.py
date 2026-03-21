@@ -37,11 +37,11 @@ MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
-    "magixai",
-    "media_factory",
     "onemin",
-    "browseract_magixai",
+    "media_factory",
     "browseract_prompting_systems",
+    "browseract_magixai",
+    "magixai",
 ]
 PALETTES = [
     ("#0f766e", "#34d399"),
@@ -53,9 +53,9 @@ PALETTES = [
 ]
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
 STATIC_DESK_COMPOSITIONS = {"desk_still_life", "dossier_desk"}
+SURFACE_HEAVY_COMPOSITIONS = TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS | {"loadout_table"}
 SPARSE_EASTER_EGG_TARGETS = frozenset(
     {
-        "assets/hero/chummer6-hero.png",
         "assets/pages/start-here.png",
         "assets/horizons/karma-forge.png",
     }
@@ -63,6 +63,15 @@ SPARSE_EASTER_EGG_TARGETS = frozenset(
 SPARSE_HUMOR_TARGETS = frozenset(
     {
         "assets/hero/poc-warning.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
+CANON_LOCKED_TARGETS = frozenset(
+    {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/public-surfaces.png",
+        "assets/pages/parts-index.png",
+        "assets/pages/horizons-index.png",
         "assets/horizons/karma-forge.png",
     }
 )
@@ -246,10 +255,10 @@ def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, 
         last = str(recent[-1].get("composition") or "").strip().lower()
         if last and last == lowered:
             return f"composition_repeat:last={last}"
-    tableish = {"safehouse_table", "group_table"}
+    tableish = SURFACE_HEAVY_COMPOSITIONS
     safehouse_like_count = sum(1 for row in recent if str(row.get("composition") or "").strip().lower() in tableish)
-    if lowered in tableish and safehouse_like_count >= 2:
-        return f"table_monoculture:{safehouse_like_count}"
+    if lowered in tableish and safehouse_like_count >= 3:
+        return f"surface_scene_monoculture:{safehouse_like_count}"
     if target.endswith("horizons-index.png") and lowered in tableish:
         return "horizons_index_must_be_environment_first"
     if target.endswith("alice.png") and lowered in tableish:
@@ -275,8 +284,8 @@ def variation_guardrails_for(*, target: str, rows: list[dict[str, object]]) -> l
     ]
     if compositions:
         rules.append(f"Recent composition families already used: {', '.join(compositions)}.")
-    if sum(1 for value in compositions if value in {'safehouse_table', 'group_table'}) >= 2:
-        rules.append("Table grammar is already overserved; prefer boulevard, solo-operator, over-shoulder proof, dossier, workshop, transit, service-rack, or archive grammar.")
+    if sum(1 for value in compositions if value in SURFACE_HEAVY_COMPOSITIONS) >= 3:
+        rules.append("Desk, crate, and table-surface grammar are already overserved; prefer clinic, boulevard, station-edge, van, render-lane, service-rack, archive, or proof-room grammar.")
     if target.endswith("horizons-index.png"):
         rules.append("This image must read as a future boulevard or district scene first, not a concept slide.")
     return rules
@@ -383,7 +392,7 @@ HORIZON_MEDIA_FALLBACKS = {}
 
 
 def provider_order() -> list[str]:
-    preferred = ["magixai", "media_factory", "onemin", "browseract_magixai", "browseract_prompting_systems"]
+    preferred = list(DEFAULT_PROVIDER_ORDER)
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
         return list(preferred)
@@ -459,12 +468,16 @@ def canonical_horizon_visual_contract(slug: str, item: dict[str, object]) -> dic
     composition = "single_protagonist"
     if "site" in slug or "runsite" in slug:
         composition = "district_map"
-    elif any(token in slug for token in ("press", "jackpoint")):
+    elif "runbook-press" in slug or "press" in slug:
+        composition = "proof_room"
+    elif "jackpoint" in slug:
         composition = "dossier_desk"
-    elif any(token in slug for token in ("pulse", "nexus-pan")):
-        composition = "solo_operator"
+    elif "nexus-pan" in slug:
+        composition = "van_interior"
+    elif "pulse" in slug:
+        composition = "forensic_replay"
     elif any(token in slug for token in ("forge", "co-processor")):
-        composition = "workshop"
+        composition = "workshop_bench"
     return {
         "badge": f"HORIZON:{slug.upper().replace('-', '_')[:14]}",
         "title": title,
@@ -568,6 +581,12 @@ def contains_machine_overlay_language(text: str) -> bool:
         "barrel rifling",
         "hardware diagnostics verified",
         "ares predator",
+        "sync complete",
+        "grid offline",
+        "lua code",
+        "lua-backed",
+        "combat modifiers",
+        "declassified",
     )
     if any(token in lowered for token in banned_tokens):
         return True
@@ -775,7 +794,25 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
     ):
         return True
     if target == "assets/hero/chummer6-hero.png" and any(
-        token in lowered for token in ("task lamp", "battered table corner", "dice tray", "modifier chips")
+        token in lowered
+        for token in (
+            "task lamp",
+            "battered table corner",
+            "dice tray",
+            "modifier chips",
+            "crate",
+            "table corner",
+            "tabletop",
+            "crate desk",
+            "waist-height counter",
+            "card close-up",
+            "alley-brooding",
+            "lonely person nursing a gadget",
+            "seated alley brood",
+            "brooding alley",
+            "moody alley",
+            "dominant face crop",
+        )
     ):
         return True
     if target == "assets/hero/poc-warning.png" and any(
@@ -783,7 +820,88 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
     ):
         return True
     if target == "assets/pages/current-status.png" and any(
-        token in lowered for token in ("real session", "wi-fi dies", "shared state", "tablet screen")
+        token in lowered
+        for token in (
+            "real session",
+            "wi-fi dies",
+            "shared state",
+            "tablet screen",
+            "phone close-up",
+            "heroic screen",
+            "wall panel",
+            "public monitor",
+        )
+    ):
+        return True
+    if target == "assets/pages/public-surfaces.png" and any(
+        token in lowered
+        for token in (
+            "battered tablet in hand",
+            "pocket device",
+            "screen layouts",
+            "monitor triptychs",
+            "wall-mounted service slabs",
+            "handheld",
+            "tablet",
+            "phone",
+        )
+    ):
+        return True
+    if target == "assets/pages/horizons-index.png" and any(
+        token in lowered
+        for token in (
+            "menu sign",
+            "placard wall",
+            "directory",
+            "storefront",
+            "billboard",
+            "signboard centerpiece",
+            "central sign panel",
+            "text-heavy centerpiece",
+            "glowing panel",
+        )
+    ):
+        return True
+    if target == "assets/pages/parts-index.png" and any(
+        token in lowered
+        for token in (
+            "expo hall",
+            "kiosk",
+            "terminal bank",
+            "monitor cluster",
+            "screen island",
+            "lightbox",
+        )
+    ):
+        return True
+    if target == "assets/parts/core.png" and any(
+        token in lowered
+        for token in (
+            "macro dice",
+            "dice tray",
+            "receipt slip",
+            "table surface",
+            "isolated prop glamour",
+        )
+    ):
+        return True
+    if target == "assets/parts/ui.png" and any(
+        token in lowered
+        for token in ("laptop", "wall display", "terminal wallpaper", "monitor", "screen", "x-ray")
+    ):
+        return True
+    if target == "assets/parts/mobile.png" and any(
+        token in lowered for token in ("handheld", "phone", "tablet", "device glamour", "screen")
+    ):
+        return True
+    if target == "assets/parts/hub.png" and any(
+        token in lowered
+        for token in ("seated terminal", "operator at keyboard", "monitor", "screen", "dashboard", "wall display")
+    ):
+        return True
+    if target == "assets/horizons/karma-forge.png" and any(
+        token in lowered
+        for token in ("literal blacksmith", "anvil", "forge fire", "medieval", "smithy", "hammering metal")
     ):
         return True
     return False
@@ -1740,10 +1858,35 @@ def easter_egg_instruction_set(contract: dict[str, object] | None) -> str:
 def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
-    if composition in {"city_edge", "street_front", "horizon_boulevard", "district_map", "transit_checkpoint"}:
+    if composition == "archive_room":
+        return (
+            "Use drawers, canisters, locker slots, hanging translucent sleeves, shelf rails, sealed packets, and hard archive hardware. "
+            "Do not show binder spines, shelf tabs, envelope fronts, note cards, pinned wall memos, bulletin boards, or readable labels."
+        )
+    if composition == "review_bay":
+        return (
+            "Keep the logic on a vertical rail or standing trace surface with chips, bands, clips, suspended markers, and hard physical anchors. "
+            "Do not fall back to papers, desk spreads, trays, cards, credit-card plaques, or monitor walls."
+        )
+    if composition == "workshop_bench":
+        return (
+            "Use diff strips, approval tabs, rollback cassettes, rails, chips, and housings. "
+            "Do not use pages, printouts, loose sheets, forge-fire cosplay, or readable labels."
+        )
+    if composition == "proof_room":
+        return (
+            "Use rollers, hanging proof strips, drawers, rails, clamps, and print hardware. "
+            "Do not show front-facing pages, headlines, mastheads, readable sheet fronts, or someone presenting a page toward camera."
+        )
+    if composition == "van_interior":
+        return (
+            "The van or rig interior must dominate. Any handheld stays buried and secondary. "
+            "Do not raise a phone or tablet toward camera, and do not let a screen become the focal object."
+        )
+    if composition in {"city_edge", "street_front", "horizon_boulevard", "district_map", "transit_checkpoint", "platform_edge", "van_interior"}:
         return (
             "Street and transit clues must use pictograms, arrows, mascot art, crossed-out symbols, color lanes, "
-            "and physical landmarks instead of readable signs, posters, or neon words."
+            "and physical landmarks instead of readable signs, posters, neon words, or a central square signboard."
         )
     if composition in {
         "safehouse_table",
@@ -1751,11 +1894,15 @@ def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
         "over_shoulder_receipt",
         "solo_operator",
         "service_rack",
+        "review_bay",
+        "clinic_intake",
+        "render_lane",
         "desk_still_life",
         "dossier_desk",
         "archive_room",
         "workshop",
         "workshop_bench",
+        "proof_room",
         "simulation_lab",
         "rule_xray",
         "passport_gate",
@@ -1774,9 +1921,13 @@ def composition_visual_guardrails(contract: dict[str, object] | None) -> str:
 def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
+    if composition == "horizon_boulevard":
+        return "Use sparse lane brackets, route halos, and contingent branch markers; never floating words, billboards, or menu-like UI."
     if composition in {
         "over_shoulder_receipt",
         "transit_checkpoint",
+        "platform_edge",
+        "van_interior",
         "district_map",
         "forensic_replay",
         "passport_gate",
@@ -1784,17 +1935,19 @@ def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
         "conspiracy_wall",
     }:
         return "Use symbolic smartlink brackets, threat posture cues, ingress cones, or ghost silhouettes; never readable HUD text."
-    if composition in {"solo_operator", "service_rack", "simulation_lab", "mirror_split", "workshop_bench", "dossier_desk"}:
-        return "Light tactical AR is welcome: posture checks, fragile-signal halos, danger weighting, or consequence ghosts through pictograms and soft traces."
+    if composition in {"solo_operator", "service_rack", "review_bay", "clinic_intake", "render_lane", "simulation_lab", "mirror_split", "workshop_bench", "proof_room", "dossier_desk"}:
+        return "Use sparse AR fit checks, fragile-signal halos, danger weighting, or consequence ghosts; never readable HUD text."
     return ""
 
 
 def lore_background_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
-    if composition in {"street_front", "city_edge", "horizon_boulevard", "transit_checkpoint", "district_map"}:
-        return "Secondary lore texture is welcome: dragon-warning graffiti, crossed-out draconic pictograms, extraction arrows, or half-scrubbed alley scrawl."
-    if composition in {"dossier_desk", "workshop_bench", "simulation_lab", "solo_operator"}:
+    if composition == "horizon_boulevard":
+        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, or ward marks, but never as readable signage."
+    if composition in {"street_front", "city_edge", "transit_checkpoint", "platform_edge", "van_interior", "district_map"}:
+        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, or ward marks."
+    if composition in {"dossier_desk", "workshop_bench", "proof_room", "simulation_lab", "solo_operator", "review_bay", "clinic_intake", "render_lane"}:
         return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, or dog-eared bounty card."
     return ""
 
@@ -1803,7 +1956,7 @@ def scene_integrity_instruction_set(contract: dict[str, object] | None, *, targe
     _ = target
     return (
         "Secondary art direction for the same image: keep it as a lived moment, not a poster or title card. "
-        "Show one focal action, one readable prop cluster, and one secondary story clue. "
+        "Show one focal action, one clear prop cluster, and one secondary story clue. "
         f"{composition_visual_guardrails(contract)} "
         "Avoid centered brochure posing, fake readable typography, and generic wallpaper composition."
     )
@@ -2066,6 +2219,12 @@ def compact_items(values: object, *, limit: int = 3, item_limit: int = 48) -> st
     return ", ".join(items)
 
 
+def compact_descriptor(value: object, *, limit: int = 96, item_limit: int = 32, item_count: int = 3) -> str:
+    if isinstance(value, (list, tuple)):
+        return compact_items(value, limit=item_count, item_limit=item_limit)
+    return compact_text(value, limit=limit)
+
+
 def clip_prompt_text(value: object, *, limit: int) -> str:
     cleaned = " ".join(str(value or "").split()).strip()
     if len(cleaned) <= limit:
@@ -2091,12 +2250,34 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     mood = str(contract.get("mood") or "tense but inviting").strip()
     smartlink = compact_text(smartlink_overlay_clause(contract), limit=88)
     lore = compact_text(lore_background_clause(contract), limit=72)
+    hard_block = ""
+    if target == "assets/hero/chummer6-hero.png":
+        hard_block = (
+            "standing prep wall or clinic intake rail, no crate desk, no tabletop, no seated alley brood, "
+            "no dominant face crop, no readable signs"
+        )
+    elif target in {"assets/pages/horizons-index.png", "assets/pages/parts-index.png"}:
+        hard_block = (
+            "environment map first, no central signboard, no menu slab, no billboard centerpiece, "
+            "humans minimal, no readable text"
+        )
+    elif target == "assets/horizons/karma-forge.png":
+        hard_block = (
+            "governed rules evolution, approval rails, rollback cassettes, diff pressure, "
+            "no blacksmith forge, no anvil, no tabletop card spread, no readable text"
+        )
+    elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
+        hard_block = (
+            "public wall or threshold scene first, no tablet glamour, no phone close-up, "
+            "no glowing panel centerpiece, no readable text"
+        )
     parts = [
         "Grounded cinematic cyberpunk scene still",
         subject,
         f"in {environment}",
         action,
         metaphor if metaphor else "",
+        hard_block,
         mood,
         palette,
         "one focal subject",
@@ -2114,44 +2295,80 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     target = str(spec.get("target") or "").strip()
     if not isinstance(contract, dict):
         return sanitize_prompt_for_provider(prompt, provider="onemin")
-    visual_prompt = compact_text(row.get("visual_prompt") or contract.get("visual_prompt") or prompt, limit=220)
-    subject = compact_text(contract.get("subject") or "a cyberpunk protagonist", limit=90)
-    environment = compact_text(contract.get("environment") or "a neon-lit cyberpunk setting", limit=90)
-    action = compact_text(contract.get("action") or "holding the moment together", limit=110)
-    metaphor = compact_text(contract.get("metaphor") or "", limit=60)
-    composition = compact_text(contract.get("composition") or "single_protagonist", limit=32)
-    mood = compact_text(contract.get("mood") or "focused", limit=72)
-    props = compact_items(contract.get("props"), limit=4, item_limit=32)
-    motifs = compact_items((row.get("visual_motifs") or []), limit=4, item_limit=36)
-    guardrail = compact_text(composition_visual_guardrails(contract), limit=156)
-    smartlink = compact_text(smartlink_overlay_clause(contract), limit=172)
-    lore = compact_text(lore_background_clause(contract), limit=156)
-    framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=160)
-    avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=180)
-    human_presence = ""
-    if composition not in {"prop_detail", "desk_still_life", "dossier_desk"}:
-        human_presence = "Human presence must be obvious: face, hands, posture, or body in frame; not props alone."
+    subject = compact_text(contract.get("subject") or "a cyberpunk protagonist", limit=88)
+    environment = compact_text(contract.get("environment") or "a neon-lit cyberpunk setting", limit=92)
+    action = compact_text(contract.get("action") or "holding the moment together", limit=104)
+    metaphor = compact_text(contract.get("metaphor") or "", limit=56)
+    composition = compact_text(contract.get("composition") or "single_protagonist", limit=28)
+    props = compact_items(contract.get("props"), limit=4, item_limit=24)
+    overlays = compact_items(contract.get("overlays"), limit=4, item_limit=24)
+    guardrail = compact_text(composition_visual_guardrails(contract), limit=132)
+    smartlink = compact_text(smartlink_overlay_clause(contract), limit=64)
+    lore = compact_text(lore_background_clause(contract), limit=64)
+    framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
+    avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
+    hard_block = ""
+    if target in {
+        "assets/hero/chummer6-hero.png",
+        "assets/hero/poc-warning.png",
+        "assets/pages/start-here.png",
+        "assets/pages/current-status.png",
+        "assets/pages/public-surfaces.png",
+        "assets/pages/parts-index.png",
+        "assets/pages/horizons-index.png",
+    }:
+        hard_block = "If a signboard, poster, label plate, crate stencil, jacket patch, or glowing panel starts to become readable, remove it entirely and keep the composition environmental."
+    elif target in {
+        "assets/pages/what-chummer6-is.png",
+        "assets/pages/where-to-go-deeper.png",
+        "assets/parts/core.png",
+        "assets/parts/ui-kit.png",
+        "assets/horizons/alice.png",
+        "assets/horizons/jackpoint.png",
+        "assets/horizons/details/jackpoint-scene.png",
+        "assets/horizons/karma-forge.png",
+        "assets/horizons/nexus-pan.png",
+        "assets/horizons/runbook-press.png",
+    }:
+        hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
+    if target == "assets/hero/chummer6-hero.png":
+        hard_block += " The runner must stay upright at a prep wall or intake rail; no crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, and no dominant face crop."
+    elif target == "assets/pages/what-chummer6-is.png":
+        hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
+    elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
+        hard_block += " Keep any device fully secondary or absent; the wall, shelf, glass, and weathered public surface must carry the frame."
+    elif target in {"assets/pages/parts-index.png", "assets/pages/horizons-index.png"}:
+        hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or absent, and no title-card centerpiece is allowed. No central sign panel, menu slab, glowing billboard, or directory board may take over the frame."
+    elif target == "assets/horizons/karma-forge.png":
+        hard_block += " Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, or a tabletop spread of cards as the whole scene; publication-control hardware and diff pressure must carry the image."
+    elif target == "assets/horizons/runsite.png":
+        hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
+    elif target == "assets/horizons/runbook-press.png":
+        hard_block += " Keep sheets edge-on, clipped, or half-obscured inside the mechanism; never presented frontally like a readable page."
     parts = [
-        "Grounded cinematic cyberpunk scene still.",
-        visual_prompt,
+        "Grounded cinematic Shadowrun scene still.",
+        f"Composition: {composition}." if composition else "",
         compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
-        f"Focus on {subject}." if subject else "",
-        f"Scene: {environment}." if environment else "",
+        f"Subject: {subject}." if subject else "",
+        f"Setting: {environment}." if environment else "",
         f"Moment: {action}." if action else "",
-        f"Metaphor: {metaphor}." if metaphor else "",
-        f"Mood: {mood}." if mood else "",
-        f"Smartlink: {smartlink}." if smartlink else "",
-        f"Lore detail: {lore}." if lore else "",
-        f"Props: {props}." if props else "",
-        f"Motifs: {motifs}." if motifs else "",
+        f"Meaning: {metaphor}." if metaphor else "",
+        f"Key props: {props}." if props else "",
+        f"Overlay cues: {overlays}." if overlays else "",
+        f"Smartlink cues: {smartlink}." if smartlink else "",
+        f"Lore cues: {lore}." if lore else "",
         f"Framing: {framing}." if framing else "",
         f"Avoid: {avoid}." if avoid else "",
+        hard_block,
         f"Guardrail: {guardrail}." if guardrail else "",
-        human_presence,
-        "Real Shadowrun place with obvious stakes: alley threshold, kiosk, van doorway, archive corner, transit choke point, forge station, or dossier scene. Not abstract infographic. Not product poster.",
-        "Avoid desk-only still lifes unless this target is explicitly a dossier or prop-detail shot.",
-        "Avoid readable background signage, storefront words, menu boards, branded labels, or neon letters. Use broken pictograms, hazard stripes, arrows, glyphs, and color lanes instead.",
-        "No readable words or numbers anywhere. Use pictograms, bars, chips, glyphs, traces, stamps, and silhouette icons instead.",
+        "Human presence must be obvious; not props alone."
+        if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
+        else "",
+        "Ground the image in one believable Shadowrun place that matches the composition. Not abstract infographic. Not product poster.",
+        "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
+        "No readable words or numbers anywhere.",
+        "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
+        "Use pictograms, arrows, chips, glyphs, traces, stamps, and silhouette icons instead of readable lettering.",
         "No watermark. 16:9.",
     ]
     compact_prompt = " ".join(part for part in parts if part)
@@ -2419,6 +2636,8 @@ def asset_specs() -> list[dict[str, object]]:
         raise RuntimeError("missing page section OODA in EA output")
 
     def apply_visual_override(target: str, row: dict[str, object]) -> dict[str, object]:
+        if str(target or "").replace("\\", "/").strip() in CANON_LOCKED_TARGETS:
+            return sanitize_media_row(target=target, row=row)
         override = visual_overrides.get(target)
         if not isinstance(override, dict):
             return sanitize_media_row(target=target, row=row)
@@ -2431,31 +2650,30 @@ def asset_specs() -> list[dict[str, object]]:
 
     def render_prompt_from_row(row: dict[str, object], *, role: str, target: str) -> str:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
-        subject = str(contract.get("subject", "")).strip()
-        environment = str(contract.get("environment", "")).strip()
-        action = str(contract.get("action", "")).strip()
-        metaphor = str(contract.get("metaphor", "")).strip()
-        composition = str(contract.get("composition", "")).strip()
-        palette = str(contract.get("palette", "")).strip()
-        mood = str(contract.get("mood", "")).strip()
+        subject = compact_descriptor(contract.get("subject"), limit=120)
+        environment = compact_descriptor(contract.get("environment"), limit=130)
+        action = compact_descriptor(contract.get("action"), limit=140)
+        metaphor = compact_descriptor(contract.get("metaphor"), limit=80)
+        composition = compact_descriptor(contract.get("composition"), limit=32)
+        palette = compact_descriptor(contract.get("palette"), limit=72, item_limit=28)
+        mood = compact_descriptor(contract.get("mood"), limit=72, item_limit=28)
         humor = sanitize_scene_humor(contract.get("humor"))
-        props = ", ".join(str(entry).strip() for entry in (contract.get("props") or []) if str(entry).strip())
-        overlays = ", ".join(str(entry).strip() for entry in (contract.get("overlays") or []) if str(entry).strip())
-        motifs = ", ".join(str(entry).strip() for entry in (row.get("visual_motifs") or []) if str(entry).strip())
-        callouts = ", ".join(str(entry).strip() for entry in (row.get("overlay_callouts") or []) if str(entry).strip())
-        visual_prompt = str(row.get("visual_prompt", "")).strip()
+        props = compact_items(contract.get("props"), limit=4, item_limit=32)
+        overlays = compact_items(contract.get("overlays"), limit=4, item_limit=32)
+        motifs = compact_items((row.get("visual_motifs") or []), limit=3, item_limit=28)
+        callouts = compact_items((row.get("overlay_callouts") or []), limit=3, item_limit=28)
+        visual_prompt = compact_text(row.get("visual_prompt", ""), limit=460)
         style_bits = ", ".join(
             str(style_epoch.get(key) or "").strip()
-            for key in ("style_family", "palette", "lighting", "lens_grammar", "texture_treatment", "signage_treatment")
+            for key in ("style_family", "lighting", "lens_grammar", "texture_treatment", "signage_treatment")
             if str(style_epoch.get(key) or "").strip()
         )
-        guardrails = variation_guardrails_for(target=target, rows=recent_rows)
         normalized_target = target.replace("\\", "/")
         is_detail_still = "/details/" in normalized_target or normalized_target.endswith("-scene.png")
         intro_line = (
-            f"Close, prop-led grounded cyberpunk scene still for the {role}."
+            "Close, prop-led grounded Shadowrun scene still for a guide scene detail."
             if is_detail_still
-            else f"Wide grounded cyberpunk scene still for the {role}."
+            else "Wide grounded Shadowrun scene still for a public guide banner."
         )
         smartlink_clause = smartlink_overlay_clause(contract)
         lore_clause = lore_background_clause(contract)
@@ -2472,17 +2690,21 @@ def asset_specs() -> list[dict[str, object]]:
             f"Humor note: {humor}." if humor else "",
             f"Concrete visible props: {props}." if props else "",
             f"Useful diegetic overlays in-scene: {overlays}." if overlays else "",
-            f"Weave in these recurring visual motifs: {motifs}." if motifs else "",
-            f"Imply these idea markers through props and framing, never through readable text: {callouts}." if callouts else "",
+            f"Secondary motif cues: {motifs}." if motifs else "",
+            f"Nonverbal idea cues only: {callouts}." if callouts else "",
             smartlink_clause,
             lore_clause,
             f"Keep the overall look consistent with: {style_bits}." if style_bits else "",
-            "Variation rules: " + " ".join(guardrails) if guardrails else "",
             easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
-            "Make it feel like a lived-in Shadowrun street, lab, archive, forge, or table scene, not a product poster.",
+            "Make it feel like a lived-in Shadowrun world scene, not a product poster or tabletop glamour shot.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
             "No readable words or numbers on screens, papers, props, or overlays; use abstract bars, chips, glyphs, or traces instead.",
+            "No readable letters on clothing patches, warning placards, crate plates, stickers, wall marks, or chest labels.",
+            "Do not center any signboard, menu board, placard, monitor, or glowing panel as the main subject.",
+            "If signage appears at all, keep it peripheral, abstract, and unreadable.",
+            "Avoid bright framed screens, glowing wall panels, or illuminated rectangles becoming the composition anchor.",
+            "Never render the words WARNING, MENU, OPEN, EXIT, ALPHA, BETA, or any other legible label.",
             "No readable titles, no watermark, no giant centered logos, 16:9.",
         ]
         return " ".join(part for part in prompt_parts if part)
@@ -2521,7 +2743,7 @@ def asset_specs() -> list[dict[str, object]]:
                 "subject": focal or "a cyberpunk protagonist",
                 "environment": scene_logic or body,
                 "action": str(act.get("paragraph_seed", "")).strip() or str(act.get("one_liner", "")).strip(),
-                "metaphor": page_id.replace("_", " "),
+                "metaphor": "",
                 "props": [str(entry).strip() for entry in interests if str(entry).strip()][:5],
                 "overlays": [str(entry).strip() for entry in concrete if str(entry).strip()][:4],
                 "composition": composition_hint,
@@ -2546,15 +2768,22 @@ def asset_specs() -> list[dict[str, object]]:
 
     target_scene_policies: dict[str, dict[str, object]] = {
         "assets/hero/chummer6-hero.png": {
-            "required": "city_edge",
-            "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Treat the hero like a wide first-contact street moment with one runner and one inspectable prop cluster, not a portrait crop and not a glamour close-up of a phone.",
-            "environment": "a rain-streaked alley edge or loading threshold with hard practical spill, wet pavement, and no storefront words",
-            "subject": "one runner checking whether a rough proof trail deserves trust before the call hardens",
-            "replace_visual_prompt": "Wide documentary street scene: one tired runner at a rain-cut alley edge or loading threshold sorting stamped chips, clipped proof tags, and trace markers around one secondary handheld resting on a crate or utility box while the wet street recedes behind; full upper body, both hands, and the prop cluster clearly in frame; no paper strip held to camera, no storefront window, no seated table pose, no readable screen text or signage.",
-            "framing": "wide or medium-wide shot with the runner on one third of frame, full upper body visible, both hands and the prop cluster visible, and real environment depth behind",
-            "avoid": "extreme face crop, storefront windows, neon words, menu boards, seated table pose, close portrait framing, phone glamour close-up, front-facing paper strips, or long receipt paper",
-            "overlay_hint": "proof provenance traces and threat-posture brackets",
+            "required": "clinic_intake",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover: runner prep, intake truth, and visible rules pressure. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
+            "environment": "a cramped runner prep threshold or streetdoc intake bay with hanging gear rails, clipped med tags, sealed med pouches, harness straps, and hard practical spill",
+            "subject": "one standing runner at a prep wall deciding whether tonight's build can be trusted before stepping back into the rain",
+            "action": "pausing mid-prep with both hands on hanging gear and clipped tags while the trust trail lives in the room around them",
+            "metaphor": "trust becoming visible through physical prep traces",
+            "replace_visual_prompt": "Wide first-contact Shadowrun scene in a cramped runner prep threshold or streetdoc intake bay: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, and suspended prep props while subtle provenance traces cling to those physical anchors. The image must answer character-build trust at first glance through the room and the body language, not through any handheld object. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No desk, bench, crate, bright screen, glowing panel, framed board, handheld device, phone, card, or lone gadget hero prop.",
+            "framing": "medium-wide standing shot with full upper torso, both hands, the hanging prep wall, and some floor visible; no portrait crop",
+            "avoid": "extreme face crop, alley crate posing, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, phone glamour close-up, handheld slate, card close-up, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, or a lone gadget becoming the hero prop",
+            "overlay_hint": "build-state provenance traces, target-posture brackets, and trust markers",
+            "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle"],
+            "overlays": ["provenance ticks", "fit-check brackets", "trust markers"],
+            "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check"],
+            "overlay_callouts": ["provenance trace", "fit check", "trust mark"],
+            "providers": ["onemin", "browseract_prompting_systems", "media_factory", "browseract_magixai", "magixai"],
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -2564,170 +2793,265 @@ def asset_specs() -> list[dict[str, object]]:
             "environment": "a rain-slick alley threshold or shuttered street-front kiosk with hazard tape and hard practical light",
             "action": "warning the viewer that almost nothing here should be mistaken for dependable software",
             "mood": "tense, cautionary, and dry",
-            "replace_visual_prompt": "A sealed concept crate or warning package abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable, no readable labels, no desk still life.",
+            "replace_visual_prompt": "A sealed concept warning case or barricade block abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable. The object may carry one torn triangle glyph, stripe bands, or abstract hazard pictograms, but never a label plate, poster, engraved plate, stencil word, or readable warning text. Do not print the word warning anywhere. Keep the object scarred and lived-in, not a clean product-shot cube. No desk still life.",
+            "avoid": "readable warning labels, the word warning, crate nameplates, poster text, pseudo-branding, stencil words, engraved plates, desk still life, or a clean product-shot cube",
             "overlay_hint": "subtle hazard glyphs and provenance traces",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/what-chummer6-is.png": {
-            "required": "conspiracy_wall",
+            "required": "review_bay",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "Make this feel like trust being assembled from physical traces, not another person staring at a device.",
-            "subject": "one runner deciding whether a ruling becomes trustworthy because the receipts survive inspection",
-            "environment": "a cramped proof nook with pinned translucent tags, stamped chips, gear markers, and one glowing evidence seam",
-            "replace_visual_prompt": "One runner in a cramped proof nook pinning translucent evidence tags, stamped chips, and gear markers onto a conspiracy-style proof wall; one gloved hand mid-decision, one face in profile, trust built from physical traces instead of paper receipts or product sheen; no readable text, no loose printed sheets.",
-            "avoid": "paper receipts with printed lines, loose slips, readable forms, glowing room numbers, or a glowing handheld as the star of the shot",
+            "subject": "one runner deciding whether a ruling becomes trustworthy because the trace survives inspection in the open",
+            "environment": "a cramped standing review bay with a vertical trace rail, clipped translucent markers, stamped chips, and one glowing evidence seam",
+            "metaphor": "trust assembled from visible traces instead of trust-me math",
+            "replace_visual_prompt": "One runner at a cramped standing review bay, upper torso and both hands visible while translucent markers, stamped chips, gear tokens, and cause bands are pegged onto a vertical trace rail under hard practical light. Trust is assembled from physical traces in the open, not from paper receipts or a glowing device. Use translucent plastic markers, chips, bands, and rail clips instead of notes, paper, or monitor screens. No readable text, no handwritten cards, and no loose printed sheets.",
+            "avoid": "paper receipts with printed lines, handheld paper cards, loose slips, readable forms, pinned handwritten notes, glowing room numbers, glowing handhelds, wall monitors, or a desk spread",
             "overlay_hint": "rule-source provenance tags, trust arrows, and receipt traces",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/where-to-go-deeper.png": {
-            "preferred": "archive_room",
+            "required": "archive_room",
             "banned": TABLEAU_COMPOSITIONS | {"desk_still_life"},
-            "prompt_nudge": "Treat go-deeper like an archive descent or evidence room, not a desk meeting.",
-            "subject": "a reader tracing one question across archive materials",
-            "environment": "a dim archive room with binders, drawers, and one glowing review screen",
-            "replace_visual_prompt": "A narrow archive aisle with binders, drawers, hanging evidence tags, and one reader tracing a source deeper into the stacks; shelves and drawer fronts dominate, no desk spread, no vintage terminal as the hero prop.",
-            "avoid": "desk spreads, seated desk posture, front-facing monitor text, or a lone CRT taking over the scene",
+            "prompt_nudge": "Treat go-deeper like an archive descent or evidence room, not a desk meeting and not a green-screen nostalgia shot.",
+            "subject": "a reader tracing one question deeper through archive shelves and hanging tags",
+            "environment": "a dim archive aisle with binders, drawers, hanging evidence tags, and shelf rails",
+            "metaphor": "follow the source trail deeper into the stacks",
+            "replace_visual_prompt": "A narrow archive aisle with drawer towers, sealed canisters, hanging translucent sleeves, shelf rails, and one reader tracing a source deeper into the stacks while standing; shelves and drawer fronts dominate. Use unlabeled containers, plastic sleeves, and hardware pulls instead of binders, paper fronts, or note cards. No desk spread, no CRT hero prop, no paper layout, and no front-facing monitor.",
+            "avoid": "desk spreads, seated desk posture, front-facing monitor text, loose paper map spreads, binder spines, label tabs, shelf cards, or a lone CRT taking over the scene",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+        },
+        "assets/pages/start-here.png": {
+            "required": "transit_checkpoint",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Start-here should feel like choosing a route through the mess, not staring at a kiosk or billboard.",
+            "subject": "one runner choosing the next useful lane through a rough public threshold",
+            "environment": "a rain-dark checkpoint split with route arrows, lane marks, barrier posts, and grounded wayfinding cues",
+            "metaphor": "choose one useful lane through the mess",
+            "replace_visual_prompt": "A rain-dark checkpoint split where one runner chooses between rough but useful lanes marked by floor arrows, barrier posts, lane paint, hazard pylons, and grounded route cues. The scene should read as navigation through a concept-stage mess, not a kiosk interaction or wall-reading moment. No public terminal, no menu board, no poster wall, no giant route sign, and no readable text.",
+            "avoid": "kiosk, ATM, public terminal, menu board, billboard, poster wall, giant route sign, wall-sized text mark, or readable text",
+            "overlay_hint": "lane brackets and route markers",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/current-status.png": {
             "preferred": "street_front",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "Show one fragile public trace surviving in the wild, not another heroic phone close-up and not a triumphant usable-build shot.",
-            "subject": "one host or operator checking whether a fragile public trace is still visible",
-            "environment": "a rain-streaked kiosk edge, transit bench, or shuttered public shelf with one faint public surface and too much uncertainty",
-            "action": "checking whether the visible trace is still there by luck rather than by support",
+            "subject": "one host or operator checking whether a fragile public trace still clings to a physical public shelf",
+            "environment": "a rain-streaked public notice niche or shuttered parcel shelf with taped artifacts, scratched glass, and too much uncertainty",
+            "action": "checking whether the visible trace is still there by luck rather than by support, without any device becoming the hero",
+            "metaphor": "a fragile public trace surviving mostly by luck",
             "mood": "fragile, honest, and uncertain",
-            "replace_visual_prompt": "At a rain-streaked kiosk edge or shuttered public shelf, one operator stands half in frame while a weak public trace flickers on an exterior panel and taped artifact cluster; the handheld is secondary, the uncertainty is obvious, wet reflections everywhere, no readable text.",
-            "overlay_hint": "faint provenance traces, fragile-signal halos, and weak target brackets",
+            "replace_visual_prompt": "At a rain-streaked public notice niche or shuttered parcel shelf, one operator stands half in frame while weak public traces cling to taped artifact strips, scratched glass, and small abstract status glows buried inside the physical shelf. The environment must dominate over any electronics. Use abstract marks and residue instead of posters or printed portraits. No handheld device, no giant panel, no heroic screen, no dashboard wall, and no readable text. Wet reflections everywhere.",
+            "framing": "medium-wide standing street shot with the physical public shelf or notice niche clearly visible and no dominant overhead sign, wall display, or handheld",
+            "overlay_hint": "faint provenance traces, weak receipt halos, and fragile target brackets",
+            "avoid": "phone glamour close-up, tablet in hand, giant overhead sign, billboard, glowing wall panel, dashboard wallpaper, public monitor, printed portrait poster, flyer wall, or triumphant product hero shot",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/public-surfaces.png": {
-            "required": "street_front",
+            "required": "city_edge",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Use a real-world public-surface scene in a bare utility threshold, not another desk with screens and not another storefront sign.",
-            "subject": "one runner in a weathered jacket checking several rough public surfaces at a standing threshold",
-            "environment": "a concrete utility bay or underpass threshold with wall-mounted service slabs, exposed conduit, and wet floor reflections",
-            "replace_visual_prompt": "A bare concrete utility threshold with wall-mounted service slabs, one battered tablet in hand, and one pocket device all showing different public surfaces through bars, pictograms, route arrows, and color blocks while a runner in a weathered jacket and dark trousers interacts with them standing up; exposed conduit, wet reflections, no desk, no storefront, no readable UI text, no wall placards.",
-            "avoid": "desk surfaces, seated desk posture, readable storefront signs, OPEN signs, shop windows, wall placards, neat monitor triptychs on a counter, or screen layouts dominated by text lines",
+            "prompt_nudge": "Use a real-world public-surface scene in a bare utility threshold, but keep it physical and environmental. This is not another person holding a tablet and not another storefront sign.",
+            "subject": "one runner passing a cluster of rough public traces that survive across physical surfaces",
+            "environment": "a concrete underpass threshold with exposed conduit, scratched utility windows, taped notice pockets, route tiles, and wet floor reflections",
+            "metaphor": "rough traces surviving across walls, shelves, and thresholds",
+            "replace_visual_prompt": "A concrete underpass threshold where several rough public traces survive across physical surfaces: scratched utility windows, taped notice pockets, seal strips, route tiles, and small abstract glows embedded in the wall. One runner passes through the scene standing up, but no device is in their hands and no single panel becomes the composition anchor. No storefront sign, no desk, no readable UI text, no wall placards, and no monitor bank.",
+            "avoid": "desk surfaces, seated desk posture, handheld tablet, pocket device glamour, readable storefront signs, OPEN signs, shop windows, wall placards, neat monitor triptychs on a counter, or screen layouts dominated by text lines",
             "overlay_hint": "cross-surface state echoes and route markers",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Make this a future boulevard of districts and pains, not an icon corridor or meeting tableau.",
-            "subject": "a horizon boulevard crossroads where future districts tempt the viewer deeper",
-            "environment": "a neon transit district with storefronts, alleys, station mouths, and future neighborhoods receding into rain",
+            "prompt_nudge": "Make this a future boulevard of districts and pains, not an icon corridor, menu sign, or text-heavy centerpiece. The image should feel like possible Shadowrun lanes, not a fake UI billboard.",
+            "subject": "a branching Shadowrun future where several practical lanes peel outward into distinct possible directions",
+            "environment": "a rain-dark service interchange with elevated ramps, tunnel mouths, maintenance gantries, branching corridors, and symbolic lane markers instead of storefront facades",
+            "action": "asking which future lane could carry the work next without pretending any of them are already finished",
+            "metaphor": "future lanes branching without promise",
+            "replace_visual_prompt": "A rain-dark future service interchange where several Shadowrun-flavored future lanes peel outward into distinct possibilities: an orange workshop branch with sparks and diff strips, a red dossier corridor with clipped packets, a cobalt relay tunnel with cable halos, a paper-warm proof lane with hanging strips, and a tactical branch with ghosted threat markers. Lane identity must come from prop silhouettes, color bands, floor arrows, transit geometry, and sparse diegetic overlays instead of storefronts, placards, glowing rectangles, or readable signs. No centered figure, overhead sign, facade billboard, or text rectangle centerpiece.",
+            "framing": "wide environment-first interchange with at least three distinct branch directions visible and no dominant central sign, glowing rectangle, storefront, or solitary figure",
+            "avoid": "central menu sign, placard wall, readable signboard, storefront directory, neon words, overhead billboards, lone centered silhouette, text rectangles, glowing panels, shopfront facades, or a single text-heavy centerpiece",
+            "overlay_hint": "future-lane markers, district callout arcs, contingent route brackets, and subtle threat-posture overlays",
+            "props": ["branching ramps", "floor arrows", "hazard pylons", "cable halos"],
+            "overlays": ["future-lane brackets", "route halos", "threat ghosts", "branch markers"],
+            "visual_motifs": ["branching ramps", "future lanes", "district pressure"],
+            "overlay_callouts": ["route branch", "future lane", "threat drift"],
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/parts/core.png": {
-            "required": "over_shoulder_receipt",
+            "required": "review_bay",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Core is proof-on-props first: hands, dice, chips, and traces beat faces.",
+            "prompt_nudge": "Core should feel like a standing proof rail where modifiers and consequences get cross-checked in the open. No macro dice glamour, no tray close-up, and no tabletop ritual shot.",
+            "metaphor": "visible cause and effect at the rules rail",
+            "replace_visual_prompt": "One rules referee at a standing proof rail in a cramped review bay, upper torso and both hands visible while wound chips, recoil bands, clipped tags, and cause-and-effect markers are pegged onto a vertical trace surface under hard practical light. The ruling trace must live on the rail and in the posture, not in a tray, receipt slip, tabletop, or macro prop still. Use clipped markers, bands, and rail slots instead of paper or cards. No readable text.",
+            "framing": "medium shot with upper torso, both hands, and the standing proof rail visible together",
+            "avoid": "macro dice close-up, isolated chip glamour, receipt slip hero prop, tabletop tray, abstract x-ray overlay with no operator, face-only portrait, paper card, or a horizontal desk surface dominating the frame",
+            "overlay_hint": "cause-and-effect traces, receipt markers, and posture brackets",
         },
         "assets/parts/ui.png": {
-            "required": "mirror_split",
+            "preferred": "mirror_split",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "UI should feel like a runner really building and inspecting a sheet across surfaces, not another neat desk still life.",
-            "replace_visual_prompt": "A runner compares a live sheet across a vertical wall display and a clipped hanging slate at a locker shelf, hands moving gear cards and note chips between them; no laptop, no desk surface, tactile and clearly in use.",
-            "framing": "show both the vertical display and the hanging slate clearly in one frame, with hands bridging them",
-            "avoid": "laptop-on-desk framing, framed wall posters with readable text, or a generic terminal wallpaper",
+            "prompt_nudge": "UI should feel like a runner building and inspecting across real surfaces in motion, not another glowing screen composition.",
+            "replace_visual_prompt": "A runner stands inside a compact mirror-split review nook, moving build cards and component tags between a vertical inspection mirror, a clipped hanging slate frame, and a rugged side rail so the shared logic is visible through posture and props rather than screens. No laptop, no desk spread, no giant monitor, and no readable text.",
+            "framing": "show the vertical inspection mirror, the clipped side rail, and the operator body language clearly in one frame",
+            "avoid": "laptop-on-desk framing, framed wall posters with readable text, generic terminal wallpaper, x-ray body screen, or any dominant glowing monitor",
             "overlay_hint": "build-state deltas and inspection brackets",
         },
         "assets/parts/mobile.png": {
-            "required": "transit_checkpoint",
+            "required": "platform_edge",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Anchor this around one reconnecting device or runner in motion, not a posed group.",
+            "prompt_nudge": "Anchor this around one runner catching the live trace in motion at a platform edge or station choke point, not a posed group and not a handheld glamour shot.",
+            "replace_visual_prompt": "A runner threads through a crowded station edge while recovering the live session trace mid-stride; platform markers, crowd rail, route arrows, and motion pressure are obvious; any commlink stays secondary and partially obscured while the human movement and station geometry carry the frame. No readable text and no device close-up.",
+            "overlay_hint": "signal halos, reconnect markers, and route-weighting brackets",
         },
         "assets/parts/hub.png": {
             "required": "service_rack",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Hosted coordination should read as racks, control surfaces, and remote presence seams, not a table in disguise.",
+            "prompt_nudge": "Hosted coordination should read as racks, relay seams, and remote presence traces, not a seated operator at a big screen.",
+            "subject": "one remote operator moving through a rack corridor while hosted state keeps several rough lanes aligned",
+            "environment": "a narrow service-rack corridor with relay lights, hanging tags, cable gutters, and mirrored access seams",
+            "replace_visual_prompt": "A narrow service-rack corridor with relay lights, hanging tags, cable gutters, mirrored access seams, and one remote operator moving through the aisle while hosted state stays aligned across the hardware. The racks and seams must dominate over any screen. No seated keyboard posture, no giant monitor, no dashboard wall, no readable jacket logo, and no handheld slate as the hero prop.",
+            "framing": "medium-wide aisle shot with racks on both sides and the operator moving through the corridor",
+            "avoid": "seated terminal posture, giant monitor, keyboard hero shot, dashboard wall, generic SOC screen room, readable jacket logo, or handheld slate glamour",
+            "overlay_hint": "relay seams, hosted-state brackets, and remote presence pings",
         },
         "assets/parts/ui-kit.png": {
-            "required": "workshop",
+            "required": "mirror_split",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Shared chrome should show up across real surfaces in motion, not just swatches on a desk.",
-            "replace_visual_prompt": "A compact interface workshop where a vertical review board, one rugged handheld, and a clipped component rail all share the same visual language while a designer adjusts component tokens mid-scene; grounded materials, no desk glamour.",
-            "avoid": "monitor-on-desk trope, readable design docs, or a single framed UI mockup taking over the whole image",
+            "prompt_nudge": "Shared chrome should show up across real surfaces in motion, not just swatches on a desk or macro UI texture shots.",
+            "metaphor": "one language stretched across several real surfaces",
+            "replace_visual_prompt": "A compact interface workshop where one designer is clearly present, adjusting component tokens, material chips, and badge plates across a vertical review board, a clipped component rail, and a hanging sample frame so all three surfaces visibly share the same language. No monitors, no desk glamour, no abstract x-ray UI shot, and no readable design docs.",
+            "avoid": "monitor-on-desk trope, paired monitors, readable design docs, or a single framed UI mockup taking over the whole image",
             "overlay_hint": "component echoes and shared-state alignment markers",
         },
         "assets/parts/hub-registry.png": {
             "required": "archive_room",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "Registry should feel like intake and judgment in a real archive lane, not a stack of props on a desk.",
-            "replace_visual_prompt": "An archive-style intake lane with bins, scanners, hanging tags, and one registrar hand deciding where a rough artifact belongs; shelves and intake rails beat desk glamour, no readable forms.",
+            "replace_visual_prompt": "An archive-style intake lane with bins, scanners, hanging tags, and one registrar visibly standing in frame while deciding where a rough artifact belongs; shelves and intake rails beat desk glamour, no readable forms, no close-up of a hand touching one device.",
             "overlay_hint": "intake stamps and compatibility bands",
         },
+        "assets/parts/media-factory.png": {
+            "required": "render_lane",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "Media Factory should read as one operator pushing a rough packet through a vertical render lane with provenance still attached, not an abstract printer close-up or empty hardware still life.",
+            "replace_visual_prompt": "One operator inside a vertical render lane, surrounded by output racks, hanging proofs, approval rails, and monitor spill while a rough packet moves toward publishable shape; the operator is clearly visible, the lane feels mechanical and real, and the scene is not just a macro machine detail or a print bench duplicate.",
+            "framing": "vertical-lane medium shot with the operator, racks, proofs, and approval rails all visible together",
+            "avoid": "empty printer glamour, abstract machine macro, isolated hands on buttons, or readable page fronts",
+            "overlay_hint": "publication-path arrows, provenance seals, and approval bands",
+        },
         "assets/horizons/nexus-pan.png": {
-            "required": "transit_checkpoint",
+            "required": "van_interior",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Anchor the shot around one reconnecting device or operator; the rest of the table can stay implied off-frame.",
+            "prompt_nudge": "Anchor the shot around one reconnecting operator inside a van or rig interior; the rest of the table can stay implied off-frame, but this is not a phone close-up or cafe drift shot.",
             "subject": "one reconnecting operator bringing a dropped device back into the session",
-            "environment": "a transit threshold or rainy cafe edge with one live handheld and one secondary session surface",
+            "environment": "a rain-streaked van interior with a live relay deck, cable bundle, and one battered secondary session surface",
+            "metaphor": "reconnection under noise inside a rig",
+            "replace_visual_prompt": "A reconnecting rigger inside a rain-streaked van interior, upper body clearly visible while both hands patch a commlink mesh back into a relay deck, cable bundle, and battered secondary session surface fixed into the van wall. Any handheld must stay buried and secondary, not raised toward camera. Center the operator and the van environment, not a gadget. No readable screens.",
+            "avoid": "close-up of fingers on a phone, neutral tablet portrait, cropped gadget glamour, or a handheld lifted into the foreground",
+            "overlay_hint": "signal halos, route weighting arcs, and posture brackets",
         },
         "assets/horizons/alice.png": {
             "required": "simulation_lab",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "ALICE lives in a sim bench or crash lab, never another social huddle.",
+            "prompt_nudge": "This horizon belongs in a sim bench or crash lab, never another social huddle and never a giant failure screen with a readable verdict word.",
+            "replace_visual_prompt": "A deterministic crash lab or sim bench where one operator studies a projected mannequin silhouette, branching hazard arcs, and outcome ghosts around a test lane. The risk should be obvious through branching light, posture, and silhouettes, not through a giant result word, lab screen, or report panel. No readable text, no FAIL sign, and no glass-wall status board.",
+            "avoid": "giant result word, FAIL sign, wall display, lab report panel, glass booth signage, or a neutral human bust behind glass",
         },
         "assets/horizons/jackpoint.png": {
-            "required": "dossier_desk",
+            "required": "archive_room",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "JACKPOINT should feel like dossier, dead-drop, or evidence-desk grammar before faces enter frame.",
-            "replace_visual_prompt": "A hot dossier being assembled from evidence chips, rain-damp folders, and clipped notes on an evidence desk, with one fixer hand entering frame; tactile, finished-feeling, no readable forms.",
+            "prompt_nudge": "Make this feel like a dead-drop dossier lane or evidence archive, not another desk scene.",
+            "metaphor": "dead-drop provenance assembled from shelves and sleeves",
+            "replace_visual_prompt": "A fixer in a narrow archive drop lane, torso and one arm visible while dead-drop packets, translucent sleeves, evidence chips, coded tabs, and sealed dossier canisters are pulled from shelves and hanging slots into a usable packet. Shelves, bins, lockers, and drop hardware must dominate over any desk surface. No readable forms, no front-facing papers, and no centered data-slab glamour.",
             "overlay_hint": "provenance stamps and dossier anchors",
+        },
+        "assets/horizons/details/jackpoint-scene.png": {
+            "required": "prop_detail",
+            "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
+            "prompt_nudge": "This detail should show dead-drop hardware and dossier props, not a readable envelope or desk memo.",
+            "replace_visual_prompt": "Tight prop-led dead-drop detail: gloved hands, sealed sleeves, evidence chips, locking tabs, and a half-open archive slot under rain-streaked light. No front-facing paper, no envelope text, and no desk memo.",
+            "avoid": "readable envelope text, front-facing notes, typed paper, or a clean office desk",
+            "overlay_hint": "dossier anchors and provenance marks",
         },
         "assets/horizons/karma-forge.png": {
             "required": "workshop_bench",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "KARMA FORGE needs a rulesmith bench or forge station, not a committee around glowing furniture.",
-            "replace_visual_prompt": "One rulesmith at a grimy forge bench forcing unstable rule chips into shape under hard sodium spill and terminal glow; tactile sparks, rollback markers, no committee shot, no readable labels.",
-            "overlay_hint": "compatibility traces and rollback seals",
+            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay and not a committee around glowing furniture.",
+            "subject": "one rulesmith reconciling a volatile house-rule pack through review, diff, and rollback pressure",
+            "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, and hard task lighting",
+            "metaphor": "governed rules evolution under approval and rollback pressure",
+            "replace_visual_prompt": "One rulesmith at an industrial review bench reconciling a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, and compatibility traces under hard sodium spill. Use abstract diff bars, chips, seal bands, cassette housings, and clipped approval tabs instead of pages, printouts, or glowing text sheets. The scene must read as governed rules evolution for a Shadowrun table, not a literal blacksmith shop, and it must carry approval and rollback pressure at a glance. No readable labels.",
+            "framing": "medium shot with torso, both hands, approval rails, diff strips, and rollback hardware visible together; not a face crop",
+            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, card close-up without approval rails, or any scene without publication-control cues",
+            "overlay_hint": "compatibility arcs, diff markers, approval seals, rollback arcs, and provenance rails",
+            "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails"],
+            "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs"],
+            "visual_motifs": ["governed rules bench", "rollback lane", "approval pressure"],
+            "overlay_callouts": ["compatibility seal", "rollback route", "approval band"],
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/horizons/runsite.png": {
             "required": "district_map",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "RUNSITE should feel like ingress planning over real space, not another person staring at a tablet.",
+            "prompt_nudge": "Make this feel like ingress planning over real space, not another person staring at a tablet.",
             "subject": "a rigger plotting ingress lanes across a projected floor plan in the field",
             "environment": "a rain-slick loading dock and alley staging point with stacked crates, chalk marks, and one ghosted building outline",
-            "replace_visual_prompt": "A rigger crouches at a rain-slick loading dock while ingress cones, threat silhouettes, and a ghosted building layout project across crates and wet concrete; the planning surface lives in the world, not on a readable tablet screen.",
+            "metaphor": "ingress planning across real space instead of a slab",
+            "replace_visual_prompt": "A rigger in a rain-slick loading dock and alley staging point traces ingress cones, threat silhouettes, and a ghosted building layout across wet concrete, wall seams, and stacked crate edges. The planning surface lives in the world around the operator, not on a readable tablet screen or tabletop hologram slab.",
+            "avoid": "tabletop hologram slab, readable tablet screen, kneeling over a crate as if it were a desk, or any single flat planning surface taking over the frame",
             "overlay_hint": "ingress cones, threat-posture marks, and ghost-lane overlays",
         },
         "assets/horizons/runbook-press.png": {
-            "required": "workshop_bench",
+            "required": "proof_room",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "RUNBOOK PRESS should feel like print hardware, plates, folded maps, and clipped proofs in motion, not a stack of dossiers or a readable front page.",
-            "subject": "a campaign writer turning rough district material into physical guide artifacts",
-            "environment": "a cramped print bench with rollers, metal plates, folding arms, clipped proof strips, and warm mechanical light",
-            "replace_visual_prompt": "A cramped print bench with ink rollers, metal plates, folded maps, clipped proof strips, and one writer hand moving fresh material through the mechanism; tactile and alive, no front-facing page, no readable headline, no newspaper-like masthead.",
-            "framing": "oblique angle across rollers, plates, folded maps, and hands; the print hardware dominates, not a held-up sheet",
+            "prompt_nudge": "Make this feel like a proof room and print rail under revision pressure, not a stack of dossiers or a readable front page.",
+            "subject": "a campaign writer pushing rough district material through a cramped proof room",
+            "environment": "a narrow proof room with rollers, map drawers, clipped proof strips, and a lit print rail",
+            "metaphor": "rough source material pushed through a cramped proof lane",
+            "replace_visual_prompt": "A narrow proof room with ink rollers, map drawers, clipped proof strips, a lit print rail, and one campaign writer moving fresh district material through the mechanism; tactile and alive, no front-facing page, no loose sheet held toward camera, no readable headline, and no newspaper-like masthead.",
+            "framing": "oblique angle across the print rail, rollers, map drawers, and the writer moving through the room; the proof hardware dominates, not a held-up sheet",
             "avoid": "newspaper mastheads, readable page headlines, front-facing sheets, centered poster samples, or someone presenting a printed page to camera",
             "overlay_hint": "layout marks and route-callout arrows",
         },
         "assets/pages/parts-index.png": {
             "required": "district_map",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Parts index should read like a walkable map of work zones, not a central planning table.",
+            "prompt_nudge": "Parts index should read like a walkable map of work zones, not an expo floor of kiosks and not a central planning table.",
             "subject": "the Chummer parts expressed as distinct work zones across one walkable room",
-            "environment": "an open backroom warehouse floor with hanging cables, isolated prop islands, and color-lit lanes crossing the concrete",
-            "replace_visual_prompt": "An open backroom warehouse floor where each Chummer part appears as its own color-lit prop island on pallets or low crates: proof locker cluster, UI cluster, mobile checkpoint, registry intake props, and media bench props, all connected by floor-route lines and cable paths; silhouettes can move between islands, but there are no wall signs, no door labels, and no central table.",
-            "framing": "wide room view with multiple distinct floor islands visible at once and route lines connecting them across the concrete",
-            "avoid": "top-down tabletop composition, central command table, boardgame layout, labeled doorways, wall signage, framed station headers, or neat laptops arranged around one surface",
+            "environment": "an open backroom warehouse floor with hanging cables, grounded prop islands, rail clusters, bins, and color-lit lanes crossing the concrete",
+            "metaphor": "a walkable map of work zones instead of a menu",
+            "replace_visual_prompt": "An open backroom warehouse floor where each Chummer part appears as its own grounded work zone: a standing proof rail cluster, a mirror-split inspection nook, a mobile route checkpoint, a registry intake rail, a service-rack corridor slice, and a media render lane, all connected by floor-route lines, cable paths, and subtle color bands across concrete. Treat it as an environment map first. Keep human figures minimal or absent. There are no kiosks, no terminal banks, no giant screens, no wall signs, no floating labels, no lightboxes, no title banner, and no central table. This must read like a walkable room map, not a fake expo hall or poster diagram.",
+            "framing": "wide room view with multiple distinct physical work zones visible at once and route lines connecting them across the concrete",
+            "avoid": "top-down tabletop composition, central command table, boardgame layout, kiosks, terminal banks, labeled doorways, wall signage, framed station headers, floating labels, title banners, specialist desks, seated operators, neat laptops arranged around one surface, or large human figures posed in the room",
             "overlay_hint": "route lines and district callout pings",
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/horizons/table-pulse.png": {
-            "required": "solo_operator",
+            "required": "forensic_replay",
             "banned": TABLEAU_COMPOSITIONS,
             "prompt_nudge": "TABLE PULSE should feel like replaying the run after hours, not another neutral person-with-tablet portrait.",
-            "replace_visual_prompt": "After the run, a tired orc GM sits alone in a booth with cooling soykaf while translucent heat paths, threat pulses, and session echoes bloom above physical tokens and cups; intimate, exhausted, and lived-in, no readable screens.",
+            "replace_visual_prompt": "After the run, a tired orc GM sits alone in a booth with cooling soykaf while translucent heat paths, threat pulses, and session echoes bloom above physical tokens, cups, and a pushed-aside device; intimate, exhausted, and lived-in, with the replay living in the room instead of as a device close-up; no readable screens.",
+            "avoid": "neutral tablet portrait, phone glamour, or clean desk scene",
             "overlay_hint": "replay heat paths and consequence echoes",
         },
     }
     adjacency_fallbacks = {
         "archive_room": "street_front",
+        "clinic_intake": "street_front",
         "dossier_desk": "desk_still_life",
         "horizon_boulevard": "city_edge",
         "over_shoulder_receipt": "solo_operator",
+        "platform_edge": "solo_operator",
+        "proof_room": "archive_room",
+        "render_lane": "archive_room",
+        "review_bay": "mirror_split",
         "service_rack": "archive_room",
         "simulation_lab": "solo_operator",
         "solo_operator": "street_front",
         "street_front": "over_shoulder_receipt",
         "transit_checkpoint": "solo_operator",
+        "van_interior": "solo_operator",
         "workshop_bench": "service_rack",
     }
 
@@ -2789,11 +3113,20 @@ def asset_specs() -> list[dict[str, object]]:
             replacement = str(policy.get(key) or "").strip()
             if replacement:
                 contract[key] = replacement
+        for key in ("props", "overlays"):
+            value = policy.get(key)
+            if isinstance(value, (list, tuple)):
+                contract[key] = [str(entry).strip() for entry in value if str(entry).strip()]
+        palette_override = policy.get("palette")
+        if palette_override not in (None, ""):
+            contract["palette"] = palette_override
         cleaned["scene_contract"] = contract
 
         prompt_nudge = str(policy.get("prompt_nudge") or "").strip()
         replace_visual_prompt = str(policy.get("replace_visual_prompt") or "").strip()
         replace_overlay_hint = str(policy.get("overlay_hint") or "").strip()
+        replace_visual_motifs = policy.get("visual_motifs")
+        replace_overlay_callouts = policy.get("overlay_callouts")
         if prompt_nudge:
             visual_prompt = str(cleaned.get("visual_prompt") or "").strip()
             if prompt_nudge.lower() not in visual_prompt.lower():
@@ -2802,6 +3135,10 @@ def asset_specs() -> list[dict[str, object]]:
             cleaned["visual_prompt"] = replace_visual_prompt
         if replace_overlay_hint:
             cleaned["overlay_hint"] = replace_overlay_hint
+        if isinstance(replace_visual_motifs, (list, tuple)):
+            cleaned["visual_motifs"] = [str(entry).strip() for entry in replace_visual_motifs if str(entry).strip()]
+        if isinstance(replace_overlay_callouts, (list, tuple)):
+            cleaned["overlay_callouts"] = [str(entry).strip() for entry in replace_overlay_callouts if str(entry).strip()]
         if notes:
             cleaned["scene_audit"] = list(notes)
         return cleaned, notes
@@ -2821,6 +3158,9 @@ def asset_specs() -> list[dict[str, object]]:
             audited_spec["media_row"] = repaired_row
             audited_spec["prompt"] = prompt
             audited_spec["scene_audit"] = notes
+            providers_override = scene_policy_for_target(target).get("providers")
+            if isinstance(providers_override, list):
+                audited_spec["providers"] = [str(entry).strip().lower() for entry in providers_override if str(entry).strip()]
             audited_specs.append(audited_spec)
             planned_rows.append(planned_scene_row(target, repaired_row))
 
@@ -2836,14 +3176,22 @@ def asset_specs() -> list[dict[str, object]]:
             for spec in audited_specs
         ]
         tableish_count = sum(1 for composition in compositions if composition in TABLEAU_COMPOSITIONS)
+        surface_heavy_count = sum(1 for composition in compositions if composition in SURFACE_HEAVY_COMPOSITIONS)
         if tableish_count > 1:
             raise RuntimeError(f"whole_pack_audit_failed:table_monoculture:{tableish_count}")
+        if surface_heavy_count > 4:
+            raise RuntimeError(f"whole_pack_audit_failed:surface_scene_monoculture:{surface_heavy_count}")
         for expected_target, required in (
+            ("assets/hero/chummer6-hero.png", "clinic_intake"),
             ("assets/pages/horizons-index.png", "horizon_boulevard"),
+            ("assets/parts/ui.png", "mirror_split"),
+            ("assets/parts/mobile.png", "platform_edge"),
+            ("assets/parts/media-factory.png", "render_lane"),
             ("assets/horizons/alice.png", "simulation_lab"),
-            ("assets/horizons/jackpoint.png", "dossier_desk"),
+            ("assets/horizons/jackpoint.png", "archive_room"),
             ("assets/horizons/karma-forge.png", "workshop_bench"),
-            ("assets/horizons/nexus-pan.png", "transit_checkpoint"),
+            ("assets/horizons/nexus-pan.png", "van_interior"),
+            ("assets/horizons/runbook-press.png", "proof_room"),
         ):
             match = next((spec for spec in audited_specs if str(spec.get("target") or "") == expected_target), None)
             if not isinstance(match, dict):
@@ -2868,12 +3216,12 @@ def asset_specs() -> list[dict[str, object]]:
             "providers": provider_order(),
         },
         page_spec(target="assets/hero/poc-warning.png", page_id="readme", role="POC warning shelf", composition_hint="street_front"),
-        page_spec(target="assets/pages/start-here.png", page_id="start_here", role="start-here banner", composition_hint="city_edge"),
-        page_spec(target="assets/pages/what-chummer6-is.png", page_id="what_chummer6_is", role="what-is banner", composition_hint="single_protagonist"),
+        page_spec(target="assets/pages/start-here.png", page_id="start_here", role="start-here banner", composition_hint="transit_checkpoint"),
+        page_spec(target="assets/pages/what-chummer6-is.png", page_id="what_chummer6_is", role="what-is banner", composition_hint="review_bay"),
         page_spec(target="assets/pages/where-to-go-deeper.png", page_id="where_to_go_deeper", role="deeper-dive banner", composition_hint="archive_room"),
         page_spec(target="assets/pages/current-phase.png", page_id="current_phase", role="current-phase banner", composition_hint="workshop"),
         page_spec(target="assets/pages/current-status.png", page_id="current_status", role="current-status banner", composition_hint="street_front"),
-        page_spec(target="assets/pages/public-surfaces.png", page_id="public_surfaces", role="public-surfaces banner", composition_hint="street_front"),
+        page_spec(target="assets/pages/public-surfaces.png", page_id="public_surfaces", role="public-surfaces banner", composition_hint="city_edge"),
         page_spec(target="assets/pages/parts-index.png", page_id="parts_index", role="parts-overview banner", composition_hint="district_map"),
         page_spec(target="assets/pages/horizons-index.png", page_id="horizons_index", role="horizons boulevard banner", composition_hint="horizon_boulevard"),
     ]
@@ -2977,6 +3325,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
     ]
     pack_audit = {
         "tableau_count": sum(1 for composition in audited_compositions if composition in TABLEAU_COMPOSITIONS),
+        "surface_heavy_count": sum(1 for composition in audited_compositions if composition in SURFACE_HEAVY_COMPOSITIONS),
         "adjacent_repeat_count": sum(
             1
             for index in range(1, len(audited_compositions))
