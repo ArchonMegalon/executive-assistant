@@ -1207,6 +1207,29 @@ class BrowserActToolAdapter:
             structured_output_json["bonus_catalog_json"] = bonus_rows
         if usage_rows:
             structured_output_json["usage_history_json"] = usage_rows
+        page_visible_credits = None
+        billing_overview = structured_output_json.get("billing_overview_json")
+        if isinstance(billing_overview, dict):
+            page_visible_credits = cls._parse_credit_int(
+                billing_overview.get("credits_balance")
+                or billing_overview.get("current_credits")
+                or billing_overview.get("available_credits")
+                or billing_overview.get("available_credit")
+            )
+        raw_text = str(structured_output_json.get("raw_text") or "").strip()
+        if page_visible_credits is None and raw_text:
+            match = re.search(r'"(?:credits_balance|current_credits|available_credits)"\s*:\s*([0-9][0-9,]*)', raw_text)
+            if match is not None:
+                page_visible_credits = cls._parse_credit_int(match.group(1))
+        if page_visible_credits is not None:
+            if not isinstance(billing_overview, dict):
+                billing_overview = {}
+                structured_output_json["billing_overview_json"] = billing_overview
+            billing_overview.setdefault("credits_balance", page_visible_credits)
+            billing_overview.setdefault("current_credits", page_visible_credits)
+            billing_overview.setdefault("available_credits", page_visible_credits)
+            if remaining_credits is None or page_visible_credits > remaining_credits:
+                remaining_credits = page_visible_credits
         return {
             "provider_backend": "onemin_billing_usage_page",
             "account_label": account_label,
@@ -1290,24 +1313,51 @@ class BrowserActToolAdapter:
         if not raw_text:
             return []
         email_re = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", flags=re.IGNORECASE)
+        credit_re = re.compile(r"\b\d[\d,]{2,}\b")
+        compact_lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
         parsed_rows: list[dict[str, object]] = []
-        for line in raw_text.splitlines():
+        seen_emails: set[str] = set()
+        for index, line in enumerate(compact_lines):
             email_match = email_re.search(line)
             if email_match is None:
                 continue
-            lowered = line.lower()
+            email = email_match.group(0).strip()
+            lowered_email = email.lower()
+            if not lowered_email or lowered_email in seen_emails:
+                continue
+            seen_emails.add(lowered_email)
+            window = compact_lines[index : min(len(compact_lines), index + 6)]
+            window_joined = "\n".join(window).lower()
+            name = line[: email_match.start()].strip(" -|:\t")
+            if not name and index > 0:
+                previous = compact_lines[index - 1].strip(" -|:\t")
+                if previous and email_re.search(previous) is None:
+                    name = previous
             status = ""
             for candidate in ("active", "deactivated", "inactive", "pending"):
-                if candidate in lowered:
+                if re.search(rf"\b{re.escape(candidate)}\b", window_joined):
                     status = candidate
                     break
+            role = ""
+            for candidate in ("admin", "owner", "member", "viewer", "editor"):
+                if re.search(rf"\b{re.escape(candidate)}\b", window_joined):
+                    role = candidate
+                    break
+            credit_candidates: list[int] = []
+            for candidate_line in window:
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate_line):
+                    continue
+                for match in credit_re.findall(candidate_line):
+                    parsed_credit = cls._parse_credit_int(match)
+                    if parsed_credit is not None:
+                        credit_candidates.append(parsed_credit)
             parsed_rows.append(
                 {
-                    "name": line[: email_match.start()].strip(" -|:"),
-                    "email": email_match.group(0).strip(),
+                    "name": name,
+                    "email": email,
                     "status": status,
-                    "role": "owner" if "owner" in lowered else ("member" if "member" in lowered else ""),
-                    "credit_limit": cls._parse_credit_int(line if "limit" in lowered else None),
+                    "role": role,
+                    "credit_limit": max(credit_candidates) if credit_candidates else None,
                 }
             )
         return parsed_rows
@@ -1690,8 +1740,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("browseract_onemin_members_workflow_id")
             or ""
         ).strip()
-        if not run_url and not workflow_id:
-            raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_member_reconciliation")
         page_url = str(payload.get("page_url") or "https://app.1min.ai/members").strip() or "https://app.1min.ai/members"
         account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
         try:
@@ -1700,7 +1748,49 @@ class BrowserActToolAdapter:
             timeout_seconds = 180
 
         callback = getattr(self, "_onemin_member_reconciliation", None)
-        if callback is not None:
+        if not run_url and not workflow_id:
+            if bool(payload.get("force_browseract")):
+                raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_member_reconciliation")
+            owner_email = self._onemin_owner_email_for_account(account_label=account_label)
+            if not owner_email:
+                raise ToolExecutionError(f"owner_email_required:onemin:{account_label}")
+            password = self._onemin_browser_password()
+            if not password:
+                raise ToolExecutionError("onemin_password_missing")
+            template_service = self._onemin_member_reconciliation_ui_service()
+            local_payload = dict(payload)
+            local_payload.update(
+                {
+                    "page_url": page_url,
+                    "login_email": owner_email,
+                    "login_password": password,
+                    "browseract_username": owner_email,
+                    "browseract_password": password,
+                    "timeout_seconds": timeout_seconds,
+                }
+            )
+            requested_inputs = self._build_browseract_ui_runtime_inputs(
+                payload=local_payload,
+                service=template_service,
+            )
+            requested_inputs.update(
+                self._browseract_ui_service_runtime_credentials(
+                    payload=local_payload,
+                    binding_metadata=binding_metadata,
+                    service=template_service,
+                )
+            )
+            response = self._create_template_backed_ui_service_direct(
+                run_url="",
+                workflow_id="",
+                request_payload=local_payload,
+                requested_inputs=requested_inputs,
+                binding_metadata=binding_metadata,
+                service=template_service,
+            )
+            if not isinstance(response, dict):
+                raise ToolExecutionError("browseract_template_execution_failed:onemin_member_reconciliation")
+        elif callback is not None:
             maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
             if isinstance(maybe, dict):
                 response = maybe
@@ -2432,12 +2522,14 @@ class BrowserActToolAdapter:
             "avomap_flyover": "EA_AVOMAP_FLYOVER_WORKER",
             "booka_book": "EA_BOOKA_BOOK_WORKER",
             "browseract_template_service": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
+            "onemin_member_reconciliation": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
         }
         filename_map = {
             "mootion_movie": "mootion_movie_worker.py",
             "avomap_flyover": "avomap_flyover_worker.py",
             "booka_book": "booka_book_worker.py",
             "browseract_template_service": "browseract_template_service_worker.py",
+            "onemin_member_reconciliation": "browseract_template_service_worker.py",
         }
         worker_name = str(service.worker_script_name if service is not None else "").strip()
         if worker_name:
@@ -5298,6 +5390,38 @@ class BrowserActToolAdapter:
             }:
                 return str(row.get("owner_email") or "").strip()
         return ""
+
+    @staticmethod
+    def _onemin_member_reconciliation_ui_service() -> BrowserActUiServiceDefinition:
+        return BrowserActUiServiceDefinition(
+            service_key="onemin_member_reconciliation",
+            capability_key="onemin_member_reconciliation",
+            tool_name="browseract.onemin_member_reconciliation",
+            skill_key="onemin_member_reconciliation",
+            task_key="onemin_member_reconciliation",
+            name="1min Members Reconciliation",
+            description="Open the logged-in 1min members page and extract the visible member roster, statuses, and credit-limit hints for owner reconciliation.",
+            deliverable_type="onemin_member_reconciliation_packet",
+            action_kind="members.reconcile",
+            output_label="members_page",
+            browseract_service_names=("BrowserAct", "1min.ai"),
+            tags=("browseract", "ui-only", "members", "template-backed"),
+            aliases=("onemin_members", "1min_members", "members_reconciliation"),
+            binding_workflow_id_keys=(
+                "onemin_members_workflow_id",
+                "browseract_onemin_members_workflow_id",
+            ),
+            binding_run_url_keys=(
+                "onemin_members_run_url",
+                "browseract_onemin_members_run_url",
+            ),
+            required_top_level_inputs=(),
+            required_runtime_inputs=(),
+            payload_to_runtime_inputs={"page_url": "page_url"},
+            input_properties={"page_url": {"type": "string"}},
+            worker_script_name="browseract_template_service_worker.py",
+            template_key="onemin_members_reconciliation_live",
+        )
 
     def _run_onemin_workflow_task(
         self,

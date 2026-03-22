@@ -60,6 +60,7 @@ async function main() {
   const packet = JSON.parse(fs.readFileSync(process.env.TEMPLATE_PACKET_PATH, 'utf8'));
   const spec = JSON.parse(fs.readFileSync(process.env.TEMPLATE_SPEC_PATH, 'utf8'));
   const screenshotPath = process.env.TEMPLATE_SCREENSHOT_PATH;
+  const resultPath = String(process.env.TEMPLATE_RESULT_PATH || '').trim();
   const traceDir = String(process.env.TEMPLATE_TRACE_DIR || '').trim();
   const browserHeadless = String(process.env.TEMPLATE_BROWSER_HEADLESS || 'true').trim().toLowerCase() !== 'false';
   const browser = await chromium.launch({
@@ -131,6 +132,22 @@ async function main() {
     workflow_kind: String((((spec || {}).meta || {}).workflow_kind) || ''),
   };
   let traceIndex = 0;
+
+  function emitResultSummary(payload) {
+    const summary = {
+      result_path: resultPath || '',
+      url: String((payload || {}).url || ''),
+      title: String((payload || {}).title || ''),
+      warnings: Array.isArray((payload || {}).warnings) ? payload.warnings.slice(0, 12) : [],
+      errors: Array.isArray((payload || {}).errors) ? payload.errors.slice(0, 6) : [],
+    };
+    console.log(JSON.stringify(summary));
+  }
+
+  function persistResult(payload) {
+    if (!resultPath) return;
+    fs.writeFileSync(resultPath, JSON.stringify(payload), 'utf8');
+  }
 
   async function trace(tag) {
     const safeTag = String(tag || 'trace').replace(/[^a-z0-9._-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'trace';
@@ -606,7 +623,8 @@ async function main() {
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch((error) => {
       result.warnings.push(`screenshot:${String(error && error.message ? error.message : error)}`);
     });
-    console.log(JSON.stringify(result));
+    persistResult(result);
+    emitResultSummary(result);
   } catch (error) {
     result.url = String(page.url() || '');
     result.title = String((await page.title().catch(() => '')) || '');
@@ -631,7 +649,8 @@ async function main() {
       result.warnings.push(`screenshot:${String(screenshotError && screenshotError.message ? screenshotError.message : screenshotError)}`);
     });
     result.errors.push(String(error && error.stack ? error.stack : error));
-    console.log(JSON.stringify(result));
+    persistResult(result);
+    emitResultSummary(result);
     process.exit(1);
   } finally {
     await browser.close();
@@ -651,6 +670,7 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
         packet_path = temp_dir / "packet.json"
         spec_path = temp_dir / "spec.json"
         script_path = temp_dir / "worker.js"
+        result_path = temp_dir / "result.json"
         packet_path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
         spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
         script_path.write_text(_template_node_script(), encoding="utf-8")
@@ -662,6 +682,8 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
             f"TEMPLATE_PACKET_PATH={packet_path}",
             "-e",
             f"TEMPLATE_SPEC_PATH={spec_path}",
+            "-e",
+            f"TEMPLATE_RESULT_PATH={temp_dir / 'result.json'}",
             "-e",
             f"TEMPLATE_SCREENSHOT_PATH={screenshot_path}",
             "-e",
@@ -703,15 +725,31 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
         except subprocess.TimeoutExpired as exc:
             subprocess.run(["docker", "kill", container_name], text=True, capture_output=True, check=False)
             raise RuntimeError(f"template_worker_timeout:{container_name}") from exc
-    raw = str(completed.stdout or "").strip()
-    if not raw:
-        raise RuntimeError(f"template_worker_empty_output:{str(completed.stderr or '').strip()[:400]}")
-    loaded = json.loads(raw.splitlines()[-1])
-    if completed.returncode != 0:
-        raise RuntimeError(f"template_worker_failed:{str(loaded.get('errors') or completed.stderr or raw)[:500]}")
-    if not isinstance(loaded, dict):
-        raise RuntimeError("template_worker_output_invalid")
-    return loaded
+        raw = str(completed.stdout or "").strip()
+        loaded: dict[str, object] | None = None
+        if result_path.exists():
+            try:
+                file_loaded = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(file_loaded, dict):
+                    loaded = file_loaded
+            except Exception as exc:
+                raise RuntimeError(f"template_worker_result_invalid:{type(exc).__name__}:{exc}") from exc
+        if loaded is None and raw:
+            for line in reversed([entry.strip() for entry in raw.splitlines() if entry.strip()]):
+                try:
+                    parsed = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(parsed, dict):
+                    loaded = parsed
+                    break
+        if loaded is None:
+            raise RuntimeError(f"template_worker_empty_output:{str(completed.stderr or raw).strip()[:400]}")
+        if completed.returncode != 0:
+            raise RuntimeError(f"template_worker_failed:{str(loaded.get('errors') or completed.stderr or raw)[:500]}")
+        if not isinstance(loaded, dict):
+            raise RuntimeError("template_worker_output_invalid")
+        return loaded
 
 
 def _image_data_uri(path: Path) -> str:
