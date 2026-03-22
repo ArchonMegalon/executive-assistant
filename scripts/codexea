@@ -1,0 +1,1215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_env_candidates() {
+  local git_root=""
+  local path
+  if command -v git >/dev/null 2>&1; then
+    git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
+  fi
+  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "/docker/fleet/runtime.ea.env" "/docker/fleet/runtime.env"; do
+    [ -n "${path}" ] || continue
+    printf '%s\n' "${path}"
+  done
+}
+
+strip_wrapping_quotes() {
+  local value="${1:-}"
+  if [ "${#value}" -ge 2 ]; then
+    case "${value}" in
+      \"*\"|\'*\')
+        if [ "${value:0:1}" = "${value: -1}" ]; then
+          value="${value:1:${#value}-2}"
+        fi
+        ;;
+    esac
+  fi
+  printf '%s' "${value}"
+}
+
+runtime_env_value() {
+  local target="${1:-}"
+  local path line value
+  while IFS= read -r path; do
+    [ -f "${path}" ] || continue
+    while IFS= read -r line || [ -n "${line}" ]; do
+      line="${line%$'\r'}"
+      case "${line}" in
+        ''|\#*)
+          continue
+          ;;
+        export\ *)
+          line="${line#export }"
+          ;;
+      esac
+      case "${line}" in
+        "${target}"=*)
+          value="${line#*=}"
+          strip_wrapping_quotes "${value}"
+          return 0
+          ;;
+      esac
+    done < "${path}"
+  done < <(runtime_env_candidates)
+  return 1
+}
+
+apply_runtime_env_defaults() {
+  local key value
+  for key in EA_MCP_BASE_URL EA_BASE_URL CODEXEA_STATUS_URL CODEXEA_PROFILES_URL EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID; do
+    if [ -n "${!key:-}" ]; then
+      continue
+    fi
+    value="$(runtime_env_value "${key}" || true)"
+    if [ -n "${value}" ]; then
+      export "${key}=${value}"
+    fi
+  done
+}
+
+apply_runtime_env_defaults
+
+host_resolves() {
+  command -v getent >/dev/null 2>&1 || return 1
+  getent hosts "${1}" >/dev/null 2>&1
+}
+
+normalize_ea_base_url() {
+  local base_url="${1:-}"
+  if [[ "${base_url}" == *"//host.docker.internal"* ]] && ! host_resolves "host.docker.internal"; then
+    base_url="${base_url//\/\/host.docker.internal/\/\/127.0.0.1}"
+  fi
+  printf '%s' "${base_url}"
+}
+
+REAL_CODEX="${CODEXEA_REAL_CODEX:-${CODEX_REAL_BIN:-/usr/bin/codex}}"
+WATCHDOG_BIN="${CODEXEA_WATCHDOG_BIN:-${HOME}/.local/bin/codexea-watchdog}"
+BOOTSTRAP_PROMPT_FILE="${CODEXEA_BOOTSTRAP_PROMPT_FILE:-${HOME}/.codex/prompts/ea_interactive_bootstrap.md}"
+JURY_BOOTSTRAP_PROMPT_FILE="${CODEXEA_JURY_BOOTSTRAP_PROMPT_FILE:-${BOOTSTRAP_PROMPT_FILE}}"
+CODEXEA_BASE_PROFILE="${CODEXEA_BASE_PROFILE:-}"
+CODEXEA_DEFAULT_LANE="${CODEXEA_DEFAULT_LANE:-core}"
+CODEXEA_MODE_OVERRIDE="${CODEXEA_MODE:-}"
+CODEXEA_ALLOW_EASY_MODE_OVERRIDE="${CODEXEA_ALLOW_EASY_MODE_OVERRIDE:-0}"
+CODEXEA_TRACE_STARTUP="${CODEXEA_TRACE_STARTUP:-1}"
+CODEXEA_ENABLE_WATCHDOG="${CODEXEA_ENABLE_WATCHDOG:-0}"
+CODEXEA_NO_ALT_SCREEN="${CODEXEA_NO_ALT_SCREEN:-1}"
+CODEXEA_STARTUP_STATUS="${CODEXEA_STARTUP_STATUS:-1}"
+CODEXEA_CREDITS_INCLUDE_BILLING="${CODEXEA_CREDITS_INCLUDE_BILLING:-1}"
+CODEXEA_STARTUP_PROMPT="${CODEXEA_STARTUP_PROMPT-}"
+CODEXEA_RESUME_PROMPT="${CODEXEA_RESUME_PROMPT-}"
+CODEXEA_INTERACTIVE_ALWAYS_EASY="${CODEXEA_INTERACTIVE_ALWAYS_EASY:-1}"
+CODEXEA_USE_LIVE_PROFILE_MODELS="${CODEXEA_USE_LIVE_PROFILE_MODELS:-1}"
+CODEXEA_POST_AUDIT="${CODEXEA_POST_AUDIT:-1}"
+CODEXEA_POST_AUDIT_MODEL="${CODEXEA_POST_AUDIT_MODEL:-ea-review-light}"
+CODEXEA_POST_AUDIT_ASYNC="${CODEXEA_POST_AUDIT_ASYNC:-1}"
+CODEXEA_POST_AUDIT_ONLY_ON_DIFF="${CODEXEA_POST_AUDIT_ONLY_ON_DIFF:-1}"
+CODEXEA_POST_AUDIT_ONLY_ON_VERIFY="${CODEXEA_POST_AUDIT_ONLY_ON_VERIFY:-0}"
+CODEXEA_STATE_DIR="${CODEXEA_STATE_DIR:-${HOME}/.cache/codexea}"
+CODEXEA_STOP_FILE="${CODEXEA_STOP_FILE:-${CODEXEA_STATE_DIR}/stop}"
+EA_BASE_URL="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-http://127.0.0.1:8090}}")"
+EA_STATUS_URL="$(normalize_ea_base_url "${CODEXEA_STATUS_URL:-${EA_BASE_URL%/}/v1/codex/status}")"
+EA_PROFILES_URL="$(normalize_ea_base_url "${CODEXEA_PROFILES_URL:-${EA_BASE_URL%/}/v1/codex/profiles}")"
+ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-/docker/fleet/scripts/codexea_route.py}"
+
+if [ ! -x "${REAL_CODEX}" ]; then
+  REAL_CODEX="$(command -v codex || true)"
+fi
+
+if [ -z "${REAL_CODEX}" ] || [ ! -x "${REAL_CODEX}" ]; then
+  echo "Missing codex launcher for EA shim" >&2
+  exit 1
+fi
+
+mkdir -p "${CODEXEA_STATE_DIR}"
+
+if [ "$#" -eq 0 ] && [ "${CODEXEA_ENABLE_WATCHDOG}" != "0" ] && [ -z "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && [ -x "${WATCHDOG_BIN}" ]; then
+  exec "${WATCHDOG_BIN}"
+fi
+
+export EA_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-$(id -un)-codex-ea}"
+export EA_MCP_PRINCIPAL_ID="${EA_MCP_PRINCIPAL_ID:-${EA_PRINCIPAL_ID}}"
+export CODEX_WRAPPER_DISABLE_BOOTSTRAP=1
+export CODEX_WRAPPER_SKIP_PROVIDER_DEFAULT=1
+
+env_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+detect_primary_command() {
+  local -a args=("$@")
+  local i=0
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      --)
+        i=$((i + 1))
+        if [ "${i}" -lt "${#args[@]}" ]; then
+          printf '%s' "${args[$i]}"
+        fi
+        return
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+        i=$((i + 2))
+        ;;
+      --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      -*)
+        i=$((i + 1))
+        ;;
+      *)
+        printf '%s' "${args[$i]}"
+        return
+        ;;
+    esac
+  done
+}
+
+is_codex_subcommand() {
+  case "${1:-}" in
+    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+has_explicit_profile_override() {
+  local -a args=("$@")
+  local i=0
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -p|--profile)
+        return 0
+        ;;
+      --)
+        return 1
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+        i=$((i + 2))
+        ;;
+      --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      *)
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  return 1
+}
+
+args_request_interactive_session() {
+  local -a args=("$@")
+  local i=0
+  local saw_interactive=0
+
+  [ "${#args[@]}" -gt 0 ] || return 1
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      --interactive)
+        saw_interactive=1
+        i=$((i + 1))
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+        i=$((i + 2))
+        ;;
+      --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      --)
+        return 1
+        ;;
+      -*)
+        i=$((i + 1))
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done
+
+  [ "${saw_interactive}" -eq 1 ]
+}
+
+strip_interactive_request_flags() {
+  local -a args=("$@")
+  local i=0
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      --interactive)
+        i=$((i + 1))
+        ;;
+      *)
+        printf '%s\0' "${args[$i]}"
+        i=$((i + 1))
+        ;;
+    esac
+  done
+}
+
+has_explicit_runtime_override() {
+  local -a args=("$@")
+  local i=0
+  local value=""
+  local normalized=""
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -m|--model|--oss|--local-provider|-p|--profile)
+        return 0
+        ;;
+      -c|--config)
+        i=$((i + 1))
+        if [ "${i}" -ge "${#args[@]}" ]; then
+          break
+        fi
+        value="${args[$i]}"
+        normalized="${value//[[:space:]]/}"
+        case "${normalized}" in
+          model=*|model_provider=*|model_providers.*|chatgpt_base_url=*|openai_base_url=*)
+            return 0
+            ;;
+        esac
+        ;;
+      --)
+        return 1
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  return 1
+}
+
+build_base_profile_args() {
+  [ "${MODE:-}" = "mcp" ] || return 0
+  [ -n "${CODEXEA_BASE_PROFILE}" ] || return 0
+  has_explicit_profile_override "$@" && return 0
+  printf '%s\0' -p "${CODEXEA_BASE_PROFILE}"
+}
+
+build_bootstrap_prompt() {
+  local prefix=""
+
+  if [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
+    prefix="$(cat "${BOOTSTRAP_PROMPT_FILE}")"
+  fi
+
+  printf '%s' "${prefix}"
+}
+
+live_profile_model_for_lane() {
+  local lane="$1"
+  env_truthy "${CODEXEA_USE_LIVE_PROFILE_MODELS}" || return 1
+  python3 - "${lane}" <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+lane = str(sys.argv[1] or "").strip().lower()
+profile_by_lane = {
+    "easy": "easy",
+    "repair": "easy",
+    "groundwork": "groundwork",
+    "core": "core",
+    "jury": "audit",
+    "survival": "survival",
+}
+profile_name = profile_by_lane.get(lane, lane)
+if not profile_name:
+    raise SystemExit(1)
+
+root = str(os.environ.get("EA_MCP_BASE_URL") or "http://127.0.0.1:8090").rstrip("/")
+url = str(os.environ.get("CODEXEA_PROFILES_URL") or f"{root}/v1/codex/profiles").strip()
+principal_id = (
+    str(os.environ.get("EA_MCP_PRINCIPAL_ID") or "").strip()
+    or str(os.environ.get("EA_PRINCIPAL_ID") or "").strip()
+    or "codexea-shim"
+)
+headers = {"X-EA-Principal-ID": principal_id}
+api_token = str(os.environ.get("EA_MCP_API_TOKEN") or os.environ.get("EA_API_TOKEN") or "").strip()
+if api_token:
+    headers["Authorization"] = f"Bearer {api_token}"
+request = urllib.request.Request(url, headers=headers, method="GET")
+try:
+    with urllib.request.urlopen(request, timeout=1.0) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+    raise SystemExit(1)
+
+profiles = payload.get("profiles")
+if not isinstance(profiles, list):
+    raise SystemExit(1)
+
+for item in profiles:
+    if not isinstance(item, dict):
+        continue
+    if str(item.get("profile") or "").strip().lower() != profile_name:
+        continue
+    model = str(item.get("model") or "").strip()
+    if model:
+        print(model)
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+inject_bootstrap_prompt() {
+  local -a args=("$@")
+  local i=0
+  local idx=-1
+  local prompt_prefix=""
+
+  prompt_prefix="$(build_bootstrap_prompt)"
+  if [ -z "${prompt_prefix}" ]; then
+    printf '%s\0' "${args[@]}"
+    return
+  fi
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      --)
+        i=$((i + 1))
+        if [ "${i}" -lt "${#args[@]}" ]; then
+          idx="${i}"
+        fi
+        break
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+        i=$((i + 2))
+        ;;
+      --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      -*)
+        printf '%s\0' "${args[@]}"
+        return
+        ;;
+      *)
+        idx="${i}"
+        break
+        ;;
+    esac
+  done
+
+  if [ "${idx}" -lt 0 ]; then
+    printf '%s\0' "${args[@]}"
+    return
+  fi
+
+  if is_codex_subcommand "${args[$idx]}"; then
+    printf '%s\0' "${args[@]}"
+    return
+  fi
+
+  args[$idx]="${prompt_prefix}"$'\n\n'"${args[$idx]}"
+  printf '%s\0' "${args[@]}"
+}
+
+args_request_exec_session() {
+  local primary_command=""
+
+  [ "$#" -gt 0 ] || return 1
+  args_request_interactive_session "$@" && return 1
+
+  primary_command="$(detect_primary_command "$@")"
+  [ -n "${primary_command}" ] || return 1
+  is_codex_subcommand "${primary_command}" && return 1
+  return 0
+}
+
+wrap_prompt_invocation_with_exec() {
+  local -a args=("$@")
+  local i=0
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      --)
+        if [ "${i}" -gt 0 ]; then
+          printf '%s\0' "${args[@]:0:${i}}"
+        fi
+        printf '%s\0' exec
+        printf '%s\0' "${args[@]:${i}}"
+        return
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|--add-dir)
+        i=$((i + 2))
+        ;;
+      --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      -*)
+        i=$((i + 1))
+        ;;
+      *)
+        if [ "${i}" -gt 0 ]; then
+          printf '%s\0' "${args[@]:0:${i}}"
+        fi
+        printf '%s\0' exec
+        printf '%s\0' "${args[@]:${i}}"
+        return
+        ;;
+    esac
+  done
+
+  printf '%s\0' "${args[@]}"
+}
+
+emit_startup_trace() {
+  local next_step="$1"
+  local provider_label="unknown"
+  local trace_model="${MODEL:-}"
+  local trace_suffix=""
+  env_truthy "${CODEXEA_TRACE_STARTUP}" || return 0
+  case "${MODE:-}" in
+    responses)
+      provider_label="ea"
+      ;;
+    mcp)
+      provider_label="mcp"
+      if [ -z "${trace_model}" ]; then
+        trace_model="default-config"
+        if [ -n "${EA_MCP_MODEL:-}" ]; then
+          trace_suffix=" mcp_model=${EA_MCP_MODEL}"
+        fi
+      fi
+      ;;
+  esac
+  printf 'Trace: lane=%s provider=%s model=%s mode=%s%s next=%s\n' \
+    "${EFFECTIVE_LANE}" \
+    "${provider_label}" \
+    "${trace_model}" \
+    "${MODE}" \
+    "${trace_suffix}" \
+    "${next_step}" >&2
+}
+
+capture_post_audit_context() {
+  local git_root=""
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+  if ! git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    return 1
+  fi
+  CODEXEA_POST_AUDIT_GIT_ROOT="${git_root}"
+  CODEXEA_POST_AUDIT_START_HEAD="$(git -C "${git_root}" rev-parse HEAD 2>/dev/null || true)"
+  export CODEXEA_POST_AUDIT_GIT_ROOT
+  export CODEXEA_POST_AUDIT_START_HEAD
+  return 0
+}
+
+build_post_audit_request() {
+  local target="$1"
+  python3 - "${target}" <<'PY'
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+target = Path(sys.argv[1])
+root = os.environ.get("CODEXEA_POST_AUDIT_GIT_ROOT", "").strip()
+start_head = os.environ.get("CODEXEA_POST_AUDIT_START_HEAD", "").strip()
+model = os.environ.get("CODEXEA_POST_AUDIT_MODEL", "ea-review-light").strip() or "ea-review-light"
+lane = os.environ.get("CODEXEA_LANE", "").strip()
+submode = os.environ.get("CODEXEA_SUBMODE", "").strip()
+objective = os.environ.get("CODEXEA_POST_AUDIT_OBJECTIVE", "").strip()
+cwd = os.environ.get("PWD", "").strip()
+only_on_diff = str(os.environ.get("CODEXEA_POST_AUDIT_ONLY_ON_DIFF", "1")).strip().lower() in {"1", "true", "yes", "on"}
+only_on_verify = str(os.environ.get("CODEXEA_POST_AUDIT_ONLY_ON_VERIFY", "0")).strip().lower() in {"1", "true", "yes", "on"}
+try:
+    exit_code = int(str(os.environ.get("CODEXEA_POST_AUDIT_EXIT_CODE", "0") or "0"))
+except Exception:
+    exit_code = 0
+
+if not root:
+    raise SystemExit(2)
+
+
+def run_git(*args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", root, *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return ""
+    return completed.stdout.strip()
+
+
+end_head = run_git("rev-parse", "HEAD")
+changed_files: list[str] = []
+seen: set[str] = set()
+
+
+def add_files(raw: str) -> None:
+    for line in raw.splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        if " -> " in cleaned:
+            cleaned = cleaned.split(" -> ", 1)[1].strip()
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        changed_files.append(cleaned)
+
+
+commit_range = ""
+if start_head and end_head and start_head != end_head:
+    commit_range = f"{start_head}..{end_head}"
+    add_files(run_git("diff", "--name-only", commit_range, "--"))
+
+add_files(run_git("diff", "--name-only", "--"))
+add_files(run_git("diff", "--cached", "--name-only", "--"))
+add_files(run_git("ls-files", "--others", "--exclude-standard"))
+
+if only_on_diff and not changed_files:
+    raise SystemExit(2)
+if only_on_verify:
+    raise SystemExit(2)
+
+verification = {
+    "commands": [],
+    "passed": None,
+    "session_exit_code": exit_code,
+    "notes": ["No verification commands were captured by the codexea shim."],
+}
+
+diff_sections: list[str] = []
+if commit_range:
+    committed = run_git("diff", "--stat", "--compact-summary", commit_range, "--")
+    if committed:
+        diff_sections.append(f"Committed since session start ({commit_range}):\n{committed}")
+unstaged = run_git("diff", "--stat", "--compact-summary", "--")
+if unstaged:
+    diff_sections.append(f"Unstaged worktree diff:\n{unstaged}")
+staged = run_git("diff", "--cached", "--stat", "--compact-summary", "--")
+if staged:
+    diff_sections.append(f"Staged worktree diff:\n{staged}")
+untracked = run_git("ls-files", "--others", "--exclude-standard")
+if untracked:
+    diff_sections.append(
+        "Untracked files:\n" + "\n".join(f"- {line.strip()}" for line in untracked.splitlines() if line.strip())
+    )
+diff_summary = "\n\n".join(section for section in diff_sections if section).strip()
+if len(diff_summary) > 4000:
+    diff_summary = diff_summary[:3997].rstrip() + "..."
+
+if not objective:
+    objective = f"Interactive CodexEA slice in {cwd or root}"
+
+warnings = ["no_verification_captured_by_shim", "review_packet_derived_from_git_state"]
+if exit_code != 0:
+    warnings.append(f"session_exit_nonzero:{exit_code}")
+if not changed_files:
+    warnings.append("no_git_delta_detected")
+
+final_claim = (
+    f"CodexEA lane={lane or 'unknown'} submode={submode or 'unknown'} exited with code {exit_code} "
+    f"and produced the reported git delta."
+)
+
+packet = {
+    "objective": objective,
+    "changed_files": changed_files,
+    "diff_summary": diff_summary,
+    "verification": verification,
+    "warnings": warnings,
+    "final_claim": final_claim,
+}
+review_prompt = (
+    "Perform a light post-hoc review of this completed coding slice. "
+    "Use only the compact packet. Focus on obvious factual errors, risky claims, missing verification, "
+    "and likely regressions. Keep the output concise.\n\n"
+    + json.dumps(packet, ensure_ascii=True, indent=2)
+)
+request_payload = {
+    "model": model,
+    "input": review_prompt,
+    "metadata": {
+        "codexea_post_audit": True,
+        "codexea_lane": lane,
+        "codexea_submode": submode,
+        "codexea_git_root": root,
+        "codexea_review_packet": packet,
+    },
+}
+target.write_text(json.dumps(request_payload, ensure_ascii=True), encoding="utf-8")
+PY
+}
+
+emit_post_audit_request() {
+  local review_file="$1"
+  local token="${EA_MCP_API_TOKEN:-${EA_API_TOKEN:-}}"
+  local -a curl_args=(curl -fsS -H "X-EA-Principal-ID: ${EA_PRINCIPAL_ID:-archon-codex-ea}" -H "Content-Type: application/json")
+
+  env_truthy "${CODEXEA_POST_AUDIT}" || return 0
+  [ -f "${review_file}" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  if [ -n "${token}" ]; then
+    curl_args+=(-H "Authorization: Bearer ${token}")
+  fi
+  curl_args+=(-d @"${review_file}" "${EA_BASE_URL%/}/v1/codex/review-light")
+  if env_truthy "${CODEXEA_POST_AUDIT_ASYNC}"; then
+    nohup "${curl_args[@]}" >/dev/null 2>&1 &
+  else
+    "${curl_args[@]}" >/dev/null 2>&1 || true
+  fi
+}
+
+show_status() {
+  local want_json=0
+  local refresh=0
+  local startup_compact=0
+  local watch_seconds=""
+  local window="1h"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json)
+        want_json=1
+        ;;
+      --startup)
+        startup_compact=1
+        ;;
+      --refresh)
+        refresh=1
+        ;;
+      --watch)
+        shift
+        watch_seconds="${1:-30}"
+        ;;
+      --window)
+        shift
+        window="${1:-1h}"
+        ;;
+      *)
+        echo "Unknown status flag: $1" >&2
+        return 2
+        ;;
+    esac
+    shift || true
+  done
+  local -a curl_args=(curl -fsS -H "X-EA-Principal-ID: ${EA_MCP_PRINCIPAL_ID}")
+  local api_token="${EA_MCP_API_TOKEN:-${EA_API_TOKEN:-}}"
+  local status_url="${EA_STATUS_URL}?window=${window}&refresh=${refresh}"
+  local body=""
+  if [ -n "${api_token}" ]; then
+    curl_args+=(-H "Authorization: Bearer ${api_token}")
+  fi
+  if [ -n "${watch_seconds}" ]; then
+    local -a watch_args=()
+    if [ "${want_json}" -eq 1 ]; then
+      watch_args+=(--json)
+    fi
+    if [ "${refresh}" -eq 1 ]; then
+      watch_args+=(--refresh)
+    fi
+    watch_args+=(--window "${window}")
+    while true; do
+      clear
+      show_status "${watch_args[@]}"
+      sleep "${watch_seconds}"
+    done
+  fi
+  if ! body="$("${curl_args[@]}" "${status_url}" 2>/dev/null)"; then
+    body="$("${curl_args[@]}" "${EA_PROFILES_URL}" 2>/dev/null)" || {
+      if [ -z "${api_token}" ]; then
+        echo "EA status unavailable from ${status_url} and fallback ${EA_PROFILES_URL}; EA_MCP_API_TOKEN / EA_API_TOKEN is not configured" >&2
+      else
+        echo "EA status unavailable from ${status_url} and fallback ${EA_PROFILES_URL}" >&2
+      fi
+      return 1
+    }
+  fi
+  if [ "${want_json}" -eq 1 ] || ! [ -t 1 ] || ! command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' "${body}"
+    return
+  fi
+  CODEXEA_STATUS_BODY="${body}" CODEXEA_STATUS_STARTUP_COMPACT="${startup_compact}" python3 - <<'PY'
+import json, os, sys
+
+def fmt(value):
+    if value is None or value == "":
+        return "n/a"
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return f"{value:.2f}"
+    return str(value)
+
+def line(parts, widths):
+    return "  ".join(str(part).ljust(width) for part, width in zip(parts, widths))
+
+payload = json.loads(os.environ["CODEXEA_STATUS_BODY"])
+workspace = os.path.basename(os.getcwd()) or os.getcwd()
+principal = os.environ.get("EA_MCP_PRINCIPAL_ID") or os.environ.get("EA_PRINCIPAL_ID") or "unknown"
+startup_compact = os.environ.get("CODEXEA_STATUS_STARTUP_COMPACT") == "1"
+
+if startup_compact:
+    if "providers_summary" in payload:
+        providers = payload.get("providers_summary") or []
+        ready = sum(1 for row in providers if row.get("state") == "ready")
+        degraded = sum(1 for row in providers if row.get("state") == "degraded")
+        cooldown = sum(1 for row in providers if row.get("state") == "cooldown")
+        burn_1h = ((payload.get("fleet_burn") or {}).get("1h") or {}).get("provider_credits") or {}
+        print(
+            "CodexEA startup:"
+            f" lane {fmt(payload.get('default_profile'))}->{fmt(payload.get('default_lane'))}"
+            f" | ready {ready}"
+            f" | degraded {degraded}"
+            f" | cooldown {cooldown}"
+            f" | 1h 1min burn {fmt(burn_1h.get('onemin'))} cr"
+        )
+    else:
+        providers = ((payload.get("provider_health") or {}).get("providers") or {})
+        ready = sum(1 for row in providers.values() if row.get("state") == "ready")
+        degraded = sum(1 for row in providers.values() if row.get("state") == "degraded")
+        print(
+            "CodexEA startup:"
+            f" workspace {workspace}"
+            f" | principal {principal}"
+            f" | ready {ready}"
+            f" | degraded {degraded}"
+        )
+    sys.exit(0)
+
+if "providers_summary" not in payload:
+    provider_health = payload.get("provider_health") or {}
+    providers = provider_health.get("providers") or {}
+    print("CodexEA / Fleet Status")
+    print(f"Workspace: {workspace}")
+    print(f"Principal: {principal}")
+    print("EA status basis: profiles_fallback")
+    print("")
+    print("Profiles")
+    profile_headers = ["Profile", "Lane", "Model", "Providers", "Review", "Merge"]
+    profile_rows = []
+    for row in payload.get("profiles") or []:
+        profile_rows.append([
+            row.get("profile"),
+            row.get("lane"),
+            row.get("model"),
+            ", ".join(row.get("provider_hint_order") or []),
+            "yes" if row.get("review_required") else "no",
+            row.get("merge_policy"),
+        ])
+    widths = [max(len(str(h)), max((len(fmt(r[i])) for r in profile_rows), default=0)) for i, h in enumerate(profile_headers)]
+    print(line(profile_headers, widths))
+    for row in profile_rows:
+        print(line([fmt(item) for item in row], widths))
+    print("")
+    print("Providers")
+    provider_headers = ["Provider", "Backend", "Configured", "State", "Remain%", "Burn/hr", "ETA"]
+    provider_rows = []
+    for key, row in providers.items():
+        provider_rows.append([
+            key,
+            row.get("backend"),
+            row.get("configured_slots"),
+            row.get("state"),
+            row.get("remaining_percent_of_max"),
+            row.get("estimated_burn_credits_per_hour"),
+            row.get("estimated_hours_remaining_at_current_pace"),
+        ])
+    widths = [max(len(str(h)), max((len(fmt(r[i])) for r in provider_rows), default=0)) for i, h in enumerate(provider_headers)]
+    print(line(provider_headers, widths))
+    for row in provider_rows:
+        print(line([fmt(item) for item in row], widths))
+    sys.exit(0)
+
+provider_health = payload.get("provider_health") or {}
+providers = provider_health.get("providers") or {}
+print("CodexEA / Fleet Status")
+print(f"Workspace: {workspace}")
+print(f"Principal: {principal}")
+print(f"Lane default: {fmt(payload.get('default_profile'))} -> {fmt(payload.get('default_lane'))}")
+print(f"EA status basis: {fmt(payload.get('status_basis'))}")
+print("")
+print("External providers")
+headers = ["Provider", "Account", "Free", "Used%", "Basis", "Burn/hr", "ETA", "State"]
+rows = []
+for row in payload.get("providers_summary") or []:
+    rows.append([
+        row.get("provider_name"),
+        row.get("account_name"),
+        row.get("free_credits"),
+        row.get("used_percent"),
+        row.get("basis"),
+        row.get("burn_credits_per_hour"),
+        row.get("hours_remaining_at_current_pace"),
+        row.get("state"),
+    ])
+widths = [max(len(str(h)), max((len(fmt(r[i])) for r in rows), default=0)) for i, h in enumerate(headers)]
+print(line(headers, widths))
+for row in rows:
+    print(line([fmt(item) for item in row], widths))
+print("")
+print("Fleet burn windows")
+for key in ("1h", "24h", "7d"):
+    burn = (payload.get("fleet_burn") or {}).get(key) or {}
+    lane_requests = burn.get("lane_requests") or {}
+    provider_credits = burn.get("provider_credits") or {}
+    summary = [f"1min {fmt(provider_credits.get('onemin'))} cr"]
+    for lane_key in ("fast", "hard", "audit", "survival"):
+        if lane_key in lane_requests:
+            summary.append(f"{lane_key} {fmt(lane_requests.get(lane_key))} req")
+    print(f"{key}:   " + " | ".join(summary))
+print("")
+avoided = ((payload.get("avoided_credits") or {}).get("selected_window") or {})
+avoided_text = ((payload.get("avoided_credits") or {}).get("selected_window_text") or {})
+print("Savings")
+print(avoided_text.get("easy", "No measurable easy lane savings yet in this window."))
+print(avoided_text.get("jury", "No measurable jury lane savings yet in this window."))
+print(f"Total avoided credits in {fmt(payload.get('window'))}: {fmt(avoided.get('total_avoided_credits'))}")
+print("")
+topup = payload.get("topup_summary") or {}
+print("Top-up / sustainability")
+print(f"Last actual balance check: {fmt(topup.get('last_actual_balance_check_at'))}")
+events = topup.get("topup_events") or []
+if events:
+    first = events[0]
+    print(f"Top-up detected: {fmt(first.get('happened_at'))} (+{fmt(first.get('topup_delta'))})")
+else:
+    print("Top-up detected: none")
+print(f"ETA at current pace: {fmt(topup.get('hours_remaining_at_current_pace'))}")
+billing = payload.get("onemin_billing_aggregate") or {}
+if billing:
+    print(f"Next top-up at: {fmt(billing.get('next_topup_at'))}")
+    print(f"Top-up amount: {fmt(billing.get('topup_amount'))}")
+    print(f"Hours until top-up: {fmt(billing.get('hours_until_next_topup'))}")
+    print(f"No top-up ETA at current pace: {fmt(billing.get('hours_remaining_at_current_pace_no_topup'))}")
+    print(f"ETA incl. next top-up at current pace: {fmt(billing.get('hours_remaining_including_next_topup_at_current_pace'))}")
+    print(f"ETA incl. next top-up at 7d avg: {fmt(billing.get('days_remaining_including_next_topup_at_7d_avg'))}")
+    print(f"Depletes before next top-up: {fmt(billing.get('depletes_before_next_topup'))}")
+PY
+}
+
+REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
+LANE_WAS_EXPLICIT=0
+case "${1:-}" in
+  easy|repair|groundwork|core|jury|auto|survival)
+    REQUESTED_LANE="$1"
+    LANE_WAS_EXPLICIT=1
+    shift
+    ;;
+  stop)
+    touch "${CODEXEA_STOP_FILE}"
+    echo "codexea stop latch set at ${CODEXEA_STOP_FILE}"
+    exit 0
+    ;;
+  status)
+    shift
+    show_status "$@"
+    exit 0
+    ;;
+  credits|onemin)
+    shift
+    if [ -f "${ROUTE_HELPER}" ]; then
+      ROUTE_ARGS=(--onemin-aggregate)
+      if [ "${CODEXEA_CREDITS_INCLUDE_BILLING}" != "0" ]; then
+        ROUTE_ARGS+=(--billing)
+      fi
+      exec python3 "${ROUTE_HELPER}" "${ROUTE_ARGS[@]}" "$@"
+    fi
+    echo "Missing CodexEA route helper for live 1min aggregate output" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "${CODEXEA_WATCHDOG_ACTIVE:-}" ]; then
+  rm -f "${CODEXEA_STOP_FILE}"
+fi
+
+if { [ "$#" -eq 0 ] || args_request_interactive_session "$@"; } && [ "${CODEXEA_STARTUP_STATUS}" != "0" ] && [ -t 1 ]; then
+  show_status --startup --refresh || true
+  printf '\n'
+fi
+
+if [ "$#" -gt 0 ] && [ -f "${ROUTE_HELPER}" ] && ! args_request_interactive_session "$@"; then
+  TELEMETRY_ARGS=("$@")
+  if [ "${LANE_WAS_EXPLICIT}" -eq 1 ]; then
+    TELEMETRY_ARGS=("${REQUESTED_LANE}" "${TELEMETRY_ARGS[@]}")
+  fi
+  set +e
+  TELEMETRY_OUTPUT="$(python3 "${ROUTE_HELPER}" --telemetry-answer "${TELEMETRY_ARGS[@]}" 2>&1)"
+  TELEMETRY_RC=$?
+  set -e
+  if [ "${TELEMETRY_RC}" -eq 0 ]; then
+    printf '%s\n' "${TELEMETRY_OUTPUT}"
+    exit 0
+  fi
+  if [ "${TELEMETRY_RC}" -ne 10 ]; then
+    printf '%s\n' "${TELEMETRY_OUTPUT}" >&2
+    exit "${TELEMETRY_RC}"
+  fi
+fi
+
+EFFECTIVE_LANE="${REQUESTED_LANE}"
+EFFECTIVE_SUBMODE=""
+POST_AUDIT_THIS_RUN=0
+if [ "${EFFECTIVE_LANE}" = "auto" ] || [ "${EFFECTIVE_LANE}" = "easy" ]; then
+  EFFECTIVE_LANE="easy"
+  EFFECTIVE_SUBMODE="mcp"
+  EFFECTIVE_REASON="mcp_easy_locked"
+  POST_AUDIT_THIS_RUN=1
+else
+  EFFECTIVE_REASON="explicit_lane_requested"
+fi
+
+if [ "${EFFECTIVE_LANE}" = "easy" ] && has_explicit_runtime_override "$@"; then
+  echo "codexea easy is locked to MCP easy; remove model/provider/profile overrides or use an explicit lane wrapper" >&2
+  exit 2
+fi
+
+if [ "${EFFECTIVE_LANE}" = "easy" ] && [ -n "${CODEXEA_MODE_OVERRIDE}" ]; then
+  if ! env_truthy "${CODEXEA_ALLOW_EASY_MODE_OVERRIDE}"; then
+    echo "codexea easy is locked to MCP; CODEXEA_MODE override is disabled unless CODEXEA_ALLOW_EASY_MODE_OVERRIDE=1 for debugging" >&2
+    exit 2
+  fi
+  case "${CODEXEA_MODE_OVERRIDE}" in
+    responses|mcp)
+      EFFECTIVE_SUBMODE="${CODEXEA_MODE_OVERRIDE}"
+      ;;
+    *)
+      echo "Unsupported CODEXEA_MODE override on easy: ${CODEXEA_MODE_OVERRIDE} (expected: responses or mcp)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+MODE=""
+MODEL=""
+REASONING=""
+case "${EFFECTIVE_LANE}" in
+  easy)
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-mcp}}"
+    case "${EFFECTIVE_SUBMODE}" in
+      responses_easy|responses_fast|responses)
+        MODE="responses"
+        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-ea-gemini-flash}}"
+        REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
+        ;;
+      mcp)
+        MODE="mcp"
+        MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-}}"
+        REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
+        export EA_MCP_MODEL="${EA_MCP_MODEL:-${CODEXEA_EASY_MCP_MODEL:-gemini-2.5-flash}}"
+        ;;
+      *)
+        echo "Unsupported CODEXEA easy submode: ${EFFECTIVE_SUBMODE} (expected: responses_easy, responses_fast, responses, or mcp)" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  repair)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_REPAIR_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_REPAIR_MODEL:-ea-coder-fast}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_REPAIR_REASONING_EFFORT:-low}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_fast}"
+    ;;
+  groundwork)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_GROUNDWORK_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork-gemini}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_GROUNDWORK_REASONING_EFFORT:-medium}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_groundwork}"
+    ;;
+  core)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_CORE_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_CORE_MODEL:-ea-coder-hard}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_CORE_REASONING_EFFORT:-high}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_core}"
+    ;;
+  jury)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_JURY_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_JURY_MODEL:-ea-audit-jury}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_JURY_REASONING_EFFORT:-medium}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_audit}"
+    BOOTSTRAP_PROMPT_FILE="${JURY_BOOTSTRAP_PROMPT_FILE}"
+    ;;
+  survival)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_SURVIVAL_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_SURVIVAL_MODEL:-ea-coder-survival}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_SURVIVAL_REASONING_EFFORT:-low}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_survival}"
+    ;;
+  *)
+    echo "Unsupported CODEXEA lane: ${EFFECTIVE_LANE} (expected: easy, repair, groundwork, core, jury, auto, survival)" >&2
+    exit 2
+    ;;
+esac
+
+if [ "${MODE}" = "responses" ]; then
+  LIVE_PROFILE_MODEL="$(live_profile_model_for_lane "${EFFECTIVE_LANE}" 2>/dev/null || true)"
+  if [ -n "${LIVE_PROFILE_MODEL}" ]; then
+    MODEL="${LIVE_PROFILE_MODEL}"
+    case "${EFFECTIVE_LANE}" in
+      easy|repair)
+        EFFECTIVE_SUBMODE="responses_fast"
+        ;;
+      groundwork)
+        EFFECTIVE_SUBMODE="responses_groundwork"
+        ;;
+      core)
+        EFFECTIVE_SUBMODE="responses_core"
+        ;;
+      jury)
+        EFFECTIVE_SUBMODE="responses_audit"
+        ;;
+      survival)
+        EFFECTIVE_SUBMODE="responses_survival"
+        ;;
+    esac
+  fi
+fi
+
+export CODEXEA_LANE="${EFFECTIVE_LANE}"
+export CODEXEA_SUBMODE="${EFFECTIVE_SUBMODE}"
+EA_DEFAULT_ARGS=()
+BASE_PROFILE_ARGS=()
+INTERACTIVE_ARGS=()
+
+if [ "${CODEXEA_NO_ALT_SCREEN}" != "0" ]; then
+  INTERACTIVE_ARGS+=(--no-alt-screen)
+fi
+
+case "${MODE}" in
+  mcp)
+    if [ -n "${MODEL}" ]; then
+      EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
+    fi
+    ;;
+  responses)
+    EA_AUTH_TOKEN="${EA_API_TOKEN:-${EA_MCP_API_TOKEN:-}}"
+    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\"}"
+    if [ -n "${EA_AUTH_TOKEN:-}" ]; then
+      EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\"}"
+    fi
+    EA_DEFAULT_ARGS+=(
+      -c 'model_provider="ea"'
+      -c "model=\"${MODEL}\""
+      -c 'model_providers.ea.name="Executive Assistant"'
+      -c "model_providers.ea.base_url=\"${EA_BASE_URL%/}/v1\""
+      -c 'model_providers.ea.wire_api="responses"'
+      -c "model_providers.ea.http_headers=${EA_HEADERS}"
+      -c 'model_providers.ea.stream_idle_timeout_ms=300000'
+      -c 'model_providers.ea.stream_max_retries=5'
+    )
+    ;;
+  *)
+    echo "Unsupported CODEXEA mode: ${MODE} (expected: mcp or responses)" >&2
+    exit 3
+    ;;
+esac
+
+if [ -n "${REASONING}" ]; then
+  EA_DEFAULT_ARGS+=(-c "model_reasoning_effort=\"${REASONING}\"")
+fi
+
+mapfile -d '' BASE_PROFILE_ARGS < <(build_base_profile_args "$@")
+mapfile -d '' ADJUSTED_ARGS < <(inject_bootstrap_prompt "$@")
+INTERACTIVE_SESSION_REQUEST=0
+if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] || args_request_interactive_session "${ADJUSTED_ARGS[@]}"; then
+  INTERACTIVE_SESSION_REQUEST=1
+fi
+EXEC_SESSION_REQUEST=0
+if args_request_exec_session "${ADJUSTED_ARGS[@]}"; then
+  EXEC_SESSION_REQUEST=1
+  mapfile -d '' EXEC_SESSION_ARGS < <(wrap_prompt_invocation_with_exec "${ADJUSTED_ARGS[@]}")
+else
+  EXEC_SESSION_ARGS=()
+fi
+INTERACTIVE_SESSION_WITH_FLAGS=0
+if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && args_request_interactive_session "${ADJUSTED_ARGS[@]}"; then
+  INTERACTIVE_SESSION_WITH_FLAGS=1
+  mapfile -d '' INTERACTIVE_SESSION_ARGS < <(strip_interactive_request_flags "${ADJUSTED_ARGS[@]}")
+else
+  INTERACTIVE_SESSION_ARGS=()
+fi
+
+if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ -n "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && { [ -n "${CODEXEA_WATCHDOG_RESUME_SESSION_ID:-}" ] || [ -n "${CODEXEA_WATCHDOG_RESUME_PROMPT+x}" ]; }; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  if [ -n "${CODEXEA_WATCHDOG_RESUME_SESSION_ID:-}" ]; then
+    if [ -n "${CODEXEA_WATCHDOG_RESUME_PROMPT}" ]; then
+      CODEXEA_CMD+=(resume "${CODEXEA_WATCHDOG_RESUME_SESSION_ID}" "${CODEXEA_WATCHDOG_RESUME_PROMPT}")
+    else
+      CODEXEA_CMD+=(resume "${CODEXEA_WATCHDOG_RESUME_SESSION_ID}")
+    fi
+  elif [ -n "${CODEXEA_WATCHDOG_RESUME_PROMPT}" ]; then
+    CODEXEA_CMD+=(resume --last "${CODEXEA_WATCHDOG_RESUME_PROMPT}")
+  else
+    CODEXEA_CMD+=(resume --last)
+  fi
+elif [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ -n "${CODEXEA_WATCHDOG_ACTIVE:-}" ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  if [ -n "${CODEXEA_STARTUP_PROMPT}" ]; then
+    CODEXEA_CMD+=("${CODEXEA_STARTUP_PROMPT}")
+  fi
+elif [ "${INTERACTIVE_SESSION_WITH_FLAGS}" -eq 1 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${INTERACTIVE_SESSION_ARGS[@]}")
+elif [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ] && [ "${#ADJUSTED_ARGS[@]}" -gt 0 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${EXEC_SESSION_ARGS[@]}")
+  if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
+    export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
+  fi
+elif [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
+  BOOTSTRAP_PROMPT="$(cat "${BOOTSTRAP_PROMPT_FILE}")"
+  BOOTSTRAP_PROMPT+=$'\n\n'"Start now in $(pwd). Account for the startup status already shown, then continue the next unfinished slice."
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${BOOTSTRAP_PROMPT}")
+  if [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
+    export CODEXEA_POST_AUDIT_OBJECTIVE="Continue the next unfinished slice in $(pwd)."
+  fi
+else
+  CODEXEA_CMD=("${REAL_CODEX}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+  if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
+    export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
+  fi
+fi
+
+emit_startup_trace "$(
+  if [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ]; then
+    printf '%s' "start_interactive_session"
+  elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
+    printf '%s' "start_exec_session"
+  else
+    printf '%s' "start_prompt_session"
+  fi
+)"
+
+if [ "${POST_AUDIT_THIS_RUN}" -eq 1 ] && capture_post_audit_context; then
+  set +e
+  "${CODEXEA_CMD[@]}"
+  CODEXEA_EXIT=$?
+  set -e
+  export CODEXEA_POST_AUDIT_EXIT_CODE="${CODEXEA_EXIT}"
+  REVIEW_REQUEST_FILE="${CODEXEA_STATE_DIR}/post-audit-latest.json"
+  rm -f "${REVIEW_REQUEST_FILE}"
+  if build_post_audit_request "${REVIEW_REQUEST_FILE}"; then
+    emit_post_audit_request "${REVIEW_REQUEST_FILE}"
+  fi
+  exit "${CODEXEA_EXIT}"
+fi
+
+exec "${CODEXEA_CMD[@]}"
