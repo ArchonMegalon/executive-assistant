@@ -14,6 +14,11 @@ from app.domain.models import (
     now_utc_iso,
     validate_plan_spec,
 )
+from app.services.browseract_ui_service_catalog import (
+    BrowserActUiServiceDefinition,
+    browseract_ui_service_by_capability,
+    browseract_ui_service_by_tool,
+)
 from app.services.brain_router import BrainRouterService
 from app.services.provider_registry import CapabilityRoute, ProviderRegistryService
 from app.services.task_contracts import TaskContractService
@@ -23,6 +28,10 @@ from app.services.tool_execution_common import ToolExecutionError
 def _tool_authority_class(tool_name: str) -> str:
     normalized = str(tool_name or "").strip()
     if normalized == "connector.dispatch":
+        return "execute"
+    if normalized == "browseract.crezlo_property_tour":
+        return "execute"
+    if browseract_ui_service_by_tool(normalized) is not None:
         return "execute"
     if normalized in {"browseract.extract_account_facts", "browseract.extract_account_inventory"}:
         return "observe"
@@ -332,15 +341,133 @@ class PlannerService:
             return self._build_browseract_workflow_spec_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
         if capability == "workflow_spec_repair":
             return self._build_browseract_workflow_repair_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+        if capability == "crezlo_property_tour":
+            return self._build_browseract_crezlo_property_tour_step(
+                contract=contract,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+            )
+        ui_service = browseract_ui_service_by_capability(capability)
+        if ui_service is not None:
+            return self._build_browseract_ui_service_step(
+                contract=contract,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                service=ui_service,
+            )
         if capability == "structured_generate":
             return self._build_structured_generate_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
 
     def _additional_artifact_inputs_for_pre_artifact_capability(self, capability_key: str) -> tuple[str, ...]:
         normalized = str(capability_key or "").strip()
-        if normalized in {"account_facts", "account_inventory", "workflow_spec_build", "workflow_spec_repair", "structured_generate"}:
+        if browseract_ui_service_by_capability(normalized) is not None:
+            return ("structured_output_json", "preview_text", "mime_type")
+        if normalized in {
+            "account_facts",
+            "account_inventory",
+            "workflow_spec_build",
+            "workflow_spec_repair",
+            "crezlo_property_tour",
+            "structured_generate",
+        }:
             return ("structured_output_json", "preview_text", "mime_type")
         return ()
+
+    def _build_browseract_crezlo_property_tour_step(
+        self,
+        *,
+        contract: TaskContract,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="browseract",
+        )
+        timeout_budget_seconds = contract.runtime_policy().browseract_timeout_budget_seconds
+        return PlanStepSpec(
+            step_key="step_browseract_crezlo_property_tour",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="property_tour_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=timeout_budget_seconds,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=(
+                "binding_id",
+                "tour_title",
+                "property_url",
+            ),
+            output_keys=(
+                "tour_title",
+                "tour_status",
+                "tour_id",
+                "slug",
+                "share_url",
+                "editor_url",
+                "public_url",
+                "workspace_id",
+                "workspace_domain",
+                "creation_mode",
+                "scene_count",
+                "workflow_id",
+                "task_id",
+                "requested_url",
+                "normalized_text",
+                "preview_text",
+                "mime_type",
+                "structured_output_json",
+            ),
+        )
+
+    def _build_browseract_ui_service_step(
+        self,
+        *,
+        contract: TaskContract,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        service: BrowserActUiServiceDefinition,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="browseract",
+        )
+        timeout_budget_seconds = contract.runtime_policy().browseract_timeout_budget_seconds
+        input_keys = ("binding_id", *service.required_top_level_inputs)
+        output_keys = list(service.output_schema_json().get("properties", {}).keys())
+        for key in ("normalized_text", "preview_text", "mime_type"):
+            if key not in output_keys:
+                output_keys.append(key)
+        return PlanStepSpec(
+            step_key=f"step_browseract_{service.service_key}",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact=service.deliverable_type,
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=timeout_budget_seconds,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=input_keys,
+            output_keys=tuple(output_keys),
+        )
 
     def _build_browseract_workflow_spec_step(
         self,

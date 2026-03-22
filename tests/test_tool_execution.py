@@ -15,6 +15,8 @@ from app.repositories.connector_bindings import InMemoryConnectorBindingReposito
 from app.repositories.evidence_objects import InMemoryEvidenceObjectRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.channel_runtime import ChannelRuntimeService
+from app.services.browseract_ui_service_catalog import browseract_ui_service_by_service_key
+from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
 from app.services.provider_registry import ProviderBinding, ProviderCapability, ProviderRegistryService
@@ -3533,6 +3535,297 @@ def test_tool_execution_service_executes_template_backed_ui_worker_without_workf
     assert result.output_json["structured_output_json"]["requested_inputs"]["page_url"] == (
         "https://paperguide.ai/workspace/research"
     )
+
+
+def test_browseract_ui_template_spec_waits_for_direct_login_fields() -> None:
+    spec = browseract_ui_template_spec("approvethis_queue_reader")
+    assert spec["meta"]["authorized_credential_queries"] == ["approvethis.com"]
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert "wait_login_form" in node_ids
+    wait_node = next(node for node in spec["nodes"] if node.get("id") == "wait_login_form")
+    assert wait_node["type"] == "wait"
+    assert wait_node["config"]["timeout_ms"] == 45000
+    assert ["open_login", "wait_login_form"] in spec["edges"]
+    assert ["wait_login_form", "email"] in spec["edges"]
+
+
+def test_browseract_ui_template_spec_waits_for_google_entry_before_click() -> None:
+    spec = browseract_ui_template_spec("paperguide_workspace_reader")
+    assert spec["meta"]["auth_flow"] == "google_oauth"
+    assert spec["meta"]["authorized_credential_queries"] == ["google.com"]
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert "wait_google_entry" in node_ids
+    wait_node = next(node for node in spec["nodes"] if node.get("id") == "wait_google_entry")
+    assert wait_node["type"] == "wait"
+    assert wait_node["config"]["selector"] == (
+        "button:has-text(\"Login with Google\"), a:has-text(\"Login with Google\")"
+    )
+    assert ["open_login", "wait_google_entry"] in spec["edges"]
+    assert ["wait_google_entry", "enter_google"] in spec["edges"]
+
+
+def test_browseract_ui_template_spec_omits_dismiss_overlay_clicks_by_default() -> None:
+    spec = browseract_ui_template_spec("documentation_ai_workspace_reader")
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert "wait_google_entry" in node_ids
+    assert not any(node_id.startswith("dismiss_") for node_id in node_ids)
+
+
+def test_browseract_ui_template_spec_omits_runtime_only_open_tool_node() -> None:
+    spec = browseract_ui_template_spec("documentation_ai_workspace_reader")
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert "open_tool" not in node_ids
+    assert spec["inputs"] == []
+    assert spec["meta"]["runtime_input_name"] == "page_url"
+
+
+def test_tool_execution_service_prefers_local_worker_for_template_backed_ui_service_even_with_workflow_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "approvethis_queue_reader_workflow_id": "wf-approvethis-1",
+            "service_accounts_json": {
+                "ApproveThis": {
+                    "account_email": "binding-approvethis@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["service_key"] = service_key
+        captured["packet"] = dict(packet)
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "service_key": "approvethis_queue_reader",
+            "result_title": "ApproveThis Queue",
+            "render_status": "completed",
+            "asset_path": "/tmp/approvethis-queue.html",
+            "mime_type": "text/html",
+            "editor_url": "https://app.approvethis.com/requests",
+            "raw_text": "ApproveThis queue captured.",
+            "structured_output_json": {
+                "service": "ApproveThis",
+                "template_key": "approvethis_queue_reader",
+                "render_status": "completed",
+            },
+        }
+
+    def _fake_run_workflow(self, *, workflow_id: str, input_values: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("template-backed remote BrowserAct workflow should not run by default")
+
+    def _fake_wait(self, *, task_id: str, timeout_seconds: int, created_stall_seconds: int = 120) -> dict[str, object]:
+        raise AssertionError("template-backed remote BrowserAct wait should not run by default")
+
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-template-pass")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_browseract_workflow_task_with_inputs", _fake_run_workflow)
+    monkeypatch.setattr(BrowserActToolAdapter, "_wait_for_browseract_task", _fake_wait)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-approvethis-live-1",
+            step_id="step-browseract-approvethis-live-1",
+            tool_name="browseract.approvethis_queue_reader",
+            action_kind="workspace.capture",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "title": "ApproveThis Queue",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    packet = dict(captured["packet"])
+    assert captured["service_key"] == "approvethis_queue_reader"
+    assert captured["timeout_seconds"] == 360
+    assert packet["workflow_id"] == "wf-approvethis-1"
+    assert packet["browseract_username"] == "binding-approvethis@example.com"
+    assert packet["browseract_password"] == "env-template-pass"
+    assert packet["template_key"] == "approvethis_queue_reader"
+    assert packet["workflow_spec_json"]["meta"]["slug"] == "approvethis_queue_reader"
+    assert packet["workflow_spec_json"]["meta"]["workflow_kind"] == "page_extract"
+    assert result.output_json["editor_url"] == "https://app.approvethis.com/requests"
+    assert result.output_json["workflow_id"] == "wf-approvethis-1"
+    assert result.output_json["requested_url"] == "browseract://workflow/wf-approvethis-1"
+
+
+def test_tool_execution_service_falls_back_to_remote_browseract_when_template_worker_hits_auth_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "paperguide_workspace_reader_workflow_id": "wf-paperguide-1",
+            "service_accounts_json": {
+                "Paperguide": {
+                    "account_email": "binding-paperguide@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["packet"] = dict(packet)
+        return {
+            "service_key": "paperguide_workspace_reader",
+            "result_title": "Paperguide Workspace",
+            "render_status": "auth_handoff_required",
+            "editor_url": "https://accounts.google.com/signin/v2/identifier",
+            "raw_text": "Sign in with Google to continue.",
+            "structured_output_json": {
+                "service": "Paperguide",
+                "template_key": "paperguide_workspace_reader",
+                "auth_handoff": {"state": "auth_handoff_required", "provider": "google"},
+            },
+        }
+
+    def _fake_run_workflow(self, *, workflow_id: str, input_values: dict[str, object]) -> dict[str, object]:
+        captured["workflow_id"] = workflow_id
+        captured["workflow_inputs"] = dict(input_values)
+        return {"task_id": "task-paperguide-1"}
+
+    def _fake_wait(self, *, task_id: str, timeout_seconds: int, created_stall_seconds: int = 120) -> dict[str, object]:
+        captured["task_id"] = task_id
+        return {
+            "status": "completed",
+            "output": {
+                "public_url": "https://ea.girschele.com/results/paperguide-workspace-remote",
+                "editor_url": "https://paperguide.ai/workspace/research",
+                "page_body": "Paperguide workspace captured remotely.",
+            },
+        }
+
+    monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-template-pass")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_browseract_workflow_task_with_inputs", _fake_run_workflow)
+    monkeypatch.setattr(BrowserActToolAdapter, "_wait_for_browseract_task", _fake_wait)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-paperguide-fallback-1",
+            step_id="step-browseract-paperguide-fallback-1",
+            tool_name="browseract.paperguide_workspace_reader",
+            action_kind="workspace.capture",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "page_url": "https://paperguide.ai/workspace/research",
+                "title": "Paperguide Workspace",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert captured["workflow_id"] == "wf-paperguide-1"
+    assert captured["task_id"] == "task-paperguide-1"
+    assert captured["workflow_inputs"]["page_url"] == "https://paperguide.ai/workspace/research"
+    assert captured["workflow_inputs"]["browseract_username"] == "binding-paperguide@example.com"
+    assert captured["workflow_inputs"]["browseract_password"] == "env-template-pass"
+    assert result.output_json["public_url"] == "https://ea.girschele.com/results/paperguide-workspace-remote"
+    assert result.output_json["editor_url"] == "https://paperguide.ai/workspace/research"
+    assert result.output_json["requested_url"] == "browseract://workflow/wf-paperguide-1"
+
+
+def test_wait_for_browseract_task_salvages_failed_optional_close_when_output_exists() -> None:
+    adapter = BrowserActToolAdapter(connector_dispatch=None)  # type: ignore[arg-type]
+    calls: list[tuple[str, str]] = []
+
+    def _fake_api_request(
+        method: str,
+        path: str,
+        *,
+        query: dict[str, str] | None = None,
+        timeout_seconds: int = 60,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        calls.append((method, path))
+        if path == "/get-task-status":
+            return {"status": "failed"}
+        if path == "/get-task":
+            return {
+                "status": "failed",
+                "task_failure_info": {
+                    "code": 5024,
+                    "message": "target element not found",
+                },
+                "steps": [
+                    {"step": 9, "status": "succeed", "step_goal": "Navigate to \"https://dashboard.documentation.ai/\""},
+                    {"step": 10, "status": "failed", "step_goal": "Click on \"button[aria-label='Close']\" (target element not found)"},
+                ],
+                "output": {
+                    "string": "Documentation.AI workspace captured remotely.",
+                    "editor_url": "https://dashboard.documentation.ai/",
+                },
+            }
+        raise AssertionError(path)
+
+    adapter._browseract_api_request = _fake_api_request  # type: ignore[method-assign]
+
+    task_body = adapter._wait_for_browseract_task(
+        task_id="task-docsai-1",
+        timeout_seconds=30,
+        created_stall_seconds=30,
+    )
+
+    assert task_body["status"] == "failed"
+    assert task_body["output"]["editor_url"] == "https://dashboard.documentation.ai/"
+    assert calls == [("GET", "/get-task-status"), ("GET", "/get-task")]
+
+
+def test_browseract_ui_payload_normalization_uses_task_body_when_output_is_empty() -> None:
+    service = browseract_ui_service_by_service_key("documentation_ai_workspace_reader")
+    assert service is not None
+    normalized = BrowserActToolAdapter._normalize_browseract_ui_service_payload(
+        service=service,
+        response={
+            "status": "failed",
+            "live_url": "https://www.browseract.com/remote/docsai-live",
+            "task_failure_info": {"code": 5024, "message": "target element not found"},
+            "steps": [
+                {"step": 9, "status": "succeed", "step_goal": "Navigate to \"https://dashboard.documentation.ai/\""},
+                {"step": 10, "status": "failed", "step_goal": "Click on \"button[aria-label='Close']\" (target element not found)"},
+            ],
+            "output": {"string": "", "files": None},
+        },
+        workflow_id="wf-docsai-1",
+        requested_url="browseract://workflow/wf-docsai-1",
+        requested_inputs={"page_url": "https://dashboard.documentation.ai/"},
+        result_title="Documentation AI Smoke",
+    )
+    assert normalized["public_url"] == "https://www.browseract.com/remote/docsai-live"
+    assert normalized["render_status"] == "failed"
 
 
 def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_remote_assets_without_browseract_workflow(

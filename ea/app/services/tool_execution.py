@@ -4,6 +4,7 @@ from typing import Callable
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.repositories.artifacts import ArtifactRepository
+from app.services.browseract_ui_service_catalog import browseract_ui_service_definitions
 from app.services.channel_runtime import ChannelRuntimeService
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.provider_registry import ProviderRegistryService
@@ -65,6 +66,7 @@ class ToolExecutionService:
             ("browseract", "gemini_web_generate"): self._register_builtin_browseract_gemini_web_generate,
             ("browseract", "onemin_billing_usage"): self._register_builtin_browseract_onemin_billing_usage,
             ("browseract", "onemin_member_reconciliation"): self._register_builtin_browseract_onemin_member_reconciliation,
+            ("browseract", "crezlo_property_tour"): self._register_builtin_browseract_crezlo_property_tour,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
             ("onemin", "code_generate"): self._register_builtin_onemin_code_generate,
@@ -72,6 +74,10 @@ class ToolExecutionService:
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
             ("onemin", "media_transform"): self._register_builtin_onemin_media_transform,
         }
+        for ui_service in browseract_ui_service_definitions():
+            self._builtin_capability_registrars[("browseract", ui_service.capability_key)] = (
+                lambda capability_key=ui_service.capability_key: self._register_builtin_browseract_ui_service(capability_key)
+            )
         self._register_executable_provider_bindings()
 
     def register_handler(self, tool_name: str, handler: ToolExecutionHandler) -> None:
@@ -169,6 +175,15 @@ class ToolExecutionService:
     def _register_builtin_browseract_onemin_member_reconciliation(self) -> None:
         self._browseract_module.register_onemin_member_reconciliation(self.register_handler)
 
+    def _register_builtin_browseract_crezlo_property_tour(self) -> None:
+        self._browseract_module.register_crezlo_property_tour(self.register_handler)
+
+    def _register_builtin_browseract_ui_service(self, capability_key: str) -> None:
+        self._browseract_module.register_ui_service(
+            self.register_handler,
+            capability_key=capability_key,
+        )
+
     def _register_builtin_connector_dispatch(self) -> None:
         self._connector_dispatch_module.register_builtin(self.register_handler)
 
@@ -226,3 +241,15 @@ class ToolExecutionService:
     @_browseract_onemin_member_reconciliation.setter
     def _browseract_onemin_member_reconciliation(self, handler) -> None:
         self._browseract_module.onemin_member_reconciliation = handler
+
+    @property
+    def _browseract_crezlo_property_tour(self):
+        return self._browseract_module.crezlo_property_tour
+
+    @_browseract_crezlo_property_tour.setter
+    def _browseract_crezlo_property_tour(self, handler) -> None:
+        self._browseract_module.crezlo_property_tour = handler
+
+    @property
+    def _browseract_ui_service_callbacks(self) -> dict[str, object]:
+        return self._browseract_module.ui_service_callbacks

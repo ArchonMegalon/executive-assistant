@@ -1,0 +1,185 @@
+{
+  "workflow_name": "Documentation AI Workspace Reader",
+  "description": "Open the Documentation.AI workspace or docs surface and extract the visible document-generation workspace state for later automation refinement.",
+  "publish": true,
+  "mcp_ready": false,
+  "inputs": [],
+  "nodes": [
+    {
+      "id": "open_login",
+      "type": "visit_page",
+      "label": "Open Login",
+      "config": {
+        "url": "https://dashboard.documentation.ai/login"
+      }
+    },
+    {
+      "id": "wait_google_entry",
+      "type": "wait",
+      "label": "Wait Google Entry",
+      "config": {
+        "selector": "button:has-text(\"Continue with Google\"), a:has-text(\"Continue with Google\"), button:has-text(\"Google\"), a:has-text(\"Google\")",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "enter_google",
+      "type": "click",
+      "label": "Enter Google Sign-In",
+      "config": {
+        "selector": "button:has-text(\"Continue with Google\"), a:has-text(\"Continue with Google\"), button:has-text(\"Google\"), a:has-text(\"Google\")"
+      }
+    },
+    {
+      "id": "wait_google_email",
+      "type": "wait",
+      "label": "Wait Google Email",
+      "config": {
+        "selector": "input[type=email], input[name=identifier], input[autocomplete='username']",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "google_email",
+      "type": "input_text",
+      "label": "Google Email",
+      "config": {
+        "selector": "input[type=email], input[name=identifier], input[autocomplete='username']",
+        "value_from_secret": "browseract_username"
+      }
+    },
+    {
+      "id": "google_email_next",
+      "type": "click",
+      "label": "Google Email Next",
+      "config": {
+        "selector": "#identifierNext button, button:has-text(\"Next\"), [role='button']:has-text(\"Next\")"
+      }
+    },
+    {
+      "id": "wait_google_password",
+      "type": "wait",
+      "label": "Wait Google Password",
+      "config": {
+        "selector": "input[type=password], input[name=Passwd], input[autocomplete='current-password']",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "google_password",
+      "type": "input_text",
+      "label": "Google Password",
+      "config": {
+        "selector": "input[type=password], input[name=Passwd], input[autocomplete='current-password']",
+        "value_from_secret": "browseract_password"
+      }
+    },
+    {
+      "id": "google_password_next",
+      "type": "click",
+      "label": "Google Password Next",
+      "config": {
+        "selector": "#passwordNext button, button:has-text(\"Next\"), [role='button']:has-text(\"Next\")"
+      }
+    },
+    {
+      "id": "wait_content",
+      "type": "wait",
+      "label": "Wait Content",
+      "config": {
+        "selector": "main, article, [role='main'], body",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "extract_title",
+      "type": "extract",
+      "label": "Extract Title",
+      "config": {
+        "selector": "h1, h2",
+        "field_name": "page_title",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_result",
+      "type": "extract",
+      "label": "Extract Result",
+      "config": {
+        "selector": "main, article, [role='main'], body",
+        "field_name": "page_body",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "output_result",
+      "type": "output",
+      "label": "Output Result",
+      "config": {
+        "field_name": "page_body"
+      }
+    }
+  ],
+  "edges": [
+    [
+      "open_login",
+      "wait_google_entry"
+    ],
+    [
+      "wait_google_entry",
+      "enter_google"
+    ],
+    [
+      "enter_google",
+      "wait_google_email"
+    ],
+    [
+      "wait_google_email",
+      "google_email"
+    ],
+    [
+      "google_email",
+      "google_email_next"
+    ],
+    [
+      "google_email_next",
+      "wait_google_password"
+    ],
+    [
+      "wait_google_password",
+      "google_password"
+    ],
+    [
+      "google_password",
+      "google_password_next"
+    ],
+    [
+      "google_password_next",
+      "wait_content"
+    ],
+    [
+      "wait_content",
+      "extract_title"
+    ],
+    [
+      "extract_title",
+      "extract_result"
+    ],
+    [
+      "extract_result",
+      "output_result"
+    ]
+  ],
+  "meta": {
+    "slug": "documentation_ai_workspace_reader",
+    "output_dir": "/docker/fleet/state/browseract_bootstrap",
+    "status": "pending_browseract_seed",
+    "workflow_kind": "page_extract",
+    "auth_flow": "google_oauth",
+    "runtime_input_name": "page_url",
+    "tool_url": "",
+    "authorized_credential_queries": [
+      "google.com"
+    ]
+  }
+}

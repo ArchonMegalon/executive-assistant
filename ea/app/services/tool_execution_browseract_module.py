@@ -5,9 +5,11 @@ from typing import Callable
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_browseract_registry import (
+    register_builtin_browseract_crezlo_property_tour,
     register_builtin_browseract_gemini_web_generate,
     register_builtin_browseract_extract,
     register_builtin_browseract_inventory,
+    register_builtin_browseract_ui_service_by_capability,
     register_builtin_browseract_chatplayground_audit,
     register_builtin_browseract_onemin_billing_usage,
     register_builtin_browseract_onemin_member_reconciliation,
@@ -72,6 +74,18 @@ class BrowserActToolExecutionModule:
     def onemin_member_reconciliation(self, handler) -> None:
         self._adapter._onemin_member_reconciliation = handler
 
+    @property
+    def crezlo_property_tour(self):
+        return self._adapter._crezlo_property_tour
+
+    @crezlo_property_tour.setter
+    def crezlo_property_tour(self, handler) -> None:
+        self._adapter._crezlo_property_tour = handler
+
+    @property
+    def ui_service_callbacks(self) -> dict[str, object]:
+        return self._adapter._ui_service_callbacks
+
     def register_extract(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_extract(
             tool_runtime=self._tool_runtime,
@@ -126,4 +140,24 @@ class BrowserActToolExecutionModule:
             tool_runtime=self._tool_runtime,
             register_handler=register_handler,
             browseract_adapter=self._adapter,
+        )
+
+    def register_crezlo_property_tour(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_browseract_crezlo_property_tour(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_ui_service(
+        self,
+        register_handler: Callable[[str, ToolExecutionHandler], None],
+        *,
+        capability_key: str,
+    ) -> None:
+        register_builtin_browseract_ui_service_by_capability(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+            capability_key=capability_key,
         )
