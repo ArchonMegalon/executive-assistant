@@ -331,11 +331,7 @@ class _ResponseObject(BaseModel):
     usage: _ResponseUsage
     metadata: dict[str, object]
     output_text: str = ""
-    store: bool | None = None
     previous_response_id: str | None = None
-    parallel_tool_calls: bool | None = None
-    tool_choice: Any | None = None
-    tools: list[dict[str, object]] | None = None
     reasoning: Any | None = None
     truncation: str | None = None
 
@@ -731,16 +727,8 @@ def _metadata(payload: _ResponsesCreateRequest) -> dict[str, object]:
 
 def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
     accepted: list[str] = []
-    if payload.tools:
-        accepted.append("tools")
-    if payload.tool_choice is not None:
-        accepted.append("tool_choice")
-    if payload.parallel_tool_calls is not None:
-        accepted.append("parallel_tool_calls")
     if payload.reasoning is not None:
         accepted.append("reasoning")
-    if payload.store is not None:
-        accepted.append("store")
     if payload.include:
         accepted.append("include")
     if payload.service_tier:
@@ -957,11 +945,7 @@ def _response_object(
     error: dict[str, object] | None = None,
     incomplete_details: dict[str, object] | None = None,
     input_items: list[dict[str, object]] | None = None,
-    store: bool | None = None,
     previous_response_id: str | None = None,
-    parallel_tool_calls: bool | None = None,
-    tool_choice: Any | None = None,
-    tools: list[dict[str, object]] | None = None,
     reasoning: Any | None = None,
 ) -> dict[str, object]:
     completed_at = created_at if status == "completed" else None
@@ -985,11 +969,7 @@ def _response_object(
         usage=usage,
         metadata=dict(metadata or {}),
         output_text=output_text,
-        store=store,
         previous_response_id=previous_response_id,
-        parallel_tool_calls=parallel_tool_calls,
-        tool_choice=tool_choice,
-        tools=list(tools or []) if tools is not None else None,
         reasoning=reasoning,
         truncation="disabled",
     )
