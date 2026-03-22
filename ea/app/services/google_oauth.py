@@ -32,11 +32,119 @@ GOOGLE_SCOPE_IDENTITY = (
 )
 GOOGLE_SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send"
 GOOGLE_SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
+GOOGLE_SCOPE_GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
+GOOGLE_SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar"
+GOOGLE_SCOPE_CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
+GOOGLE_SCOPE_CONTACTS_READONLY = "https://www.googleapis.com/auth/contacts.readonly"
+GOOGLE_SCOPE_DRIVE_METADATA_READONLY = "https://www.googleapis.com/auth/drive.metadata.readonly"
+
+GOOGLE_SCOPE_SEND_ONLY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+)
+
+GOOGLE_SCOPE_VERIFY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_METADATA,
+)
+
+GOOGLE_SCOPE_CORE = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_METADATA,
+    GOOGLE_SCOPE_CALENDAR_READONLY,
+    GOOGLE_SCOPE_CONTACTS_READONLY,
+)
+
+GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_SEND,
+    GOOGLE_SCOPE_METADATA,
+    GOOGLE_SCOPE_GMAIL_MODIFY,
+    GOOGLE_SCOPE_CALENDAR,
+    GOOGLE_SCOPE_CONTACTS_READONLY,
+    GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
+)
 
 SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
-    "send": GOOGLE_SCOPE_IDENTITY + (GOOGLE_SCOPE_SEND,),
-    "verify": GOOGLE_SCOPE_IDENTITY + (GOOGLE_SCOPE_SEND, GOOGLE_SCOPE_METADATA),
+    "send": GOOGLE_SCOPE_SEND_ONLY,
+    "verify": GOOGLE_SCOPE_VERIFY,
+    "core": GOOGLE_SCOPE_CORE,
+    "full_workspace": GOOGLE_SCOPE_FULL_WORKSPACE,
+    "all": GOOGLE_SCOPE_FULL_WORKSPACE,
 }
+
+SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
+    "send": {
+        "label": "Send only",
+        "summary": "Sign in and send mail from the connected Gmail account.",
+        "capabilities": (
+            "Sign in with Google identity",
+            "Send draft and operator-approved mail",
+        ),
+        "limitations": (
+            "No mailbox verification",
+            "No calendar context",
+            "No contact enrichment",
+        ),
+    },
+    "verify": {
+        "label": "Advanced Gmail verify",
+        "summary": "Add mailbox metadata verification without expanding into calendar or contacts.",
+        "capabilities": (
+            "Send mail",
+            "Verify delivery using Gmail metadata",
+        ),
+        "limitations": (
+            "No calendar context",
+            "No contacts context",
+            "No inbox modification",
+        ),
+    },
+    "core": {
+        "label": "Google Core",
+        "summary": "The practical default: Gmail send/verify plus calendar and contacts read context.",
+        "capabilities": (
+            "Send mail",
+            "Mailbox verification",
+            "Calendar read context",
+            "Contacts read context",
+        ),
+        "limitations": (
+            "No inbox mutation",
+            "No Drive file index context",
+        ),
+    },
+    "full_workspace": {
+        "label": "Google Full Workspace",
+        "summary": "Broader assistant context: inbox actions plus richer calendar and Drive index context.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+        ),
+    },
+    "all": {
+        "label": "Google Full Workspace",
+        "summary": "Alias for the full workspace bundle.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+        ),
+    },
+}
+
+
+def google_scope_bundle_details(bundle: str | None) -> dict[str, object]:
+    normalized = normalize_scope_bundle(bundle)
+    metadata = dict(SCOPE_BUNDLE_METADATA.get(normalized) or {})
+    metadata["bundle"] = normalized
+    metadata["scopes"] = list(SCOPE_BUNDLES[normalized])
+    return metadata
 
 
 @dataclass(frozen=True)

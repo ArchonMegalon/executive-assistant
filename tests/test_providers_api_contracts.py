@@ -192,8 +192,9 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert google_body["google_start"]["requested_bundle"] == "core"
     assert google_body["google_start"]["oauth_bundle"] == "core"
     assert "https://www.googleapis.com/auth/gmail.metadata" in google_body["google_start"]["requested_scopes"]
-    assert "https://www.googleapis.com/auth/gmail.modify" in google_body["google_start"]["requested_scopes"]
-    assert "https://www.googleapis.com/auth/calendar" in google_body["google_start"]["requested_scopes"]
+    assert "https://www.googleapis.com/auth/calendar.readonly" in google_body["google_start"]["requested_scopes"]
+    assert "https://www.googleapis.com/auth/contacts.readonly" in google_body["google_start"]["requested_scopes"]
+    assert google_body["google_start"]["bundle_label"] == "Google Core"
     assert google_body["channels"]["google"]["status"] == "ready_to_connect"
     google_query = urllib.parse.parse_qs(urllib.parse.urlparse(google_body["google_start"]["auth_url"]).query)
     assert google_query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
@@ -240,6 +241,8 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert finalized_body["privacy"]["retention_mode"] == "metadata_first"
     assert finalized_body["privacy"]["metadata_only_channels"] == ["telegram"]
     assert finalized_body["brief_preview"]["headline"].startswith("Ops Desk")
+    assert finalized_body["brief_preview"]["top_themes"]
+    assert finalized_body["brief_preview"]["first_brief_preview"]
 
     status = owner.get("/v1/onboarding/status")
     assert status.status_code == 200
@@ -248,7 +251,8 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["channels"]["google"]["status"] == "ready_to_connect"
     assert status_body["channels"]["telegram"]["status"] == "guided_manual"
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
-    assert status_body["next_step"] == "Complete Google Core consent to unlock the full current EA Google grant."
+    assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected channel."
+    assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
 
 
 def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -264,11 +268,13 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert landing.status_code == 200
     assert "Your assistant across Gmail, Telegram, and WhatsApp." in landing.text
     assert "Start setup" in landing.text
+    assert "One assistant, different working styles" in landing.text
 
     setup = owner.get("/setup")
     assert setup.status_code == 200
     assert "Create Workspace" in setup.text
     assert "Choose WhatsApp Path" in setup.text
+    assert "Choose the smallest honest Google bundle" in setup.text
 
     privacy = owner.get("/privacy")
     assert privacy.status_code == 200
@@ -285,7 +291,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     parsed = urllib.parse.urlparse(location)
     query = urllib.parse.parse_qs(parsed.query)
     state = query["state"][0]
-    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
+    assert query["redirect_uri"][0].endswith("/google/callback")
 
     from app.services import google_oauth as google_service
 
@@ -350,6 +356,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "Signed in via Cloudflare Access" in landing.text
     assert "browser@gmail.com" in landing.text
     assert "principal-scoped" in landing.text
+    assert "You already arrived with a Gmail identity" in landing.text
 
     started = owner.post(
         "/google/connect",
@@ -359,7 +366,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert started.status_code == 303
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
+    assert query["redirect_uri"][0].endswith("/google/callback")
     state = query["state"][0]
 
     from app.services import google_oauth as google_service
