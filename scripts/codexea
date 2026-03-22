@@ -1165,6 +1165,9 @@ fi
 
 mapfile -d '' BASE_PROFILE_ARGS < <(build_base_profile_args "$@")
 mapfile -d '' ADJUSTED_ARGS < <(inject_bootstrap_prompt "$@")
+if [ "${#ADJUSTED_ARGS[@]}" -eq 1 ] && [ -z "${ADJUSTED_ARGS[0]}" ]; then
+  ADJUSTED_ARGS=()
+fi
 INTERACTIVE_SESSION_REQUEST=0
 if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] || args_request_interactive_session "${ADJUSTED_ARGS[@]}"; then
   INTERACTIVE_SESSION_REQUEST=1
@@ -1212,11 +1215,9 @@ elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
     export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
   fi
 elif [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
-  BOOTSTRAP_PROMPT="$(cat "${BOOTSTRAP_PROMPT_FILE}")"
-  BOOTSTRAP_PROMPT+=$'\n\n'"Start now in $(pwd). Account for the startup status already shown, then continue the next unfinished slice."
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${BOOTSTRAP_PROMPT}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
   if [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
-    export CODEXEA_POST_AUDIT_OBJECTIVE="Continue the next unfinished slice in $(pwd)."
+    export CODEXEA_POST_AUDIT_OBJECTIVE="Interactive CodexEA session in $(pwd)."
   fi
 else
   CODEXEA_CMD=("${REAL_CODEX}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
@@ -1226,7 +1227,9 @@ else
 fi
 
 emit_startup_trace "$(
-  if [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ]; then
+  if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
+    printf '%s' "ready_and_waiting"
+  elif [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ]; then
     printf '%s' "start_interactive_session"
   elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
     printf '%s' "start_exec_session"
