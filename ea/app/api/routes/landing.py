@@ -384,18 +384,27 @@ def _status_card(title: str, channel: dict[str, object], href: str) -> str:
     tone = _status_tone(str(channel.get("status") or ""))
     detail = html.escape(str(channel.get("detail") or ""))
     status = html.escape(str(channel.get("status") or "not_selected").replace("_", " "))
+    summary = html.escape(str(channel.get("bundle_summary") or channel.get("history_import_posture") or ""))
     return f"""
     <section class="card">
       <div class="split" style="align-items:start">
         <div>
           <h3>{html.escape(title)}</h3>
           <p class="mini">{detail}</p>
+          {f'<p class="mini"><strong>Contract:</strong> {summary}</p>' if summary else ''}
         </div>
         <span class="pill {tone}">{status}</span>
       </div>
       <p class="mini" style="margin-top:14px"><a href="{href}">Channel details</a></p>
     </section>
     """
+
+
+def _render_list(items: object, *, fallback: str) -> str:
+    rows = [str(item).strip() for item in (items or []) if str(item).strip()]
+    if not rows:
+        return f"<li>{html.escape(fallback)}</li>"
+    return "".join(f"<li>{html.escape(row)}</li>" for row in rows)
 
 
 def _browser_form_context(
@@ -481,8 +490,46 @@ def landing(
     channels = dict(status.get("channels") or {})
     brief_preview = dict(status.get("brief_preview") or {})
     workspace = dict(status.get("workspace") or {})
+    storage_posture = dict(status.get("storage_posture") or {})
+    assistant_modes = list(status.get("assistant_modes") or [])
+    featured_domains = list(status.get("featured_domains") or [])
     selected_channels = list(status.get("selected_channels") or [])
     selected_label = ", ".join(selected_channels) if selected_channels else "none yet"
+    google_status = dict(channels.get("google") or {})
+    gmail_nudge = ""
+    if access_identity is not None and str(access_identity.email or "").strip().lower().endswith("@gmail.com"):
+        if str(google_status.get("status") or "") not in {"connected"}:
+            gmail_nudge = """
+            <section class="card">
+              <div class="eyebrow">Fastest Real Start</div>
+              <h2>You already arrived with a Gmail identity</h2>
+              <p class="mini">Use Google Core first. That gives the assistant one real connected channel instead of leaving the landing as a pretty shell.</p>
+              <div class="cta-row">
+                <a class="cta primary" href="/setup">Connect Google Core</a>
+                <a class="cta" href="/channels/google">What Google unlocks</a>
+              </div>
+            </section>
+            """
+    mode_cards = "".join(
+        f"""
+        <div class="signal">
+          <strong>{html.escape(str(row.get('label') or 'Mode'))}</strong>
+          {html.escape(str(row.get('summary') or ''))}
+        </div>
+        """
+        for row in assistant_modes
+    )
+    domain_cards = "".join(
+        f"""
+        <section class="card">
+          <div class="eyebrow">Featured Domain</div>
+          <h3>{html.escape(str(row.get('label') or 'Domain'))}</h3>
+          <p class="mini">{html.escape(str(row.get('summary') or ''))}</p>
+          <p class="mini"><a href="{html.escape(str(row.get('href') or '#'))}">Visit domain</a></p>
+        </section>
+        """
+        for row in featured_domains
+    )
     body = f"""
     <section class="hero">
       <section class="card card-strong">
@@ -538,12 +585,23 @@ def landing(
         </ul>
       </section>
       <section class="card">
-        <div class="eyebrow">Featured Domain</div>
-        <h2>Chummer is a domain, not the whole assistant</h2>
-        <p class="mini">EA can still host specialized lanes like Shadowrun rules truth, dossiers, and campaign memory. The front door, though, is the assistant core: connect, remember, brief, draft, and act safely across channels.</p>
+        <div class="eyebrow">Trust</div>
+        <h2>What we access and what we do not fake</h2>
+        <ul class="list">
+          <li>{html.escape(str(storage_posture.get("source_of_truth") or "EA Postgres"))} is the source of truth for onboarding, memory, jobs, and receipts when durable storage is configured.</li>
+          <li>{html.escape(str(storage_posture.get("projection_note") or ""))}</li>
+          <li>{html.escape(str(storage_posture.get("attachment_note") or ""))}</li>
+        </ul>
         <p class="mini"><strong>Current sample brief headline:</strong> {html.escape(str(brief_preview.get("headline") or "No brief preview yet."))}</p>
       </section>
     </section>
+    {gmail_nudge}
+    <section class="card">
+      <div class="eyebrow">Choose Your Mode</div>
+      <h2>One assistant, different working styles</h2>
+      <div class="signal-grid">{mode_cards}</div>
+    </section>
+    {f'<section class="grid">{domain_cards}</section>' if domain_cards else ''}
     """
     return _page_shell(title="EA Assistant", body=body, current="home")
 
@@ -561,6 +619,15 @@ def setup(
     telegram = dict((channels.get("telegram") or {}))
     whatsapp = dict((channels.get("whatsapp") or {}))
     google = dict((channels.get("google") or {}))
+    google_bundle_options = "".join(
+        f"""
+        <div class="surface">
+          <strong>{html.escape(str(option.get('label') or option.get('bundle') or 'Google bundle'))}</strong><br>
+          <span class="mini">{html.escape(str(option.get('summary') or ''))}</span>
+        </div>
+        """
+        for option in (google.get("bundle_options") or [])[:2]
+    )
     shared_fields = _shared_browser_fields(principal_id=principal_id, access_identity=access_identity, container=container)
     body = f"""
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=status)}
@@ -608,8 +675,9 @@ def setup(
       <section class="card">
         <div class="eyebrow">Step 2</div>
         <h2>Connect Google</h2>
-        <p class="mini">Core is live for Gmail send plus metadata verification. Full Workspace stays visible here as a planned expansion, not a fake ready state.</p>
+        <p class="mini">Choose the smallest honest Google bundle that unlocks the assistant behavior you want today.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(google.get("status") or "not_selected").replace("_", " "))}</p>
+        <div class="grid" style="margin-top:14px">{google_bundle_options}</div>
         <form method="post" action="/google/connect">
           {shared_fields}
           <label for="scope_bundle">Google bundle</label>
@@ -625,7 +693,7 @@ def setup(
       <section class="card">
         <div class="eyebrow">Step 3</div>
         <h2>Stage Telegram</h2>
-        <p class="mini">Telegram login and assistant-bot installation stay separate from history import. This setup records the chosen path without pretending that full history already lands automatically.</p>
+        <p class="mini">Telegram login, bot install, and any later import path stay separate so the assistant never implies that a login widget equals full message history.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(telegram.get("status") or "not_selected").replace("_", " "))}</p>
         <form method="post" action="/setup/telegram">
           {shared_fields}
@@ -672,7 +740,7 @@ def setup(
       <section class="card">
         <div class="eyebrow">Step 4</div>
         <h2>Choose WhatsApp Path</h2>
-        <p class="mini">The supported business onboarding path and the explicit export-upload path stay separate so the assistant does not promise generic history import it cannot prove.</p>
+        <p class="mini">Pick either the Business onboarding path or the export-upload path. The assistant should not claim a generic WhatsApp history sync outside those routes.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(whatsapp.get("status") or "not_selected").replace("_", " "))}</p>
         <form method="post" action="/setup/whatsapp/business">
           {shared_fields}
@@ -727,6 +795,7 @@ def privacy(
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     privacy_state = dict(status.get("privacy") or {})
+    storage_posture = dict(status.get("storage_posture") or {})
     body = f"""
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=status)}
     <section class="grid-2">
@@ -734,8 +803,8 @@ def privacy(
         <div class="eyebrow">Trust</div>
         <h2>What the assistant stores and where</h2>
         <ul class="list">
-          <li>EA Postgres is the durable truth for onboarding state, bindings, memory, jobs, and receipts when the host is configured for durable storage.</li>
-          <li>Large exports and media belong in object storage, not in the browser helper or a CRM projection.</li>
+          <li>{html.escape(str(storage_posture.get("source_of_truth") or "EA Postgres"))} is the durable truth for onboarding state, bindings, memory, jobs, and receipts when the host is configured for durable storage.</li>
+          <li>{html.escape(str(storage_posture.get("attachment_note") or "Large exports and media belong in object storage, not in the browser helper or a CRM projection."))}</li>
           <li>Channel imports stay explicit: WhatsApp export upload and Telegram history import are not implied by identity linking alone.</li>
           <li>Privacy choices here define whether the assistant keeps full bodies or metadata-only posture for selected channels.</li>
         </ul>
@@ -761,9 +830,14 @@ def demo_brief(
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     preview = dict(status.get("brief_preview") or {})
-    who_you_are = "".join(f"<li>{html.escape(str(item))}</li>" for item in (preview.get("who_you_are") or []))
-    history_state = "".join(f"<li>{html.escape(str(item))}</li>" for item in (preview.get("history_import_state") or []))
-    sample = "".join(f"<li>{html.escape(str(item))}</li>" for item in (preview.get("sample_brief") or []))
+    who_you_are = _render_list(preview.get("who_you_are"), fallback="No workspace profile yet.")
+    connected = _render_list(preview.get("connected_channels"), fallback="No channels connected yet.")
+    history_state = _render_list(preview.get("history_import_state"), fallback="No channels selected yet.")
+    top_themes = _render_list(preview.get("top_themes"), fallback="No themes seeded yet.")
+    top_contacts = _render_list(preview.get("top_contacts"), fallback="No contacts seeded yet.")
+    first_brief = _render_list(preview.get("first_brief_preview"), fallback="Reply priorities and follow-ups will appear after setup.")
+    suggested_actions = _render_list(preview.get("suggested_actions"), fallback="No suggested actions yet.")
+    trust_notes = _render_list(preview.get("trust_notes"), fallback="No trust notes yet.")
     body = f"""
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=status)}
     <section class="grid-2">
@@ -772,14 +846,32 @@ def demo_brief(
         <h2>{html.escape(str(preview.get("headline") or "Your first brief will appear here after setup."))}</h2>
         <p class="mini">This is the current preview generated from the principal-scoped onboarding record, selected channels, and privacy posture.</p>
         <h3>Who you are</h3>
-        <ul class="list">{who_you_are or '<li>No workspace profile yet.</li>'}</ul>
+        <ul class="list">{who_you_are}</ul>
+        <h3 style="margin-top:18px">Connected channels</h3>
+        <ul class="list">{connected}</ul>
       </section>
       <section class="card">
         <div class="eyebrow">Readiness</div>
         <h2>Channel import state</h2>
-        <ul class="list">{history_state or '<li>No channels selected yet.</li>'}</ul>
-        <h3 style="margin-top:18px">What the assistant would summarize</h3>
-        <ul class="list">{sample or '<li>Reply priorities and follow-ups will appear after setup.</li>'}</ul>
+        <ul class="list">{history_state}</ul>
+        <h3 style="margin-top:18px">Top themes</h3>
+        <ul class="list">{top_themes}</ul>
+        <h3 style="margin-top:18px">Top contacts</h3>
+        <ul class="list">{top_contacts}</ul>
+      </section>
+    </section>
+    <section class="grid-2">
+      <section class="card">
+        <div class="eyebrow">First Morning Brief</div>
+        <h2>What the assistant would summarize</h2>
+        <ul class="list">{first_brief}</ul>
+      </section>
+      <section class="card">
+        <div class="eyebrow">Suggested Actions</div>
+        <h2>What to unlock next</h2>
+        <ul class="list">{suggested_actions}</ul>
+        <h3 style="margin-top:18px">Trust notes</h3>
+        <ul class="list">{trust_notes}</ul>
       </section>
     </section>
     """
@@ -800,6 +892,8 @@ def _channel_page(
 ) -> HTMLResponse:
     detail_list = "".join(f"<li>{html.escape(point)}</li>" for point in detail_points)
     body_list = "".join(f"<li>{html.escape(point)}</li>" for point in body_points)
+    capabilities = _render_list(status.get("capabilities"), fallback="No capabilities listed yet.")
+    limitations = _render_list(status.get("limitations"), fallback="No limitations listed yet.")
     body = f"""
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=onboarding_status)}
     <section class="grid-2">
@@ -814,6 +908,10 @@ def _channel_page(
         <div class="eyebrow">Current contract</div>
         <h2>What EA promises here today</h2>
         <ul class="list">{body_list}</ul>
+        <h3 style="margin-top:18px">Capabilities</h3>
+        <ul class="list">{capabilities}</ul>
+        <h3 style="margin-top:18px">Limits</h3>
+        <ul class="list">{limitations}</ul>
       </section>
     </section>
     """
@@ -832,14 +930,14 @@ def google_channel(
         eyebrow="Google",
         status=dict((status.get("channels") or {}).get("google") or {}),
         detail_points=(
-            "Google Core is the live EA slice: Gmail send plus metadata verification through OAuth.",
-            "The browser landing keeps Full Workspace visible as planned, not as a fake ready checkbox.",
+            "Google Core is the practical default: Gmail send and verification plus calendar and contacts read context.",
+            "Google Full Workspace is the broader bundle for inbox actions and Drive file index context.",
             "Server-side OAuth stays the real path for offline use; BrowserAct is not the primary Google auth surface.",
         ),
         body_points=(
             "Connect through OAuth and keep the refresh token principal-scoped.",
-            "Use Gmail send and limited verification today.",
-            "Treat richer calendar, contacts, and file context as future expansion unless the adapter truly lands.",
+            "Show the bundle choice in product language first, and only show raw scopes as expandable detail.",
+            "Keep send-only, verify, core, and full-workspace as honest distinct promises.",
         ),
         principal_id=principal_id,
         access_identity=access_identity,
@@ -1060,7 +1158,7 @@ def google_oauth_browser_callback(
     <section class="card card-strong">
       <div class="eyebrow">Google Connected</div>
       <h1>Google is now linked to this assistant</h1>
-      <p class="lead">The Gmail binding is attached to principal <code>{html.escape(account.binding.principal_id)}</code> and can now participate in assistant setup and smoke tests.</p>
+      <p class="lead">The Google binding is attached to principal <code>{html.escape(account.binding.principal_id)}</code> and can now participate in onboarding, channel-aware briefs, and smoke tests.</p>
       <div class="grid-2">
         <section class="surface">
           <h3>Connected account</h3>
