@@ -746,7 +746,10 @@ show_status() {
     printf '%s\n' "${body}"
     return
   fi
-  CODEXEA_STATUS_BODY="${body}" CODEXEA_STATUS_STARTUP_COMPACT="${startup_compact}" python3 - <<'PY'
+  local body_file
+  body_file="$(mktemp)"
+  printf '%s' "${body}" > "${body_file}"
+  CODEXEA_STATUS_STARTUP_COMPACT="${startup_compact}" python3 - "${body_file}" <<'PY'
 import json, os, sys
 
 def fmt(value):
@@ -761,10 +764,15 @@ def fmt(value):
 def line(parts, widths):
     return "  ".join(str(part).ljust(width) for part, width in zip(parts, widths))
 
-payload = json.loads(os.environ["CODEXEA_STATUS_BODY"])
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
 workspace = os.path.basename(os.getcwd()) or os.getcwd()
 principal = os.environ.get("EA_MCP_PRINCIPAL_ID") or os.environ.get("EA_PRINCIPAL_ID") or "unknown"
 startup_compact = os.environ.get("CODEXEA_STATUS_STARTUP_COMPACT") == "1"
+launch_lane = str(os.environ.get("CODEXEA_STATUS_LAUNCH_LANE") or "").strip()
+launch_mode = str(os.environ.get("CODEXEA_STATUS_LAUNCH_MODE") or "").strip()
+launch_provider = str(os.environ.get("CODEXEA_STATUS_LAUNCH_PROVIDER") or "").strip()
+launch_model = str(os.environ.get("CODEXEA_STATUS_LAUNCH_MODEL") or "").strip()
 
 if startup_compact:
     if "providers_summary" in payload:
@@ -773,9 +781,22 @@ if startup_compact:
         degraded = sum(1 for row in providers if row.get("state") == "degraded")
         cooldown = sum(1 for row in providers if row.get("state") == "cooldown")
         burn_1h = ((payload.get("fleet_burn") or {}).get("1h") or {}).get("provider_credits") or {}
+        route_summary = []
+        if launch_lane:
+            route_summary.append(f"lane {fmt(launch_lane)}")
+        if launch_provider:
+            route_summary.append(f"provider {fmt(launch_provider)}")
+        if launch_model:
+            route_summary.append(f"model {fmt(launch_model)}")
+        if launch_mode:
+            route_summary.append(f"mode {fmt(launch_mode)}")
+        if route_summary:
+            route_prefix = " | ".join(route_summary)
+        else:
+            route_prefix = f"lane {fmt(payload.get('default_profile'))}->{fmt(payload.get('default_lane'))}"
         print(
             "CodexEA startup:"
-            f" lane {fmt(payload.get('default_profile'))}->{fmt(payload.get('default_lane'))}"
+            f" {route_prefix}"
             f" | ready {ready}"
             f" | degraded {degraded}"
             f" | cooldown {cooldown}"
@@ -903,6 +924,9 @@ if billing:
     print(f"ETA incl. next top-up at 7d avg: {fmt(billing.get('days_remaining_including_next_topup_at_7d_avg'))}")
     print(f"Depletes before next top-up: {fmt(billing.get('depletes_before_next_topup'))}")
 PY
+  local python_status=$?
+  rm -f "${body_file}"
+  return "${python_status}"
 }
 
 REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
@@ -941,9 +965,9 @@ if [ -z "${CODEXEA_WATCHDOG_ACTIVE:-}" ]; then
   rm -f "${CODEXEA_STOP_FILE}"
 fi
 
+WANT_STARTUP_STATUS=0
 if { [ "$#" -eq 0 ] || args_request_interactive_session "$@"; } && [ "${CODEXEA_STARTUP_STATUS}" != "0" ] && [ -t 1 ]; then
-  show_status --startup --refresh || true
-  printf '\n'
+  WANT_STARTUP_STATUS=1
 fi
 
 if [ "$#" -gt 0 ] && [ -f "${ROUTE_HELPER}" ] && ! args_request_interactive_session "$@"; then
@@ -1081,6 +1105,19 @@ if [ "${MODE}" = "responses" ]; then
         ;;
     esac
   fi
+fi
+
+if [ "${WANT_STARTUP_STATUS}" = "1" ]; then
+  STATUS_PROVIDER="mcp"
+  if [ "${MODE}" = "responses" ]; then
+    STATUS_PROVIDER="ea"
+  fi
+  CODEXEA_STATUS_LAUNCH_LANE="${EFFECTIVE_LANE}" \
+  CODEXEA_STATUS_LAUNCH_MODE="${MODE}" \
+  CODEXEA_STATUS_LAUNCH_PROVIDER="${STATUS_PROVIDER}" \
+  CODEXEA_STATUS_LAUNCH_MODEL="${MODEL}" \
+  show_status --startup --refresh || true
+  printf '\n'
 fi
 
 export CODEXEA_LANE="${EFFECTIVE_LANE}"
