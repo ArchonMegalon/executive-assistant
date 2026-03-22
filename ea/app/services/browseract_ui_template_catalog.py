@@ -16,6 +16,14 @@ class BrowserActUiTemplateDefinition:
     google_auth_url: str = ""
     runtime_input_name: str = ""
     authorized_credential_queries: tuple[str, ...] = ()
+    direct_pre_auth_dismiss_selectors: tuple[str, ...] = ()
+    direct_login_entry_selector: str = ""
+    direct_email_selector: str = "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]"
+    direct_password_selector: str = "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]"
+    direct_submit_selector: str = (
+        "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), "
+        "button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")"
+    )
     prompt_selector: str = "textarea, [contenteditable='true'], input[type='text']"
     submit_selector: str = (
         "button[type=submit], button:has-text(\"Generate\"), button:has-text(\"Create\"), "
@@ -33,13 +41,63 @@ class BrowserActUiTemplateDefinition:
     )
 
     def _direct_auth_nodes(self) -> tuple[list[dict[str, object]], list[list[str]], str]:
-        nodes = [
+        nodes: list[dict[str, object]] = []
+        edges: list[list[str]] = []
+        previous = "open_login"
+        for index, selector in enumerate(self.direct_pre_auth_dismiss_selectors, start=1):
+            wait_id = f"wait_pre_auth_dismiss_{index:02d}"
+            click_id = f"pre_auth_dismiss_{index:02d}"
+            nodes.extend(
+                [
+                    {
+                        "id": wait_id,
+                        "type": "wait",
+                        "label": f"Wait Pre-Auth Dismiss {index}",
+                        "config": {
+                            "selector": selector,
+                            "timeout_ms": 2500,
+                            "optional": True,
+                        },
+                    },
+                    {
+                        "id": click_id,
+                        "type": "click",
+                        "label": f"Pre-Auth Dismiss {index}",
+                        "config": {"selector": selector, "optional": True},
+                    },
+                ]
+            )
+            edges.extend([[previous, wait_id], [wait_id, click_id]])
+            previous = click_id
+        if self.direct_login_entry_selector:
+            nodes.extend(
+                [
+                    {
+                        "id": "wait_login_entry",
+                        "type": "wait",
+                        "label": "Wait Login Entry",
+                        "config": {
+                            "selector": self.direct_login_entry_selector,
+                            "timeout_ms": 45000,
+                        },
+                    },
+                    {
+                        "id": "open_login_entry",
+                        "type": "click",
+                        "label": "Open Login Entry",
+                        "config": {"selector": self.direct_login_entry_selector},
+                    },
+                ]
+            )
+            edges.extend([[previous, "wait_login_entry"], ["wait_login_entry", "open_login_entry"]])
+            previous = "open_login_entry"
+        nodes.extend([
             {
                 "id": "wait_login_form",
                 "type": "wait",
                 "label": "Wait Login Form",
                 "config": {
-                    "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
+                    "selector": self.direct_email_selector,
                     "timeout_ms": 45000,
                 },
             },
@@ -48,7 +106,7 @@ class BrowserActUiTemplateDefinition:
                 "type": "input_text",
                 "label": "Email",
                 "config": {
-                    "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
+                    "selector": self.direct_email_selector,
                     "value_from_secret": "browseract_username",
                 },
             },
@@ -57,7 +115,7 @@ class BrowserActUiTemplateDefinition:
                 "type": "input_text",
                 "label": "Password",
                 "config": {
-                    "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]",
+                    "selector": self.direct_password_selector,
                     "value_from_secret": "browseract_password",
                 },
             },
@@ -66,7 +124,7 @@ class BrowserActUiTemplateDefinition:
                 "type": "click",
                 "label": "Submit Login",
                 "config": {
-                    "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")"
+                    "selector": self.direct_submit_selector
                 },
             },
             {
@@ -74,19 +132,19 @@ class BrowserActUiTemplateDefinition:
                 "type": "wait",
                 "label": "Wait Authenticated",
                 "config": {
-                    "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']",
+                    "selector": self.direct_password_selector,
                     "state": "hidden",
                     "timeout_ms": 45000,
                 },
             },
-        ]
-        edges = [
-            ["open_login", "wait_login_form"],
+        ])
+        edges.extend([
+            [previous, "wait_login_form"],
             ["wait_login_form", "email"],
             ["email", "password"],
             ["password", "submit"],
             ["submit", "wait_authenticated"],
-        ]
+        ])
         return nodes, edges, "wait_authenticated"
 
     def _google_auth_nodes(self) -> tuple[list[dict[str, object]], list[list[str]], str]:
@@ -512,6 +570,29 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         authorized_credential_queries=("vizologi.com",),
         wait_selector="main, [role='main'], body",
         result_selector="main, [role='main'], body",
+    ),
+    BrowserActUiTemplateDefinition(
+        template_key="onemin_members_reconciliation_live",
+        workflow_name="1min Members Reconciliation Reader",
+        description="Open the logged-in 1min members surface and extract the visible member roster, statuses, and credit-limit hints for owner reconciliation.",
+        login_url="https://app.1min.ai/login",
+        tool_url="https://app.1min.ai/members",
+        workflow_kind="page_extract",
+        runtime_input_name="page_url",
+        authorized_credential_queries=("1min.ai", "app.1min.ai"),
+        direct_pre_auth_dismiss_selectors=(
+            "[aria-label='Close']",
+            ".ant-tour-close",
+        ),
+        direct_login_entry_selector="button:has-text(\"Log In\"), a:has-text(\"Log In\"), [role='button']:has-text(\"Log In\")",
+        direct_email_selector="#login_email, input#login_email, input[placeholder='Email'], input[type=email], input[name=email]",
+        direct_password_selector="#login_password, input#login_password, input[type=password], input[name=password], input[placeholder*='Password' i]",
+        direct_submit_selector=".ant-modal button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-root button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-wrap button.ant-btn-primary:has-text(\"Log In\"), .ant-modal button[type=submit], .ant-modal-root button[type=submit]",
+        wait_selector="main, body",
+        result_selector="main, body",
+        title_selector="",
+        result_field_name="members_page",
+        include_dismiss_nodes=True,
     ),
 )
 
