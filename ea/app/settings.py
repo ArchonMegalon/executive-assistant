@@ -12,6 +12,10 @@ def _to_int(raw: str, default: int) -> int:
         return default
 
 
+def _env_truthy(raw: str | None) -> bool:
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class CoreSettings:
     app_name: str
@@ -39,6 +43,7 @@ class StorageSettings:
 class AuthSettings:
     api_token: str
     default_principal_id: str
+    allow_loopback_no_auth: bool = False
     cf_access_team_domain: str = ""
     cf_access_audiences: tuple[str, ...] = ()
     cf_access_certs_url: str = ""
@@ -298,6 +303,7 @@ def get_settings() -> Settings:
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
     default_principal_id = (os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "local-user").strip() or "local-user"
+    allow_loopback_no_auth = _env_truthy(os.environ.get("EA_ALLOW_LOOPBACK_NO_AUTH"))
     cf_access_team_domain = (os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN") or "").strip().lower().rstrip("/")
     raw_cf_access_aud = (os.environ.get("EA_CF_ACCESS_AUD") or "").strip()
     cf_access_audiences = tuple(
@@ -330,6 +336,7 @@ def get_settings() -> Settings:
         auth=AuthSettings(
             api_token=api_token,
             default_principal_id=default_principal_id,
+            allow_loopback_no_auth=allow_loopback_no_auth,
             cf_access_team_domain=cf_access_team_domain,
             cf_access_audiences=cf_access_audiences,
             cf_access_certs_url=cf_access_certs_url,

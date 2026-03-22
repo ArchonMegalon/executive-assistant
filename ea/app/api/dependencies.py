@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -31,6 +32,29 @@ def _extract_token(request: Request) -> str:
 
 def _configured_api_token(container: AppContainer) -> str:
     return str(container.settings.auth.api_token or "").strip()
+
+
+def _client_host(request: Request) -> str:
+    client = getattr(request, "client", None)
+    return str(getattr(client, "host", "") or "").strip()
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _loopback_no_auth_allowed(request: Request, container: AppContainer) -> bool:
+    if not bool(getattr(container.settings.auth, "allow_loopback_no_auth", False)):
+        return False
+    return _is_loopback_host(_client_host(request))
 
 
 def _provision_access_identity(container: AppContainer, identity: CloudflareAccessIdentity) -> None:
@@ -133,6 +157,8 @@ def require_request_auth(
     profile = _runtime_profile(container)
     if access_identity is not None:
         return
+    if _loopback_no_auth_allowed(request, container):
+        return
     if profile.auth_mode not in {"token", "token_or_access", "access"}:
         return
     if profile.auth_mode == "access":
@@ -174,6 +200,15 @@ def get_request_context(
             authenticated=True,
             auth_source="cloudflare_access",
             access_email=access_identity.email,
+        )
+    if _loopback_no_auth_allowed(request, container):
+        principal_id = _resolved_principal_id(request, container=container, authenticated=True)
+        if not principal_id:
+            raise HTTPException(status_code=401, detail="principal_required")
+        return RequestContext(
+            principal_id=principal_id,
+            authenticated=True,
+            auth_source="loopback_no_auth",
         )
     authenticated = False
     if profile.auth_mode in {"token", "token_or_access"}:
