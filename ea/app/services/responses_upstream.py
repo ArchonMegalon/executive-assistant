@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import threading
 import time
 import urllib.error
@@ -61,6 +62,13 @@ _PROVIDER_DISPATCH_EVENTS: deque[ProviderDispatchEvent] = deque(maxlen=1024)
 _ONEMIN_USAGE_LOCK = threading.Lock()
 _PROVIDER_LEDGER_LOADED = False
 _PROVIDER_LEDGER_LOCK = threading.Lock()
+_ONEMIN_BACKGROUND_REFRESH_LOCK = threading.Lock()
+_ONEMIN_BACKGROUND_REFRESH_STATE: dict[str, object] = {
+    "in_flight": False,
+    "started_at": 0.0,
+    "finished_at": 0.0,
+    "api_key": "",
+}
 
 _HARD_CONCURRENCY_LOCK = threading.Condition(threading.Lock())
 _HARD_ACTIVE_REQUESTS = 0
@@ -90,13 +98,18 @@ _HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
 _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
 _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+_ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS = 1800.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
+_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 45
+_ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS = 120.0
+_ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS = 1800.0
+_ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 12
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
 _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
 _ONEMIN_MAX_CREDITS_PER_HOUR = 80000
 _ONEMIN_MAX_CREDITS_PER_DAY = 600000
-_DEFAULT_LANE_PROFILE = "easy"
+_DEFAULT_LANE_PROFILE = "core"
 _DEFAULT_FLEET_STATUS_CACHE_SECONDS = 60
 _DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS = 2.0
 _FLEET_JURY_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": {}}
@@ -108,6 +121,8 @@ def _resolve_default_response_lane() -> str:
         raw = _DEFAULT_LANE_PROFILE
     if raw in {_LANE_FAST, _LANE_REVIEW, _LANE_HARD, _LANE_OVERFLOW, _LANE_AUDIT}:
         return raw
+    if raw in {"core"}:
+        return _LANE_HARD
     if raw in {"easy"}:
         return _LANE_FAST
     if raw in {"hard", "review", "overflow", "audit"}:
@@ -580,12 +595,31 @@ def _load_provider_ledgers_once() -> None:
         if _PROVIDER_LEDGER_LOADED:
             return
         usage_rows = _load_provider_ledger_records("onemin_usage_events.jsonl")
+        state_rows = _load_provider_ledger_records("onemin_key_state_events.jsonl")
         required_rows = _load_provider_ledger_records("onemin_required_credit_events.jsonl")
         probe_rows = _load_provider_ledger_records("onemin_probe_events.jsonl")
         balance_rows = _load_provider_ledger_records("provider_balance_snapshots.jsonl")
         billing_rows = _load_provider_ledger_records("provider_billing_snapshots.jsonl")
         member_rows = _load_provider_ledger_records("provider_member_reconciliation_snapshots.jsonl")
         dispatch_rows = _load_provider_ledger_records("provider_dispatch_events.jsonl")
+        with _ONEMIN_KEY_CURSOR_LOCK:
+            for row in state_rows[-2048:]:
+                key = str(row.get("key") or "").strip()
+                if not key:
+                    continue
+                try:
+                    _ONEMIN_KEY_STATES[key] = OneminKeyState(
+                        key=key,
+                        last_used_at=float(row.get("last_used_at") or 0.0),
+                        last_success_at=float(row.get("last_success_at") or 0.0),
+                        last_failure_at=float(row.get("last_failure_at") or 0.0),
+                        failure_count=int(row.get("failure_count") or 0),
+                        cooldown_until=float(row.get("cooldown_until") or 0.0),
+                        quarantine_until=float(row.get("quarantine_until") or 0.0),
+                        last_error=str(row.get("last_error") or ""),
+                    )
+                except Exception:
+                    continue
         with _ONEMIN_USAGE_LOCK:
             for row in usage_rows[-_ONEMIN_USAGE_EVENTS.maxlen :]:
                 try:
@@ -1366,6 +1400,393 @@ def _ordered_onemin_keys_allow_reserve(allow_reserve: bool) -> tuple[str, ...]:
     return _ordered_onemin_keys_for_keys(keys, allow_reserve=allow_reserve, cursor=_onemin_key_cursor(len(keys)))
 
 
+def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float) -> int | None:
+    _load_provider_ledgers_once()
+    wanted_model = str(model or "").strip().lower()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [
+            item
+            for item in _PROVIDER_DISPATCH_EVENTS
+            if item.provider_key == "onemin"
+            and item.estimated_onemin_credits is not None
+            and int(item.estimated_onemin_credits or 0) > 0
+            and now - float(item.happened_at or 0.0) <= 86400.0
+        ]
+    candidate_groups = (
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if wanted_model
+            and str(item.model or "").strip().lower() == wanted_model
+            and str(item.lane or _LANE_DEFAULT) == lane
+        ],
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if wanted_model and str(item.model or "").strip().lower() == wanted_model
+        ],
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if str(item.lane or _LANE_DEFAULT) == lane
+        ],
+        [int(item.estimated_onemin_credits or 0) for item in rows],
+    )
+    for values in candidate_groups:
+        median = _median_int([value for value in values if value > 0])
+        if median is not None and median > 0:
+            return int(median)
+    return None
+
+
+def _onemin_required_credits_for_selection(*, lane: str, model: str) -> tuple[int | None, str]:
+    now = _now_epoch()
+    dispatch_estimate = _recent_onemin_dispatch_credit_estimate(lane=lane, model=model, now=now)
+    if dispatch_estimate is not None and dispatch_estimate > 0:
+        return int(dispatch_estimate), "recent_dispatch_median"
+    estimated, basis = _estimate_onemin_request_credits(now=now, tokens_in=0, tokens_out=0)
+    if estimated > 0:
+        return int(estimated), basis
+    return None, "unknown"
+
+
+def _onemin_background_refresh_interval_seconds() -> float:
+    return _to_float(
+        _env(
+            "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS",
+            str(_ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS),
+        ),
+        _ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS,
+        minimum=15.0,
+        maximum=3600.0,
+    )
+
+
+def _onemin_background_refresh_stale_seconds() -> float:
+    return _to_float(
+        _env(
+            "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS",
+            str(_ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS),
+        ),
+        _ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS,
+        minimum=60.0,
+        maximum=86400.0,
+    )
+
+
+def _onemin_background_refresh_timeout_seconds() -> int:
+    return _to_int(
+        _env(
+            "EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS",
+            str(_ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS),
+        ),
+        _ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS,
+        minimum=3,
+        maximum=60,
+    )
+
+
+def _onemin_background_refresh_enabled() -> bool:
+    return _to_bool(_env("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED", "1"), True)
+
+
+def _onemin_credit_snapshot_state(
+    *,
+    api_key: str,
+    key_names: tuple[str, ...],
+    state: OneminKeyState,
+    now: float,
+) -> tuple[int | None, str, bool, float, float]:
+    remaining_credits, balance_basis = _estimated_onemin_remaining_credits(state_label="selection", state=state)
+    account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+    latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
+    latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
+    latest_probe = _latest_onemin_probe_event(account_name=account_name)
+    latest_actual_balance_at = 0.0
+    if latest_balance is not None and str(latest_balance.basis or "") in {
+        "actual_ui_probe",
+        "actual_provider_api",
+        "actual_billing_usage_page",
+    }:
+        latest_actual_balance_at = max(latest_actual_balance_at, float(latest_balance.happened_at or 0.0))
+    if latest_billing is not None and str(latest_billing.basis or "") in {
+        "actual_provider_api",
+        "actual_billing_usage_page",
+    }:
+        latest_actual_balance_at = max(latest_actual_balance_at, _iso_to_epoch(latest_billing.observed_at))
+    exact_evidence_at = latest_actual_balance_at
+    if balance_basis in {"observed_error", "inactive_key", "depleted_error"}:
+        exact_evidence_at = max(exact_evidence_at, float(state.last_failure_at or 0.0))
+    stale_seconds = _onemin_background_refresh_stale_seconds()
+    confident_balance = False
+    if exact_evidence_at > 0.0 and (now - exact_evidence_at) <= stale_seconds:
+        confident_balance = balance_basis in {
+            "actual_ui_probe",
+            "actual_provider_api",
+            "actual_billing_usage_page",
+            "observed_error",
+            "inactive_key",
+            "depleted_error",
+        }
+    latest_any_evidence_at = max(
+        exact_evidence_at,
+        float(latest_probe.happened_at or 0.0) if latest_probe is not None else 0.0,
+        float(state.last_success_at or 0.0),
+        float(state.last_failure_at or 0.0),
+    )
+    return remaining_credits, balance_basis, confident_balance, exact_evidence_at, latest_any_evidence_at
+
+
+def _onemin_recent_success_evidence(
+    *,
+    api_key: str,
+    lane: str,
+    model: str,
+    now: float,
+) -> tuple[float, float, float, int, int]:
+    _load_provider_ledgers_once()
+    wanted_model = str(model or "").strip().lower()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [
+            item
+            for item in _ONEMIN_USAGE_EVENTS
+            if item.api_key == api_key and now - float(item.happened_at or 0.0) <= 604800.0
+        ]
+    same_model_success_at = max(
+        (
+            float(item.happened_at or 0.0)
+            for item in rows
+            if wanted_model and str(item.model or "").strip().lower() == wanted_model
+        ),
+        default=0.0,
+    )
+    same_lane_rows = [item for item in rows if str(item.lane or _LANE_DEFAULT) == lane]
+    same_lane_success_at = max((float(item.happened_at or 0.0) for item in same_lane_rows), default=0.0)
+    any_success_at = max((float(item.happened_at or 0.0) for item in rows), default=0.0)
+    max_same_lane_credits = max((int(item.estimated_credits or 0) for item in same_lane_rows), default=0)
+    max_any_credits = max((int(item.estimated_credits or 0) for item in rows), default=0)
+    return (
+        same_model_success_at,
+        same_lane_success_at,
+        any_success_at,
+        max_same_lane_credits,
+        max_any_credits,
+    )
+
+
+def _onemin_key_selection_priority(
+    *,
+    api_key: str,
+    state: OneminKeyState,
+    lane: str,
+    model: str,
+    required_credits: int | None,
+    index: int,
+    now: float,
+) -> tuple[int, int, int, float, float, int]:
+    (
+        remaining_credits,
+        balance_basis,
+        confident_balance,
+        _exact_evidence_at,
+        _latest_any_evidence_at,
+    ) = _onemin_credit_snapshot_state(
+        api_key=api_key,
+        key_names=_onemin_key_names(),
+        state=state,
+        now=now,
+    )
+    (
+        same_model_success_at,
+        same_lane_success_at,
+        any_success_at,
+        max_same_lane_credits,
+        max_any_credits,
+    ) = _onemin_recent_success_evidence(api_key=api_key, lane=lane, model=model, now=now)
+    known_insufficient = False
+    if balance_basis in {"inactive_key", "depleted_error"}:
+        known_insufficient = True
+    elif (
+        required_credits is not None
+        and required_credits > 0
+        and confident_balance
+        and remaining_credits is not None
+        and int(remaining_credits) < int(required_credits)
+    ):
+        known_insufficient = True
+    elif confident_balance and remaining_credits == 0:
+        known_insufficient = True
+
+    if known_insufficient:
+        capability_bucket = 4
+    elif (
+        required_credits is not None
+        and required_credits > 0
+        and confident_balance
+        and remaining_credits is not None
+        and int(remaining_credits) >= int(required_credits)
+    ):
+        capability_bucket = 0
+    elif same_model_success_at > 0.0:
+        capability_bucket = 0
+    elif lane == _LANE_HARD and required_credits is not None and required_credits > 0 and max_same_lane_credits >= int(required_credits):
+        capability_bucket = 1
+    elif same_lane_success_at > 0.0:
+        capability_bucket = 1
+    elif balance_basis == "max_minus_observed_usage" and remaining_credits is not None and int(remaining_credits) > 0:
+        capability_bucket = 2
+    elif any_success_at > 0.0 or max_any_credits > 0:
+        capability_bucket = 2
+    else:
+        capability_bucket = 3
+
+    confidence_bucket = 0 if confident_balance else (1 if same_model_success_at > 0.0 or same_lane_success_at > 0.0 else 2)
+    known_good_priority = 0 if state.last_success_at > 0.0 and state.last_success_at >= state.last_failure_at else 1
+    return (
+        capability_bucket,
+        confidence_bucket,
+        known_good_priority,
+        state.last_used_at,
+        -state.last_success_at,
+        index,
+    )
+
+
+def _onemin_background_refresh_priority(
+    *,
+    api_key: str,
+    key_names: tuple[str, ...],
+    state: OneminKeyState,
+    index: int,
+    now: float,
+) -> tuple[int, float, float, int] | None:
+    (
+        remaining_credits,
+        balance_basis,
+        confident_balance,
+        exact_evidence_at,
+        latest_any_evidence_at,
+    ) = _onemin_credit_snapshot_state(
+        api_key=api_key,
+        key_names=key_names,
+        state=state,
+        now=now,
+    )
+    if _is_deleted_onemin_key_error(state.last_error):
+        return None
+    stale_seconds = _onemin_background_refresh_stale_seconds()
+    evidence_age = (now - latest_any_evidence_at) if latest_any_evidence_at > 0.0 else float("inf")
+    if balance_basis == "unknown_unprobed":
+        bucket = 0
+    elif balance_basis == "max_minus_observed_usage" and evidence_age >= stale_seconds:
+        bucket = 1
+    elif balance_basis in {"observed_error", "depleted_error"} and not confident_balance:
+        bucket = 1
+    elif exact_evidence_at <= 0.0 and evidence_age >= stale_seconds:
+        bucket = 2
+    elif remaining_credits == 0 and evidence_age >= stale_seconds:
+        bucket = 2
+    else:
+        return None
+    return (
+        bucket,
+        latest_any_evidence_at if latest_any_evidence_at > 0.0 else 0.0,
+        float(state.last_used_at or 0.0),
+        index,
+    )
+
+
+def _pick_onemin_background_refresh_candidate(*, key_names: tuple[str, ...]) -> str | None:
+    if not key_names:
+        return None
+    _load_provider_ledgers_once()
+    states = _onemin_states_snapshot(key_names)
+    now = _now_epoch()
+    candidates: list[tuple[str, int, float, float, int]] = []
+    for index, api_key in enumerate(key_names):
+        state = states.get(api_key) or OneminKeyState(key=api_key)
+        priority = _onemin_background_refresh_priority(
+            api_key=api_key,
+            key_names=key_names,
+            state=state,
+            index=index,
+            now=now,
+        )
+        if priority is None:
+            continue
+        candidates.append((api_key, *priority))
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (
+            item[1],
+            item[2] if item[2] > 0.0 else -1.0,
+            item[3],
+            item[4],
+        )
+    )
+    return candidates[0][0]
+
+
+def _run_onemin_background_refresh(*, api_key: str, key_names: tuple[str, ...]) -> None:
+    try:
+        _probe_onemin_slot(
+            api_key=api_key,
+            key_names=key_names,
+            active_keys=_onemin_active_keys(),
+            reserve_keys=_onemin_reserve_keys(),
+            model=_onemin_probe_model(),
+            prompt=_onemin_probe_prompt(),
+            timeout_seconds=_onemin_background_refresh_timeout_seconds(),
+            source="background_credit_refresh",
+        )
+    except Exception as exc:
+        _LOG.info("onemin_background_refresh_failed %s", str(exc or "unknown_error"))
+    finally:
+        with _ONEMIN_BACKGROUND_REFRESH_LOCK:
+            _ONEMIN_BACKGROUND_REFRESH_STATE["in_flight"] = False
+            _ONEMIN_BACKGROUND_REFRESH_STATE["finished_at"] = _now_epoch()
+
+
+def _maybe_schedule_onemin_credit_refresh(*, key_names: tuple[str, ...]) -> None:
+    if not _onemin_background_refresh_enabled():
+        return
+    if not key_names:
+        return
+    now = _now_epoch()
+    interval_seconds = _onemin_background_refresh_interval_seconds()
+    with _ONEMIN_BACKGROUND_REFRESH_LOCK:
+        if bool(_ONEMIN_BACKGROUND_REFRESH_STATE.get("in_flight")):
+            return
+        last_activity_at = max(
+            float(_ONEMIN_BACKGROUND_REFRESH_STATE.get("started_at") or 0.0),
+            float(_ONEMIN_BACKGROUND_REFRESH_STATE.get("finished_at") or 0.0),
+        )
+        if last_activity_at > 0.0 and (now - last_activity_at) < interval_seconds:
+            return
+    candidate_key = _pick_onemin_background_refresh_candidate(key_names=key_names)
+    if not candidate_key:
+        return
+    with _ONEMIN_BACKGROUND_REFRESH_LOCK:
+        if bool(_ONEMIN_BACKGROUND_REFRESH_STATE.get("in_flight")):
+            return
+        last_activity_at = max(
+            float(_ONEMIN_BACKGROUND_REFRESH_STATE.get("started_at") or 0.0),
+            float(_ONEMIN_BACKGROUND_REFRESH_STATE.get("finished_at") or 0.0),
+        )
+        if last_activity_at > 0.0 and (now - last_activity_at) < interval_seconds:
+            return
+        _ONEMIN_BACKGROUND_REFRESH_STATE["in_flight"] = True
+        _ONEMIN_BACKGROUND_REFRESH_STATE["started_at"] = now
+        _ONEMIN_BACKGROUND_REFRESH_STATE["api_key"] = candidate_key
+    threading.Thread(
+        target=_run_onemin_background_refresh,
+        kwargs={"api_key": candidate_key, "key_names": key_names},
+        daemon=True,
+        name="onemin-credit-refresh",
+    ).start()
+
+
 def _rotate_onemin_cursor_after_key_usage(api_key: str) -> None:
     global _ONEMIN_KEY_CURSOR
     keys = _onemin_key_names()
@@ -1392,6 +1813,16 @@ def _is_onemin_key_depleted(message: str) -> bool:
         "no credits",
     )
     return any(marker in lowered for marker in depletion_markers)
+
+
+def _is_timeout_error(message: str) -> bool:
+    lowered = str(message or "").lower()
+    timeout_markers = (
+        "request_timeout",
+        "timed out",
+        "timeout",
+    )
+    return any(marker in lowered for marker in timeout_markers)
 
 
 def _parse_credit_state(message: object) -> dict[str, object] | None:
@@ -1453,14 +1884,23 @@ def _clean_onemin_states(keys: tuple[str, ...]) -> None:
                 _ONEMIN_KEY_STATES.pop(key, None)
 
 
-def _pick_onemin_key(*, allow_reserve: bool = False) -> tuple[str, float, float] | None:
-    key_names = _ordered_onemin_keys_allow_reserve(allow_reserve)
+def _pick_onemin_key(
+    *,
+    allow_reserve: bool = False,
+    key_names: tuple[str, ...] | None = None,
+    lane: str = _LANE_DEFAULT,
+    model: str = "",
+    required_credits: int | None = None,
+) -> tuple[str, float, float] | None:
+    _load_provider_ledgers_once()
+    if key_names is None:
+        key_names = _ordered_onemin_keys_allow_reserve(allow_reserve)
     if not key_names:
         return None
     _clean_onemin_states(key_names)
     states = _onemin_states_snapshot(key_names)
     now = _now_epoch()
-    candidates: list[tuple[str, float, float]] = []
+    candidates: list[tuple[str, int, float, float, float]] = []
     blocked: list[tuple[str, float, float]] = []
     for index, api_key in enumerate(key_names):
         state = states.get(api_key) or OneminKeyState(key=api_key)
@@ -1470,10 +1910,19 @@ def _pick_onemin_key(*, allow_reserve: bool = False) -> tuple[str, float, float]
         if now < state.cooldown_until:
             blocked.append((api_key, state.cooldown_until, index))
             continue
-        candidates.append((api_key, state.last_used_at, index))
+        selection_priority = _onemin_key_selection_priority(
+            api_key=api_key,
+            state=state,
+            lane=lane,
+            model=model,
+            required_credits=required_credits,
+            index=index,
+            now=now,
+        )
+        candidates.append((api_key, *selection_priority))
     if candidates:
-        candidates.sort(key=lambda item: (item[1], item[2]))
-        return candidates[0][0], 0.0, float(candidates[0][2])
+        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6]))
+        return candidates[0][0], 0.0, float(candidates[0][6])
     if not blocked:
         return key_names[0], 0.0, 0.0
     blocked.sort(key=lambda item: (item[1], item[2]))
@@ -1494,6 +1943,7 @@ def _mark_onemin_success(api_key: str) -> None:
             "last_error": "",
         },
     )
+    _persist_onemin_key_state(api_key)
 
 
 def _mark_onemin_failure(
@@ -1504,17 +1954,30 @@ def _mark_onemin_failure(
     quarantine_seconds: float | None = None,
 ) -> None:
     now = _now_epoch()
-    rate_cooldown_seconds, failure_cooldown_seconds, auth_quarantine_seconds = _resolve_onemin_cooldowns()
+    (
+        rate_cooldown_seconds,
+        depleted_cooldown_seconds,
+        failure_cooldown_seconds,
+        auth_quarantine_seconds,
+    ) = _resolve_onemin_cooldowns()
     state = _onemin_states_snapshot(_onemin_key_names()).get(api_key, OneminKeyState(key=api_key))
     failure_count = int(state.failure_count or 0) + 1
     effective_quarantine_seconds = auth_quarantine_seconds if quarantine_seconds is None else max(1.0, float(quarantine_seconds))
+    lowered_message = str(message or "").lower()
+    is_depleted = _is_onemin_key_depleted(message)
+    is_rate_limited = "rate limit" in lowered_message or "too many requests" in lowered_message or "http_429" in lowered_message
     cooldown = now + (
         effective_quarantine_seconds if temporary_quarantine else
-        (rate_cooldown_seconds if _is_onemin_key_depleted(message) else failure_cooldown_seconds)
+        (
+            depleted_cooldown_seconds if is_depleted else
+            (rate_cooldown_seconds if is_rate_limited else failure_cooldown_seconds)
+        )
     )
     quarantine = 0.0
     if temporary_quarantine:
         quarantine = now + effective_quarantine_seconds
+    elif is_depleted:
+        quarantine = now + depleted_cooldown_seconds
     _set_onemin_state(
         api_key,
         {
@@ -1526,6 +1989,7 @@ def _mark_onemin_failure(
             "last_error": str(message or ""),
         },
     )
+    _persist_onemin_key_state(api_key)
     _record_onemin_required_credit_observation(api_key=api_key, message=message, happened_at=now)
     _rotate_onemin_cursor_after_key_usage(api_key)
 
@@ -1546,6 +2010,14 @@ def _onemin_chat_url() -> str:
         "EA_RESPONSES_ONEMIN_CHAT_URL",
         _env("EA_RESPONSES_ONEMIN_URL", "https://api.1min.ai/api/chat-with-ai"),
     )
+
+
+def _onemin_chat_stream_url() -> str:
+    url = _onemin_chat_url()
+    if "isstreaming=" in url.lower():
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}isStreaming=true"
 
 
 def _onemin_code_url() -> str:
@@ -1700,11 +2172,27 @@ def _resolve_hard_defaults() -> tuple[float, float, int]:
     )
 
 
-def _resolve_onemin_cooldowns() -> tuple[float, float, float]:
+def _resolve_onemin_cooldowns() -> tuple[float, float, float, float]:
     return (
         _to_float(_env("EA_RESPONSES_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS", str(_ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
+        _to_float(_env("EA_RESPONSES_ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS", str(_ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
         _to_float(_env("EA_RESPONSES_ONEMIN_FAILURE_COOLDOWN_SECONDS", str(_ONEMIN_FAILURE_COOLDOWN_SECONDS)), 1.0, minimum=1.0),
         _to_float(_env("EA_RESPONSES_ONEMIN_AUTH_QUARANTINE_SECONDS", str(_ONEMIN_AUTH_QUARANTINE_SECONDS)), 1.0, minimum=1.0),
+    )
+
+
+def _resolve_onemin_request_timeout_seconds(*, lane: str, default: int) -> int:
+    baseline = _to_int(default, default or _ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS, minimum=5, maximum=600)
+    if lane != _LANE_HARD:
+        return baseline
+    return min(
+        baseline,
+        _to_int(
+            _env("EA_RESPONSES_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS", str(_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS)),
+            _ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS,
+            minimum=5,
+            maximum=600,
+        ),
     )
 
 
@@ -1766,6 +2254,46 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     if observed_spend > 0:
         return max(0, _onemin_max_credits_per_key() - observed_spend), "max_minus_observed_usage"
     return None, "unknown_unprobed"
+
+
+def _onemin_known_exhaustion_message(*, key_names: tuple[str, ...], required_credits: int | None = None) -> str | None:
+    _load_provider_ledgers_once()
+    if not key_names:
+        return None
+    states = _onemin_states_snapshot(key_names)
+    exhausted_slots: list[str] = []
+    now = _now_epoch()
+    for api_key in key_names:
+        state = states.get(api_key, OneminKeyState(key=api_key))
+        remaining_credits, basis, confident_balance, _exact_evidence_at, _latest_any_evidence_at = _onemin_credit_snapshot_state(
+            api_key=api_key,
+            key_names=key_names,
+            state=state,
+            now=now,
+        )
+        if required_credits is not None and required_credits > 0:
+            if not confident_balance:
+                return None
+            if remaining_credits is None:
+                return None
+            if int(remaining_credits) >= int(required_credits):
+                return None
+            if basis == "observed_error" and state.last_success_at > 0.0 and state.last_success_at > state.last_failure_at:
+                return None
+        else:
+            if remaining_credits != 0:
+                return None
+            if basis in {"unknown_unprobed", "max_minus_observed_usage"}:
+                return None
+            if state.last_success_at > 0.0 and state.last_success_at > state.last_failure_at:
+                return None
+        exhausted_slots.append(_provider_account_name("onemin", key_names=key_names, key=api_key) or _onemin_key_slot(api_key, key_names=key_names))
+    unique_slots = sorted({slot for slot in exhausted_slots if slot})
+    if not unique_slots:
+        return None
+    if required_credits is not None and required_credits > 0:
+        return f"onemin_exhausted_for_request:{int(required_credits)}:" + ",".join(unique_slots)
+    return "onemin_exhausted:" + ",".join(unique_slots)
 
 
 def _record_onemin_required_credit_observation(*, api_key: str, message: str, happened_at: float | None = None) -> None:
@@ -2160,7 +2688,7 @@ def _normalize_provider(value: str) -> str:
 
 
 def _provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "gemini_vortex,magixai,onemin")
+    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
     ordered: list[str] = []
     seen: set[str] = set()
     for item in raw.split(","):
@@ -2169,7 +2697,7 @@ def _provider_order() -> tuple[str, ...]:
             continue
         seen.add(provider_key)
         ordered.append(provider_key)
-    return tuple(ordered or ("gemini_vortex", "magixai", "onemin"))
+    return tuple(ordered or ("onemin", "gemini_vortex", "magixai"))
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
@@ -2406,6 +2934,25 @@ def _set_onemin_state(key: str, update: dict[str, object]) -> None:
         _ONEMIN_KEY_STATES[key] = replace(current, **update)
 
 
+def _persist_onemin_key_state(api_key: str) -> None:
+    state = _onemin_states_snapshot((api_key,)).get(api_key)
+    if state is None:
+        return
+    _append_provider_ledger_record(
+        "onemin_key_state_events.jsonl",
+        {
+            "key": state.key,
+            "last_used_at": state.last_used_at,
+            "last_success_at": state.last_success_at,
+            "last_failure_at": state.last_failure_at,
+            "failure_count": state.failure_count,
+            "cooldown_until": state.cooldown_until,
+            "quarantine_until": state.quarantine_until,
+            "last_error": state.last_error,
+        },
+    )
+
+
 def _onemin_key_slot(api_key: str, *, key_names: tuple[str, ...]) -> str:
     for index, candidate in enumerate(key_names, start=1):
         if candidate == api_key:
@@ -2496,10 +3043,15 @@ def _post_json(
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             status = int(getattr(response, "status", 200))
             raw = response.read().decode("utf-8", errors="replace")
+    except (socket.timeout, TimeoutError) as exc:
+        raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s") from exc
     except urllib.error.HTTPError as exc:
         status = int(getattr(exc, "code", 500) or 500)
         raw = exc.read().decode("utf-8", errors="replace")
     except urllib.error.URLError as exc:
+        reason = str(exc.reason or "").strip()
+        if "timed out" in reason.lower():
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s") from exc
         raise ResponsesUpstreamError(f"url_error:{exc.reason}") from exc
     except Exception as exc:
         raise ResponsesUpstreamError(f"request_failed:{exc}") from exc
@@ -2513,6 +3065,70 @@ def _post_json(
     if isinstance(payload_json, (dict, list)):
         return status, payload_json
     return status, raw
+
+
+def _post_sse(
+    *,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, object],
+    timeout_seconds: int,
+    on_event: Callable[[str, str], None],
+) -> tuple[int, str | None]:
+    data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        method="POST",
+        headers={
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+            "User-Agent": _user_agent(),
+            **headers,
+        },
+        data=data,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            status = int(getattr(response, "status", 200))
+            event_name = ""
+            data_lines: list[str] = []
+
+            def _flush_event() -> None:
+                nonlocal event_name, data_lines
+                if not event_name and not data_lines:
+                    return
+                on_event(event_name, "\n".join(data_lines))
+                event_name = ""
+                data_lines = []
+
+            for raw_line in response:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line:
+                    _flush_event()
+                    continue
+                if line.startswith(":"):
+                    continue
+                if line.startswith("event:"):
+                    event_name = line[6:].strip()
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+                    continue
+            _flush_event()
+            return status, None
+    except (socket.timeout, TimeoutError) as exc:
+        raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s") from exc
+    except urllib.error.HTTPError as exc:
+        status = int(getattr(exc, "code", 500) or 500)
+        raw = exc.read().decode("utf-8", errors="replace")
+        return status, raw
+    except urllib.error.URLError as exc:
+        reason = str(exc.reason or "").strip()
+        if "timed out" in reason.lower():
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s") from exc
+        raise ResponsesUpstreamError(f"url_error:{exc.reason}") from exc
+    except Exception as exc:
+        raise ResponsesUpstreamError(f"request_failed:{exc}") from exc
 
 
 def _get_json(
@@ -3791,6 +4407,7 @@ def _call_onemin(
     model: str,
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
+    on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -3800,17 +4417,22 @@ def _call_onemin(
     key_names = tuple(config.api_keys)
     if not key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
+    request_timeout_seconds = _resolve_onemin_request_timeout_seconds(lane=lane, default=config.timeout_seconds)
+    required_credits, _ = _onemin_required_credits_for_selection(lane=lane, model=model)
 
-    urls = [
-        (_onemin_code_url(), "code"),
-        (_onemin_chat_url(), "chat"),
-    ]
-    if not _onemin_model_supports_code(model):
+    if on_delta is None:
         urls = [
-            (url, "chat")
-            for url, mode in urls
-            if mode == "chat" and url == _onemin_chat_url()
+            (_onemin_code_url(), "code"),
+            (_onemin_chat_url(), "chat"),
         ]
+        if not _onemin_model_supports_code(model):
+            urls = [
+                (url, "chat")
+                for url, mode in urls
+                if mode == "chat" and url == _onemin_chat_url()
+            ]
+    else:
+        urls = [(_onemin_chat_stream_url(), "chat_stream")]
 
     errors: list[str] = []
     failures: list[str] = []
@@ -3818,8 +4440,21 @@ def _call_onemin(
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
     allow_reserve = False
+    if not all_key_names:
+        raise ResponsesUpstreamError("onemin_missing_api_key")
+    _maybe_schedule_onemin_credit_refresh(key_names=all_key_names)
+    known_exhaustion = _onemin_known_exhaustion_message(key_names=all_key_names, required_credits=required_credits)
+    if known_exhaustion:
+        raise ResponsesUpstreamError(known_exhaustion)
     while len(tested) < len(all_key_names):
-        key_pick = _pick_onemin_key(allow_reserve=allow_reserve)
+        candidate_key_names = active_key_names if not allow_reserve else all_key_names
+        key_pick = _pick_onemin_key(
+            allow_reserve=allow_reserve,
+            key_names=candidate_key_names,
+            lane=lane,
+            model=model,
+            required_credits=required_credits,
+        )
         if key_pick is None:
             if not allow_reserve and len(all_key_names) > len(active_key_names):
                 allow_reserve = True
@@ -3845,18 +4480,226 @@ def _call_onemin(
         _mark_onemin_request_start(api_key)
         key_slot = _onemin_key_slot(api_key, key_names=key_names)
         account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+        key_state = _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key))
         key_fallback_reason: list[str] = []
         key_depleted = False
         key_auth_failed = False
 
         for index, (url, mode) in enumerate(urls):
             started_at = _now_ms()
-            status, payload = _post_json(
-                url=url,
-                headers={"API-KEY": api_key},
-                payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
-                timeout_seconds=config.timeout_seconds,
-            )
+            if mode == "chat_stream":
+                stream_chunks: list[str] = []
+                stream_payload: dict[str, Any] | None = None
+                stream_error = ""
+
+                def _handle_stream_event(event_name: str, data: str) -> None:
+                    nonlocal stream_payload, stream_error
+                    event_type = str(event_name or "").strip().lower()
+                    parsed_data: Any = data
+                    try:
+                        parsed_data = json.loads(data)
+                    except Exception:
+                        parsed_data = data
+                    if event_type in {"content", ""}:
+                        if isinstance(parsed_data, dict):
+                            delta = parsed_data.get("content")
+                            if delta is None:
+                                delta = parsed_data.get("delta")
+                            if delta is None:
+                                delta = parsed_data.get("text")
+                            content = str(delta or "")
+                        else:
+                            content = str(parsed_data or "")
+                        if content:
+                            stream_chunks.append(content)
+                            on_delta(content)
+                        return
+                    if event_type == "result" and isinstance(parsed_data, dict):
+                        stream_payload = parsed_data
+                        return
+                    if event_type == "error":
+                        if isinstance(parsed_data, dict):
+                            stream_error = str(
+                                parsed_data.get("message") or parsed_data.get("error") or data or ""
+                            ).strip()
+                        else:
+                            stream_error = str(parsed_data or data or "").strip()
+
+                try:
+                    status, failure_payload = _post_sse(
+                        url=url,
+                        headers={"API-KEY": api_key},
+                        payload=_onemin_payload_for_mode("chat", prompt=prompt_text, model=model),
+                        timeout_seconds=request_timeout_seconds,
+                        on_event=_handle_stream_event,
+                    )
+                except ResponsesUpstreamError as exc:
+                    error_detail = str(exc)
+                    reason = f"{key_slot}:{mode}:{error_detail}"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                    if _is_onemin_key_depleted(error_detail):
+                        key_depleted = True
+                    if lane == _LANE_HARD and _is_timeout_error(error_detail) and key_state.last_success_at > key_state.last_failure_at:
+                        raise ResponsesUpstreamError(f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s")
+                    break
+                latency_ms = _now_ms() - started_at
+                if status < 200 or status >= 300:
+                    error_detail = _trim_error_payload(failure_payload or "")
+                    reason = f"{key_slot}:{mode}:http_{status}:{error_detail}"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    if _is_auth_error(error_detail):
+                        key_auth_failed = True
+                        quarantine_seconds = (
+                            _deleted_onemin_key_quarantine_seconds()
+                            if _is_deleted_onemin_key_error(error_detail)
+                            else None
+                        )
+                        _mark_onemin_failure(
+                            api_key,
+                            error_detail,
+                            temporary_quarantine=True,
+                            quarantine_seconds=quarantine_seconds,
+                        )
+                        break
+                    if _is_retryable_onemin_error(error_detail):
+                        _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                        if _is_onemin_key_depleted(error_detail):
+                            key_depleted = True
+                        break
+                    _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                    break
+
+                if stream_error:
+                    reason = f"{key_slot}:{mode}:{stream_error}"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    if _is_auth_error(stream_error):
+                        key_auth_failed = True
+                        quarantine_seconds = (
+                            _deleted_onemin_key_quarantine_seconds()
+                            if _is_deleted_onemin_key_error(stream_error)
+                            else None
+                        )
+                        _mark_onemin_failure(
+                            api_key,
+                            stream_error,
+                            temporary_quarantine=True,
+                            quarantine_seconds=quarantine_seconds,
+                        )
+                        break
+                    if _is_retryable_onemin_error(stream_error):
+                        _mark_onemin_failure(api_key, stream_error, temporary_quarantine=False)
+                        if _is_onemin_key_depleted(stream_error):
+                            key_depleted = True
+                        break
+                    _mark_onemin_failure(api_key, stream_error)
+                    break
+
+                payload = stream_payload or {}
+                if payload and not isinstance(payload, dict):
+                    reason = f"{key_slot}:{mode}:invalid_payload"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    _mark_onemin_failure(api_key, reason)
+                    break
+
+                onemin_error = _extract_onemin_error(payload) if isinstance(payload, dict) else ""
+                if onemin_error:
+                    reason = f"{key_slot}:{mode}:{onemin_error}"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    if _is_auth_error(onemin_error):
+                        key_auth_failed = True
+                        quarantine_seconds = (
+                            _deleted_onemin_key_quarantine_seconds()
+                            if _is_deleted_onemin_key_error(onemin_error)
+                            else None
+                        )
+                        _mark_onemin_failure(
+                            api_key,
+                            onemin_error,
+                            temporary_quarantine=True,
+                            quarantine_seconds=quarantine_seconds,
+                        )
+                        break
+                    if _is_retryable_onemin_error(onemin_error):
+                        _mark_onemin_failure(api_key, onemin_error, temporary_quarantine=False)
+                        if _is_onemin_key_depleted(onemin_error):
+                            key_depleted = True
+                        break
+                    _mark_onemin_failure(api_key, onemin_error)
+                    break
+
+                text = "".join(stream_chunks)
+                if not text and isinstance(payload, dict):
+                    text = _extract_onemin_text(payload)
+                if not text:
+                    reason = f"{key_slot}:{mode}:empty_response"
+                    errors.append(reason)
+                    key_fallback_reason.append(reason)
+                    _mark_onemin_failure(api_key, reason)
+                    break
+
+                resolved_model = _extract_onemin_model(payload) or model
+                tokens_in, tokens_out = (0, 0)
+                usage = payload.get("usage") if isinstance(payload, dict) else {}
+                if isinstance(usage, dict):
+                    tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+                    tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+                _record_onemin_usage_event(
+                    api_key=api_key,
+                    model=resolved_model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    lane=lane,
+                )
+                _mark_onemin_success(api_key)
+                fallback_reason = None
+                if failures or key_fallback_reason:
+                    fallback_reason = "; ".join(failures + key_fallback_reason)
+                _log_provider_selection(
+                    provider="onemin",
+                    event="success",
+                    key_slot=key_slot,
+                    model=resolved_model,
+                    latency_ms=latency_ms,
+                    reason=fallback_reason,
+                )
+                return UpstreamResult(
+                    text=text,
+                    provider_key=config.provider_key,
+                    model=resolved_model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    provider_key_slot=key_slot,
+                    provider_backend="1min",
+                    provider_account_name=account_name,
+                    upstream_model=model,
+                    latency_ms=max(0, latency_ms),
+                    fallback_reason=fallback_reason,
+                )
+
+            try:
+                status, payload = _post_json(
+                    url=url,
+                    headers={"API-KEY": api_key},
+                    payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
+                    timeout_seconds=request_timeout_seconds,
+                )
+            except ResponsesUpstreamError as exc:
+                error_detail = str(exc)
+                reason = f"{key_slot}:{mode}:{error_detail}"
+                errors.append(reason)
+                key_fallback_reason.append(reason)
+                _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                if _is_onemin_key_depleted(error_detail):
+                    key_depleted = True
+                if lane == _LANE_HARD and _is_timeout_error(error_detail) and key_state.last_success_at > key_state.last_failure_at:
+                    raise ResponsesUpstreamError(f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s")
+                break
             latency_ms = _now_ms() - started_at
             if status < 200 or status >= 300:
                 error_detail = _trim_error_payload(payload)
@@ -4042,6 +4885,7 @@ def _onemin_payload_for_mode(mode: str, *, prompt: str, model: str) -> dict[str,
 def _is_provider_fatal_error(message: str) -> bool:
     lowered = str(message or "").lower()
     fatal_markers = (
+        "known_good_timeout",
         "missing_api_key",
         "invalid api key",
         "missing or invalid authorization header",
@@ -4098,6 +4942,52 @@ def generate_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+) -> UpstreamResult:
+    return _run_text_request(
+        prompt=prompt,
+        messages=messages,
+        requested_model=requested_model,
+        max_output_tokens=max_output_tokens,
+        chatplayground_audit_callback=chatplayground_audit_callback,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        on_delta=None,
+    )
+
+
+def stream_text(
+    *,
+    prompt: str = "",
+    messages: list[dict[str, str]] | None = None,
+    requested_model: str = "",
+    max_output_tokens: int | None = None,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
+    on_delta: Callable[[str], None] | None = None,
+) -> UpstreamResult:
+    return _run_text_request(
+        prompt=prompt,
+        messages=messages,
+        requested_model=requested_model,
+        max_output_tokens=max_output_tokens,
+        chatplayground_audit_callback=chatplayground_audit_callback,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        on_delta=on_delta,
+    )
+
+
+def _run_text_request(
+    *,
+    prompt: str = "",
+    messages: list[dict[str, str]] | None = None,
+    requested_model: str = "",
+    max_output_tokens: int | None = None,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
+    on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -4169,6 +5059,7 @@ def generate_text(
                         model=model_name,
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
+                        on_delta=on_delta,
                     )
                 elif config.provider_key == "chatplayground":
                     result = _call_chatplayground_audit(
@@ -4193,6 +5084,8 @@ def generate_text(
                         principal_id=chatplayground_audit_principal_id,
                     )
                 if result is not None:
+                    if on_delta is not None and config.provider_key != "onemin" and result.text:
+                        on_delta(result.text)
                     estimated_onemin_credits, _ = _estimate_onemin_request_credits(
                         now=_now_epoch(),
                         tokens_in=result.tokens_in,
@@ -4229,6 +5122,8 @@ def _test_reset_onemin_states() -> None:
     with _ONEMIN_KEY_CURSOR_LOCK:
         _ONEMIN_KEY_STATES.clear()
         _ONEMIN_KEY_CURSOR = 0
+    with _ONEMIN_BACKGROUND_REFRESH_LOCK:
+        _ONEMIN_BACKGROUND_REFRESH_STATE.update(in_flight=False, started_at=0.0, finished_at=0.0, api_key="")
     with _ONEMIN_USAGE_LOCK:
         _ONEMIN_USAGE_EVENTS.clear()
         _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
@@ -4242,6 +5137,7 @@ def _test_reset_onemin_states() -> None:
     with _PROVIDER_LEDGER_LOCK:
         _PROVIDER_LEDGER_LOADED = False
     for ledger_name in (
+        "onemin_key_state_events.jsonl",
         "onemin_usage_events.jsonl",
         "onemin_required_credit_events.jsonl",
         "onemin_probe_events.jsonl",

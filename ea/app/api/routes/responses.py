@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import json
 import os
 import queue
@@ -38,6 +39,7 @@ from app.services.responses_upstream import (
     generate_text,
     list_response_models,
     principal_identity_summary,
+    stream_text,
 )
 from app.services.survival_lane import SurvivalLaneService
 
@@ -48,6 +50,15 @@ responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
 codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
+
+
+def _responses_upstream_idle_timeout_seconds() -> float:
+    raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "60").strip()
+    try:
+        parsed = float(raw)
+    except Exception:
+        parsed = 60.0
+    return max(parsed, STREAM_HEARTBEAT_SECONDS + 1.0)
 
 
 @dataclass(frozen=True)
@@ -65,7 +76,8 @@ class _StoredResponse:
     principal_id: str
 
 
-class _ResponseRecordRepository:
+class _ResponseRecordRepository(abc.ABC):
+    @abc.abstractmethod
     def store(
         self,
         *,
@@ -75,15 +87,16 @@ class _ResponseRecordRepository:
         history_items: list[dict[str, object]],
         principal_id: str,
     ) -> None:
-        raise NotImplementedError
+        """Store a response record for the requested principal."""
 
+    @abc.abstractmethod
     def load(
         self,
         *,
         response_id: str,
         principal_id: str,
     ) -> _StoredResponse:
-        raise NotImplementedError
+        """Load a previously stored response record for a principal."""
 
 
 class _MemoryResponseRecordRepository(_ResponseRecordRepository):
@@ -257,15 +270,14 @@ class _ResponsesCreateRequest(BaseModel):
     metadata: dict[str, object] | None = None
     max_output_tokens: int | None = None
     stream: bool = False
+    store: bool | None = None
     tools: list[dict[str, object]] | None = None
     tool_choice: Any | None = None
     parallel_tool_calls: bool | None = None
     reasoning: Any | None = None
-    store: bool | None = None
     include: list[str] | None = None
     service_tier: str | None = None
     prompt_cache_key: str | None = None
-    previous_response_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -331,7 +343,6 @@ class _ResponseObject(BaseModel):
     usage: _ResponseUsage
     metadata: dict[str, object]
     output_text: str = ""
-    previous_response_id: str | None = None
     reasoning: Any | None = None
     truncation: str | None = None
 
@@ -739,8 +750,6 @@ def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
 
 
 def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
-    # Keep OpenAI-compatible default behavior (`store=true` by default), but
-    # respect explicit opt-out from clients that do not want retrieval state.
     return payload.store is not False
 
 
@@ -891,7 +900,7 @@ def _requested_model(payload: _ResponsesCreateRequest) -> str:
 
 
 def _requested_previous_response_id(payload: _ResponsesCreateRequest) -> str | None:
-    value = str(payload.previous_response_id or "").strip()
+    value = str(getattr(payload, "previous_response_id", "") or "").strip()
     return value or None
 
 
@@ -945,7 +954,6 @@ def _response_object(
     error: dict[str, object] | None = None,
     incomplete_details: dict[str, object] | None = None,
     input_items: list[dict[str, object]] | None = None,
-    previous_response_id: str | None = None,
     reasoning: Any | None = None,
 ) -> dict[str, object]:
     completed_at = created_at if status == "completed" else None
@@ -969,7 +977,6 @@ def _response_object(
         usage=usage,
         metadata=dict(metadata or {}),
         output_text=output_text,
-        previous_response_id=previous_response_id,
         reasoning=reasoning,
         truncation="disabled",
     )
@@ -1107,7 +1114,7 @@ class _ToolShimDecision:
 
 
 def _response_tools(payload: _ResponsesCreateRequest) -> list[dict[str, object]]:
-    raw_tools = payload.tools
+    raw_tools = getattr(payload, "tools", None)
     if not isinstance(raw_tools, list):
         return []
     tools: list[dict[str, object]] = []
@@ -1139,7 +1146,7 @@ def _tool_shim_supported_tools(raw_tools: list[dict[str, object]]) -> list[dict[
 
 def _history_items_for_request(
     *,
-    previous_response_id: str | None,
+    previous_response_id: str | None = None,
     parsed_input: _ParsedResponseInput,
     principal_id: str,
     container: object | None = None,
@@ -1552,6 +1559,46 @@ def _error_event_payload(message: str) -> dict[str, object]:
     }
 
 
+def _failed_stream_events(
+    *,
+    sequence_fn: Callable[[], int],
+    failed_obj: dict[str, object],
+    failure_message: str,
+) -> list[str]:
+    return [
+        _sse_event(
+            event="response.failed",
+            sequence=sequence_fn(),
+            data={
+                "type": "response.failed",
+                "response": failed_obj,
+            },
+        ),
+        _sse_event(
+            event="error",
+            sequence=sequence_fn(),
+            data=_error_event_payload(failure_message),
+        ),
+        _sse_event(
+            event="response.completed",
+            sequence=sequence_fn(),
+            data={
+                "type": "response.completed",
+                "response": failed_obj,
+            },
+        ),
+        _sse_event(
+            event="response.done",
+            sequence=sequence_fn(),
+            data={
+                "type": "response.done",
+                "response": failed_obj,
+            },
+        ),
+        _sse_done(),
+    ]
+
+
 def _survival_max_output_tokens() -> int:
     raw = str(os.environ.get("EA_SURVIVAL_MAX_OUTPUT_TOKENS") or "768").strip() or "768"
     try:
@@ -1564,11 +1611,14 @@ def _survival_max_output_tokens() -> int:
 def _survival_rejected_fields(payload: _ResponsesCreateRequest) -> list[str]:
     refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "1").strip().lower() not in {"0", "false", "no", "off"}
     rejected: list[str] = []
-    if refuse_tools and payload.tools:
+    tools = getattr(payload, "tools", None)
+    if refuse_tools and tools:
         rejected.append("tools")
-    if refuse_tools and payload.tool_choice is not None:
+    tool_choice = getattr(payload, "tool_choice", None)
+    if refuse_tools and tool_choice is not None:
         rejected.append("tool_choice")
-    if refuse_tools and payload.parallel_tool_calls is not None:
+    parallel_tool_calls = getattr(payload, "parallel_tool_calls", None)
+    if refuse_tools and parallel_tool_calls is not None:
         rejected.append("parallel_tool_calls")
     return rejected
 
@@ -1584,7 +1634,7 @@ def _run_survival_response(
     model: str,
     metadata: dict[str, object],
     history_items: list[dict[str, object]],
-    previous_response_id: str | None,
+    previous_response_id: str | None = None,
 ) -> Response:
     if str(os.environ.get("EA_SURVIVAL_ENABLED") or "1").strip().lower() in {"0", "false", "no", "off"}:
         raise HTTPException(status_code=503, detail="survival_lane_disabled")
@@ -1593,9 +1643,6 @@ def _run_survival_response(
     rejected_fields = _survival_rejected_fields(request)
     if rejected_fields:
         raise HTTPException(status_code=400, detail=f"survival_unsupported_fields:{','.join(rejected_fields)}")
-    if request.store is False:
-        raise HTTPException(status_code=400, detail="survival_requires_store")
-
     created_at = _now_unix()
     response_id = "resp_" + uuid.uuid4().hex[:24]
     requested_max_output_tokens = _requested_max_output_tokens(request)
@@ -1635,11 +1682,6 @@ def _run_survival_response(
         metadata=response_metadata,
         instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
         input_items=parsed_input.input_items,
-        store=True,
-        previous_response_id=previous_response_id,
-        parallel_tool_calls=False,
-        tool_choice="none",
-        tools=[],
         reasoning=request.reasoning,
     )
     _store_response(
@@ -1664,7 +1706,6 @@ def _run_survival_response(
                 current_input=parsed_input.prompt,
                 desired_format="plain_text",
                 prompt_cache_key=request.prompt_cache_key,
-                previous_response_id=previous_response_id,
             )
             upstream_result = result.to_upstream_result()
             message_item = _message_item(
@@ -1704,11 +1745,6 @@ def _run_survival_response(
                 metadata=completed_metadata,
                 instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
                 input_items=parsed_input.input_items,
-                store=True,
-                previous_response_id=previous_response_id,
-                parallel_tool_calls=False,
-                tool_choice="none",
-                tools=[],
                 reasoning=request.reasoning,
             )
             _store_response(
@@ -1733,11 +1769,6 @@ def _run_survival_response(
                 metadata=response_metadata,
                 instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
                 input_items=parsed_input.input_items,
-                store=True,
-                previous_response_id=previous_response_id,
-                parallel_tool_calls=False,
-                tool_choice="none",
-                tools=[],
                 reasoning=request.reasoning,
                 error={"code": "survival_failed", "message": str(exc)[:500]},
                 incomplete_details={"type": "error", "reason": str(exc)[:500]},
@@ -1887,33 +1918,87 @@ def _run_response(
             model=SURVIVAL_PUBLIC_MODEL,
             metadata=response_metadata,
             history_items=history_items,
-            previous_response_id=previous_response_id,
         )
 
     if not stream:
-        tool_decision: _ToolShimDecision | None = None
-        if supported_tools:
-            tool_decision = _tool_shim_decision(
+        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+        def _run_non_stream() -> None:
+            try:
+                if supported_tools:
+                    decision = _tool_shim_decision(
+                        model=model,
+                        max_output_tokens=max_output_tokens,
+                        instructions=instructions,
+                        tools=supported_tools,
+                        history_items=history_items,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_principal_id=context.principal_id,
+                    )
+                    result_queue.put(("decision", decision))
+                    return
+                result = _generate_upstream_text(
+                    prompt=parsed_input.prompt,
+                    messages=messages,
+                    requested_model=model,
+                    max_output_tokens=max_output_tokens,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=audit_profile_or_model,
+                    chatplayground_audit_principal_id=context.principal_id,
+                )
+                result_queue.put(("result", result))
+            except Exception as exc:
+                result_queue.put(("error", exc))
+
+        worker = threading.Thread(target=_run_non_stream, daemon=True)
+        worker.start()
+        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds()
+        try:
+            status, result_payload = result_queue.get(timeout=upstream_idle_timeout_seconds)
+        except queue.Empty:
+            failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
+            failed_obj = _build_failed_response(
+                response_id=response_id,
+                created_at=created_at,
                 model=model,
-                max_output_tokens=max_output_tokens,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
                 instructions=instructions,
-                tools=supported_tools,
-                history_items=history_items,
-                chatplayground_audit_callback=chatplayground_audit_callback,
-                chatplayground_audit_callback_only=audit_profile_or_model,
-                chatplayground_audit_principal_id=context.principal_id,
+                input_items=parsed_input.input_items,
+                failure_message=failure_message,
             )
-            result = tool_decision.upstream_result
+            if _should_store_response(request):
+                _store_response(
+                    response_id=response_id,
+                    response_obj=failed_obj,
+                    input_items=parsed_input.input_items,
+                    history_items=history_items,
+                    principal_id=context.principal_id,
+                    container=container,
+                )
+            _capture_responses_debug(
+                name="response_timeout",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": codex_profile,
+                    "response_id": response_id,
+                    "model": model,
+                    "failure_message": failure_message,
+                },
+            )
+            return JSONResponse(failed_obj, status_code=504)
+        if status == "error":
+            failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
+            raise failure
+        tool_decision: _ToolShimDecision | None = None
+        if status == "decision":
+            if not isinstance(result_payload, _ToolShimDecision) or not isinstance(result_payload.upstream_result, UpstreamResult):
+                raise HTTPException(status_code=502, detail="upstream_unavailable:invalid_upstream_result")
+            tool_decision = result_payload
+            result = result_payload.upstream_result
         else:
-            result = _generate_upstream_text(
-                prompt=parsed_input.prompt,
-                messages=messages,
-                requested_model=model,
-                max_output_tokens=max_output_tokens,
-                chatplayground_audit_callback=chatplayground_audit_callback,
-                chatplayground_audit_callback_only=audit_profile_or_model,
-                chatplayground_audit_principal_id=context.principal_id,
-            )
+            result = result_payload
         if not isinstance(result, UpstreamResult):
             raise HTTPException(status_code=502, detail="upstream_unavailable:invalid_upstream_result")
         final_metadata = {
@@ -1923,6 +2008,7 @@ def _run_response(
             "provider_backend": result.provider_backend,
             "provider_account_name": result.provider_account_name,
             "provider_key_slot": result.provider_key_slot,
+            "upstream_fallback_reason": result.fallback_reason,
         }
         output_items: list[dict[str, object]]
         output_text = ""
@@ -1957,11 +2043,6 @@ def _run_response(
             metadata=final_metadata,
             instructions=instructions,
             input_items=parsed_input.input_items,
-            store=_should_store_response(request),
-            previous_response_id=previous_response_id,
-            parallel_tool_calls=request.parallel_tool_calls,
-            tool_choice=request.tool_choice,
-            tools=request.tools if request.tools is not None else None,
             reasoning=request.reasoning,
         )
         if _should_store_response(request):
@@ -2004,13 +2085,17 @@ def _run_response(
             metadata=response_metadata,
             instructions=instructions,
             input_items=parsed_input.input_items,
-            store=_should_store_response(request),
-            previous_response_id=previous_response_id,
-            parallel_tool_calls=request.parallel_tool_calls,
-            tool_choice=request.tool_choice,
-            tools=request.tools if request.tools is not None else None,
             reasoning=request.reasoning,
         )
+        if _should_store_response(request):
+            _store_response(
+                response_id=response_id,
+                response_obj=in_progress_obj,
+                input_items=parsed_input.input_items,
+                history_items=history_items,
+                principal_id=context.principal_id,
+                container=container,
+            )
         yield _sse_event(
             event="response.created",
             sequence=_next_sequence(),
@@ -2022,7 +2107,32 @@ def _run_response(
             data={"type": "response.in_progress", "response": in_progress_obj},
         )
 
-        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+        result_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        streamed_text_parts: list[str] = []
+        message_stream_open = False
+
+        def _open_message_stream() -> Iterable[str]:
+            empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+            yield _sse_event(
+                event="response.output_item.added",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": empty_item,
+                },
+            )
+            yield _sse_event(
+                event="response.content_part.added",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.content_part.added",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": "", "annotations": []},
+                },
+            )
 
         def _run_upstream() -> None:
             try:
@@ -2039,7 +2149,7 @@ def _run_response(
                     )
                     result_queue.put(("decision", decision))
                     return
-                result = _generate_upstream_text(
+                result = stream_text(
                     prompt=parsed_input.prompt,
                     messages=messages,
                     requested_model=model,
@@ -2047,6 +2157,7 @@ def _run_response(
                     chatplayground_audit_callback=chatplayground_audit_callback,
                     chatplayground_audit_callback_only=audit_profile_or_model,
                     chatplayground_audit_principal_id=context.principal_id,
+                    on_delta=lambda delta: result_queue.put(("delta", delta)),
                 )
                 result_queue.put(("result", result))
             except Exception as exc:
@@ -2056,11 +2167,78 @@ def _run_response(
         worker.start()
 
         state: tuple[str, object] | None = None
+        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds()
+        last_upstream_activity = time.monotonic()
         while state is None:
             try:
-                state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
+                next_state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
             except queue.Empty:
+                if (time.monotonic() - last_upstream_activity) >= upstream_idle_timeout_seconds:
+                    failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
+                    failed_obj = _build_failed_response(
+                        response_id=response_id,
+                        created_at=created_at,
+                        model=model,
+                        requested_max_output_tokens=max_output_tokens,
+                        metadata=response_metadata,
+                        instructions=instructions,
+                        input_items=parsed_input.input_items,
+                        failure_message=failure_message,
+                    )
+                    if _should_store_response(request):
+                        _store_response(
+                            response_id=response_id,
+                            response_obj=failed_obj,
+                            input_items=parsed_input.input_items,
+                            history_items=history_items,
+                            principal_id=context.principal_id,
+                            container=container,
+                        )
+                    _capture_responses_debug(
+                        name="response_timeout",
+                        payload={
+                            "principal_id": context.principal_id,
+                            "codex_profile": codex_profile,
+                            "response_id": response_id,
+                            "model": model,
+                            "failure_message": failure_message,
+                        },
+                    )
+                    for event in _failed_stream_events(
+                        sequence_fn=_next_sequence,
+                        failed_obj=failed_obj,
+                        failure_message=failure_message,
+                    ):
+                        yield event
+                    return
                 yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
+                continue
+            if not isinstance(next_state, tuple) or not next_state:
+                continue
+            if next_state[0] == "delta":
+                delta = str(next_state[1] or "")
+                if not delta:
+                    continue
+                if not message_stream_open:
+                    for event in _open_message_stream():
+                        yield event
+                    message_stream_open = True
+                streamed_text_parts.append(delta)
+                yield _sse_event(
+                    event="response.output_text.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": delta,
+                    },
+                )
+                last_upstream_activity = time.monotonic()
+                continue
+            last_upstream_activity = time.monotonic()
+            state = next_state
 
         status, result_payload = state
         if status == "error":
@@ -2085,20 +2263,12 @@ def _run_response(
                     principal_id=context.principal_id,
                     container=container,
                 )
-            yield _sse_event(
-                event="response.failed",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.failed",
-                    "response": failed_obj,
-                },
-            )
-            yield _sse_event(
-                event="error",
-                sequence=_next_sequence(),
-                data=_error_event_payload(failure_message),
-            )
-            yield _sse_done()
+            for event in _failed_stream_events(
+                sequence_fn=_next_sequence,
+                failed_obj=failed_obj,
+                failure_message=failure_message,
+            ):
+                yield event
             return
 
         tool_decision: _ToolShimDecision | None = None
@@ -2124,20 +2294,12 @@ def _run_response(
                         principal_id=context.principal_id,
                         container=container,
                     )
-                yield _sse_event(
-                    event="response.failed",
-                    sequence=_next_sequence(),
-                    data={
-                        "type": "response.failed",
-                        "response": failed_obj,
-                    },
-                )
-                yield _sse_event(
-                    event="error",
-                    sequence=_next_sequence(),
-                    data=_error_event_payload(failure_message),
-                )
-                yield _sse_done()
+                for event in _failed_stream_events(
+                    sequence_fn=_next_sequence,
+                    failed_obj=failed_obj,
+                    failure_message=failure_message,
+                ):
+                    yield event
                 return
             tool_decision = result_payload
             result = result_payload.upstream_result
@@ -2162,20 +2324,12 @@ def _run_response(
                     principal_id=context.principal_id,
                     container=container,
                 )
-            yield _sse_event(
-                event="response.failed",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.failed",
-                    "response": failed_obj,
-                },
-            )
-            yield _sse_event(
-                event="error",
-                sequence=_next_sequence(),
-                data=_error_event_payload(failure_message),
-            )
-            yield _sse_done()
+            for event in _failed_stream_events(
+                sequence_fn=_next_sequence,
+                failed_obj=failed_obj,
+                failure_message=failure_message,
+            ):
+                yield event
             return
 
         else:
@@ -2260,39 +2414,15 @@ def _run_response(
                 metadata=stream_metadata,
                 instructions=instructions,
                 input_items=parsed_input.input_items,
-                store=_should_store_response(request),
-                previous_response_id=previous_response_id,
-                parallel_tool_calls=request.parallel_tool_calls,
-                tool_choice=request.tool_choice,
-                tools=request.tools if request.tools is not None else None,
                 reasoning=request.reasoning,
             )
         else:
-            text = tool_decision.text if tool_decision else result.text
-            empty_item = _message_item(item_id=item_id, text="", status="in_progress")
-            yield _sse_event(
-                event="response.output_item.added",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.output_item.added",
-                    "output_index": 0,
-                    "item": empty_item,
-                },
-            )
-            yield _sse_event(
-                event="response.content_part.added",
-                sequence=_next_sequence(),
-                data={
-                    "type": "response.content_part.added",
-                    "output_index": 0,
-                    "item_id": item_id,
-                    "content_index": 0,
-                    "part": {"type": "output_text", "text": "", "annotations": []},
-                },
-            )
-            chunk_size = 120
-            for start in range(0, len(text), chunk_size):
-                delta = text[start : start + chunk_size]
+            text = "".join(streamed_text_parts) or (tool_decision.text if tool_decision else result.text)
+            if not message_stream_open:
+                for event in _open_message_stream():
+                    yield event
+                message_stream_open = True
+            if not streamed_text_parts and text:
                 yield _sse_event(
                     event="response.output_text.delta",
                     sequence=_next_sequence(),
@@ -2301,7 +2431,7 @@ def _run_response(
                         "output_index": 0,
                         "item_id": item_id,
                         "content_index": 0,
-                        "delta": delta,
+                        "delta": text,
                     },
                 )
 
@@ -2352,11 +2482,6 @@ def _run_response(
                 metadata=stream_metadata,
                 instructions=instructions,
                 input_items=parsed_input.input_items,
-                store=_should_store_response(request),
-                previous_response_id=previous_response_id,
-                parallel_tool_calls=request.parallel_tool_calls,
-                tool_choice=request.tool_choice,
-                tools=request.tools if request.tools is not None else None,
                 reasoning=request.reasoning,
             )
         if _should_store_response(request):
