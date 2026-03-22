@@ -12,12 +12,20 @@ services:
       - EA_ROLE=api
       - EA_PORT=8090
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
     volumes:
       - ./config:/config:ro
       - ea_provider_ledger:/data/provider-ledger
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       ea-db:
         condition: service_healthy
@@ -34,10 +42,18 @@ services:
     environment:
       - EA_ROLE=worker
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ea_provider_ledger:/data/provider-ledger
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       ea-db:
         condition: service_healthy
@@ -54,10 +70,18 @@ services:
     environment:
       - EA_ROLE=scheduler
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ea_provider_ledger:/data/provider-ledger
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       ea-db:
         condition: service_healthy

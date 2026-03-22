@@ -368,7 +368,6 @@ class BrowserActToolAdapter:
                 "verify you are human",
                 "prove you are human",
                 "human verification",
-                "captcha",
                 "security check",
                 "browser integrity check",
             ),
@@ -533,7 +532,7 @@ class BrowserActToolAdapter:
     def _browseract_normalization_payload(value: object) -> object:
         if isinstance(value, dict):
             task_output = BrowserActToolAdapter._browseract_task_output(value)
-            if task_output:
+            if BrowserActToolAdapter._browseract_output_has_content(task_output):
                 return task_output
         return value
 
@@ -1906,7 +1905,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("username")
             or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
             or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
-            or "the.girscheles@gmail.com"
         ).strip()
         login_password = str(
             payload.get("login_password")
@@ -1915,7 +1913,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("browseract_password")
             or binding_metadata.get("password")
             or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
-            or "rangersofB5"
         ).strip()
         credentials: dict[str, object] = {}
         if login_email:
@@ -1923,6 +1920,48 @@ class BrowserActToolAdapter:
         if login_password:
             credentials["browseract_password"] = login_password
         return credentials
+
+    @classmethod
+    def _browseract_ui_direct_result_needs_remote_retry(
+        cls,
+        *,
+        result: dict[str, object],
+    ) -> bool:
+        render_status = str(result.get("render_status") or "").strip().lower()
+        if render_status in {"auth_handoff_required", "challenge_required", "session_expired"}:
+            return True
+        fragments = _collect_text_fragments(result)
+        login_url = str(
+            result.get("editor_url")
+            or result.get("asset_url")
+            or ((result.get("structured_output_json") or {}).get("url") if isinstance(result.get("structured_output_json"), dict) else "")
+            or ""
+        ).strip().lower()
+        joined = "\n".join(fragment.lower() for fragment in fragments if fragment).strip()
+        if "accounts.google.com" in login_url:
+            return True
+        loginish = (
+            "/login" in login_url
+            or "/signin" in login_url
+            or "/sign-in" in login_url
+            or "auth" in login_url
+            or "accounts.google.com" in joined
+        )
+        if not loginish:
+            return False
+        return _has_marker(
+            fragments,
+            (
+                "continue with google",
+                "login with google",
+                "sign in with google",
+                "sign in",
+                "log in",
+                "login",
+                "sign into",
+                "welcome back",
+            ),
+        )
 
     @classmethod
     def _build_browseract_ui_runtime_inputs(
@@ -2751,7 +2790,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("username")
             or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
             or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
-            or "the.girscheles@gmail.com"
         ).strip()
 
     @staticmethod
@@ -2763,7 +2801,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("browseract_password")
             or binding_metadata.get("password")
             or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
-            or "rangersofB5"
         ).strip()
 
     @classmethod
@@ -2901,24 +2938,34 @@ class BrowserActToolAdapter:
     ) -> dict[str, object] | None:
         if not service.template_key:
             raise ToolExecutionError(f"ui_service_template_missing:{service.service_key}")
+        if bool(request_payload.get("force_browseract")):
+            return None
         try:
             template_spec = browseract_ui_template_spec(service.template_key)
         except KeyError as exc:
             raise ToolExecutionError(f"ui_service_template_missing:{service.service_key}:{service.template_key}") from exc
-        return cls._execute_ui_service_worker_direct(
-            service_key=service.service_key,
-            request_payload=request_payload,
-            requested_inputs=requested_inputs,
-            binding_metadata=binding_metadata,
-            service=service,
-            workflow_id=workflow_id,
-            run_url=run_url,
-            extra_packet={
-                "template_key": service.template_key,
-                "workflow_spec_json": template_spec,
-            },
-            allow_force_local=True,
-        )
+        try:
+            result = cls._execute_ui_service_worker_direct(
+                service_key=service.service_key,
+                request_payload=request_payload,
+                requested_inputs=requested_inputs,
+                binding_metadata=binding_metadata,
+                service=service,
+                workflow_id=workflow_id,
+                run_url=run_url,
+                extra_packet={
+                    "template_key": service.template_key,
+                    "workflow_spec_json": template_spec,
+                },
+                allow_force_local=True,
+            )
+        except ToolExecutionError:
+            if workflow_id:
+                return None
+            raise
+        if workflow_id and cls._browseract_ui_direct_result_needs_remote_retry(result=result):
+            return None
+        return result
 
     @classmethod
     def _crezlo_fetch_tour_detail(
@@ -5111,6 +5158,50 @@ class BrowserActToolAdapter:
                     return dict(value)
         return {}
 
+    @classmethod
+    def _browseract_task_last_failed_step(cls, body: dict[str, object]) -> dict[str, object]:
+        for step in reversed(cls._browseract_task_steps(body)):
+            status = str(step.get("status") or step.get("state") or "").strip().lower()
+            if status in {"failed", "error"}:
+                return dict(step)
+        return {}
+
+    @classmethod
+    def _browseract_task_failure_is_ignorable(cls, body: dict[str, object]) -> bool:
+        failure = cls._browseract_task_failure_info(body)
+        if not failure:
+            return False
+        fragments = list(_collect_text_fragments(failure))
+        failed_step = cls._browseract_task_last_failed_step(body)
+        fragments.extend(_collect_text_fragments(failed_step))
+        fragment_tuple = tuple(fragments)
+        if not _has_marker(fragment_tuple, ("target element not found",)):
+            return False
+        return _has_marker(
+            fragment_tuple,
+            (
+                "dismiss overlay",
+                "aria-label='close'",
+                'aria-label="close"',
+                "title='close'",
+                'title="close"',
+                "data-testid='close'",
+                'data-testid="close"',
+                "close modal",
+                "close dialog",
+                "close popover",
+            ),
+        )
+
+    @classmethod
+    def _browseract_task_can_salvage_failure(cls, body: dict[str, object]) -> bool:
+        failure = cls._browseract_task_failure_info(body)
+        if not failure:
+            return False
+        if cls._browseract_output_has_content(cls._browseract_task_output(body)):
+            return True
+        return cls._browseract_task_failure_is_ignorable(body)
+
     def _chatplayground_workflow_timeout_seconds(self, payload: dict[str, object]) -> int:
         raw = str(
             payload.get("timeout_seconds")
@@ -5267,6 +5358,8 @@ class BrowserActToolAdapter:
                     last_status = task_status
                 failure_info = self._browseract_task_failure_info(task_body)
                 if failure_info:
+                    if self._browseract_task_can_salvage_failure(task_body):
+                        return task_body
                     detail = json.dumps(failure_info, ensure_ascii=True)[:400]
                     raise ToolExecutionError(f"browseract_task_failed:{detail}")
                 if self._browseract_output_has_content(self._browseract_task_output(task_body)):
@@ -5294,6 +5387,8 @@ class BrowserActToolAdapter:
                 )
                 failure_info = self._browseract_task_failure_info(task_body)
                 if failure_info:
+                    if self._browseract_task_can_salvage_failure(task_body):
+                        return task_body
                     detail = json.dumps(failure_info, ensure_ascii=True)[:400]
                     raise ToolExecutionError(f"browseract_task_failed:{detail}")
                 if self._browseract_output_has_content(self._browseract_task_output(task_body)):
@@ -5311,7 +5406,19 @@ class BrowserActToolAdapter:
                     continue
                 return task_body
             if status in {"failed", "error", "cancelled", "canceled"}:
-                detail = json.dumps(status_body, ensure_ascii=True)[:400]
+                task_body = self._browseract_api_request(
+                    "GET",
+                    "/get-task",
+                    query={"task_id": task_id},
+                    timeout_seconds=120,
+                )
+                if self._browseract_task_can_salvage_failure(task_body):
+                    return task_body
+                failure_info = self._browseract_task_failure_info(task_body)
+                if failure_info:
+                    detail = json.dumps(failure_info, ensure_ascii=True)[:400]
+                else:
+                    detail = json.dumps(task_body or status_body, ensure_ascii=True)[:400]
                 raise ToolExecutionError(f"browseract_task_failed:{detail}")
             time.sleep(5)
         raise ToolExecutionError(f"browseract_task_timeout:{last_status or 'unknown'}")

@@ -11,6 +11,7 @@ from typing import Any, Sequence
 
 from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
+from app.services.browseract_ui_service_catalog import browseract_ui_service_definitions
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -294,6 +295,14 @@ class ProviderRegistryService:
         provider_binding_repo: ProviderBindingRepository | None = None,
     ) -> None:
         self._provider_binding_repo = provider_binding_repo
+        browseract_ui_capabilities = tuple(
+            ProviderCapability(
+                provider_key="browseract",
+                capability_key=service.capability_key,
+                tool_name=service.tool_name,
+            )
+            for service in browseract_ui_service_definitions()
+        )
         self._bindings = (
             ProviderBinding(
                 provider_key="artifact_repository",
@@ -352,6 +361,12 @@ class ProviderRegistryService:
                         capability_key="onemin_member_reconciliation",
                         tool_name="browseract.onemin_member_reconciliation",
                     ),
+                    ProviderCapability(
+                        provider_key="browseract",
+                        capability_key="crezlo_property_tour",
+                        tool_name="browseract.crezlo_property_tour",
+                    ),
+                    *browseract_ui_capabilities,
                 ),
             ),
             ProviderBinding(
@@ -1394,6 +1409,10 @@ class ProviderRegistryService:
             "browseract_workflow_repair": "workflow_spec_repair",
             "gemini_web": "gemini_web_generate",
             "browseract_gemini_web": "gemini_web_generate",
+            "property_tour": "crezlo_property_tour",
+            "create_property_tour": "crezlo_property_tour",
+            "crezlo_tour": "crezlo_property_tour",
+            "crezlo_property_tour_create": "crezlo_property_tour",
             "delivery_dispatch": "dispatch",
             "connector_dispatch": "dispatch",
             "generate_json": "structured_generate",
@@ -1406,6 +1425,15 @@ class ProviderRegistryService:
             "review_code": "reasoned_patch_review",
             "media": "media_transform",
         }
+        for service in browseract_ui_service_definitions():
+            aliases.setdefault(service.capability_key, service.capability_key)
+            aliases.setdefault(service.service_key, service.capability_key)
+            aliases.setdefault(service.task_key, service.capability_key)
+            aliases.setdefault(service.skill_key, service.capability_key)
+            for alias in service.aliases:
+                normalized_alias = str(alias or "").strip().lower().replace("-", "_").replace(" ", "_")
+                if normalized_alias:
+                    aliases.setdefault(normalized_alias, service.capability_key)
         return aliases.get(normalized, normalized)
 
     def _normalize_provider_key(self, value: object) -> str:

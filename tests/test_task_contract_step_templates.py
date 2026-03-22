@@ -604,6 +604,109 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
     assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
 
 
+def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_browseract_crezlo_property_tour() -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key="create_property_tour",
+        deliverable_type="property_tour_packet",
+        default_risk_class="medium",
+        default_approval_class="none",
+        allowed_tools=("browseract.crezlo_property_tour", "artifact_repository"),
+        evidence_requirements=("property_listing", "tour_brief", "property_media"),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "medium",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "crezlo_property_tour",
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key="create_property_tour",
+        principal_id="exec-1",
+        goal="create a steerable Crezlo property tour",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        "step_browseract_crezlo_property_tour",
+        "step_artifact_save",
+    )
+    assert plan.steps[1].tool_name == "browseract.crezlo_property_tour"
+    assert plan.steps[1].output_keys == (
+        "tour_title",
+        "tour_status",
+        "tour_id",
+        "slug",
+        "share_url",
+        "editor_url",
+        "public_url",
+        "workspace_id",
+        "workspace_domain",
+        "creation_mode",
+        "scene_count",
+        "workflow_id",
+        "task_id",
+        "requested_url",
+        "normalized_text",
+        "preview_text",
+        "mime_type",
+        "structured_output_json",
+    )
+    assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
+
+
+@pytest.mark.parametrize(
+    ("task_key", "tool_name", "capability_key", "deliverable_type", "required_input", "step_key"),
+    [
+        ("create_mootion_movie", "browseract.mootion_movie", "mootion_movie", "mootion_movie_packet", "script_text", "step_browseract_mootion_movie"),
+        ("create_avomap_flyover", "browseract.avomap_flyover", "avomap_flyover", "avomap_flyover_packet", "route_data", "step_browseract_avomap_flyover"),
+        ("create_booka_book", "browseract.booka_book", "booka_book", "booka_book_packet", "book_prompt", "step_browseract_booka_book"),
+    ],
+)
+def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_browseract_ui_services(
+    task_key: str,
+    tool_name: str,
+    capability_key: str,
+    deliverable_type: str,
+    required_input: str,
+    step_key: str,
+) -> None:
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    task_contracts.upsert_contract(
+        task_key=task_key,
+        deliverable_type=deliverable_type,
+        default_risk_class="medium",
+        default_approval_class="none",
+        allowed_tools=(tool_name, "artifact_repository"),
+        evidence_requirements=("ui_render_request", "browseract_template"),
+        memory_write_policy="none",
+        budget_policy_json={
+            "class": "medium",
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": capability_key,
+        },
+    )
+    planner = PlannerService(task_contracts)
+
+    _, plan = planner.build_plan(
+        task_key=task_key,
+        principal_id="exec-1",
+        goal=f"execute {task_key}",
+    )
+
+    assert _step_keys(plan) == (
+        "step_input_prepare",
+        step_key,
+        "step_artifact_save",
+    )
+    assert plan.steps[1].tool_name == tool_name
+    assert required_input in plan.steps[1].input_keys
+    assert "structured_output_json" in plan.steps[1].output_keys
+    assert plan.steps[2].input_keys == ("normalized_text", "structured_output_json", "preview_text", "mime_type")
+
+
 def test_planner_can_compile_dispatch_then_memory_candidate_workflow_template() -> None:
     task_contracts = TaskContractService(InMemoryTaskContractRepository())
     task_contracts.upsert_contract(

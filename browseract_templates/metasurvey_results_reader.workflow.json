@@ -1,0 +1,149 @@
+{
+  "workflow_name": "MetaSurvey Results Reader",
+  "description": "Open a logged-in MetaSurvey survey or results page, dismiss overlays, and extract the visible survey summary/results content.",
+  "publish": true,
+  "mcp_ready": false,
+  "inputs": [],
+  "nodes": [
+    {
+      "id": "open_login",
+      "type": "visit_page",
+      "label": "Open Login",
+      "config": {
+        "url": "https://app.getmetasurvey.com/login/"
+      }
+    },
+    {
+      "id": "wait_login_form",
+      "type": "wait",
+      "label": "Wait Login Form",
+      "config": {
+        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "email",
+      "type": "input_text",
+      "label": "Email",
+      "config": {
+        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
+        "value_from_secret": "browseract_username"
+      }
+    },
+    {
+      "id": "password",
+      "type": "input_text",
+      "label": "Password",
+      "config": {
+        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]",
+        "value_from_secret": "browseract_password"
+      }
+    },
+    {
+      "id": "submit",
+      "type": "click",
+      "label": "Submit Login",
+      "config": {
+        "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")"
+      }
+    },
+    {
+      "id": "wait_authenticated",
+      "type": "wait",
+      "label": "Wait Authenticated",
+      "config": {
+        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']",
+        "state": "hidden",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "wait_content",
+      "type": "wait",
+      "label": "Wait Content",
+      "config": {
+        "selector": "main, article, [data-testid='survey-results']",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "extract_title",
+      "type": "extract",
+      "label": "Extract Title",
+      "config": {
+        "selector": "h1, h2",
+        "field_name": "page_title",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_result",
+      "type": "extract",
+      "label": "Extract Result",
+      "config": {
+        "selector": "main",
+        "field_name": "page_body",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "output_result",
+      "type": "output",
+      "label": "Output Result",
+      "config": {
+        "field_name": "page_body"
+      }
+    }
+  ],
+  "edges": [
+    [
+      "open_login",
+      "wait_login_form"
+    ],
+    [
+      "wait_login_form",
+      "email"
+    ],
+    [
+      "email",
+      "password"
+    ],
+    [
+      "password",
+      "submit"
+    ],
+    [
+      "submit",
+      "wait_authenticated"
+    ],
+    [
+      "wait_authenticated",
+      "wait_content"
+    ],
+    [
+      "wait_content",
+      "extract_title"
+    ],
+    [
+      "extract_title",
+      "extract_result"
+    ],
+    [
+      "extract_result",
+      "output_result"
+    ]
+  ],
+  "meta": {
+    "slug": "metasurvey_results_reader",
+    "output_dir": "/docker/fleet/state/browseract_bootstrap",
+    "status": "pending_browseract_seed",
+    "workflow_kind": "page_extract",
+    "auth_flow": "direct",
+    "runtime_input_name": "survey_url",
+    "tool_url": "",
+    "authorized_credential_queries": [
+      "metasurvey"
+    ]
+  }
+}

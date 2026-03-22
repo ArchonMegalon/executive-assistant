@@ -89,6 +89,7 @@ def load_spec(path: Path) -> dict[str, object]:
 def normalize_spec(raw: dict[str, object]) -> dict[str, object]:
     nodes = raw.get("nodes")
     edges = raw.get("edges")
+    meta = raw.get("meta") if isinstance(raw.get("meta"), dict) else {}
     if not isinstance(nodes, list) or not nodes:
         raise RuntimeError("invalid_spec:nodes")
     if not isinstance(edges, list):
@@ -169,6 +170,7 @@ def normalize_spec(raw: dict[str, object]) -> dict[str, object]:
         "description": str(raw.get("description") or "").strip(),
         "publish": bool(raw.get("publish", False)),
         "mcp_ready": bool(raw.get("mcp_ready", False)),
+        "meta": dict(meta),
         "inputs": normalized_inputs,
         "nodes": normalized_nodes,
         "edges": normalized_edges,
@@ -191,6 +193,7 @@ def builder_packet(spec: dict[str, object]) -> dict[str, object]:
         "description": spec.get("description"),
         "publish": bool(spec.get("publish")),
         "mcp_ready": bool(spec.get("mcp_ready")),
+        "meta": dict(spec.get("meta") or {}),
         "instructions": instructions,
         "inputs": inputs,
         "nodes": nodes,
