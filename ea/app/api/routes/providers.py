@@ -282,6 +282,18 @@ def get_onemin_aggregate(
     )
 
 
+@router.get("/onemin/actual-credits", response_model=None)
+def get_onemin_actual_credits(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    return container.onemin_manager.actual_credits_snapshot(
+        provider_health=upstream._provider_health_report(),
+        binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+        principal_id=context.principal_id,
+    )
+
+
 @router.get("/onemin/accounts", response_model=None)
 def get_onemin_accounts(
     container: AppContainer = Depends(get_container),
