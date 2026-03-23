@@ -10,6 +10,7 @@ from app.domain.models import (
     PlanSpec,
     PlanStepSpec,
     TaskExecutionRequest,
+    normalize_artifact,
     now_utc_iso,
     validate_plan_spec,
 )
@@ -28,6 +29,7 @@ class ExecutionTaskOrchestrationService:
         ledger: ExecutionLedgerRepository,
         planner: PlannerService | None,
         task_contracts: TaskContractService | None,
+        get_artifact: Callable[[str], Artifact | None],
         execute_next_ready_step: Callable[[str], Artifact | None],
         fetch_session_snapshot: Callable[[str], object | None],
         async_state_service: ExecutionAsyncStateService,
@@ -37,11 +39,42 @@ class ExecutionTaskOrchestrationService:
         self._ledger = ledger
         self._planner = planner
         self._task_contracts = task_contracts
+        self._get_artifact = get_artifact
         self._execute_next_ready_step = execute_next_ready_step
         self._fetch_session_snapshot = fetch_session_snapshot
         self._async_state_service = async_state_service
         self._memory_reasoning_service = memory_reasoning_service
         self._skills = skills
+
+    def _logical_artifact_from_snapshot(self, snapshot: object, fallback: Artifact | None = None) -> Artifact | None:
+        if fallback is not None:
+            return fallback
+        for step in reversed(list(getattr(snapshot, "steps", []) or [])):
+            output_json = dict(getattr(step, "output_json", {}) or {})
+            artifact_id = str(output_json.get("artifact_id") or "").strip()
+            if not artifact_id:
+                continue
+            stored = self._get_artifact(artifact_id)
+            if stored is None:
+                continue
+            logical_storage_handle = str(output_json.get("storage_handle") or stored.storage_handle or "").strip()
+            logical_body_ref = str(output_json.get("body_ref") or logical_storage_handle or stored.body_ref or "").strip()
+            return normalize_artifact(
+                Artifact(
+                    artifact_id=stored.artifact_id,
+                    kind=str(output_json.get("artifact_kind") or stored.kind or ""),
+                    content=stored.content,
+                    execution_session_id=stored.execution_session_id,
+                    principal_id=stored.principal_id,
+                    mime_type=str(output_json.get("mime_type") or stored.mime_type or "text/plain"),
+                    preview_text=str(output_json.get("preview_text") or stored.preview_text or ""),
+                    storage_handle=logical_storage_handle,
+                    body_ref=logical_body_ref,
+                    structured_output_json=dict(output_json.get("structured_output_json") or stored.structured_output_json or {}),
+                    attachments_json=dict(output_json.get("attachments_json") or stored.attachments_json or {}),
+                )
+            )
+        return None
 
     def execute_task_artifact(self, req: TaskExecutionRequest) -> Artifact:
         task_key, skill_key = self.resolve_task_selector(req)
@@ -73,19 +106,47 @@ class ExecutionTaskOrchestrationService:
             task_input_json=task_input_json,
             correlation_id=correlation_id,
         )
-        artifact = self._execute_next_ready_step(session.session_id)
+        artifact: Artifact | None = None
+        for _ in range(8):
+            next_artifact = self._execute_next_ready_step(session.session_id)
+            if next_artifact is not None and artifact is None:
+                artifact = next_artifact
+            snapshot = self._fetch_session_snapshot(session.session_id)
+            if snapshot is None:
+                if artifact is not None:
+                    return artifact
+                continue
+            self._async_state_service.raise_for_snapshot_state(snapshot)
+            session_row = getattr(snapshot, "session", None)
+            if session_row is not None and getattr(session_row, "status", "") == "completed":
+                logical_artifact = self._logical_artifact_from_snapshot(snapshot, artifact)
+                if logical_artifact is not None:
+                    return logical_artifact
+                snapshot_artifacts = list(getattr(snapshot, "artifacts", []) or [])
+                if snapshot_artifacts:
+                    return snapshot_artifacts[-1]
+                break
+            queue_items = list(getattr(snapshot, "queue_items", []) or [])
+            has_active_queue = any(
+                str(getattr(row, "status", "") or "").strip().lower() in {"queued", "leased"} for row in queue_items
+            )
+            if artifact is not None and not has_active_queue:
+                return artifact
+            if not has_active_queue:
+                break
+        if artifact is not None:
+            return artifact
         snapshot = self._fetch_session_snapshot(session.session_id)
         if snapshot is not None:
             self._async_state_service.raise_for_snapshot_state(snapshot)
             session_row = getattr(snapshot, "session", None)
             if session_row is not None and getattr(session_row, "status", "") == "completed":
-                if artifact is not None:
-                    return artifact
+                logical_artifact = self._logical_artifact_from_snapshot(snapshot, artifact)
+                if logical_artifact is not None:
+                    return logical_artifact
                 snapshot_artifacts = list(getattr(snapshot, "artifacts", []) or [])
                 if snapshot_artifacts:
                     return snapshot_artifacts[-1]
-        if artifact is not None:
-            return artifact
         raise RuntimeError(f"queued task did not execute: {session.session_id}")
 
     def default_goal_for_task(self, task_key: str) -> str:

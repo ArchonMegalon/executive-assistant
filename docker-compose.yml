@@ -11,6 +11,7 @@ services:
     environment:
       - EA_ROLE=api
       - EA_PORT=8090
+      - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
@@ -23,6 +24,7 @@ services:
       - "${EA_HOST_PORT:-8090}:8090"
     volumes:
       - ./config:/config:ro
+      - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
@@ -41,6 +43,7 @@ services:
       - .env
     environment:
       - EA_ROLE=worker
+      - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
@@ -51,6 +54,7 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
@@ -69,6 +73,7 @@ services:
       - .env
     environment:
       - EA_ROLE=scheduler
+      - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
@@ -79,6 +84,7 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
@@ -113,5 +119,6 @@ services:
       retries: 10
 
 volumes:
+  ea_artifacts: {}
   ea_pgdata: {}
   ea_provider_ledger: {}

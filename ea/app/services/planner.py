@@ -81,19 +81,34 @@ class PlannerService:
         principal_id: str = "",
         profile_name: str = "",
     ) -> dict[str, object]:
-        decision = (
-            self._brain_router.resolve_profile(profile_name, principal_id=principal_id or None)
-            if str(profile_name or "").strip()
-            else self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
-        )
+        normalized_profile_name = str(profile_name or "").strip()
+        posthoc_review_profile = ""
+        fallback_brain_profile = ""
+        if normalized_profile_name:
+            decision = self._brain_router.resolve_profile(normalized_profile_name, principal_id=principal_id or None)
+        elif route is not None and str(route.capability_key or "").strip():
+            try:
+                brain_route = self._brain_router.route_brain_capability_for_contract(
+                    contract=contract,
+                    capability_key=route.capability_key,
+                    principal_id=principal_id or None,
+                )
+            except ToolExecutionError:
+                decision = self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
+            else:
+                decision = brain_route.decision
+                posthoc_review_profile = brain_route.posthoc_review_profile
+                fallback_brain_profile = brain_route.fallback_brain_profile
+        else:
+            decision = self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
+        if not normalized_profile_name and not posthoc_review_profile:
+            posthoc_review_profile = self._brain_router.posthoc_review_profile_for_contract(contract)
+        if not normalized_profile_name and not fallback_brain_profile:
+            fallback_brain_profile = self._brain_router.fallback_brain_profile_for_contract(contract)
         metadata: dict[str, object] = {
             "brain_profile": decision.profile,
-            "posthoc_review_profile": ""
-            if str(profile_name or "").strip()
-            else self._brain_router.posthoc_review_profile_for_contract(contract),
-            "fallback_brain_profile": ""
-            if str(profile_name or "").strip()
-            else self._brain_router.fallback_brain_profile_for_contract(contract),
+            "posthoc_review_profile": "" if normalized_profile_name else posthoc_review_profile,
+            "fallback_brain_profile": "" if normalized_profile_name else fallback_brain_profile,
             "provider_hint_order": tuple(decision.provider_hint_order or ()),
             "routed_public_model": decision.public_model,
         }
@@ -415,6 +430,9 @@ class PlannerService:
             try:
                 return self._route_capability(contract=contract, capability_key=capability_key, principal_id=principal_id)
             except PlanValidationError:
+                logical_route = self._logical_pre_artifact_route_for_capability(capability_key)
+                if logical_route is not None:
+                    return logical_route
                 if not tool_name:
                     raise
                 if allowed_tools and tool_name not in allowed_tools:
@@ -437,6 +455,24 @@ class PlannerService:
             )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc
+
+    def _logical_pre_artifact_route_for_capability(self, capability_key: str) -> CapabilityRoute | None:
+        normalized = str(capability_key or "").strip().lower()
+        if normalized == "structured_generate":
+            return CapabilityRoute(
+                provider_key="brain_router",
+                capability_key="structured_generate",
+                tool_name="provider.brain_router.structured_generate",
+                executable=True,
+            )
+        if normalized == "reasoned_patch_review":
+            return CapabilityRoute(
+                provider_key="brain_router",
+                capability_key="reasoned_patch_review",
+                tool_name="provider.brain_router.reasoned_patch_review",
+                executable=True,
+            )
+        return None
 
     def _build_supported_pre_artifact_tool_step(
         self,
@@ -857,22 +893,22 @@ class PlannerService:
             route=route,
             depends_on=("step_input_prepare",),
         )
-        posthoc_review_step = None
-        artifact_depends_on = (tool_step.step_key,)
-        if str(route.capability_key or "").strip() == "structured_generate":
-            posthoc_review_step = self._posthoc_review_step(
-                contract=contract,
-                principal_id=principal_id,
-                depends_on=(tool_step.step_key,),
-            )
-            if posthoc_review_step is not None:
-                artifact_depends_on = (tool_step.step_key, posthoc_review_step.step_key)
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
         prepare_step = self._build_prepare_step(
             input_keys=tuple(tool_step.input_keys or ("source_text",)),
             output_keys=prepare_output_keys,
             desired_output_json=prepare_desired_output_json,
         )
+        posthoc_review_step = None
+        artifact_depends_on = (tool_step.step_key,)
+        if str(route.capability_key or "").strip() == "structured_generate":
+            posthoc_review_step = self._posthoc_review_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=(prepare_step.step_key, tool_step.step_key),
+            )
+            if posthoc_review_step is not None:
+                artifact_depends_on = (posthoc_review_step.step_key, tool_step.step_key)
         additional_input_keys = self._additional_artifact_inputs_for_pre_artifact_capability(route.capability_key)
         for value in self._artifact_envelope_input_keys(contract):
             if value not in additional_input_keys:
