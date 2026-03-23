@@ -691,6 +691,9 @@ class TaskContractSkillCatalogPolicy:
 class TaskContractRuntimePolicy:
     budget_class: str = "low"
     workflow_template: str = "rewrite"
+    brain_profile: str = ""
+    posthoc_review_profile: str = ""
+    fallback_brain_profile: str = ""
     pre_artifact_tool_name: str = ""
     pre_artifact_capability_key: str = ""
     browseract_timeout_budget_seconds: int = 120
@@ -747,9 +750,30 @@ def parse_task_contract_runtime_policy(
 
     post_artifact_packs = _policy_string_list_from_any(metadata.get("post_artifact_packs"))
 
+    model_policy = _policy_dict(raw_skill_catalog.get("model_policy_json"))
+
     return TaskContractRuntimePolicy(
         budget_class=str(metadata.get("class") or "low"),
         workflow_template=str(metadata.get("workflow_template") or "rewrite").strip() or "rewrite",
+        brain_profile=str(
+            metadata.get("brain_profile")
+            or raw_skill_catalog.get("brain_profile")
+            or model_policy.get("brain_profile")
+            or model_policy.get("profile")
+            or ""
+        ).strip(),
+        posthoc_review_profile=str(
+            metadata.get("posthoc_review_profile")
+            or raw_skill_catalog.get("posthoc_review_profile")
+            or model_policy.get("posthoc_review_profile")
+            or ""
+        ).strip(),
+        fallback_brain_profile=str(
+            metadata.get("fallback_brain_profile")
+            or raw_skill_catalog.get("fallback_brain_profile")
+            or model_policy.get("fallback_brain_profile")
+            or ""
+        ).strip(),
         pre_artifact_tool_name=str(metadata.get("pre_artifact_tool_name") or "").strip(),
         pre_artifact_capability_key=str(metadata.get("pre_artifact_capability_key") or "").strip(),
         browseract_timeout_budget_seconds=max(
@@ -960,6 +984,13 @@ class PlanStepSpec:
     authority_required: str = ""
     why_human: str = ""
     quality_rubric_json: dict[str, Any] = field(default_factory=dict)
+    brain_profile: str = ""
+    posthoc_review_profile: str = ""
+    fallback_brain_profile: str = ""
+    provider_hint_order: tuple[str, ...] = ()
+    routed_provider_key: str = ""
+    routed_capability_key: str = ""
+    routed_public_model: str = ""
 
 
 @dataclass(frozen=True)

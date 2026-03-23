@@ -21,6 +21,9 @@ def serialize_task_contract_runtime_policy(policy: TaskContractRuntimePolicy) ->
     metadata: dict[str, Any] = {
         "class": str(policy.budget_class or "low"),
         "workflow_template": str(policy.workflow_template or "rewrite"),
+        "brain_profile": str(policy.brain_profile or ""),
+        "posthoc_review_profile": str(policy.posthoc_review_profile or ""),
+        "fallback_brain_profile": str(policy.fallback_brain_profile or ""),
         "browseract_timeout_budget_seconds": int(policy.browseract_timeout_budget_seconds),
         "post_artifact_packs": list(policy.post_artifact_packs or ()),
         "artifact_failure_strategy": policy.artifact_retry.failure_strategy,

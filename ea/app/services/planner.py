@@ -69,11 +69,32 @@ class PlannerService:
     def _collect_provider_hints(self, contract: TaskContract) -> tuple[str, ...]:
         return self._brain_router.provider_hints_for_contract(contract)
 
-    def _route_tool_name(self, *, contract: TaskContract, capability_key: str) -> str:
+    def _step_brain_metadata(
+        self,
+        *,
+        contract: TaskContract,
+        route: CapabilityRoute | None = None,
+        principal_id: str = "",
+    ) -> dict[str, object]:
+        decision = self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
+        metadata: dict[str, object] = {
+            "brain_profile": decision.profile,
+            "posthoc_review_profile": self._brain_router.posthoc_review_profile_for_contract(contract),
+            "fallback_brain_profile": self._brain_router.fallback_brain_profile_for_contract(contract),
+            "provider_hint_order": tuple(decision.provider_hint_order or ()),
+            "routed_public_model": decision.public_model,
+        }
+        if route is not None:
+            metadata["routed_provider_key"] = route.provider_key
+            metadata["routed_capability_key"] = route.capability_key
+        return metadata
+
+    def _route_tool_name(self, *, contract: TaskContract, capability_key: str, principal_id: str = "") -> str:
         try:
             route = self._brain_router.route_capability_for_contract(
                 contract=contract,
                 capability_key=capability_key,
+                principal_id=principal_id or None,
             )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc
@@ -84,11 +105,13 @@ class PlannerService:
         *,
         contract: TaskContract,
         capability_key: str,
+        principal_id: str = "",
     ) -> CapabilityRoute:
         try:
             return self._brain_router.route_capability_for_contract(
                 contract=contract,
                 capability_key=capability_key,
+                principal_id=principal_id or None,
             )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc
@@ -180,11 +203,12 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         approval_required: bool,
         additional_input_keys: tuple[str, ...] = (),
     ) -> PlanStepSpec:
-        artifact_tool_name = self._route_tool_name(contract=contract, capability_key="artifact_save")
+        artifact_tool_name = self._route_tool_name(contract=contract, capability_key="artifact_save", principal_id=principal_id)
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
             prefix="artifact",
@@ -214,14 +238,17 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=input_keys,
             output_keys=output_keys,
+            **self._step_brain_metadata(contract=contract, principal_id=principal_id),
         )
 
     def _build_browseract_extract_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -260,14 +287,17 @@ class PlannerService:
                 "mime_type",
                 "structured_output_json",
             ),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _build_browseract_inventory_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -301,19 +331,21 @@ class PlannerService:
                 "mime_type",
                 "structured_output_json",
             ),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _resolve_pre_artifact_route(
         self,
         contract: TaskContract,
         *,
+        principal_id: str,
         default_tool_name: str = "",
         default_capability_key: str = "",
     ) -> CapabilityRoute:
         policy = contract.runtime_policy()
         capability_key = str(policy.pre_artifact_capability_key or default_capability_key or "").strip()
         if capability_key:
-            return self._route_capability(contract=contract, capability_key=capability_key)
+            return self._route_capability(contract=contract, capability_key=capability_key, principal_id=principal_id)
         tool_name = str(policy.pre_artifact_tool_name or default_tool_name).strip()
         if not tool_name:
             raise PlanValidationError("pre_artifact_tool_name_required")
@@ -329,34 +361,39 @@ class PlannerService:
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         route: CapabilityRoute,
         depends_on: tuple[str, ...],
     ) -> PlanStepSpec:
         capability = str(route.capability_key or "").strip()
         if capability == "account_facts":
-            return self._build_browseract_extract_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+            return self._build_browseract_extract_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
         if capability == "account_inventory":
-            return self._build_browseract_inventory_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+            return self._build_browseract_inventory_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
         if capability == "workflow_spec_build":
-            return self._build_browseract_workflow_spec_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+            return self._build_browseract_workflow_spec_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
         if capability == "workflow_spec_repair":
-            return self._build_browseract_workflow_repair_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+            return self._build_browseract_workflow_repair_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
         if capability == "crezlo_property_tour":
             return self._build_browseract_crezlo_property_tour_step(
                 contract=contract,
+                principal_id=principal_id,
                 depends_on=depends_on,
                 tool_name=route.tool_name,
+                route=route,
             )
         ui_service = browseract_ui_service_by_capability(capability)
         if ui_service is not None:
             return self._build_browseract_ui_service_step(
                 contract=contract,
+                principal_id=principal_id,
                 depends_on=depends_on,
                 tool_name=route.tool_name,
                 service=ui_service,
+                route=route,
             )
         if capability == "structured_generate":
-            return self._build_structured_generate_step(contract=contract, depends_on=depends_on, tool_name=route.tool_name)
+            return self._build_structured_generate_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
 
     def _additional_artifact_inputs_for_pre_artifact_capability(self, capability_key: str) -> tuple[str, ...]:
@@ -378,8 +415,10 @@ class PlannerService:
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -428,15 +467,18 @@ class PlannerService:
                 "mime_type",
                 "structured_output_json",
             ),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _build_browseract_ui_service_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
         service: BrowserActUiServiceDefinition,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -467,14 +509,17 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=input_keys,
             output_keys=tuple(output_keys),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _build_browseract_workflow_spec_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -505,14 +550,17 @@ class PlannerService:
                 "tool_url",
             ),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _build_browseract_workflow_repair_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -543,14 +591,17 @@ class PlannerService:
                 "failure_summary",
             ),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _build_structured_generate_step(
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
         tool_name: str,
+        route: CapabilityRoute | None = None,
     ) -> PlanStepSpec:
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
@@ -575,6 +626,7 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=("normalized_text",),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
     def _artifact_output_template_key(self, contract: TaskContract) -> str:
@@ -608,16 +660,19 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
         default_tool_name: str = "",
         default_capability_key: str = "",
     ) -> tuple[PlanStepSpec, ...]:
         route = self._resolve_pre_artifact_route(
             contract,
+            principal_id=principal_id,
             default_tool_name=default_tool_name,
             default_capability_key=default_capability_key,
         )
         tool_step = self._build_supported_pre_artifact_tool_step(
             contract=contract,
+            principal_id=principal_id,
             route=route,
             depends_on=("step_input_prepare",),
         )
@@ -634,6 +689,7 @@ class PlannerService:
         artifact_step = self._build_artifact_save_step(
             intent,
             contract=contract,
+            principal_id=principal_id,
             depends_on=(tool_step.step_key,),
             approval_required=False,
             additional_input_keys=additional_input_keys,
@@ -644,9 +700,10 @@ class PlannerService:
         self,
         *,
         contract: TaskContract,
+        principal_id: str,
         depends_on: tuple[str, ...],
     ) -> PlanStepSpec:
-        dispatch_tool_name = self._route_tool_name(contract=contract, capability_key="dispatch")
+        dispatch_tool_name = self._route_tool_name(contract=contract, capability_key="dispatch", principal_id=principal_id)
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
             prefix="dispatch",
@@ -670,6 +727,7 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=("binding_id", "channel", "recipient", "content"),
             output_keys=("delivery_id", "status", "binding_id"),
+            **self._step_brain_metadata(contract=contract, principal_id=principal_id),
         )
 
     def _build_memory_candidate_step(
@@ -779,7 +837,7 @@ class PlannerService:
             raise PlanValidationError("post_artifact_pack_required")
         return tuple(resolved)
 
-    def _build_rewrite_steps(self, intent: IntentSpecV3, *, contract: TaskContract) -> tuple[PlanStepSpec, ...]:
+    def _build_rewrite_steps(self, intent: IntentSpecV3, *, contract: TaskContract, principal_id: str) -> tuple[PlanStepSpec, ...]:
         approval_required = intent.approval_class not in {"", "none"}
         human_review_metadata = self._human_review_metadata(contract)
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
@@ -805,6 +863,7 @@ class PlannerService:
             self._build_artifact_save_step(
                 intent,
                 contract=contract,
+                principal_id=principal_id,
                 depends_on=save_depends_on,
                 approval_required=approval_required,
                 additional_input_keys=self._artifact_envelope_input_keys(contract),
@@ -817,10 +876,12 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
     ) -> tuple[PlanStepSpec, ...]:
         return self._build_pre_artifact_tool_then_artifact_steps(
             intent,
             contract=contract,
+            principal_id=principal_id,
             default_capability_key="account_facts",
         )
 
@@ -829,10 +890,12 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
     ) -> tuple[PlanStepSpec, ...]:
         return self._build_pre_artifact_tool_then_artifact_steps(
             intent,
             contract=contract,
+            principal_id=principal_id,
         )
 
     def _build_artifact_then_packs_steps(
@@ -840,6 +903,7 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
         pack_keys: tuple[str, ...] | None = None,
     ) -> tuple[PlanStepSpec, ...]:
         packs = pack_keys or self._resolve_post_artifact_packs(contract)
@@ -847,6 +911,7 @@ class PlannerService:
             return self._build_artifact_then_memory_candidate_steps(
                 intent,
                 contract=contract,
+                principal_id=principal_id,
                 pack_keys=packs,
             )
 
@@ -870,6 +935,7 @@ class PlannerService:
             self._build_artifact_save_step(
                 intent,
                 contract=contract,
+                principal_id=principal_id,
                 depends_on=artifact_depends_on,
                 approval_required=False,
                 additional_input_keys=self._artifact_envelope_input_keys(contract),
@@ -878,7 +944,7 @@ class PlannerService:
         policy_depends_on = ("step_artifact_save",)
         steps.append(self._build_policy_step(depends_on=policy_depends_on))
         if "dispatch" in packs:
-            steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+            steps.append(self._build_dispatch_step(contract=contract, principal_id=principal_id, depends_on=("step_policy_evaluate",)))
         if "memory_candidate" in packs:
             memory_depends_on = ["step_artifact_save", "step_policy_evaluate"]
             additional_input_keys: tuple[str, ...] = self._artifact_evidence_output_keys(contract)
@@ -907,14 +973,16 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
     ) -> tuple[PlanStepSpec, ...]:
-        return self._build_artifact_then_packs_steps(intent, contract=contract, pack_keys=("dispatch",))
+        return self._build_artifact_then_packs_steps(intent, contract=contract, principal_id=principal_id, pack_keys=("dispatch",))
 
     def _build_artifact_then_memory_candidate_steps(
         self,
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
         pack_keys: tuple[str, ...] | None = None,
     ) -> tuple[PlanStepSpec, ...]:
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
@@ -929,6 +997,7 @@ class PlannerService:
         artifact_step = self._build_artifact_save_step(
             intent,
             contract=contract,
+            principal_id=principal_id,
             depends_on=("step_policy_evaluate",),
             approval_required=False,
             additional_input_keys=self._artifact_envelope_input_keys(contract),
@@ -938,7 +1007,7 @@ class PlannerService:
         memory_depends_on = ["step_artifact_save", "step_policy_evaluate"]
         additional_input_keys: tuple[str, ...] = self._artifact_evidence_output_keys(contract)
         if "dispatch" in packs:
-            steps.append(self._build_dispatch_step(contract=contract, depends_on=("step_policy_evaluate",)))
+            steps.append(self._build_dispatch_step(contract=contract, principal_id=principal_id, depends_on=("step_policy_evaluate",)))
             memory_depends_on.append("step_connector_dispatch")
             additional_input_keys = (
                 "delivery_id",
@@ -963,22 +1032,24 @@ class PlannerService:
         intent: IntentSpecV3,
         *,
         contract: TaskContract,
+        principal_id: str,
     ) -> tuple[PlanStepSpec, ...]:
         return self._build_artifact_then_packs_steps(
             intent,
             contract=contract,
+            principal_id=principal_id,
             pack_keys=("dispatch", "memory_candidate"),
         )
 
     def _workflow_template_key(self, contract: TaskContract) -> str:
         return contract.runtime_policy().workflow_template_key
 
-    def _steps_for_contract(self, intent: IntentSpecV3, contract: TaskContract) -> tuple[PlanStepSpec, ...]:
+    def _steps_for_contract(self, intent: IntentSpecV3, contract: TaskContract, *, principal_id: str) -> tuple[PlanStepSpec, ...]:
         workflow_template = self._workflow_template_key(contract)
         builder = self._workflow_template_builders.get(workflow_template)
         if builder is None:
             raise PlanValidationError(f"unknown_workflow_template:{workflow_template}")
-        return builder(intent, contract=contract)
+        return builder(intent, contract=contract, principal_id=principal_id)
 
     def compile_intent(
         self,
@@ -1012,7 +1083,7 @@ class PlannerService:
     ) -> tuple[IntentSpecV3, PlanSpec]:
         contract = self._task_contracts.get_contract_or_raise(task_key)
         intent = self.compile_intent(task_key=task_key, principal_id=principal_id, goal=goal)
-        steps = self._steps_for_contract(intent, contract)
+        steps = self._steps_for_contract(intent, contract, principal_id=principal_id)
         plan = PlanSpec(
             plan_id=str(uuid.uuid4()),
             task_key=intent.task_type,
