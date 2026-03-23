@@ -4,6 +4,7 @@ import abc
 import json
 import os
 import queue
+import re
 import threading
 import time
 import uuid
@@ -50,6 +51,137 @@ responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
 codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
+_PROMPT_ROUTE_HARD_PROFILES = frozenset({"core", "core_authority", "core_booster", "core_rescue", "jury", "jury_deep", "audit_shard", "core_batch"})
+_PROMPT_ROUTE_HARD_MODELS = frozenset(
+    filter(
+        None,
+        {
+            str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
+            str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
+            "ea-coder-hard",
+            "ea-coder-hard-batch",
+            "ea-audit-jury",
+            "ea-coder-survival",
+        },
+    )
+)
+_PROMPT_ROUTE_QUERY_PREFIXES = (
+    "how many",
+    "how much",
+    "what",
+    "which",
+    "who",
+    "where",
+    "when",
+    "why",
+    "is",
+    "are",
+    "do",
+    "does",
+    "did",
+    "can",
+    "could",
+    "would",
+    "show",
+    "list",
+    "tell me",
+    "check",
+    "count",
+    "status",
+)
+_PROMPT_ROUTE_FILLER_PREFIXES = ("so", "ok", "okay", "then", "now", "please")
+_PROMPT_ROUTE_SUBJECT_KEYWORDS = frozenset(
+    {
+        "codex",
+        "codexes",
+        "quartermaster",
+        "quartiermeister",
+        "quatermaster",
+        "controller",
+        "fleet-controller",
+        "fleet controller",
+        "trace",
+        "route",
+        "routed",
+        "lane",
+        "model",
+        "provider",
+        "spawn",
+        "spawned",
+        "running",
+        "run",
+        "process",
+        "pid",
+        "credits",
+        "credit",
+        "balance",
+        "backoff",
+        "timeout",
+        "timeouts",
+        "slow",
+        "latency",
+        "health",
+        "status",
+        "session",
+        "sessions",
+        "account",
+        "accounts",
+    }
+)
+_PROMPT_ROUTE_HARD_BLOCKERS = (
+    "audit",
+    "review",
+    "browseract",
+    "handoff",
+    "resume",
+    "continue working",
+    "continue from",
+    "fix",
+    "patch",
+    "implement",
+    "wire",
+    "edit",
+    "change",
+    "refactor",
+    "create",
+    "build",
+    "write",
+    "add ",
+    "remove ",
+    "rename",
+    "move ",
+    "debug",
+    "investigate",
+    "repair",
+    "restart",
+    "run tests",
+    "test ",
+    "verify",
+    "smoke",
+    "commit",
+    "push",
+    "publish",
+    "deploy",
+    "workflow",
+    "login",
+)
+_PROMPT_ROUTE_CODE_MARKERS = (
+    "```",
+    "`",
+    "/docker/",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".md",
+)
 
 
 def _responses_upstream_idle_timeout_seconds() -> float:
@@ -74,6 +206,17 @@ class _StoredResponse:
     input_items: list[dict[str, object]]
     history_items: list[dict[str, object]]
     principal_id: str
+
+
+@dataclass(frozen=True)
+class _PromptRouteDecision:
+    applied: bool
+    reason: str
+    original_profile: str | None
+    original_model: str
+    effective_profile: str | None
+    effective_model: str
+    trace_line: str
 
 
 class _ResponseRecordRepository(abc.ABC):
@@ -446,6 +589,94 @@ def _extract_textish(value: object) -> str:
             if text:
                 return text
     return ""
+
+
+def _latest_user_prompt(parsed_input: _ParsedResponseInput) -> str:
+    for item in reversed(parsed_input.messages):
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        cleaned = str(item.get("content") or "").strip()
+        if cleaned:
+            return cleaned
+    return str(parsed_input.prompt or "").strip()
+
+
+def _normalized_prompt_route_text(prompt: str) -> str:
+    return re.sub(r"\s+", " ", str(prompt or "").strip().lower()).strip()
+
+
+def _trim_prompt_route_fillers(prompt: str) -> str:
+    parts = str(prompt or "").split()
+    while parts and parts[0] in _PROMPT_ROUTE_FILLER_PREFIXES:
+        parts = parts[1:]
+    return " ".join(parts)
+
+
+def _is_hard_prompt_route_context(*, model: str, codex_profile: str | None) -> bool:
+    normalized_profile = str(codex_profile or "").strip().lower()
+    normalized_model = str(model or "").strip().lower()
+    return normalized_profile in _PROMPT_ROUTE_HARD_PROFILES or normalized_model in _PROMPT_ROUTE_HARD_MODELS
+
+
+def _looks_like_lightweight_ops_query(prompt: str) -> tuple[bool, str]:
+    normalized = _trim_prompt_route_fillers(_normalized_prompt_route_text(prompt))
+    if not normalized:
+        return False, "empty_prompt"
+    if len(normalized) > 280 or len(normalized.split()) > 48:
+        return False, "prompt_too_long"
+    if any(marker in normalized for marker in _PROMPT_ROUTE_CODE_MARKERS):
+        return False, "code_or_file_reference"
+    for blocker in _PROMPT_ROUTE_HARD_BLOCKERS:
+        if blocker in normalized:
+            return False, "requires_core"
+    query_like = normalized.endswith("?") or any(
+        normalized == prefix or normalized.startswith(f"{prefix} ") for prefix in _PROMPT_ROUTE_QUERY_PREFIXES
+    )
+    if not query_like:
+        return False, "not_question_like"
+    if not any(keyword in normalized for keyword in _PROMPT_ROUTE_SUBJECT_KEYWORDS):
+        return False, "not_ops_status_query"
+    return True, "lightweight_ops_query"
+
+
+def _resolve_prompt_route(
+    *,
+    prompt: str,
+    model: str,
+    codex_profile: str | None,
+) -> _PromptRouteDecision:
+    original_profile = str(codex_profile or "").strip() or None
+    original_model = str(model or DEFAULT_PUBLIC_MODEL).strip() or DEFAULT_PUBLIC_MODEL
+    effective_profile = original_profile
+    effective_model = original_model
+    applied = False
+    reason = "session_route"
+    if _is_hard_prompt_route_context(model=original_model, codex_profile=codex_profile):
+        demote, demote_reason = _looks_like_lightweight_ops_query(prompt)
+        if demote:
+            effective_profile = "easy"
+            effective_model = str(FAST_PUBLIC_MODEL or "").strip() or original_model
+            applied = effective_profile != original_profile or effective_model != original_model
+            reason = demote_reason
+        else:
+            reason = demote_reason
+    trace_profile = str(effective_profile or original_profile or "default")
+    trace_line = f"Trace: prompt_route={trace_profile} route_model={effective_model} route_reason={reason}"
+    if applied:
+        trace_line += (
+            f" original_profile={original_profile or 'default'}"
+            f" original_model={original_model}"
+        )
+    trace_line += "\n"
+    return _PromptRouteDecision(
+        applied=applied,
+        reason=reason,
+        original_profile=original_profile,
+        original_model=original_model,
+        effective_profile=effective_profile,
+        effective_model=effective_model,
+        trace_line=trace_line,
+    )
 
 
 def _json_compact(value: object) -> str:
@@ -1817,12 +2048,20 @@ def _run_response(
                 model = resolved.public_model
 
     requested_model = _requested_model(request)
-    is_survival_profile = codex_profile == "survival"
+    prompt_route = _resolve_prompt_route(
+        prompt=_latest_user_prompt(parsed_input),
+        model=model,
+        codex_profile=codex_profile,
+    )
+    effective_codex_profile = prompt_route.effective_profile
+    model = prompt_route.effective_model
+
+    is_survival_profile = effective_codex_profile == "survival"
     is_survival_model = requested_model == SURVIVAL_PUBLIC_MODEL or model == SURVIVAL_PUBLIC_MODEL
 
-    is_audit_profile = codex_profile == "audit"
+    is_audit_profile = effective_codex_profile == "audit"
     is_audit_model = requested_model in {"ea-audit", "ea-audit-jury"}
-    is_review_light_profile = codex_profile == "review_light"
+    is_review_light_profile = effective_codex_profile == "review_light"
     is_review_light_model = requested_model == REVIEW_LIGHT_PUBLIC_MODEL or model == REVIEW_LIGHT_PUBLIC_MODEL
     audit_profile_or_model = is_audit_profile or is_audit_model
     chatplayground_profile_or_model = audit_profile_or_model or is_review_light_profile or is_review_light_model
@@ -1906,6 +2145,19 @@ def _run_response(
                 else None,
             }
         )
+    response_metadata.update(
+        {
+            "codex_effective_profile": effective_codex_profile,
+            "codex_effective_model": model,
+            "codex_prompt_route_applied": prompt_route.applied,
+            "codex_prompt_route_reason": prompt_route.reason,
+            "codex_prompt_route_from_profile": prompt_route.original_profile,
+            "codex_prompt_route_to_profile": effective_codex_profile,
+            "codex_prompt_route_from_model": prompt_route.original_model,
+            "codex_prompt_route_to_model": model,
+            "codex_prompt_route_trace": prompt_route.trace_line.strip(),
+        }
+    )
 
     if is_survival_profile or is_survival_model:
         return _run_survival_response(
@@ -2110,6 +2362,7 @@ def _run_response(
         result_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         streamed_text_parts: list[str] = []
         message_stream_open = False
+        prompt_route_trace_pending = bool(prompt_route.trace_line)
 
         def _open_message_stream() -> Iterable[str]:
             empty_item = _message_item(item_id=item_id, text="", status="in_progress")
@@ -2173,6 +2426,23 @@ def _run_response(
             try:
                 next_state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
             except queue.Empty:
+                if prompt_route_trace_pending:
+                    if not message_stream_open:
+                        for event in _open_message_stream():
+                            yield event
+                        message_stream_open = True
+                    prompt_route_trace_pending = False
+                    yield _sse_event(
+                        event="response.output_text.delta",
+                        sequence=_next_sequence(),
+                        data={
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": prompt_route.trace_line,
+                        },
+                    )
                 if (time.monotonic() - last_upstream_activity) >= upstream_idle_timeout_seconds:
                     failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
                     failed_obj = _build_failed_response(
@@ -2223,6 +2493,19 @@ def _run_response(
                     for event in _open_message_stream():
                         yield event
                     message_stream_open = True
+                if prompt_route_trace_pending:
+                    prompt_route_trace_pending = False
+                    yield _sse_event(
+                        event="response.output_text.delta",
+                        sequence=_next_sequence(),
+                        data={
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": prompt_route.trace_line,
+                        },
+                    )
                 streamed_text_parts.append(delta)
                 yield _sse_event(
                     event="response.output_text.delta",
@@ -2422,6 +2705,19 @@ def _run_response(
                 for event in _open_message_stream():
                     yield event
                 message_stream_open = True
+            if prompt_route_trace_pending and text:
+                prompt_route_trace_pending = False
+                yield _sse_event(
+                    event="response.output_text.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": prompt_route.trace_line,
+                    },
+                )
             if not streamed_text_parts and text:
                 yield _sse_event(
                     event="response.output_text.delta",
