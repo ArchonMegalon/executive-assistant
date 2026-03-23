@@ -33,6 +33,7 @@ class SkillIn(BaseModel):
     human_policy_json: dict[str, object] = Field(default_factory=dict)
     evaluation_cases_json: list[dict[str, object]] = Field(default_factory=list)
     budget_policy_json: dict[str, object] = Field(default_factory=dict)
+    runtime_policy_json: dict[str, object] = Field(default_factory=dict)
 
 
 class SkillOut(BaseModel):
@@ -118,6 +119,8 @@ def upsert_skill(
         human_policy_json=body.human_policy_json,
         evaluation_cases_json=tuple(body.evaluation_cases_json),
         budget_policy_json=body.budget_policy_json,
+        runtime_policy_json=body.runtime_policy_json,
+        provided_fields=set(getattr(body, "model_fields_set", set())),
     )
     return _to_out(row)
 
