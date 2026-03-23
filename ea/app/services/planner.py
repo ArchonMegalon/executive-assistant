@@ -370,12 +370,25 @@ class PlannerService:
     ) -> CapabilityRoute:
         policy = contract.runtime_policy()
         capability_key = str(policy.pre_artifact_capability_key or default_capability_key or "").strip()
-        if capability_key:
-            return self._route_capability(contract=contract, capability_key=capability_key, principal_id=principal_id)
         tool_name = str(policy.pre_artifact_tool_name or default_tool_name).strip()
+        allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
+        if capability_key:
+            try:
+                return self._route_capability(contract=contract, capability_key=capability_key, principal_id=principal_id)
+            except PlanValidationError:
+                if not tool_name:
+                    raise
+                if allowed_tools and tool_name not in allowed_tools:
+                    raise
+                try:
+                    return self._provider_registry.route_tool_with_context(
+                        tool_name,
+                        principal_id=principal_id,
+                    )
+                except ToolExecutionError as exc:
+                    raise PlanValidationError(str(exc)) from exc
         if not tool_name:
             raise PlanValidationError("pre_artifact_tool_name_required")
-        allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
         if allowed_tools and tool_name not in allowed_tools:
             raise PlanValidationError(f"pre_artifact_tool_not_allowed:{tool_name}")
         try:
@@ -733,7 +746,7 @@ class PlannerService:
         review_profile = self._brain_router.posthoc_review_profile_for_contract(contract)
         if not review_profile:
             return None
-        explicit_review_profile = str(contract.runtime_policy().posthoc_review_profile or "").strip()
+        review_required = bool(contract.runtime_policy().posthoc_review_required)
         if not self._contract_allows_capability(contract, "reasoned_patch_review"):
             return None
         try:
@@ -745,7 +758,7 @@ class PlannerService:
                 require_executable=True,
             )
         except ToolExecutionError as exc:
-            if explicit_review_profile:
+            if review_required:
                 raise PlanValidationError(str(exc)) from exc
             return None
         return self._build_reasoned_patch_review_step(
@@ -1023,6 +1036,7 @@ class PlannerService:
             intent,
             contract=contract,
             principal_id=principal_id,
+            default_tool_name="browseract.extract_account_facts",
             default_capability_key="account_facts",
         )
 

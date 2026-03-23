@@ -59,6 +59,18 @@ class OneminBillingRefreshIn(BaseModel):
     binding_ids: list[str] = Field(default_factory=list)
 
 
+class OneminImageReserveIn(BaseModel):
+    request_id: str = Field(default="", max_length=200)
+    estimated_credits: int = Field(default=1200, ge=0, le=100000000)
+    allow_reserve: bool = Field(default=False)
+
+
+class OneminLeaseReleaseIn(BaseModel):
+    status: str = Field(default="released", min_length=1, max_length=50)
+    error: str = Field(default="", max_length=1000)
+    actual_credits_delta: int | None = Field(default=None, ge=0, le=100000000)
+
+
 class ProviderBindingOut(BaseModel):
     binding_id: str
     principal_id: str
@@ -345,6 +357,68 @@ def get_onemin_occupancy(
         "provider_key": "onemin",
         "principal_id": context.principal_id,
         **container.onemin_manager.occupancy_snapshot(principal_id=context.principal_id),
+    }
+
+
+@router.post("/onemin/reserve-image", response_model=None)
+def reserve_onemin_image(
+    body: OneminImageReserveIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    request_id = str(body.request_id or "").strip() or f"image-{uuid.uuid4().hex[:16]}"
+    lease = container.onemin_manager.reserve_for_provider_health(
+        provider_health=upstream._provider_health_report(),
+        lane="image",
+        capability="image_generate",
+        principal_id=context.principal_id,
+        request_id=request_id,
+        estimated_credits=int(body.estimated_credits or 0),
+        allow_reserve=bool(body.allow_reserve),
+    )
+    if lease is None:
+        raise HTTPException(status_code=409, detail="onemin_image_capacity_unavailable")
+    return {
+        "provider_key": "onemin",
+        "principal_id": context.principal_id,
+        "lease_id": str(lease.get("lease_id") or ""),
+        "request_id": request_id,
+        "account_id": str(lease.get("account_name") or ""),
+        "credential_id": str(lease.get("credential_id") or ""),
+        "slot_name": str(lease.get("slot_name") or ""),
+        "secret_env_name": str(lease.get("secret_env_name") or ""),
+        "task_class": str(lease.get("task_class") or ""),
+        "estimated_credits": int(body.estimated_credits or 0),
+    }
+
+
+@router.post("/onemin/leases/{lease_id}/release", response_model=None)
+def release_onemin_lease(
+    lease_id: str,
+    body: OneminLeaseReleaseIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    lease_rows = container.onemin_manager.leases_snapshot(principal_id=context.principal_id)
+    if not any(str(row.get("lease_id") or "") == lease_id for row in lease_rows):
+        raise HTTPException(status_code=404, detail="onemin_lease_not_found")
+    if body.actual_credits_delta is not None:
+        container.onemin_manager.record_usage(
+            lease_id=lease_id,
+            actual_credits_delta=int(body.actual_credits_delta),
+            status="in_flight",
+        )
+    container.onemin_manager.release_lease(
+        lease_id=lease_id,
+        status=str(body.status or "released").strip() or "released",
+        error=body.error,
+    )
+    return {
+        "provider_key": "onemin",
+        "principal_id": context.principal_id,
+        "lease_id": lease_id,
+        "status": str(body.status or "released").strip() or "released",
+        "actual_credits_delta": body.actual_credits_delta,
     }
 
 

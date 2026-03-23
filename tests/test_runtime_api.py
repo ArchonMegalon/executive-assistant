@@ -105,6 +105,7 @@ def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pyte
         "codex_status_report",
         lambda window="1h": {
             "provider_config": {"default_profile": "easy", "default_lane": "fast"},
+            "lane_telemetry": {"selected_window": {"lanes": {"fast": {"request_count": 2, "p50_latency_ms": 120}}}},
             "onemin_aggregate": {"current_pace_burn_credits_per_hour": 1200.0},
             "onemin_billing_aggregate": {"observed_usage_burn_credits_per_hour": 900.0},
             "fleet_burn": {"selected_window": {"provider_credits": {"onemin": 500}}},
@@ -117,5 +118,6 @@ def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pyte
     body = response.json()
     assert body["window"] == "24h"
     assert body["provider_config"]["default_profile"] == "easy"
+    assert body["lane_telemetry"]["selected_window"]["lanes"]["fast"]["p50_latency_ms"] == 120
     assert body["onemin_aggregate"]["current_pace_burn_credits_per_hour"] == 1200.0
     assert body["avoided_credits"]["selected_window"]["easy_lane"]["avoided_credits"] == 300

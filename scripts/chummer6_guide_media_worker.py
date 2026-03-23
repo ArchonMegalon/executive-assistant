@@ -44,11 +44,11 @@ MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
-    "onemin",
     "media_factory",
     "browseract_prompting_systems",
     "browseract_magixai",
     "magixai",
+    "onemin",
 ]
 PALETTES = [
     ("#0f766e", "#34d399"),
@@ -192,10 +192,24 @@ def _ea_local_headers() -> dict[str, str]:
 
 
 def _ea_local_json_get(path: str) -> object | None:
+    return _ea_local_json_request("GET", path)
+
+
+def _ea_local_json_post(path: str, payload: dict[str, object]) -> object | None:
+    return _ea_local_json_request("POST", path, payload)
+
+
+def _ea_local_json_request(method: str, path: str, payload: dict[str, object] | None = None) -> object | None:
+    data = None
+    headers = _ea_local_headers()
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
         f"{_ea_local_base_url()}{path}",
-        headers=_ea_local_headers(),
-        method="GET",
+        headers=headers,
+        data=data,
+        method=str(method or "GET").upper(),
     )
     try:
         with urllib.request.urlopen(request, timeout=_ea_local_timeout_seconds()) as response:
@@ -262,6 +276,46 @@ def _refresh_onemin_manager_selection_snapshot() -> tuple[bool, set[str], set[st
     _ONEMIN_MANAGER_SELECTION_CACHE["occupied_secret_env_names"] = set(occupied_secret_env_names)
     _ONEMIN_MANAGER_SELECTION_CACHE["expires_at"] = now + _ea_local_cache_ttl_seconds()
     return True, occupied_account_ids, occupied_secret_env_names
+
+
+def _estimate_onemin_image_credits(*, width: int, height: int) -> int:
+    raw = env_value("CHUMMER6_ONEMIN_ESTIMATED_IMAGE_CREDITS")
+    if raw:
+        try:
+            return max(0, int(float(raw)))
+        except Exception:
+            pass
+    megapixels = max(1.0, (max(1, int(width)) * max(1, int(height))) / 1000000.0)
+    return int(round(1200.0 * megapixels))
+
+
+def _reserve_onemin_image_slot(*, width: int, height: int) -> dict[str, object] | None:
+    payload = _ea_local_json_post(
+        "/v1/providers/onemin/reserve-image",
+        {
+            "request_id": f"chummer-image-{int(time.time() * 1000)}-{width}x{height}",
+            "estimated_credits": _estimate_onemin_image_credits(width=width, height=height),
+        },
+    )
+    if not isinstance(payload, dict):
+        return None
+    if not str(payload.get("lease_id") or "").strip():
+        return None
+    return dict(payload)
+
+
+def _release_onemin_image_slot(*, lease_id: str, status: str, actual_credits_delta: int | None = None, error: str = "") -> None:
+    normalized = str(lease_id or "").strip()
+    if not normalized:
+        return
+    _ = _ea_local_json_post(
+        f"/v1/providers/onemin/leases/{urllib.parse.quote(normalized, safe='')}/release",
+        {
+            "status": str(status or "released").strip() or "released",
+            "actual_credits_delta": actual_credits_delta,
+            "error": str(error or "").strip(),
+        },
+    )
 
 
 def _onemin_manager_selection_available() -> bool:
@@ -386,11 +440,16 @@ def style_epoch_for_overrides(loaded: dict[str, object]) -> dict[str, object]:
 def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, object]) -> str:
     recent = recent_scene_rows(ledger)
     lowered = composition.strip().lower()
+    normalized_target = str(target or "").replace("\\", "/").strip().lower()
     if not lowered:
         return ""
     if recent:
         last = str(recent[-1].get("composition") or "").strip().lower()
-        if last and last == lowered:
+        allow_same_family_rerender = (
+            normalized_target.endswith("assets/pages/horizons-index.png")
+            and lowered == "horizon_boulevard"
+        )
+        if last and last == lowered and not allow_same_family_rerender:
             return f"composition_repeat:last={last}"
     tableish = SURFACE_HEAVY_COMPOSITIONS
     safehouse_like_count = sum(1 for row in recent if str(row.get("composition") or "").strip().lower() in tableish)
@@ -1743,11 +1802,30 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
     configured_slots = resolve_onemin_image_slots()
     if not configured_slots:
         return False, "onemin:not_configured"
-    slots = filter_onemin_image_slots(configured_slots)
-    if not slots:
+    reservation = _reserve_onemin_image_slot(width=width, height=height)
+    if reservation is None:
         if not _onemin_manager_selection_available():
             return False, "onemin:manager_unavailable"
-        return False, "onemin:accounts_reserved_for_core"
+        return False, "onemin:image_capacity_unavailable"
+    lease_id = str(reservation.get("lease_id") or "").strip()
+    reserved_env_name = str(reservation.get("secret_env_name") or "").strip()
+    reserved_account_id = str(reservation.get("account_id") or "").strip()
+    slots = [
+        slot
+        for slot in configured_slots
+        if (
+            reserved_env_name
+            and str(slot.get("env_name") or "").strip() == reserved_env_name
+        )
+        or (
+            reserved_account_id
+            and not reserved_env_name
+            and str(slot.get("env_name") or "").strip() == reserved_account_id
+        )
+    ]
+    if not slots:
+        _release_onemin_image_slot(lease_id=lease_id, status="failed", error="reserved_slot_not_available_locally")
+        return False, "onemin:reserved_slot_not_available_locally"
     model_candidates = onemin_model_candidates()
     endpoints = [
         env_value("CHUMMER6_ONEMIN_ENDPOINT") or "https://api.1min.ai/api/features",
@@ -1766,110 +1844,136 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
             }
         )
     seen_requests: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
-    for url in endpoints:
-        for model in model_candidates:
-            payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
-            timeout_seconds = onemin_request_timeout_seconds(model)
-            for payload in payloads:
-                prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
-                size_label = str(
-                    (
-                        prompt_object.get("size")
-                        if isinstance(prompt_object, dict)
-                        else ""
-                    )
-                    or (
-                        prompt_object.get("aspect_ratio")
-                        if isinstance(prompt_object, dict)
-                        else ""
-                    )
-                    or "auto"
-                ).strip()
-                payload_json = json.dumps(payload, sort_keys=True)
-                for headers in header_variants:
-                    header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
-                    request_key = (url, header_key, payload_json)
-                    if request_key in seen_requests:
-                        continue
-                    seen_requests.add(request_key)
-                    request = urllib.request.Request(
-                        url,
-                        headers=headers,
-                        data=payload_json.encode("utf-8"),
-                        method="POST",
-                    )
-                    try:
-                        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                            data = response.read()
-                            content_type = str(response.headers.get("Content-Type") or "").lower()
-                    except urllib.error.HTTPError as exc:
-                        body = exc.read().decode("utf-8", errors="replace").strip()
-                        invalid_size = "Invalid value:" in body and "Supported values are:" in body
-                        retryable_busy = exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
-                        if retryable_busy:
-                            busy_recovered = False
-                            for _attempt in range(provider_busy_retries()):
-                                time.sleep(provider_busy_delay_seconds())
-                                try:
-                                    request = urllib.request.Request(
-                                        url,
-                                        headers=headers,
-                                        data=payload_json.encode("utf-8"),
-                                        method="POST",
-                                    )
-                                    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                                        data = response.read()
-                                        content_type = str(response.headers.get("Content-Type") or "").lower()
-                                        busy_recovered = True
-                                        break
-                                except urllib.error.HTTPError as retry_exc:
-                                    body = retry_exc.read().decode("utf-8", errors="replace").strip()
-                                    invalid_size = "Invalid value:" in body and "Supported values are:" in body
-                                    retryable_busy = retry_exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
-                                    if not retryable_busy:
-                                        errors.append(f"{url}:{model}:{size_label}:http_{retry_exc.code}:{body[:180]}")
-                                        break
-                                except urllib.error.URLError as retry_url_exc:
-                                    errors.append(f"{url}:{model}:{size_label}:urlerror:{retry_url_exc.reason}")
-                                    break
-                                except TimeoutError:
-                                    errors.append(f"{url}:{model}:{size_label}:timeout")
-                                    break
-                            if not busy_recovered:
-                                if retryable_busy:
-                                    errors.append(f"{url}:{model}:{size_label}:openai_busy")
-                                continue
-                        else:
-                            errors.append(f"{url}:{model}:{size_label}:http_{exc.code}:{body[:180]}")
+    try:
+        for url in endpoints:
+            for model in model_candidates:
+                payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
+                timeout_seconds = onemin_request_timeout_seconds(model)
+                for payload in payloads:
+                    prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
+                    size_label = str(
+                        (
+                            prompt_object.get("size")
+                            if isinstance(prompt_object, dict)
+                            else ""
+                        )
+                        or (
+                            prompt_object.get("aspect_ratio")
+                            if isinstance(prompt_object, dict)
+                            else ""
+                        )
+                        or "auto"
+                    ).strip()
+                    payload_json = json.dumps(payload, sort_keys=True)
+                    for headers in header_variants:
+                        header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
+                        request_key = (url, header_key, payload_json)
+                        if request_key in seen_requests:
                             continue
-                    except urllib.error.URLError as exc:
-                        errors.append(f"{url}:{model}:{size_label}:urlerror:{exc.reason}")
-                        continue
-                    except TimeoutError:
-                        errors.append(f"{url}:{model}:{size_label}:timeout")
-                        continue
-                    if data:
-                        if content_type.startswith("image/"):
-                            output_path.parent.mkdir(parents=True, exist_ok=True)
-                            output_path.write_bytes(data)
-                            return True, "onemin:rendered"
-                        decoded = data.decode("utf-8", errors="replace").strip()
-                        if decoded.startswith("http://") or decoded.startswith("https://"):
-                            ok, detail = _download_remote_image(decoded, output_path=output_path, name="onemin")
-                            if ok:
-                                return ok, detail
-                            errors.append(detail)
-                            continue
+                        seen_requests.add(request_key)
+                        request = urllib.request.Request(
+                            url,
+                            headers=headers,
+                            data=payload_json.encode("utf-8"),
+                            method="POST",
+                        )
                         try:
-                            body = json.loads(decoded)
-                        except Exception:
-                            errors.append(f"{url}:{model}:{size_label}:non_json_response:{decoded[:180]}")
+                            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                                data = response.read()
+                                content_type = str(response.headers.get("Content-Type") or "").lower()
+                        except urllib.error.HTTPError as exc:
+                            body = exc.read().decode("utf-8", errors="replace").strip()
+                            invalid_size = "Invalid value:" in body and "Supported values are:" in body
+                            retryable_busy = exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
+                            if retryable_busy:
+                                busy_recovered = False
+                                for _attempt in range(provider_busy_retries()):
+                                    time.sleep(provider_busy_delay_seconds())
+                                    try:
+                                        request = urllib.request.Request(
+                                            url,
+                                            headers=headers,
+                                            data=payload_json.encode("utf-8"),
+                                            method="POST",
+                                        )
+                                        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                                            data = response.read()
+                                            content_type = str(response.headers.get("Content-Type") or "").lower()
+                                            busy_recovered = True
+                                            break
+                                    except urllib.error.HTTPError as retry_exc:
+                                        body = retry_exc.read().decode("utf-8", errors="replace").strip()
+                                        invalid_size = "Invalid value:" in body and "Supported values are:" in body
+                                        retryable_busy = retry_exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
+                                        if not retryable_busy:
+                                            errors.append(f"{url}:{model}:{size_label}:http_{retry_exc.code}:{body[:180]}")
+                                            break
+                                    except urllib.error.URLError as retry_url_exc:
+                                        errors.append(f"{url}:{model}:{size_label}:urlerror:{retry_url_exc.reason}")
+                                        break
+                                    except TimeoutError:
+                                        errors.append(f"{url}:{model}:{size_label}:timeout")
+                                        break
+                                if not busy_recovered:
+                                    if retryable_busy:
+                                        errors.append(f"{url}:{model}:{size_label}:openai_busy")
+                                    continue
+                            else:
+                                errors.append(f"{url}:{model}:{size_label}:http_{exc.code}:{body[:180]}")
+                                continue
+                        except urllib.error.URLError as exc:
+                            errors.append(f"{url}:{model}:{size_label}:urlerror:{exc.reason}")
                             continue
-                        for candidate in _collect_image_candidates(body):
-                            ok, detail = _download_remote_image(candidate, output_path=output_path, name="onemin")
-                            if ok:
-                                return ok, detail
-                            errors.append(detail)
+                        except TimeoutError:
+                            errors.append(f"{url}:{model}:{size_label}:timeout")
+                            continue
+                        if data:
+                            if content_type.startswith("image/"):
+                                output_path.parent.mkdir(parents=True, exist_ok=True)
+                                output_path.write_bytes(data)
+                                _release_onemin_image_slot(
+                                    lease_id=lease_id,
+                                    status="released",
+                                    actual_credits_delta=_estimate_onemin_image_credits(width=width, height=height),
+                                )
+                                lease_id = ""
+                                return True, "onemin:rendered"
+                            decoded = data.decode("utf-8", errors="replace").strip()
+                            if decoded.startswith("http://") or decoded.startswith("https://"):
+                                ok, detail = _download_remote_image(decoded, output_path=output_path, name="onemin")
+                                if ok:
+                                    _release_onemin_image_slot(
+                                        lease_id=lease_id,
+                                        status="released",
+                                        actual_credits_delta=_estimate_onemin_image_credits(width=width, height=height),
+                                    )
+                                    lease_id = ""
+                                    return ok, detail
+                                errors.append(detail)
+                                continue
+                            try:
+                                body = json.loads(decoded)
+                            except Exception:
+                                errors.append(f"{url}:{model}:{size_label}:non_json_response:{decoded[:180]}")
+                                continue
+                            for candidate in _collect_image_candidates(body):
+                                ok, detail = _download_remote_image(candidate, output_path=output_path, name="onemin")
+                                if ok:
+                                    _release_onemin_image_slot(
+                                        lease_id=lease_id,
+                                        status="released",
+                                        actual_credits_delta=_estimate_onemin_image_credits(width=width, height=height),
+                                    )
+                                    lease_id = ""
+                                    return ok, detail
+                                errors.append(detail)
+    finally:
+        if lease_id:
+            _release_onemin_image_slot(
+                lease_id=lease_id,
+                status="failed",
+                error=" || ".join(errors[:3]) if errors else "render_failed",
+            )
     return False, "onemin:" + " || ".join(errors[:6])
 
 
@@ -3061,13 +3165,13 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/hero/chummer6-hero.png": {
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. This is a streetdoc intake bay or prep cage only. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. Push for packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder foreground clutter. This is a streetdoc intake bay or prep cage only. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
             "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
             "subject": "one standing runner at a prep wall deciding whether tonight's build can be trusted before stepping back into the rain",
             "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live all through the room around them",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Show the body in three-quarter or over-shoulder posture with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground body posture, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
-            "framing": "medium-wide standing shot with full upper torso, both hands, three-quarter or over-shoulder posture, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible; no portrait crop and no empty negative-space void",
+            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Push it toward packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder silhouettes. Show the body in three-quarter or over-shoulder posture with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground body posture, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
+            "framing": "medium-wide standing shot with full upper torso, both hands, three-quarter or over-shoulder posture, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible, with strong foreground-midground-background separation; no portrait crop and no empty negative-space void",
             "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, or a quiet low-density mood still",
             "overlay_hint": "build-state provenance traces, target-posture brackets, fit checks, and trust markers",
             "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],

@@ -1045,3 +1045,110 @@ def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> 
     assert lease is not None
     assert manager.occupancy_snapshot(principal_id="exec-1")["active_lease_count"] == 1
     assert manager.occupancy_snapshot(principal_id="exec-2")["active_lease_count"] == 0
+
+
+def test_onemin_image_reservation_and_release_are_principal_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    owner = _client(principal_id="exec-image")
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_22",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_22",
+                            "slot": "fallback_22",
+                            "slot_name": "fallback_22",
+                            "credential_id": "fallback_22",
+                            "state": "ready",
+                            "estimated_remaining_credits": 24000,
+                            "slot_role": "image",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    reserved = owner.post("/v1/providers/onemin/reserve-image", json={"estimated_credits": 900})
+    assert reserved.status_code == 200
+    reserved_body = reserved.json()
+    assert reserved_body["principal_id"] == "exec-image"
+    assert reserved_body["secret_env_name"] == "ONEMIN_AI_API_KEY_FALLBACK_22"
+    lease_id = reserved_body["lease_id"]
+
+    occupancy = owner.get("/v1/providers/onemin/occupancy")
+    assert occupancy.status_code == 200
+    assert occupancy.json()["active_lease_count"] == 1
+
+    foreign = owner.post(
+        f"/v1/providers/onemin/leases/{lease_id}/release",
+        json={"status": "released"},
+        headers={"X-EA-Principal-ID": "exec-foreign"},
+    )
+    assert foreign.status_code == 404
+
+    released = owner.post(
+        f"/v1/providers/onemin/leases/{lease_id}/release",
+        json={"status": "released", "actual_credits_delta": 900},
+    )
+    assert released.status_code == 200
+    assert released.json()["actual_credits_delta"] == 900
+
+
+def test_onemin_aggregate_exposes_media_and_core_lease_breakout() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot_env_name": "ONEMIN_AI_API_KEY",
+                        "slot": "primary",
+                        "slot_name": "primary",
+                        "credential_id": "primary",
+                        "state": "ready",
+                        "estimated_remaining_credits": 15000,
+                        "slot_role": "mixed",
+                    }
+                ]
+            }
+        }
+    }
+
+    image = manager.reserve_for_provider_health(
+        provider_health=provider_health,
+        lane="image",
+        capability="image_generate",
+        principal_id="exec-image",
+        request_id="img-1",
+        estimated_credits=800,
+        allow_reserve=False,
+    )
+    assert image is not None
+    manager.record_usage(lease_id=str(image["lease_id"]), actual_credits_delta=800, status="success")
+    manager.release_lease(lease_id=str(image["lease_id"]), status="released")
+
+    core = manager.reserve_for_provider_health(
+        provider_health=provider_health,
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-core",
+        request_id="core-1",
+        estimated_credits=300,
+        allow_reserve=False,
+    )
+    assert core is not None
+
+    aggregate = manager.aggregate_snapshot(provider_health=provider_health, binding_rows=[], principal_id="exec-core")
+    assert aggregate["active_image_generation_lease_count"] == 0
+    assert aggregate["active_core_code_lease_count"] == 1
+    assert aggregate["lease_actual_credits_by_task_class"]["image_generation"] == 800.0

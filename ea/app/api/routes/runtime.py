@@ -111,6 +111,7 @@ def get_lane_telemetry(
         "principal_id": context.principal_id,
         "window": window,
         "provider_config": dict(report.get("provider_config") or {}),
+        "lane_telemetry": dict(report.get("lane_telemetry") or {}),
         "onemin_aggregate": dict(report.get("onemin_aggregate") or {}),
         "onemin_billing_aggregate": dict(report.get("onemin_billing_aggregate") or {}),
         "fleet_burn": dict(report.get("fleet_burn") or {}),

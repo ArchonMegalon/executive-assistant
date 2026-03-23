@@ -460,6 +460,36 @@ class OneminManagerService:
                 credentials.append(credential)
         return accounts, credentials
 
+    def _candidates_from_provider_health(self, *, provider_health: dict[str, object]) -> list[dict[str, object]]:
+        onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
+        rows: list[dict[str, object]] = []
+        for slot in onemin.get("slots") or []:
+            if not isinstance(slot, dict):
+                continue
+            account_name = str(slot.get("account_name") or slot.get("slot_env_name") or slot.get("slot") or "").strip()
+            if not account_name:
+                continue
+            slot_name = str(slot.get("slot_name") or slot.get("slot") or account_name).strip() or account_name
+            rows.append(
+                {
+                    "account_name": account_name,
+                    "account_id": account_name,
+                    "slot_name": slot_name,
+                    "credential_id": str(slot.get("credential_id") or slot_name).strip() or slot_name,
+                    "secret_env_name": str(slot.get("slot_env_name") or account_name).strip() or account_name,
+                    "state": str(slot.get("state") or "unknown").strip() or "unknown",
+                    "slot_role": str(slot.get("slot_role") or slot.get("active_role") or "").strip(),
+                    "billing_remaining_credits": slot.get("billing_remaining_credits"),
+                    "estimated_remaining_credits": slot.get("estimated_remaining_credits"),
+                    "remaining_credits": slot.get("remaining_credits"),
+                    "billing_next_topup_at": slot.get("billing_next_topup_at"),
+                    "failure_count": slot.get("failure_count"),
+                    "last_success_at": slot.get("last_success_at"),
+                    "last_used_at": slot.get("last_used_at"),
+                }
+            )
+        return rows
+
     def _sync_state(self, *, provider_health: dict[str, object], binding_rows: list[object] | None = None) -> None:
         accounts, credentials = self._state_from_provider_health(provider_health=provider_health, binding_rows=binding_rows)
         self._repo.replace_state(accounts=accounts, credentials=credentials)
@@ -518,8 +548,30 @@ class OneminManagerService:
                 "account_name": account_id,
                 "slot_name": str(chosen.get("slot_name") or ""),
                 "credential_id": credential_id,
+                "secret_env_name": str(chosen.get("secret_env_name") or ""),
                 "task_class": task_class,
             }
+
+    def reserve_for_provider_health(
+        self,
+        *,
+        provider_health: dict[str, object],
+        lane: str,
+        capability: str,
+        principal_id: str,
+        request_id: str,
+        estimated_credits: int | None,
+        allow_reserve: bool,
+    ) -> dict[str, object] | None:
+        return self.reserve_for_candidates(
+            candidates=self._candidates_from_provider_health(provider_health=provider_health),
+            lane=lane,
+            capability=capability,
+            principal_id=principal_id,
+            request_id=request_id,
+            estimated_credits=estimated_credits,
+            allow_reserve=allow_reserve,
+        )
 
     def record_usage(self, *, lease_id: str, actual_credits_delta: int | None, status: str = "success") -> None:
         lease = self._repo.get_lease(lease_id)
@@ -683,7 +735,33 @@ class OneminManagerService:
         bound_observed_usage_burn_account_count = sum(
             1 for item in bound_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
         )
+        all_leases = self._repo.list_leases(limit=5000)
         active_leases = [lease for lease in self.leases_snapshot() if str(lease.get("status") or "") in {"reserved", "in_flight"}]
+        active_lease_counts_by_task_class = {
+            "core_code": 0,
+            "core_review": 0,
+            "image_generation": 0,
+            "media_transform": 0,
+        }
+        actual_credits_by_task_class = {
+            "core_code": 0.0,
+            "core_review": 0.0,
+            "image_generation": 0.0,
+            "media_transform": 0.0,
+        }
+        for lease in all_leases:
+            metadata = dict(lease.metadata_json or {})
+            task_class = str(
+                metadata.get("task_class")
+                or self._task_class(lane=lease.lane, capability=lease.capability)
+            ).strip()
+            if task_class not in active_lease_counts_by_task_class:
+                continue
+            if str(lease.status or "") in {"reserved", "in_flight"}:
+                active_lease_counts_by_task_class[task_class] += 1
+            actual_delta = self._parse_float(lease.actual_credits_delta)
+            if actual_delta is not None:
+                actual_credits_by_task_class[task_class] += max(0.0, actual_delta)
         return {
             "provider_key": "onemin",
             "principal_id": principal_id,
@@ -706,6 +784,13 @@ class OneminManagerService:
             "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
             "days_remaining_at_7d_average": onemin.get("estimated_days_remaining_at_7d_average"),
             "active_lease_count": len(active_leases),
+            "active_core_code_lease_count": active_lease_counts_by_task_class["core_code"],
+            "active_core_review_lease_count": active_lease_counts_by_task_class["core_review"],
+            "active_image_generation_lease_count": active_lease_counts_by_task_class["image_generation"],
+            "active_media_transform_lease_count": active_lease_counts_by_task_class["media_transform"],
+            "lease_actual_credits_by_task_class": {
+                key: round(value, 2) for key, value in actual_credits_by_task_class.items()
+            },
             "actual_billing_account_count": len(actual_accounts),
             "estimated_account_count": len(estimated_accounts),
             "bound_account_count": len(bound_accounts),
