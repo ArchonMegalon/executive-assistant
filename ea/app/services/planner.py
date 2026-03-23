@@ -362,7 +362,10 @@ class PlannerService:
         if allowed_tools and tool_name not in allowed_tools:
             raise PlanValidationError(f"pre_artifact_tool_not_allowed:{tool_name}")
         try:
-            return self._provider_registry.route_tool(tool_name)
+            return self._provider_registry.route_tool_with_context(
+                tool_name,
+                principal_id=principal_id,
+            )
         except ToolExecutionError as exc:
             raise PlanValidationError(str(exc)) from exc
 
@@ -709,7 +712,7 @@ class PlannerService:
                 profile_name=review_profile,
                 capability_key="reasoned_patch_review",
                 principal_id=principal_id,
-                allowed_tools=(),
+                allowed_tools=tuple(contract.allowed_tools or ()),
                 require_executable=True,
             )
         except ToolExecutionError:

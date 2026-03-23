@@ -4516,6 +4516,89 @@ def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account
     register_onemin_manager(None)
 
 
+def test_onemin_tool_adapter_releases_manager_lease_on_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services import responses_upstream as upstream
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+    from app.services.tool_execution_onemin_adapter import OneminToolAdapter
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    class _Config:
+        api_keys = ("key-image",)
+        timeout_seconds = 1
+
+    class _State:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.failure_count = 0
+            self.last_success_at = 0.0
+            self.last_used_at = 0.0
+            self.last_error = ""
+
+    monkeypatch.setattr(upstream, "_provider_configs", lambda: {"onemin": _Config()})
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda allow_reserve: ("key-image",))
+    monkeypatch.setattr(upstream, "_onemin_states_snapshot", lambda keys: {key: _State(key) for key in keys})
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ())
+    monkeypatch.setattr(upstream, "_onemin_key_state_label", lambda state, now=0.0: "ready")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 0.0)
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda provider, key_names, key: "acct-image")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names=(): "ONEMIN_AI_API_KEY_FALLBACK_1")
+    monkeypatch.setattr(upstream, "_onemin_slot_role_for_key", lambda key, active_keys=(), reserve_keys=(): "mixed")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "acct-image",
+                            "slot": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "state": "ready",
+                            "estimated_remaining_credits": 100000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_pick_onemin_key", lambda allow_reserve=False: (_ for _ in ()).throw(AssertionError("legacy picker should not be used")))
+    monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_success", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda api_key, detail, temporary_quarantine=False, quarantine_seconds=None: None)
+
+    def _boom_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int):
+        raise upstream.ResponsesUpstreamError("request_timeout:1s")
+
+    monkeypatch.setattr(upstream, "_post_json", _boom_post_json)
+
+    adapter = OneminToolAdapter()
+    with pytest.raises(ToolExecutionError, match="onemin_feature_failed:ONEMIN_AI_API_KEY_FALLBACK_1:request_timeout:1s"):
+        adapter._call_feature(
+            feature_payload={
+                "type": "IMAGE_GENERATOR",
+                "model": "gpt-image-1-mini",
+                "promptObject": {"prompt": "render a banner"},
+            },
+            lane="hard",
+            capability="image_generate",
+            principal_id="image-principal",
+        )
+
+    leases = manager.leases_snapshot()
+    assert len(leases) == 1
+    assert leases[0]["status"] == "failed"
+    assert leases[0]["finished_at"]
+    assert manager.occupancy_snapshot()["active_lease_count"] == 0
+
+    register_onemin_manager(None)
+
+
 def test_tool_execution_service_detects_gemini_web_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(

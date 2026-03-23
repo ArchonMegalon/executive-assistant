@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
+from app.domain.models import PlanValidationError
+from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.services.planner import PlannerService
+from app.services.provider_registry import ProviderRegistryService
 from app.services.task_contracts import TaskContractService
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 
@@ -140,7 +145,7 @@ def test_planner_inserts_posthoc_review_light_step_after_structured_generate(mon
         deliverable_type="rewrite_note",
         default_risk_class="low",
         default_approval_class="none",
-        allowed_tools=("provider.gemini_vortex.structured_generate", "artifact_repository"),
+        allowed_tools=("provider.gemini_vortex.structured_generate", "browseract.chatplayground_audit", "artifact_repository"),
         memory_write_policy="reviewed_only",
         runtime_policy_json={
             "workflow_template": "tool_then_artifact",
@@ -164,3 +169,57 @@ def test_planner_inserts_posthoc_review_light_step_after_structured_generate(mon
     assert review_step.tool_name == "browseract.chatplayground_audit"
     assert review_step.brain_profile == "review_light"
     assert artifact_step.depends_on == ("step_structured_generate", "step_reasoned_patch_review")
+
+
+def test_planner_skips_posthoc_review_light_when_not_allowed(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    contracts.upsert_contract(
+        task_key="groundwork_review_disallowed",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("provider.gemini_vortex.structured_generate", "artifact_repository"),
+        memory_write_policy="reviewed_only",
+        runtime_policy_json={
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "structured_generate",
+            "brain_profile": "groundwork",
+            "posthoc_review_profile": "review_light",
+        },
+    )
+    planner = PlannerService(contracts)
+
+    _, plan = planner.build_plan(task_key="groundwork_review_disallowed", principal_id="exec-1", goal="review this synthesis")
+
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    ]
+
+
+def test_planner_explicit_pre_artifact_tool_honors_principal_provider_state() -> None:
+    bindings = InMemoryProviderBindingRepository()
+    bindings.upsert(principal_id="exec-1", provider_key="browseract", status="disabled")
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    contracts.upsert_contract(
+        task_key="explicit_browseract_extract",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("browseract.extract_account_facts", "artifact_repository"),
+        memory_write_policy="none",
+        runtime_policy_json={
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_tool_name": "browseract.extract_account_facts",
+        },
+    )
+    planner = PlannerService(
+        contracts,
+        provider_registry=ProviderRegistryService(provider_binding_repo=bindings),
+    )
+
+    with pytest.raises(PlanValidationError, match="provider_tool_unavailable:browseract.extract_account_facts"):
+        planner.build_plan(task_key="explicit_browseract_extract", principal_id="exec-1", goal="collect facts")
