@@ -22,6 +22,16 @@ class BrainRouteDecision:
     risk_labels: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class BrainCapabilityRoute:
+    decision: BrainRouteDecision
+    capability_key: str
+    route: CapabilityRoute
+    posthoc_review_profile: str
+    fallback_brain_profile: str
+    used_fallback_profile: bool = False
+
+
 def _collect_strings(value: object) -> tuple[str, ...]:
     if isinstance(value, str):
         cleaned = str(value or "").strip()
@@ -79,15 +89,109 @@ class BrainRouterService:
         *,
         principal_id: str | None = None,
     ) -> tuple[str, ...]:
+        return self.contract_brain_decision(contract, principal_id=principal_id).provider_hint_order
+
+    def contract_brain_decision(
+        self,
+        contract: TaskContract,
+        *,
+        principal_id: str | None = None,
+    ) -> BrainRouteDecision:
         runtime_policy = contract.runtime_policy()
-        skill_catalog = runtime_policy.skill_catalog
-        requested_hints = _collect_strings(skill_catalog.provider_hints_json)
+        requested_hints = _collect_strings(runtime_policy.skill_catalog.provider_hints_json)
         profile_name = self._profile_name_from_contract(contract)
         return self.resolve_profile(
             profile_name,
             principal_id=principal_id,
             provider_hints=requested_hints,
-        ).provider_hint_order
+        )
+
+    def posthoc_review_profile_for_contract(self, contract: TaskContract) -> str:
+        runtime_policy = contract.runtime_policy()
+        explicit = str(runtime_policy.posthoc_review_profile or "").strip()
+        if get_brain_profile(explicit) is not None:
+            return explicit
+        decision = self.resolve_profile(self._profile_name_from_contract(contract))
+        if decision.review_required or decision.needs_review:
+            return "review_light"
+        return ""
+
+    def fallback_brain_profile_for_contract(self, contract: TaskContract) -> str:
+        runtime_policy = contract.runtime_policy()
+        explicit = str(runtime_policy.fallback_brain_profile or "").strip()
+        if get_brain_profile(explicit) is not None:
+            return explicit
+        primary = self._profile_name_from_contract(contract)
+        if primary in {"core", "core_batch"}:
+            return "survival"
+        if primary == "groundwork":
+            return "easy"
+        return ""
+
+    def route_brain_capability_for_contract(
+        self,
+        *,
+        contract: TaskContract,
+        capability_key: str,
+        principal_id: str | None = None,
+    ) -> BrainCapabilityRoute:
+        decision = self.contract_brain_decision(contract, principal_id=principal_id)
+        posthoc_review_profile = self.posthoc_review_profile_for_contract(contract)
+        fallback_brain_profile = self.fallback_brain_profile_for_contract(contract)
+        normalized_capability = str(capability_key or "").strip().lower()
+        if normalized_capability not in {"structured_generate", "code_generate", "reasoned_patch_review", "image_generate", "media_transform"}:
+            route = self._provider_registry.route_tool_by_capability_with_context(
+                capability_key=capability_key,
+                principal_id=principal_id,
+                provider_hints=decision.provider_hint_order,
+                allowed_tools=contract.allowed_tools,
+                require_executable=True,
+            )
+            return BrainCapabilityRoute(
+                decision=decision,
+                capability_key=capability_key,
+                route=route,
+                posthoc_review_profile=posthoc_review_profile,
+                fallback_brain_profile=fallback_brain_profile,
+                used_fallback_profile=False,
+            )
+        try:
+            route = self._provider_registry.route_brain_profile_capability_with_context(
+                profile_name=decision.profile,
+                capability_key=capability_key,
+                principal_id=principal_id,
+                allowed_tools=contract.allowed_tools,
+                require_executable=True,
+                provider_hints=decision.provider_hint_order,
+            )
+            return BrainCapabilityRoute(
+                decision=decision,
+                capability_key=capability_key,
+                route=route,
+                posthoc_review_profile=posthoc_review_profile,
+                fallback_brain_profile=fallback_brain_profile,
+                used_fallback_profile=False,
+            )
+        except ToolExecutionError:
+            if not fallback_brain_profile or fallback_brain_profile == decision.profile:
+                raise
+            fallback_decision = self.resolve_profile(fallback_brain_profile, principal_id=principal_id)
+            route = self._provider_registry.route_brain_profile_capability_with_context(
+                profile_name=fallback_decision.profile,
+                capability_key=capability_key,
+                principal_id=principal_id,
+                allowed_tools=contract.allowed_tools,
+                require_executable=True,
+                provider_hints=fallback_decision.provider_hint_order,
+            )
+            return BrainCapabilityRoute(
+                decision=fallback_decision,
+                capability_key=capability_key,
+                route=route,
+                posthoc_review_profile=posthoc_review_profile,
+                fallback_brain_profile=fallback_brain_profile,
+                used_fallback_profile=True,
+            )
 
     def route_capability_for_contract(
         self,
@@ -96,17 +200,11 @@ class BrainRouterService:
         capability_key: str,
         principal_id: str | None = None,
     ) -> CapabilityRoute:
-        provider_hints = self.provider_hints_for_contract(contract, principal_id=principal_id)
-        try:
-            return self._provider_registry.route_tool_by_capability_with_context(
-                capability_key=capability_key,
-                principal_id=principal_id,
-                provider_hints=provider_hints,
-                allowed_tools=contract.allowed_tools,
-                require_executable=True,
-            )
-        except ToolExecutionError:
-            raise
+        return self.route_brain_capability_for_contract(
+            contract=contract,
+            capability_key=capability_key,
+            principal_id=principal_id,
+        ).route
 
     def binding_states_for_skill(
         self,
@@ -138,6 +236,9 @@ class BrainRouterService:
 
     def _profile_name_from_contract(self, contract: TaskContract) -> str:
         policy = contract.runtime_policy()
+        explicit = str(policy.brain_profile or "").strip()
+        if get_brain_profile(explicit) is not None:
+            return explicit
         model_policy = policy.skill_catalog.model_policy_json
         for candidate in (
             model_policy.get("brain_profile"),

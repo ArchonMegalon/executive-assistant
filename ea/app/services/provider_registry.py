@@ -11,6 +11,7 @@ from typing import Any, Sequence
 
 from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
+from app.services.brain_catalog import get_brain_profile
 from app.services.browseract_ui_service_catalog import browseract_ui_service_definitions
 from app.services.tool_execution_common import ToolExecutionError
 
@@ -1346,6 +1347,51 @@ class ProviderRegistryService:
             allowed_tools=allowed_tools,
             require_executable=require_executable,
             principal_id=principal_id,
+        )
+
+    def route_brain_profile_capability_with_context(
+        self,
+        *,
+        profile_name: str,
+        capability_key: str = "",
+        principal_id: str | None = None,
+        allowed_tools: tuple[str, ...] = (),
+        require_executable: bool = True,
+        provider_hints: tuple[str, ...] = (),
+    ) -> CapabilityRoute:
+        profile = get_brain_profile(profile_name)
+        if profile is None:
+            raise ToolExecutionError(f"brain_profile_unavailable:{str(profile_name or '').strip() or '<empty>'}")
+        resolved_capability = str(capability_key or profile.default_capability_key or "").strip()
+        if not resolved_capability:
+            raise ToolExecutionError(f"brain_profile_capability_unavailable:{profile.profile}")
+        merged_hints: list[str] = []
+        for group in (tuple(profile.provider_hint_order or ()), tuple(provider_hints or ())):
+            for value in group:
+                normalized = self._normalize_provider_key(value)
+                if normalized and normalized not in merged_hints:
+                    merged_hints.append(normalized)
+        if merged_hints:
+            candidates = self.candidate_routes_by_capability_with_context(
+                capability_key=resolved_capability,
+                principal_id=principal_id,
+                provider_hints=tuple(merged_hints),
+                allowed_tools=allowed_tools,
+                require_executable=require_executable,
+            )
+            normalized_hints = set(merged_hints)
+            for route in candidates:
+                if self._normalize_provider_key(route.provider_key) in normalized_hints:
+                    return route
+            raise ToolExecutionError(
+                f"brain_profile_provider_unavailable:{profile.profile}:{resolved_capability}"
+            )
+        return self.route_tool_by_capability_with_context(
+            capability_key=resolved_capability,
+            principal_id=principal_id,
+            provider_hints=(),
+            allowed_tools=allowed_tools,
+            require_executable=require_executable,
         )
 
     def candidate_routes_by_capability_with_context(
