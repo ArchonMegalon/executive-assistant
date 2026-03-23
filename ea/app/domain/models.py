@@ -729,7 +729,43 @@ def parse_task_contract_runtime_policy(
     legacy_budget = dict(budget_policy_json or {})
     runtime_payload = dict(runtime_policy_json or {})
     runtime_has_meaningful_keys = any(str(key or "").strip() not in {"", "class"} for key in runtime_payload)
-    if runtime_payload and runtime_has_meaningful_keys:
+    canonical_runtime_keys = {
+        "class",
+        "workflow_template",
+        "brain_profile",
+        "posthoc_review_profile",
+        "posthoc_review_required",
+        "fallback_brain_profile",
+        "browseract_timeout_budget_seconds",
+        "post_artifact_packs",
+        "artifact_failure_strategy",
+        "artifact_max_attempts",
+        "artifact_retry_backoff_seconds",
+        "dispatch_failure_strategy",
+        "dispatch_max_attempts",
+        "dispatch_retry_backoff_seconds",
+        "browseract_failure_strategy",
+        "browseract_max_attempts",
+        "browseract_retry_backoff_seconds",
+        "human_review_role",
+        "human_review_task_type",
+        "human_review_brief",
+        "human_review_priority",
+        "human_review_sla_minutes",
+        "human_review_auto_assign_if_unique",
+        "human_review_desired_output_json",
+        "human_review_authority_required",
+        "human_review_why_human",
+        "human_review_quality_rubric_json",
+        "memory_candidate_category",
+        "memory_candidate_sensitivity",
+        "memory_candidate_confidence",
+        "artifact_output_template",
+        "evidence_pack_confidence",
+        "skill_catalog_json",
+    }
+    runtime_is_canonical = canonical_runtime_keys.issubset(set(runtime_payload.keys()))
+    if runtime_payload and runtime_has_meaningful_keys and runtime_is_canonical:
         metadata = _deep_merge({"class": legacy_budget.get("class")}, runtime_payload)
     else:
         metadata = _deep_merge(legacy_budget, runtime_payload)

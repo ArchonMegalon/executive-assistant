@@ -23,6 +23,7 @@ def serialize_task_contract_runtime_policy(policy: TaskContractRuntimePolicy) ->
         "workflow_template": str(policy.workflow_template or "rewrite"),
         "brain_profile": str(policy.brain_profile or ""),
         "posthoc_review_profile": str(policy.posthoc_review_profile or ""),
+        "posthoc_review_required": bool(policy.posthoc_review_required),
         "fallback_brain_profile": str(policy.fallback_brain_profile or ""),
         "browseract_timeout_budget_seconds": int(policy.browseract_timeout_budget_seconds),
         "post_artifact_packs": list(policy.post_artifact_packs or ()),
@@ -78,6 +79,9 @@ class TaskContractService:
     def __init__(self, repo: TaskContractRepository) -> None:
         self._repo = repo
 
+    def _has_meaningful_policy_keys(self, payload: dict[str, object] | None) -> bool:
+        return any(str(key or "").strip() not in {"", "class"} for key in dict(payload or {}))
+
     def _canonical_policy_payloads(
         self,
         *,
@@ -86,12 +90,13 @@ class TaskContractService:
         runtime_policy: TaskContractRuntimePolicy | None = None,
     ) -> tuple[dict[str, object], dict[str, Any]]:
         legacy_budget_payload = dict(budget_policy_json or {})
+        runtime_payload = dict(runtime_policy_json or {})
         if runtime_policy is not None:
             parsed_policy = runtime_policy
         else:
             parsed_policy = parse_task_contract_runtime_policy(
                 legacy_budget_payload,
-                dict(runtime_policy_json or {}),
+                runtime_payload,
             )
         canonical_runtime_payload = serialize_task_contract_runtime_policy(parsed_policy)
         budget_class = str(
@@ -100,7 +105,17 @@ class TaskContractService:
             or canonical_runtime_payload.get("class")
             or "low"
         ).strip() or "low"
-        return {"class": budget_class}, canonical_runtime_payload
+        if self._has_meaningful_policy_keys(legacy_budget_payload):
+            legacy_budget_out = dict(legacy_budget_payload)
+            legacy_budget_out["class"] = budget_class
+        elif runtime_policy is not None or self._has_meaningful_policy_keys(runtime_payload):
+            legacy_budget_out: dict[str, object] = {"class": budget_class}
+        elif legacy_budget_payload:
+            legacy_budget_out = dict(legacy_budget_payload)
+            legacy_budget_out["class"] = budget_class
+        else:
+            legacy_budget_out = {"class": budget_class}
+        return legacy_budget_out, canonical_runtime_payload
 
     def _builtin_contract(self, task_key: str) -> TaskContract | None:
         normalized = str(task_key or "").strip() or "unknown"
