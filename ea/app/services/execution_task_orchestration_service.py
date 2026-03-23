@@ -284,7 +284,10 @@ class ExecutionTaskOrchestrationService:
         if tool_name == "provider.brain_router.structured_generate":
             return "content.generate"
         if tool_name == "provider.brain_router.reasoned_patch_review":
-            return "audit.review_light"
+            review_profile = str(
+                getattr(plan_step, "brain_profile", "") or getattr(plan_step, "posthoc_review_profile", "") or ""
+            ).strip()
+            return "audit.jury" if review_profile == "audit" else "audit.review_light"
         if tool_name == "connector.dispatch":
             return "delivery.send"
         if tool_name == "browseract.extract_account_inventory":

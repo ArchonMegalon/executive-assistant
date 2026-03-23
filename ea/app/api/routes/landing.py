@@ -31,7 +31,7 @@ def _status_tone(value: str) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in {"connected", "ready_to_connect", "ready_for_brief", "completed"}:
         return "good"
-    if normalized in {"planned_business", "export_planned", "guided_manual", "bot_link_requested", "available"}:
+    if normalized in {"planned_business", "export_planned", "guided_manual", "bot_link_requested", "available", "export_intake_complete", "import_acknowledged"}:
         return "warn"
     if normalized in {"credentials_missing", "planned_not_available"}:
         return "bad"
@@ -41,6 +41,7 @@ def _status_tone(value: str) -> str:
 def _nav(current: str) -> str:
     items = [
         ("/", "Assistant", "home"),
+        ("/chummer", "Chummer", "chummer"),
         ("/setup", "Setup", "setup"),
         ("/demo/brief", "Sample Brief", "brief"),
         ("/privacy", "Privacy", "privacy"),
@@ -50,6 +51,46 @@ def _nav(current: str) -> str:
         active = " active" if key == current else ""
         links.append(f'<a class="nav-link{active}" href="{href}">{html.escape(label)}</a>')
     return "".join(links)
+
+
+@router.get("/chummer", response_class=HTMLResponse)
+def chummer(
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    _ = _load_status(container=container, access_identity=access_identity)
+    body = """
+    <section class="card card-strong">
+      <div class="eyebrow">Featured domain</div>
+      <h1>Chummer: campaign memory and rules truth</h1>
+      <p class="lead">This is the Chummer domain surface. It is a featured assistant capability while the root stays channel-agnostic.</p>
+      <div class="signal-grid" style="margin-top:16px">
+        <div class="signal">
+          <strong>What it does now</strong>
+          Rules lookup, rules truth, and campaign memory workflows.
+        </div>
+        <div class="signal">
+          <strong>How it connects</strong>
+          Assistant channels power the memory and summaries; Chummer consumes that context.
+        </div>
+        <div class="signal">
+          <strong>What is preserved</strong>
+          The campaign context and structured recaps remain explicit capabilities.
+        </div>
+      </div>
+      <div class="cta-row" style="margin-top:18px">
+        <a class="cta primary" href="https://chummer.run/">Open Chummer</a>
+        <a class="cta" href="/">Back to assistant</a>
+      </div>
+      <p class="mini" style="margin-top:14px">If you want an embedded version, this page can be replaced with a dedicated landing UI later.</p>
+    </section>
+    """
+    return _page_shell(title="Chummer", body=body, current="chummer")
+
+
+@router.get("/products/chummer", response_class=RedirectResponse)
+def chummer_products_alias() -> RedirectResponse:
+    return RedirectResponse("/chummer", status_code=301)
 
 
 def _page_shell(*, title: str, body: str, current: str) -> HTMLResponse:
@@ -467,7 +508,7 @@ def _status_header(
         """
     return f"""
     <section class="card card-strong">
-      <div class="eyebrow">Current Assistant State</div>
+      <div class="eyebrow">Current onboarding state</div>
       <div class="split" style="align-items:start">
         <div>
           <h2>{html.escape(str(workspace.get("name") or "Assistant setup"))}</h2>
@@ -533,7 +574,7 @@ def landing(
     body = f"""
     <section class="hero">
       <section class="card card-strong">
-        <div class="eyebrow">Meet The Assistant</div>
+        <div class="eyebrow">Assistant now</div>
         <h1>Your assistant across Gmail, Telegram, and WhatsApp.</h1>
         <p class="lead">Connect your channels, import only the history you explicitly allow, and wake up to briefs, drafts, and follow-ups that remember what matters without pretending to ingest what the adapters do not actually support.</p>
         <div class="cta-row">
@@ -558,7 +599,7 @@ def landing(
       </section>
       <section class="card">
         <div class="eyebrow">Assistant Surface</div>
-        <h2>What happens the moment you connect</h2>
+        <h2>What it gives you immediately</h2>
         <div class="surface stack">
           <div><strong>Morning brief</strong><br><span class="mini">Who needs a reply, what changed overnight, and what deserves attention first.</span></div>
           <div><strong>Drafts with receipts</strong><br><span class="mini">Suggested replies keep their source trail instead of hiding why they appeared.</span></div>
@@ -592,7 +633,7 @@ def landing(
           <li>{html.escape(str(storage_posture.get("projection_note") or ""))}</li>
           <li>{html.escape(str(storage_posture.get("attachment_note") or ""))}</li>
         </ul>
-        <p class="mini"><strong>Current sample brief headline:</strong> {html.escape(str(brief_preview.get("headline") or "No brief preview yet."))}</p>
+        <p class="mini"><strong>Preview headline:</strong> {html.escape(str(brief_preview.get("headline") or "No brief preview yet."))}</p>
       </section>
     </section>
     {gmail_nudge}
@@ -633,9 +674,9 @@ def setup(
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=status)}
     <section class="grid-2">
       <section class="card card-strong">
-        <div class="eyebrow">Step 1</div>
-        <h2>Create Workspace</h2>
-        <p class="mini">Choose the assistant mode, region, language, time zone, and which channels should be staged first.</p>
+        <div class="eyebrow">Step 1 · Identity</div>
+        <h2>Create your assistant workspace</h2>
+        <p class="mini">Set who you are, how you work, and which channels the assistant should trust on day one.</p>
         <form method="post" action="/setup/start">
           {shared_fields}
           <label for="workspace_name">Workspace name</label>
@@ -673,9 +714,10 @@ def setup(
         </form>
       </section>
       <section class="card">
-        <div class="eyebrow">Step 2</div>
-        <h2>Connect Google</h2>
-        <p class="mini">Choose the smallest honest Google bundle that unlocks the assistant behavior you want today.</p>
+        <div class="eyebrow">Step 2 · Gmail</div>
+        <h2>Connect Gmail now</h2>
+        <p class="mini">Choose one bundle. Start with Core, then upgrade to Full Workspace when you need deeper inbox support.</p>
+        <p class="mini">Google Core is the practical default: Gmail send and verification plus calendar and contacts read context.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(google.get("status") or "not_selected").replace("_", " "))}</p>
         <div class="grid" style="margin-top:14px">{google_bundle_options}</div>
         <form method="post" action="/google/connect">
@@ -691,9 +733,9 @@ def setup(
         </form>
       </section>
       <section class="card">
-        <div class="eyebrow">Step 3</div>
-        <h2>Stage Telegram</h2>
-        <p class="mini">Telegram login, bot install, and any later import path stay separate so the assistant never implies that a login widget equals full message history.</p>
+        <div class="eyebrow">Step 3 · Telegram</div>
+        <h2>Connect Telegram</h2>
+        <p class="mini">Identity and bot install are separate. Login alone does not import full message history.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(telegram.get("status") or "not_selected").replace("_", " "))}</p>
         <form method="post" action="/setup/telegram">
           {shared_fields}
@@ -721,7 +763,7 @@ def setup(
             <label class="check"><input type="checkbox" name="assistant_surfaces" value="group"> Group</label>
             <label class="check"><input type="checkbox" name="assistant_surfaces" value="channel"> Channel</label>
           </div>
-          <button type="submit">Stage Telegram lane</button>
+          <button type="submit">Save Telegram posture</button>
         </form>
         <form method="post" action="/setup/telegram/link-bot">
           {shared_fields}
@@ -738,9 +780,9 @@ def setup(
         </form>
       </section>
       <section class="card">
-        <div class="eyebrow">Step 4</div>
-        <h2>Choose WhatsApp Path</h2>
-        <p class="mini">Pick either the Business onboarding path or the export-upload path. The assistant should not claim a generic WhatsApp history sync outside those routes.</p>
+        <div class="eyebrow">Step 4 · WhatsApp</div>
+        <h2>Connect WhatsApp</h2>
+        <p class="mini">Pick one supported path: Business onboarding or export planning. No blanket history sync claims.</p>
         <p class="mini"><strong>Current status:</strong> {html.escape(str(whatsapp.get("status") or "not_selected").replace("_", " "))}</p>
         <form method="post" action="/setup/whatsapp/business">
           {shared_fields}
@@ -749,22 +791,23 @@ def setup(
           <label for="business_name">Business name</label>
           <input id="business_name" name="business_name" placeholder="Acme GmbH">
           <label class="check"><input type="checkbox" name="import_history_now" value="true"> Trigger history sync inside the allowed onboarding window when the adapter lands</label>
-          <button type="submit">Stage business onboarding</button>
+          <button type="submit">Save Business path</button>
         </form>
         <form method="post" action="/setup/whatsapp/export">
           {shared_fields}
-          <label for="export_label">Export label</label>
+          <label for="export_label">Export intake plan label</label>
           <input id="export_label" name="export_label" placeholder="March personal export">
-          <label for="selected_chat_labels_csv">Chat labels (comma separated)</label>
+          <label for="selected_chat_labels_csv">Planned chat labels (comma separated)</label>
           <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
-          <label class="check"><input type="checkbox" name="include_media" value="true"> Include media references in the import plan</label>
-          <button type="submit">Stage export import</button>
+          <label class="check"><input type="checkbox" name="include_media" value="true"> Include media references in the intake plan</label>
+          <p class="mini">No file is uploaded on this surface yet. This only records an export-intake plan for the WhatsApp import worker.</p>
+          <button type="submit">Save Export plan</button>
         </form>
       </section>
       <section class="card card-strong">
-        <div class="eyebrow">Step 5</div>
-        <h2>Finalize Privacy And Briefing</h2>
-        <p class="mini">This sets the assistant’s retention posture and whether it may draft, suggest actions, or auto-produce briefs.</p>
+        <div class="eyebrow">Step 5 · Memory rules</div>
+        <h2>Finalize assistant behavior</h2>
+        <p class="mini">Set exactly what it can store and which actions it can automate before generating your first real brief.</p>
         <form method="post" action="/setup/finalize">
           {shared_fields}
           <label for="retention_mode">Retention mode</label>
@@ -780,7 +823,7 @@ def setup(
             <label class="check"><input type="checkbox" name="allow_action_suggestions" value="true"{_checked(bool(privacy.get('allow_action_suggestions')))}> Allow action suggestions</label>
             <label class="check"><input type="checkbox" name="allow_auto_briefs" value="true"{_checked(bool(privacy.get('allow_auto_briefs')))}> Allow automatic briefs</label>
           </div>
-          <button type="submit">Build first brief preview</button>
+          <button type="submit">Generate first brief preview</button>
         </form>
       </section>
     </section>
@@ -805,13 +848,13 @@ def privacy(
         <ul class="list">
           <li>{html.escape(str(storage_posture.get("source_of_truth") or "EA Postgres"))} is the durable truth for onboarding state, bindings, memory, jobs, and receipts when the host is configured for durable storage.</li>
           <li>{html.escape(str(storage_posture.get("attachment_note") or "Large exports and media belong in object storage, not in the browser helper or a CRM projection."))}</li>
-          <li>Channel imports stay explicit: WhatsApp export upload and Telegram history import are not implied by identity linking alone.</li>
+          <li>Channel imports stay explicit: WhatsApp export-planned intake and Telegram history import are not implied by identity linking alone.</li>
           <li>Privacy choices here define whether the assistant keeps full bodies or metadata-only posture for selected channels.</li>
         </ul>
       </section>
       <section class="card">
         <div class="eyebrow">Current Policy</div>
-        <h2>Saved briefing posture</h2>
+        <h2>Saved assistant behavior</h2>
         <p class="mini"><strong>Retention:</strong> {html.escape(str(privacy_state.get("retention_mode") or "not set"))}</p>
         <p class="mini"><strong>Metadata-only channels:</strong> {html.escape(", ".join(privacy_state.get("metadata_only_channels") or []) or "none")}</p>
         <p class="mini"><strong>Drafts allowed:</strong> {html.escape(str(bool(privacy_state.get("allow_drafts", False))).lower())}</p>
@@ -842,9 +885,9 @@ def demo_brief(
     {_status_header(principal_id=principal_id, access_identity=access_identity, status=status)}
     <section class="grid-2">
       <section class="card card-strong">
-        <div class="eyebrow">Sample Brief</div>
+        <div class="eyebrow">Sample assistant outcome</div>
         <h2>{html.escape(str(preview.get("headline") or "Your first brief will appear here after setup."))}</h2>
-        <p class="mini">This is the current preview generated from the principal-scoped onboarding record, selected channels, and privacy posture.</p>
+        <p class="mini">This is the assistant outcome preview from your onboarding state, selected channels, and privacy posture.</p>
         <h3>Who you are</h3>
         <ul class="list">{who_you_are}</ul>
         <h3 style="margin-top:18px">Connected channels</h3>
@@ -984,14 +1027,14 @@ def whatsapp_channel(
         eyebrow="WhatsApp",
         status=dict((status.get("channels") or {}).get("whatsapp") or {}),
         detail_points=(
-            "Business onboarding and explicit export import are separate supported paths.",
+            "Business onboarding and explicit export planning are separate supported paths.",
             "The assistant should not promise generic automated history download outside those paths.",
             "The current onboarding record keeps that contract visible and durable.",
         ),
         body_points=(
             "Stage Business onboarding when the Embedded Signup adapter is ready.",
-            "Use export import for personal history or unsupported cases.",
-            "Keep future webhook sync and historical upload as distinct events in the onboarding story.",
+            "Plan export intake for personal history or unsupported cases.",
+            "Keep future webhook sync and manual historical intake as distinct events in the onboarding story.",
         ),
         principal_id=principal_id,
         access_identity=access_identity,

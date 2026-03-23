@@ -66,7 +66,7 @@ def scan_proactive_horizon(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    resolved_principal = resolve_principal_id(principal_id, context) if principal_id is not None else ""
+    resolved_principal = resolve_principal_id(principal_id, context)
     rows = container.proactive_horizon.scan(
         now=datetime.now(timezone.utc),
         scan_window_hours=hours,
@@ -87,7 +87,7 @@ def run_proactive_horizon(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    resolved_principal = resolve_principal_id(principal_id, context) if principal_id is not None else ""
+    resolved_principal = resolve_principal_id(principal_id, context)
     rows = container.proactive_horizon.run_once(
         now=datetime.now(timezone.utc),
         scan_window_hours=hours,

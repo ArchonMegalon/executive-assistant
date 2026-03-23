@@ -370,7 +370,7 @@ class OneminManagerService:
         provider_health: dict[str, object],
         binding_rows: list[object] | None = None,
     ) -> tuple[list[OneminAccount], list[OneminCredential]]:
-        binding_map = self._binding_map(binding_rows)
+        _ = binding_rows
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
         grouped: dict[str, list[dict[str, object]]] = {}
         for row in onemin.get("slots") or []:
@@ -401,13 +401,12 @@ class OneminManagerService:
             states = {str(slot.get("state") or "").strip().lower() for slot in slots}
             status = "ready" if "ready" in states else "unknown" if "unknown" in states else sorted(states)[0] if states else "unknown"
             account_leases = leases_by_account.get(account_name, [])
-            binding_ids = binding_map.get(account_name, [])
             account = OneminAccount(
                 account_id=account_name,
                 account_label=account_name,
                 owner_email=owner_email,
                 owner_name=owner_name,
-                browseract_binding_id=binding_ids[0] if binding_ids else "",
+                browseract_binding_id="",
                 status=status,
                 remaining_credits=remaining_credits,
                 max_credits=max_credits or None,
@@ -419,7 +418,6 @@ class OneminManagerService:
                 last_billing_snapshot_at=last_billing_snapshot_at,
                 last_member_reconciliation_at=last_member_reconciliation_at,
                 details_json={
-                    "binding_ids": list(binding_ids),
                     "credit_basis": str(credit_rollup.get("credit_basis") or "unknown"),
                     "has_actual_billing": bool(credit_rollup.get("has_actual_billing")),
                     "actual_remaining_credits": billing_remaining,
@@ -577,8 +575,14 @@ class OneminManagerService:
             )
         return rows
 
-    def occupancy_snapshot(self) -> dict[str, object]:
-        active = [lease for lease in self._active_leases() if lease.status in {"reserved", "in_flight"}]
+    def occupancy_snapshot(self, *, principal_id: str = "") -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        active = [
+            lease
+            for lease in self._active_leases()
+            if lease.status in {"reserved", "in_flight"}
+            and (not normalized_principal or lease.principal_id == normalized_principal)
+        ]
         occupied_account_ids: set[str] = set()
         occupied_secret_env_names: set[str] = set()
         for lease in active:
@@ -601,7 +605,8 @@ class OneminManagerService:
         provider_health: dict[str, object],
         binding_rows: list[object] | None = None,
     ) -> list[dict[str, object]]:
-        self._sync_state(provider_health=provider_health, binding_rows=binding_rows)
+        self._sync_state(provider_health=provider_health)
+        binding_map = self._binding_map(binding_rows)
         credentials_by_account: dict[str, list[OneminCredential]] = {}
         for credential in self._repo.list_credentials():
             credentials_by_account.setdefault(credential.account_id, []).append(credential)
@@ -613,10 +618,12 @@ class OneminManagerService:
             account_credentials = credentials_by_account.get(account.account_id, [])
             account_leases = leases_by_account.get(account.account_id, [])
             details_json = dict(account.details_json or {})
+            binding_ids = list(binding_map.get(account.account_id, binding_map.get(account.account_label, [])))
             rows.append(
                 {
                     **asdict(account),
-                    "browseract_binding_ids": list(details_json.get("binding_ids") or []),
+                    "browseract_binding_id": binding_ids[0] if binding_ids else "",
+                    "browseract_binding_ids": binding_ids,
                     "credit_basis": str(details_json.get("credit_basis") or "unknown"),
                     "has_actual_billing": bool(details_json.get("has_actual_billing")),
                     "actual_remaining_credits": self._parse_float(details_json.get("actual_remaining_credits")),

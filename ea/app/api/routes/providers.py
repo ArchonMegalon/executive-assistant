@@ -341,10 +341,10 @@ def get_onemin_occupancy(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    _ = context
     return {
         "provider_key": "onemin",
-        **container.onemin_manager.occupancy_snapshot(),
+        "principal_id": context.principal_id,
+        **container.onemin_manager.occupancy_snapshot(principal_id=context.principal_id),
     }
 
 
