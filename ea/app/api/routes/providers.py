@@ -274,7 +274,8 @@ def probe_all_onemin(
     body: OneminProbeAllIn | None = None,
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    _ = context
+    if not _is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
     include_reserve = True if body is None else bool(body.include_reserve)
     return probe_all_onemin_slots(include_reserve=include_reserve)
 
@@ -317,6 +318,7 @@ def get_onemin_accounts(
         "accounts": container.onemin_manager.accounts_snapshot(
             provider_health=upstream._provider_health_report(),
             binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+            principal_id=context.principal_id,
         ),
     }
 
@@ -332,6 +334,7 @@ def get_onemin_runway(
         "forecast": container.onemin_manager.runway_snapshot(
             provider_health=upstream._provider_health_report(),
             binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+            principal_id=context.principal_id,
         ),
     }
 
@@ -490,6 +493,47 @@ def _enabled_browseract_bindings(container: AppContainer, principal_id: str) -> 
         if str(binding.connector_name or "").strip().lower() == "browseract"
         and str(binding.status or "").strip().lower() == "enabled"
     ]
+
+
+def _operator_principal_allowlist() -> set[str]:
+    values: set[str] = set()
+    for env_name in ("EA_OPERATOR_PRINCIPAL_IDS", "EA_OPERATOR_PRINCIPALS"):
+        raw = str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
+        if not raw:
+            continue
+        for item in raw.split(","):
+            normalized = str(item or "").strip()
+            if normalized:
+                values.add(normalized)
+    return values
+
+
+def _operator_email_allowlist() -> set[str]:
+    values: set[str] = set()
+    for env_name in ("EA_OPERATOR_EMAILS", "EA_OPERATOR_ACCESS_EMAILS"):
+        raw = str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
+        if not raw:
+            continue
+        for item in raw.split(","):
+            normalized = str(item or "").strip().lower()
+            if normalized:
+                values.add(normalized)
+    return values
+
+
+def _is_operator_context(context: RequestContext) -> bool:
+    principal_id = str(context.principal_id or "").strip()
+    if not principal_id or not bool(context.authenticated):
+        return False
+    if context.auth_source == "loopback_no_auth":
+        return True
+    if principal_id in _operator_principal_allowlist():
+        return True
+    access_email = str(context.access_email or "").strip().lower()
+    if access_email and access_email in _operator_email_allowlist():
+        return True
+    lowered = principal_id.lower()
+    return lowered.startswith(("system", "operator", "admin", "automation", "scheduler", "cron", "daemon", "health"))
 
 
 def _invoke_browseract_tool(
@@ -857,6 +901,7 @@ def _refresh_onemin_via_provider_api(
     timeout_seconds: int,
     all_accounts: bool = False,
     continue_on_rate_limit: bool = False,
+    account_labels: set[str] | None = None,
 ) -> tuple[
     list[dict[str, object]],
     list[dict[str, object]],
@@ -873,6 +918,9 @@ def _refresh_onemin_via_provider_api(
         for row in upstream.onemin_owner_rows()
         if str(row.get("account_name") or "").strip() and str(row.get("owner_email") or "").strip()
     ]
+    normalized_labels = {str(value or "").strip() for value in (account_labels or set()) if str(value or "").strip()}
+    if normalized_labels:
+        owner_rows = [row for row in owner_rows if str(row.get("account_name") or "").strip() in normalized_labels]
 
     if all_accounts:
         max_accounts = len(owner_rows)
@@ -975,6 +1023,7 @@ def refresh_onemin_billing(
     payload = body or OneminBillingRefreshIn()
     timeout_seconds = int(payload.timeout_seconds) if payload.timeout_seconds is not None else 180
     requested_ids = {str(binding_id or "").strip() for binding_id in payload.binding_ids if str(binding_id or "").strip()}
+    operator_allowed = _is_operator_context(context)
     bindings = [
         binding
         for binding in container.tool_runtime.list_connector_bindings(context.principal_id, limit=500)
@@ -987,6 +1036,7 @@ def refresh_onemin_billing(
     member_results: list[dict[str, object]] = []
     errors: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
+    bound_account_labels: set[str] = set()
 
     for binding in bindings:
         binding_metadata = dict(binding.auth_metadata_json or {})
@@ -1013,6 +1063,7 @@ def refresh_onemin_billing(
             "browseract_onemin_members_workflow_id",
         )
         account_labels = _resolve_onemin_account_labels(binding)
+        bound_account_labels.update(account_labels)
         if not account_labels:
             skipped.append(
                 {
@@ -1120,7 +1171,11 @@ def refresh_onemin_billing(
     api_attempted_count = 0
     api_skipped_count = 0
     api_rate_limited = False
-    if payload.include_provider_api:
+    allow_global_provider_api = bool(payload.provider_api_all_accounts) and operator_allowed
+    effective_include_provider_api = bool(payload.include_provider_api)
+    if effective_include_provider_api and not allow_global_provider_api and not bound_account_labels:
+        effective_include_provider_api = False
+    if effective_include_provider_api:
         (
             api_billing_results,
             api_member_results,
@@ -1131,16 +1186,19 @@ def refresh_onemin_billing(
         ) = _refresh_onemin_via_provider_api(
             include_members=bool(payload.include_members),
             timeout_seconds=timeout_seconds,
-            all_accounts=bool(payload.provider_api_all_accounts),
-            continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit),
+            all_accounts=allow_global_provider_api,
+            continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
+            account_labels=None if allow_global_provider_api else bound_account_labels,
         )
         billing_results.extend(api_billing_results)
         member_results.extend(api_member_results)
         errors.extend(api_errors)
 
     note = ""
-    if not bindings and api_billing_results:
-        note = "No BrowserAct connector bindings were configured; refreshed top-up telemetry through the direct 1min API."
+    if bool(payload.include_provider_api) and not effective_include_provider_api:
+        note = "Direct 1min API refresh is disabled without operator scope or a bound account selection."
+    elif not bindings and api_billing_results:
+        note = "No BrowserAct connector bindings were configured; refreshed bound 1min account telemetry through the direct 1min API."
     elif not bindings and api_rate_limited:
         note = "No enabled BrowserAct connector bindings were configured, and direct 1min API calls were rate-limited. Retry later or add BrowserAct bindings for browser-backed billing probes."
     elif not bindings:
@@ -1156,6 +1214,7 @@ def refresh_onemin_billing(
         "api_account_attempted": api_attempted_count,
         "api_account_skipped": api_skipped_count,
         "api_rate_limited": api_rate_limited,
+        "provider_api_scope": "global" if allow_global_provider_api else "bound_accounts_only",
         "selected_binding_ids": [binding.binding_id for binding in bindings],
         "billing_refresh_count": len(billing_results),
         "member_reconciliation_count": len(member_results),

@@ -834,6 +834,14 @@ class ProviderRegistryService:
             return True
         return False
 
+    def _state_blocks_direct_routing(
+        self,
+        *,
+        binding: ProviderBinding,
+        record: ProviderBindingRecord | None,
+    ) -> bool:
+        return self._provider_state_value(binding, record) in {"unconfigured", "catalog_only"}
+
     def _routing_sort_key(
         self,
         *,
@@ -1395,6 +1403,8 @@ class ProviderRegistryService:
             if require_executable and not binding.executable:
                 continue
             record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
+            if self._state_blocks_direct_routing(binding=binding, record=record):
+                continue
             for capability in binding.capabilities:
                 if self._normalize_capability_key(capability.capability_key) != normalized_capability:
                     continue
@@ -1441,6 +1451,8 @@ class ProviderRegistryService:
                     continue
                 if capability.tool_name == normalized_tool:
                     record = self._get_binding_record(principal_id=None, provider_key=binding.provider_key)
+                    if self._state_blocks_direct_routing(binding=binding, record=record):
+                        continue
                     if self._record_blocks_routing(
                         binding=binding,
                         record=record,
@@ -1474,6 +1486,8 @@ class ProviderRegistryService:
                 if capability.tool_name != normalized_tool:
                     continue
                 record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
+                if self._state_blocks_direct_routing(binding=binding, record=record):
+                    continue
                 if self._record_blocks_routing(
                     binding=binding,
                     record=record,
