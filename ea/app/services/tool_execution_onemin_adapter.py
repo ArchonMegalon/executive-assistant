@@ -55,6 +55,21 @@ def _extract_text(value: object) -> str:
     return str(value).strip()
 
 
+def _bool_flag(value: object, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    cleaned = str(value).strip().lower()
+    if not cleaned:
+        return default
+    if cleaned in {"1", "true", "yes", "on", "allow", "allowed"}:
+        return True
+    if cleaned in {"0", "false", "no", "off", "deny", "denied", "forbid", "forbidden"}:
+        return False
+    return default
+
+
 def _collect_asset_urls(value: object) -> list[str]:
     found: list[str] = []
     if isinstance(value, str):
@@ -90,6 +105,21 @@ class OneminToolAdapter:
     def _request_principal_id(self, request: ToolInvocationRequest) -> str:
         context_json = dict(request.context_json or {})
         return str(context_json.get("principal_id") or "").strip()
+
+    def _manager_allow_reserve(self, request: ToolInvocationRequest) -> bool:
+        payload = dict(request.payload_json or {})
+        context_json = dict(request.context_json or {})
+        for value in (
+            payload.get("manager_allow_reserve"),
+            payload.get("allow_reserve"),
+            payload.get("use_reserve_slots"),
+            context_json.get("manager_allow_reserve"),
+            context_json.get("allow_reserve"),
+            context_json.get("use_reserve_slots"),
+        ):
+            if value is not None:
+                return _bool_flag(value, default=False)
+        return False
 
     def _manager_candidates(
         self,
@@ -231,6 +261,7 @@ class OneminToolAdapter:
         lane: str,
         capability: str,
         principal_id: str = "",
+        allow_reserve: bool = False,
     ) -> tuple[dict[str, Any], str, str, str, int, int]:
         from app.services import responses_upstream as upstream
         from app.services.onemin_manager import active_onemin_manager
@@ -242,7 +273,7 @@ class OneminToolAdapter:
         key_names = tuple(config.api_keys)
         active_key_names = upstream._ordered_onemin_keys_allow_reserve(False)
         all_key_names = upstream._ordered_onemin_keys_allow_reserve(True)
-        allow_reserve = False
+        allow_reserve = bool(allow_reserve)
         tested: set[str] = set()
         errors: list[str] = []
         selection_request_id = f"onemin-tool-{uuid.uuid4().hex[:16]}"
@@ -517,6 +548,7 @@ class OneminToolAdapter:
             lane="hard",
             capability="image_generate",
             principal_id=self._request_principal_id(request),
+            allow_reserve=self._manager_allow_reserve(request),
         )
         asset_urls = _collect_asset_urls(raw_response)
         normalized_text = json.dumps(
@@ -586,6 +618,7 @@ class OneminToolAdapter:
             lane="hard",
             capability="media_transform",
             principal_id=self._request_principal_id(request),
+            allow_reserve=self._manager_allow_reserve(request),
         )
         asset_urls = _collect_asset_urls(raw_response)
         response_text = _extract_text(raw_response)
