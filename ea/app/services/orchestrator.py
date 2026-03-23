@@ -313,6 +313,7 @@ class RewriteOrchestrator:
             ledger=self._ledger,
             planner=self._planner,
             task_contracts=self._task_contracts,
+            get_artifact=self._artifacts.get,
             execute_next_ready_step=lambda session_id: self._queue_claim_lease_service.execute_next_ready_step(
                 session_id,
                 lease_owner="inline",

@@ -834,12 +834,48 @@ class ProviderRegistryService:
             return True
         return False
 
+    def _capability_requires_provider_level_state(
+        self,
+        *,
+        binding: ProviderBinding,
+        capability_key: str,
+        tool_name: str,
+    ) -> bool:
+        if binding.provider_key != "browseract":
+            return True
+        normalized_capability = str(capability_key or "").strip().lower()
+        normalized_tool = str(tool_name or "").strip()
+        if normalized_capability in {
+            "workflow_spec_build",
+            "workflow_spec_repair",
+            "chatplayground_audit",
+            "reasoned_patch_review",
+            "gemini_web_generate",
+        }:
+            return True
+        if normalized_tool in {
+            "browseract.build_workflow_spec",
+            "browseract.repair_workflow_spec",
+            "browseract.chatplayground_audit",
+            "browseract.gemini_web_generate",
+        }:
+            return True
+        return False
+
     def _state_blocks_direct_routing(
         self,
         *,
         binding: ProviderBinding,
         record: ProviderBindingRecord | None,
+        capability_key: str,
+        tool_name: str,
     ) -> bool:
+        if not self._capability_requires_provider_level_state(
+            binding=binding,
+            capability_key=capability_key,
+            tool_name=tool_name,
+        ):
+            return False
         return self._provider_state_value(binding, record) in {"unconfigured", "catalog_only"}
 
     def _routing_sort_key(
@@ -1403,7 +1439,12 @@ class ProviderRegistryService:
             if require_executable and not binding.executable:
                 continue
             record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
-            if self._state_blocks_direct_routing(binding=binding, record=record):
+            if self._state_blocks_direct_routing(
+                binding=binding,
+                record=record,
+                capability_key=normalized_capability,
+                tool_name="",
+            ):
                 continue
             for capability in binding.capabilities:
                 if self._normalize_capability_key(capability.capability_key) != normalized_capability:
@@ -1451,7 +1492,12 @@ class ProviderRegistryService:
                     continue
                 if capability.tool_name == normalized_tool:
                     record = self._get_binding_record(principal_id=None, provider_key=binding.provider_key)
-                    if self._state_blocks_direct_routing(binding=binding, record=record):
+                    if self._state_blocks_direct_routing(
+                        binding=binding,
+                        record=record,
+                        capability_key=capability.capability_key,
+                        tool_name=capability.tool_name,
+                    ):
                         continue
                     if self._record_blocks_routing(
                         binding=binding,
@@ -1486,7 +1532,12 @@ class ProviderRegistryService:
                 if capability.tool_name != normalized_tool:
                     continue
                 record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
-                if self._state_blocks_direct_routing(binding=binding, record=record):
+                if self._state_blocks_direct_routing(
+                    binding=binding,
+                    record=record,
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                ):
                     continue
                 if self._record_blocks_routing(
                     binding=binding,
