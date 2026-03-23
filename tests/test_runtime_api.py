@@ -52,6 +52,23 @@ def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
     )
     assert decision.status_code == 200
 
+    other_principal_decision = client.post(
+        "/v1/memory/decision-windows",
+        json={
+            "principal_id": "exec-2",
+            "title": "Other principal decision",
+            "context": "Keep isolated",
+            "closes_at": (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat(),
+            "urgency": "medium",
+            "authority_required": "exec",
+            "status": "open",
+            "notes": "Should not bleed into exec-1 runtime scan",
+            "source_json": {"source": "manual"},
+        },
+        headers={"X-EA-Principal-ID": "exec-2"},
+    )
+    assert other_principal_decision.status_code == 200
+
     load = client.get("/v1/runtime/cognitive-load")
     assert load.status_code == 200
     load_body = load.json()
@@ -62,9 +79,9 @@ def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
     scan = client.get("/v1/runtime/proactive-horizon/scan")
     assert scan.status_code == 200
     scan_body = scan.json()
-    assert scan_body["principal_id"] == ""
+    assert scan_body["principal_id"] == "exec-1"
     assert scan_body["candidate_count"] >= 1
-    assert any(row["principal_id"] == "exec-1" for row in scan_body["candidates"])
+    assert all(row["principal_id"] == "exec-1" for row in scan_body["candidates"])
 
     filtered = client.get("/v1/runtime/proactive-horizon/scan", params={"principal_id": "exec-1"})
     assert filtered.status_code == 200

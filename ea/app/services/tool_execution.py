@@ -283,6 +283,13 @@ class ToolExecutionService:
             profile_name = str(payload_json.get("posthoc_review_profile") or "").strip()
         if not profile_name:
             profile_name = "review_light" if capability_key == "reasoned_patch_review" else "easy"
+        effective_action_kind = str(request.action_kind or "").strip()
+        if capability_key == "reasoned_patch_review":
+            inferred_review_action = "audit.jury" if profile_name == "audit" else "audit.review_light"
+            if not effective_action_kind or effective_action_kind == "audit.review_light":
+                effective_action_kind = inferred_review_action
+        elif not effective_action_kind:
+            effective_action_kind = str((definition.policy_json or {}).get("action_kind") or "").strip()
         route = self._provider_registry.route_brain_profile_capability_with_context(
             profile_name=profile_name,
             capability_key=capability_key,
@@ -309,7 +316,7 @@ class ToolExecutionService:
                 session_id=request.session_id,
                 step_id=request.step_id,
                 tool_name=route.tool_name,
-                action_kind=request.action_kind,
+                action_kind=effective_action_kind,
                 payload_json=routed_payload_json,
                 context_json=context_json,
             ),

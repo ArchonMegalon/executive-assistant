@@ -19,7 +19,7 @@ from app.services.browseract_ui_service_catalog import browseract_ui_service_by_
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services.evidence_runtime import EvidenceRuntimeService
 from app.services.orchestrator import RewriteOrchestrator, build_default_orchestrator
-from app.services.provider_registry import ProviderBinding, ProviderCapability, ProviderRegistryService
+from app.services.provider_registry import CapabilityRoute, ProviderBinding, ProviderCapability, ProviderRegistryService
 from app.services.responses_upstream import UpstreamResult
 from app.services.tool_execution import (
     CONNECTOR_DISPATCH_IDEMPOTENCY_POLICY,
@@ -202,6 +202,62 @@ def test_provider_registry_cli_state_accepts_command_with_args(monkeypatch: pyte
     assert state.auth_mode == "cli"
     assert state.secret_configured is True
     assert state.state == "ready"
+
+
+def test_tool_execution_service_promotes_audit_review_profile_to_jury_action_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    provider_registry = ProviderRegistryService()
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    tool_runtime.upsert_tool(
+        tool_name="fake.review",
+        version="v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        enabled=True,
+    )
+
+    def _fake_review(request: ToolInvocationRequest, _definition) -> ToolInvocationResult:
+        assert request.action_kind == "audit.jury"
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="fake-review-1",
+            output_json={"status": "ok"},
+            receipt_json={"handler_key": request.tool_name, "invocation_contract": "tool.v1"},
+        )
+
+    service.register_handler("fake.review", _fake_review)
+    monkeypatch.setattr(
+        provider_registry,
+        "route_brain_profile_capability_with_context",
+        lambda **kwargs: CapabilityRoute(
+            provider_key="browseract",
+            capability_key="reasoned_patch_review",
+            tool_name="fake.review",
+            executable=True,
+        ),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-audit-1",
+            step_id="step-audit-1",
+            tool_name="provider.brain_router.reasoned_patch_review",
+            action_kind="audit.review_light",
+            payload_json={"brain_profile": "audit", "normalized_text": "Review this patch."},
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "fake.review"
+    assert result.action_kind == "audit.jury"
 
 
 def test_tool_execution_service_executes_registered_tool_not_in_provider_catalog() -> None:

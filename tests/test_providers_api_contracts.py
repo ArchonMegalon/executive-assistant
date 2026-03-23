@@ -980,3 +980,68 @@ def test_public_results_no_longer_shadow_tour_routes(
     missing_tour = client.get("/tours/movie-demo")
     assert missing_tour.status_code == 404
     assert missing_tour.json()["error"]["code"] == "tour_not_found"
+
+
+def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> None:
+    from types import SimpleNamespace
+
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot_env_name": "ONEMIN_AI_API_KEY",
+                        "slot": "primary",
+                        "slot_name": "primary",
+                        "credential_id": "primary",
+                        "state": "ready",
+                        "estimated_remaining_credits": 15000,
+                    }
+                ]
+            }
+        }
+    }
+    binding = SimpleNamespace(
+        binding_id="binding-1",
+        auth_metadata_json={"slot_env_name": "ONEMIN_AI_API_KEY"},
+        external_account_ref="",
+    )
+
+    first_view = manager.accounts_snapshot(provider_health=provider_health, binding_rows=[binding])
+    assert first_view[0]["browseract_binding_ids"] == ["binding-1"]
+
+    second_view = manager.accounts_snapshot(provider_health=provider_health, binding_rows=[])
+    assert second_view[0]["browseract_binding_ids"] == []
+
+    aggregate = manager.aggregate_snapshot(provider_health=provider_health, binding_rows=[], principal_id="exec-2")
+    assert aggregate["bound_account_count"] == 0
+    assert aggregate["bound_actual_free_credits_total"] == 0
+
+    lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "account_name": "ONEMIN_AI_API_KEY",
+                "account_id": "ONEMIN_AI_API_KEY",
+                "slot_name": "primary",
+                "credential_id": "primary",
+                "secret_env_name": "ONEMIN_AI_API_KEY",
+                "state": "ready",
+                "estimated_remaining_credits": 15000,
+                "api_key": "test-key",
+            }
+        ],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-1",
+        estimated_credits=50,
+        allow_reserve=False,
+    )
+    assert lease is not None
+    assert manager.occupancy_snapshot(principal_id="exec-1")["active_lease_count"] == 1
+    assert manager.occupancy_snapshot(principal_id="exec-2")["active_lease_count"] == 0

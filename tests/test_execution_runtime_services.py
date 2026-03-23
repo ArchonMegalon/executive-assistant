@@ -152,6 +152,33 @@ def test_execution_step_dependency_service_dependency_outputs_override_seeded_ta
     assert "revised text" in merged["diff_text"] or "+revised text" in merged["diff_text"]
 
 
+def test_execution_task_orchestration_service_uses_jury_action_kind_for_audit_review_steps() -> None:
+    service = ExecutionTaskOrchestrationService.__new__(ExecutionTaskOrchestrationService)
+    audit_step = type(
+        "PlanStepStub",
+        (),
+        {
+            "step_kind": "tool_call",
+            "tool_name": "provider.brain_router.reasoned_patch_review",
+            "brain_profile": "audit",
+            "posthoc_review_profile": "",
+        },
+    )()
+    review_light_step = type(
+        "PlanStepStub",
+        (),
+        {
+            "step_kind": "tool_call",
+            "tool_name": "provider.brain_router.reasoned_patch_review",
+            "brain_profile": "review_light",
+            "posthoc_review_profile": "",
+        },
+    )()
+
+    assert service.default_action_kind_for_step(audit_step) == "audit.jury"
+    assert service.default_action_kind_for_step(review_light_step) == "audit.review_light"
+
+
 def test_execution_step_dependency_service_selects_latest_approval_target_step() -> None:
     prepare = _step(
         step_id="step-prepare",
