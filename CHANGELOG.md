@@ -2,9 +2,20 @@
 
 All notable changes to the rewrite-kernel baseline are documented here.
 
+## 2026-03-22
+
+### Changed
+- Updated public assistant-facing landing, setup, privacy, and brief preview copy to enforce assistant-first messaging (`/`, `/setup`, `/privacy`, `/demo/brief`) and added `/chummer` as a separate featured-domain surface.
+- Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released, so release/operator guards now pin append-only session-event writes, `events_for(...)` inspection, and the delta-sync baseline as current branch baseline behavior.
+- Promoted milestone capability `portable_engine_host_posture` to released, so release/operator guards now pin that portability contract: a deterministic core host-portability posture, including server/browser/embed host profile planning, as current branch baseline behavior.
+- Promoted milestone capability `local_coprocessor_optional_lane` to released, so release/operator guards now pin the optional/local BYOC acceleration lane as feature-flagged and advisory-only baseline behavior, and no shipped runtime path requires local co-processor execution.
+- Promoted milestone capability `codex_onemin_specialist_router_admission` to released, so release/operator guards now pin the 1min specialist-escalation-only router posture, where core lane admission stays explicit and capacity-gated and proof-backed 1min top-up/billing snapshots remain part of the operator truth surface.
+- Promoted milestone capability `replay_forensics_horizon_bootstrap` to released, so release/operator guards now pin retry/approval snapshot replay stability coverage as the bootstrap for replay and forensics horizon work.
+
 ## 2026-03-18
 
 ### Changed
+- Promoted milestone capability `knowledge_fabric_projection_slice` to released, so release/operator guards now pin the existing evidence-object citation projection (`evidence_object_id`/`citation_handle`), query surfaces (`/v1/evidence/objects*`, `/v1/evidence/merge`), and receipt-backed help/canon contracts as current branch baseline behavior.
 - The BrowserAct content-template exporter now seeds two 1min.AI page-extract scaffolds: a daily bonus/check-in workflow and a billing/usage reader workflow, so operators can bootstrap authenticated BrowserAct specs for the recurring login-credit path and later billing normalization without hand-authoring those packets from scratch.
 
 ## 2026-03-15

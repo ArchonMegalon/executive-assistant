@@ -22,10 +22,12 @@
 - Human tasks: `/v1/human/*`
 - Memory: `/v1/memory/*`
 - Observations: `/v1/observations/*`
+- Onboarding: `/v1/onboarding/*`
 - Plans: `/v1/plans/*`
 - Policy: `/v1/policy/*`
 - Providers: `/v1/providers/*`
 - Rewrite: `/v1/rewrite/*`
+- Runtime: `/v1/runtime/*`
 - Skills: `/v1/skills/*`
 - Task contracts: `/v1/tasks/contracts/*`
 - Tools: `/v1/tools/*`

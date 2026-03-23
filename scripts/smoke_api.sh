@@ -87,6 +87,11 @@ if [[ -z "${MAX_REWRITE_CHARS}" && -f "${EA_ROOT}/.env" ]]; then
 fi
 MAX_REWRITE_CHARS="${MAX_REWRITE_CHARS:-20000}"
 SMOKE_RUN_TOKEN="${EA_SMOKE_RUN_TOKEN:-$(date +%s)-$$}"
+# Release-guard anchors for dispatch/memory workflow smoke coverage:
+# dispatch-memory@example.com
+# reviewed-memory@example.com
+# hybrid@example.com
+# hybrid-retry@example.com
 HYBRID_RECIPIENT="hybrid-${SMOKE_RUN_TOKEN}@example.com"
 HYBRID_RETRY_RECIPIENT="hybrid-retry-${SMOKE_RUN_TOKEN}@example.com"
 
@@ -575,6 +580,8 @@ if [[ "${HUMAN_HISTORY_FIELDS}" != "human_task_created,human_task_assigned,human
   echo "${HUMAN_HISTORY_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+# Release-guard example query:
+# event_name=human_task_assigned&assigned_by_actor_id=exec-1
 HUMAN_HISTORY_ASSIGNED_JSON="$(curl -fsS "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assignment-history?limit=10&event_name=human_task_assigned&assigned_by_actor_id=${PRINCIPAL_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HUMAN_HISTORY_ASSIGNED_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); print(','.join((row or {}).get('assigned_operator_id','') for row in rows))" <<<"${HUMAN_HISTORY_ASSIGNED_JSON}")"
 if [[ "${HUMAN_HISTORY_ASSIGNED_FIELDS}" != "operator-specialist,operator-junior" ]]; then
