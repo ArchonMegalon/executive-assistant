@@ -143,6 +143,7 @@ POLICY_ENV = load_runtime_overrides()
 FFMPEG_BIN = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 _ONEMIN_MANAGER_SELECTION_CACHE: dict[str, object] = {
     "expires_at": 0.0,
+    "available": False,
     "occupied_account_ids": set(),
     "occupied_secret_env_names": set(),
 }
@@ -227,39 +228,44 @@ def _normalize_onemin_leases_payload(payload: object) -> list[dict[str, object]]
     return []
 
 
-def _refresh_onemin_manager_selection_snapshot() -> tuple[set[str], set[str]]:
+def _refresh_onemin_manager_selection_snapshot() -> tuple[bool, set[str], set[str]]:
     cached_expires_at = float(_ONEMIN_MANAGER_SELECTION_CACHE.get("expires_at") or 0.0)
     now = time.time()
     if cached_expires_at > now:
         return (
+            bool(_ONEMIN_MANAGER_SELECTION_CACHE.get("available")),
             set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_account_ids") or set()),
             set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_secret_env_names") or set()),
         )
 
-    leases_payload = _ea_local_json_get("/v1/providers/onemin/leases")
-    lease_rows = _normalize_onemin_leases_payload(leases_payload)
+    occupancy_payload = _ea_local_json_get("/v1/providers/onemin/occupancy")
+    if not isinstance(occupancy_payload, dict):
+        _ONEMIN_MANAGER_SELECTION_CACHE["available"] = False
+        _ONEMIN_MANAGER_SELECTION_CACHE["occupied_account_ids"] = set()
+        _ONEMIN_MANAGER_SELECTION_CACHE["occupied_secret_env_names"] = set()
+        _ONEMIN_MANAGER_SELECTION_CACHE["expires_at"] = now + _ea_local_cache_ttl_seconds()
+        return False, set(), set()
 
-    occupied_account_ids: set[str] = set()
-    occupied_secret_env_names: set[str] = set()
-    for lease in lease_rows:
-        status = str(lease.get("status") or "").strip().lower()
-        if status not in {"reserved", "in_flight"}:
-            continue
-        metadata = lease.get("metadata_json") if isinstance(lease.get("metadata_json"), dict) else {}
-        task_class = str(metadata.get("task_class") or "").strip().lower()
-        if task_class not in {"core_code", "core_review"}:
-            continue
-        account_id = str(lease.get("account_id") or metadata.get("account_name") or "").strip()
-        if account_id:
-            occupied_account_ids.add(account_id)
-        secret_env_name = str(metadata.get("secret_env_name") or "").strip()
-        if secret_env_name:
-            occupied_secret_env_names.add(secret_env_name)
+    occupied_account_ids = {
+        str(value or "").strip()
+        for value in (occupancy_payload.get("occupied_account_ids") or [])
+        if str(value or "").strip()
+    }
+    occupied_secret_env_names = {
+        str(value or "").strip()
+        for value in (occupancy_payload.get("occupied_secret_env_names") or [])
+        if str(value or "").strip()
+    }
 
+    _ONEMIN_MANAGER_SELECTION_CACHE["available"] = True
     _ONEMIN_MANAGER_SELECTION_CACHE["occupied_account_ids"] = set(occupied_account_ids)
     _ONEMIN_MANAGER_SELECTION_CACHE["occupied_secret_env_names"] = set(occupied_secret_env_names)
     _ONEMIN_MANAGER_SELECTION_CACHE["expires_at"] = now + _ea_local_cache_ttl_seconds()
-    return occupied_account_ids, occupied_secret_env_names
+    return True, occupied_account_ids, occupied_secret_env_names
+
+
+def _onemin_manager_selection_available() -> bool:
+    return bool(_ONEMIN_MANAGER_SELECTION_CACHE.get("available"))
 
 
 def easter_egg_allowed_for_target(target: str) -> bool:
@@ -1574,7 +1580,9 @@ def resolve_onemin_image_keys() -> list[str]:
 
 
 def filter_onemin_image_slots(slots: list[dict[str, str]]) -> list[dict[str, str]]:
-    occupied_account_ids, occupied_secret_env_names = _refresh_onemin_manager_selection_snapshot()
+    available, occupied_account_ids, occupied_secret_env_names = _refresh_onemin_manager_selection_snapshot()
+    if not available:
+        return []
     if not occupied_account_ids and not occupied_secret_env_names:
         return slots
     filtered: list[dict[str, str]] = []
@@ -1737,6 +1745,8 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
         return False, "onemin:not_configured"
     slots = filter_onemin_image_slots(configured_slots)
     if not slots:
+        if not _onemin_manager_selection_available():
+            return False, "onemin:manager_unavailable"
         return False, "onemin:accounts_reserved_for_core"
     model_candidates = onemin_model_candidates()
     endpoints = [

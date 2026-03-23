@@ -26,6 +26,7 @@ from app.services.brain_catalog import (
     DEFAULT_PUBLIC_MODEL,
     FAST_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL,
+    HARD_BATCH_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     get_brain_profile,
@@ -50,16 +51,28 @@ models_router = APIRouter(prefix="/v1/models", tags=["responses"])
 responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
 codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
+_SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
-_PROMPT_ROUTE_HARD_PROFILES = frozenset({"core", "core_authority", "core_booster", "core_rescue", "jury", "jury_deep", "audit_shard", "core_batch"})
+_PROMPT_ROUTE_HARD_PROFILES = frozenset(
+    {
+        "core",
+        "core_authority",
+        "core_batch",
+        "core_booster",
+        "core_rescue",
+        "jury",
+        "jury_deep",
+        "audit_shard",
+    }
+)
 _PROMPT_ROUTE_HARD_MODELS = frozenset(
     filter(
         None,
         {
             str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
+            str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
             str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
             "ea-coder-hard",
-            "ea-coder-hard-batch",
             "ea-audit-jury",
             "ea-coder-survival",
         },
@@ -184,13 +197,46 @@ _PROMPT_ROUTE_CODE_MARKERS = (
 )
 
 
-def _responses_upstream_idle_timeout_seconds() -> float:
-    raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "60").strip()
+def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: str = "") -> float:
+    raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "300").strip()
     try:
         parsed = float(raw)
     except Exception:
-        parsed = 60.0
-    return max(parsed, STREAM_HEARTBEAT_SECONDS + 1.0)
+        parsed = 300.0
+    normalized_model = str(model or "").strip().lower()
+    normalized_profile = str(codex_profile or "").strip().lower()
+    hard_timeout_raw = str(
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or max(parsed, 300.0)
+    ).strip()
+    try:
+        hard_parsed = float(hard_timeout_raw)
+    except Exception:
+        hard_parsed = max(parsed, 300.0)
+    hard_profiles = {
+        "core",
+        "core_authority",
+        "core_booster",
+        "core_rescue",
+        "jury",
+        "jury_deep",
+        "audit_shard",
+    }
+    hard_models = {
+        str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
+        str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
+        "ea-coder-hard",
+        str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
+        "ea-audit-jury",
+        "ea-coder-survival",
+    }
+    timeout_seconds = hard_parsed if normalized_profile in hard_profiles or normalized_model in hard_models else parsed
+    return max(timeout_seconds, STREAM_HEARTBEAT_SECONDS + 1.0)
+
+
+def _prefer_nonstream_upstream(*, model: str = "", codex_profile: str = "") -> bool:
+    normalized_model = str(model or "").strip().lower()
+    normalized_profile = str(codex_profile or "").strip().lower()
+    return normalized_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower() or normalized_profile == "core_batch"
 
 
 @dataclass(frozen=True)
@@ -410,6 +456,7 @@ class _ResponsesCreateRequest(BaseModel):
     model: str | None = None
     input: Any | None = None
     instructions: str | None = None
+    text: Any | None = None
     metadata: dict[str, object] | None = None
     max_output_tokens: int | None = None
     stream: bool = False
@@ -500,7 +547,33 @@ class _ResponseInputItemsListObject(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+_RESPONSES_PUBLIC_REQUEST_FIELDS = (
+    "model",
+    "input",
+    "instructions",
+    "text",
+    "metadata",
+    "max_output_tokens",
+    "stream",
+    "reasoning",
+    "include",
+    "service_tier",
+    "prompt_cache_key",
+)
+
 _RESPONSES_CREATE_REQUEST_SCHEMA = _ResponsesCreateRequest.model_json_schema()
+_response_request_properties = _RESPONSES_CREATE_REQUEST_SCHEMA.get("properties")
+if isinstance(_response_request_properties, dict):
+    _RESPONSES_CREATE_REQUEST_SCHEMA["properties"] = {
+        key: value
+        for key, value in _response_request_properties.items()
+        if key in _RESPONSES_PUBLIC_REQUEST_FIELDS
+    }
+_response_request_required = _RESPONSES_CREATE_REQUEST_SCHEMA.get("required")
+if isinstance(_response_request_required, list):
+    _RESPONSES_CREATE_REQUEST_SCHEMA["required"] = [
+        str(key) for key in _response_request_required if str(key) in _RESPONSES_PUBLIC_REQUEST_FIELDS
+    ]
 
 
 def _responses_debug_capture_dir() -> Path | None:
@@ -969,6 +1042,8 @@ def _metadata(payload: _ResponsesCreateRequest) -> dict[str, object]:
 
 def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
     accepted: list[str] = []
+    if payload.text is not None:
+        accepted.append("text")
     if payload.reasoning is not None:
         accepted.append("reasoning")
     if payload.include:
@@ -1318,6 +1393,7 @@ def _generate_upstream_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     try:
         return generate_text(
@@ -1328,6 +1404,7 @@ def _generate_upstream_text(
             chatplayground_audit_callback=chatplayground_audit_callback,
             chatplayground_audit_callback_only=chatplayground_audit_callback_only,
             chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+            request_deadline_monotonic=request_deadline_monotonic,
         )
     except ResponsesUpstreamError as exc:
         raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
@@ -1660,6 +1737,7 @@ def _tool_shim_retry_payload(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> tuple[dict[str, object] | None, UpstreamResult]:
     retry_messages = list(shim_messages)
     retry_messages.append({"role": "assistant", "content": _json_compact(prior_payload)})
@@ -1677,6 +1755,7 @@ def _tool_shim_retry_payload(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        request_deadline_monotonic=request_deadline_monotonic,
     )
     return _extract_json_object(retry_result.text), retry_result
 
@@ -1691,6 +1770,7 @@ def _tool_shim_decision(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> _ToolShimDecision:
     shim_messages = _tool_shim_messages(
         instructions=instructions,
@@ -1707,6 +1787,7 @@ def _tool_shim_decision(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        request_deadline_monotonic=request_deadline_monotonic,
     )
     payload = _extract_json_object(result.text)
     if not isinstance(payload, dict):
@@ -1732,6 +1813,7 @@ def _tool_shim_decision(
                     chatplayground_audit_callback=chatplayground_audit_callback,
                     chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                     chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
                 )
                 if isinstance(retry_payload, dict):
                     payload = retry_payload
@@ -1761,14 +1843,20 @@ def _build_failed_response(
     instructions: str | None,
     input_items: list[dict[str, object]],
     failure_message: str,
+    item_id: str | None = None,
+    visible_text: str = "",
 ) -> dict[str, object]:
+    output: list[dict[str, object]] = []
+    output_text = str(visible_text or "").strip()
+    if item_id and output_text:
+        output = [_message_item(item_id=item_id, text=output_text, status="completed")]
     return _response_object(
         response_id=response_id,
         model=model,
         created_at=created_at,
         status="failed",
-        output=[],
-        output_text="",
+        output=output,
+        output_text=output_text,
         tokens_in=0,
         tokens_out=0,
         max_output_tokens=requested_max_output_tokens,
@@ -1795,8 +1883,80 @@ def _failed_stream_events(
     sequence_fn: Callable[[], int],
     failed_obj: dict[str, object],
     failure_message: str,
+    item_id: str | None = None,
 ) -> list[str]:
-    return [
+    events: list[str] = []
+    visible_text = f"Error: {failure_message}"
+    if item_id:
+        empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+        final_item = _message_item(item_id=item_id, text=visible_text, status="completed")
+        events.extend(
+            [
+                _sse_event(
+                    event="response.output_item.added",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": empty_item,
+                    },
+                ),
+                _sse_event(
+                    event="response.content_part.added",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.content_part.added",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "part": {"type": "output_text", "text": "", "annotations": []},
+                    },
+                ),
+                _sse_event(
+                    event="response.output_text.delta",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": visible_text,
+                    },
+                ),
+                _sse_event(
+                    event="response.output_text.done",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.output_text.done",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "text": visible_text,
+                    },
+                ),
+                _sse_event(
+                    event="response.content_part.done",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.content_part.done",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "part": {"type": "output_text", "text": visible_text, "annotations": []},
+                    },
+                ),
+                _sse_event(
+                    event="response.output_item.done",
+                    sequence=sequence_fn(),
+                    data={
+                        "type": "response.output_item.done",
+                        "output_index": 0,
+                        "item": final_item,
+                    },
+                ),
+            ]
+        )
+    events.extend([
         _sse_event(
             event="response.failed",
             sequence=sequence_fn(),
@@ -1827,7 +1987,8 @@ def _failed_stream_events(
             },
         ),
         _sse_done(),
-    ]
+    ])
+    return events
 
 
 def _survival_max_output_tokens() -> int:
@@ -1840,7 +2001,7 @@ def _survival_max_output_tokens() -> int:
 
 
 def _survival_rejected_fields(payload: _ResponsesCreateRequest) -> list[str]:
-    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "1").strip().lower() not in {"0", "false", "no", "off"}
+    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "0").strip().lower() not in {"0", "false", "no", "off"}
     rejected: list[str] = []
     tools = getattr(payload, "tools", None)
     if refuse_tools and tools:
@@ -1869,8 +2030,6 @@ def _run_survival_response(
 ) -> Response:
     if str(os.environ.get("EA_SURVIVAL_ENABLED") or "1").strip().lower() in {"0", "false", "no", "off"}:
         raise HTTPException(status_code=503, detail="survival_lane_disabled")
-    if request.stream:
-        raise HTTPException(status_code=400, detail="survival_stream_not_supported_yet")
     rejected_fields = _survival_rejected_fields(request)
     if rejected_fields:
         raise HTTPException(status_code=400, detail=f"survival_unsupported_fields:{','.join(rejected_fields)}")
@@ -1924,6 +2083,293 @@ def _run_survival_response(
         container=container,
     )
 
+    def _build_survival_completed_response(result: Any) -> dict[str, object]:
+        upstream_result = result.to_upstream_result()
+        message_item = _message_item(
+            item_id="msg_" + uuid.uuid4().hex[:24],
+            text=result.text,
+            status="completed",
+        )
+        completed_metadata = {
+            **response_metadata,
+            "survival_provider": result.provider_key,
+            "survival_backend": result.provider_backend,
+            "survival_cache_hit": result.cache_hit,
+            "survival_attempts": [
+                {
+                    "backend": item.backend,
+                    "started_at": item.started_at,
+                    "completed_at": item.completed_at,
+                    "status": item.status,
+                    "detail": item.detail,
+                }
+                for item in result.attempts
+            ],
+            "upstream_provider": upstream_result.provider_key,
+            "upstream_model": upstream_result.model,
+            "provider_backend": upstream_result.provider_backend,
+        }
+        return _response_object(
+            response_id=response_id,
+            model=model,
+            created_at=created_at,
+            status="completed",
+            output=[message_item],
+            output_text=result.text,
+            tokens_in=0,
+            tokens_out=0,
+            max_output_tokens=max_output_tokens,
+            metadata=completed_metadata,
+            instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+            input_items=parsed_input.input_items,
+            reasoning=request.reasoning,
+        )
+
+    if request.stream:
+        def _iter_survival_stream() -> Iterable[str]:
+            sequence = 0
+
+            def _next_sequence() -> int:
+                nonlocal sequence
+                sequence += 1
+                return sequence
+
+            yield _sse_event(
+                event="response.created",
+                sequence=_next_sequence(),
+                data={"type": "response.created", "response": in_progress_obj},
+            )
+            yield _sse_event(
+                event="response.in_progress",
+                sequence=_next_sequence(),
+                data={"type": "response.in_progress", "response": in_progress_obj},
+            )
+
+            result_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+            item_id = "msg_" + uuid.uuid4().hex[:24]
+            message_stream_open = False
+            streamed_text_parts: list[str] = []
+            survival_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds(
+                model=model,
+                codex_profile=codex_profile,
+            )
+            last_activity = time.monotonic()
+
+            def _open_message_stream() -> Iterable[str]:
+                empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+                yield _sse_event(
+                    event="response.output_item.added",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": empty_item,
+                    },
+                )
+                yield _sse_event(
+                    event="response.content_part.added",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.content_part.added",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "part": {"type": "output_text", "text": "", "annotations": []},
+                    },
+                )
+
+            def _worker_stream() -> None:
+                service = SurvivalLaneService(
+                    tool_execution=getattr(container, "tool_execution", None),
+                    tool_runtime=getattr(container, "tool_runtime", None),
+                    principal_id=context.principal_id,
+                )
+                try:
+                    result = service.execute(
+                        instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                        history_items=history_items,
+                        current_input=parsed_input.prompt,
+                        desired_format="plain_text",
+                        prompt_cache_key=request.prompt_cache_key,
+                    )
+                    result_queue.put(("result", result))
+                except Exception as exc:
+                    result_queue.put(("error", exc))
+
+            threading.Thread(target=_worker_stream, daemon=True).start()
+
+            state: tuple[str, object] | None = None
+            while state is None:
+                try:
+                    next_state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
+                except queue.Empty:
+                    if (time.monotonic() - last_activity) >= survival_idle_timeout_seconds:
+                        failure_message = f"survival_timeout:{int(survival_idle_timeout_seconds)}s"
+                        failed_obj = _build_failed_response(
+                            response_id=response_id,
+                            created_at=created_at,
+                            model=model,
+                            requested_max_output_tokens=max_output_tokens,
+                            metadata=response_metadata,
+                            instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                            input_items=parsed_input.input_items,
+                            failure_message=failure_message,
+                            item_id=item_id,
+                            visible_text=f"Error: {failure_message}",
+                        )
+                        _store_response(
+                            response_id=response_id,
+                            response_obj=failed_obj,
+                            input_items=parsed_input.input_items,
+                            history_items=history_items,
+                            principal_id=context.principal_id,
+                            container=container,
+                        )
+                        for event in _failed_stream_events(
+                            sequence_fn=_next_sequence,
+                            failed_obj=failed_obj,
+                            failure_message=failure_message,
+                            item_id=item_id,
+                        ):
+                            yield event
+                        return
+                    if not message_stream_open:
+                        for event in _open_message_stream():
+                            yield event
+                        message_stream_open = True
+                    streamed_text_parts.append(_SSE_KEEPALIVE_TEXT)
+                    yield _sse_event(
+                        event="response.output_text.delta",
+                        sequence=_next_sequence(),
+                        data={
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": _SSE_KEEPALIVE_TEXT,
+                        },
+                    )
+                    yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
+                    continue
+                if not isinstance(next_state, tuple) or not next_state:
+                    continue
+                last_activity = time.monotonic()
+                state = next_state
+
+            status, result_payload = state
+            if status == "error":
+                failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
+                failure_message = str(failure)[:500]
+                failed_obj = _build_failed_response(
+                    response_id=response_id,
+                    created_at=created_at,
+                    model=model,
+                    requested_max_output_tokens=max_output_tokens,
+                    metadata=response_metadata,
+                    instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
+                    input_items=parsed_input.input_items,
+                    failure_message=failure_message,
+                    item_id=item_id,
+                    visible_text=f"Error: {failure_message}",
+                )
+                _store_response(
+                    response_id=response_id,
+                    response_obj=failed_obj,
+                    input_items=parsed_input.input_items,
+                    history_items=history_items,
+                    principal_id=context.principal_id,
+                    container=container,
+                )
+                for event in _failed_stream_events(
+                    sequence_fn=_next_sequence,
+                    failed_obj=failed_obj,
+                    failure_message=failure_message,
+                    item_id=item_id,
+                ):
+                    yield event
+                return
+
+            completed_obj = _build_survival_completed_response(result_payload)
+            text = "".join(streamed_text_parts).replace(_SSE_KEEPALIVE_TEXT, "") or str(completed_obj.get("output_text") or "")
+            if not message_stream_open:
+                for event in _open_message_stream():
+                    yield event
+                message_stream_open = True
+            if text:
+                yield _sse_event(
+                    event="response.output_text.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": text,
+                    },
+                )
+            yield _sse_event(
+                event="response.output_text.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_text.done",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "text": text,
+                },
+            )
+            yield _sse_event(
+                event="response.content_part.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.content_part.done",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": text, "annotations": []},
+                },
+            )
+            final_item = _message_item(item_id=item_id, text=text, status="completed")
+            yield _sse_event(
+                event="response.output_item.done",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "item": final_item,
+                },
+            )
+            completed_obj["output"] = [final_item]
+            completed_obj["output_text"] = text
+            _store_response(
+                response_id=response_id,
+                response_obj=completed_obj,
+                input_items=parsed_input.input_items,
+                history_items=[*history_items, final_item],
+                principal_id=context.principal_id,
+                container=container,
+            )
+            yield _sse_event(
+                event="response.completed",
+                sequence=_next_sequence(),
+                data={"type": "response.completed", "response": completed_obj},
+            )
+            yield _sse_event(
+                event="response.done",
+                sequence=_next_sequence(),
+                data={"type": "response.done", "response": completed_obj},
+            )
+            yield _sse_done()
+
+        return StreamingResponse(
+            _iter_survival_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     def _worker() -> None:
         service = SurvivalLaneService(
             tool_execution=getattr(container, "tool_execution", None),
@@ -1938,51 +2384,12 @@ def _run_survival_response(
                 desired_format="plain_text",
                 prompt_cache_key=request.prompt_cache_key,
             )
-            upstream_result = result.to_upstream_result()
-            message_item = _message_item(
-                item_id="msg_" + uuid.uuid4().hex[:24],
-                text=result.text,
-                status="completed",
-            )
-            completed_metadata = {
-                **response_metadata,
-                "survival_provider": result.provider_key,
-                "survival_backend": result.provider_backend,
-                "survival_cache_hit": result.cache_hit,
-                "survival_attempts": [
-                    {
-                        "backend": item.backend,
-                        "started_at": item.started_at,
-                        "completed_at": item.completed_at,
-                        "status": item.status,
-                        "detail": item.detail,
-                    }
-                    for item in result.attempts
-                ],
-                "upstream_provider": upstream_result.provider_key,
-                "upstream_model": upstream_result.model,
-                "provider_backend": upstream_result.provider_backend,
-            }
-            completed_obj = _response_object(
-                response_id=response_id,
-                model=model,
-                created_at=created_at,
-                status="completed",
-                output=[message_item],
-                output_text=result.text,
-                tokens_in=0,
-                tokens_out=0,
-                max_output_tokens=max_output_tokens,
-                metadata=completed_metadata,
-                instructions=request.instructions.strip() if isinstance(request.instructions, str) else None,
-                input_items=parsed_input.input_items,
-                reasoning=request.reasoning,
-            )
+            completed_obj = _build_survival_completed_response(result)
             _store_response(
                 response_id=response_id,
                 response_obj=completed_obj,
                 input_items=parsed_input.input_items,
-                history_items=[*history_items, message_item],
+                history_items=[*history_items, *list(completed_obj.get("output") or [])],
                 principal_id=context.principal_id,
                 container=container,
             )
@@ -2174,6 +2581,11 @@ def _run_response(
 
     if not stream:
         result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds(
+            model=model,
+            codex_profile=effective_codex_profile,
+        )
+        request_deadline_monotonic = time.monotonic() + upstream_idle_timeout_seconds
 
         def _run_non_stream() -> None:
             try:
@@ -2187,6 +2599,7 @@ def _run_response(
                         chatplayground_audit_callback=chatplayground_audit_callback,
                         chatplayground_audit_callback_only=audit_profile_or_model,
                         chatplayground_audit_principal_id=context.principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
                     )
                     result_queue.put(("decision", decision))
                     return
@@ -2198,6 +2611,7 @@ def _run_response(
                     chatplayground_audit_callback=chatplayground_audit_callback,
                     chatplayground_audit_callback_only=audit_profile_or_model,
                     chatplayground_audit_principal_id=context.principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
                 )
                 result_queue.put(("result", result))
             except Exception as exc:
@@ -2205,7 +2619,6 @@ def _run_response(
 
         worker = threading.Thread(target=_run_non_stream, daemon=True)
         worker.start()
-        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds()
         try:
             status, result_payload = result_queue.get(timeout=upstream_idle_timeout_seconds)
         except queue.Empty:
@@ -2363,6 +2776,11 @@ def _run_response(
         streamed_text_parts: list[str] = []
         message_stream_open = False
         prompt_route_trace_pending = bool(prompt_route.trace_line)
+        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds(
+            model=model,
+            codex_profile=effective_codex_profile,
+        )
+        request_deadline_monotonic = time.monotonic() + upstream_idle_timeout_seconds
 
         def _open_message_stream() -> Iterable[str]:
             empty_item = _message_item(item_id=item_id, text="", status="in_progress")
@@ -2399,19 +2817,33 @@ def _run_response(
                         chatplayground_audit_callback=chatplayground_audit_callback,
                         chatplayground_audit_callback_only=audit_profile_or_model,
                         chatplayground_audit_principal_id=context.principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
                     )
                     result_queue.put(("decision", decision))
                     return
-                result = stream_text(
-                    prompt=parsed_input.prompt,
-                    messages=messages,
-                    requested_model=model,
-                    max_output_tokens=max_output_tokens,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=audit_profile_or_model,
-                    chatplayground_audit_principal_id=context.principal_id,
-                    on_delta=lambda delta: result_queue.put(("delta", delta)),
-                )
+                if _prefer_nonstream_upstream(model=model, codex_profile=effective_codex_profile):
+                    result = _generate_upstream_text(
+                        prompt=parsed_input.prompt,
+                        messages=messages,
+                        requested_model=model,
+                        max_output_tokens=max_output_tokens,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_principal_id=context.principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    )
+                else:
+                    result = stream_text(
+                        prompt=parsed_input.prompt,
+                        messages=messages,
+                        requested_model=model,
+                        max_output_tokens=max_output_tokens,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_principal_id=context.principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                        on_delta=lambda delta: result_queue.put(("delta", delta)),
+                    )
                 result_queue.put(("result", result))
             except Exception as exc:
                 result_queue.put(("error", exc))
@@ -2420,29 +2852,11 @@ def _run_response(
         worker.start()
 
         state: tuple[str, object] | None = None
-        upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds()
         last_upstream_activity = time.monotonic()
         while state is None:
             try:
                 next_state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)
             except queue.Empty:
-                if prompt_route_trace_pending:
-                    if not message_stream_open:
-                        for event in _open_message_stream():
-                            yield event
-                        message_stream_open = True
-                    prompt_route_trace_pending = False
-                    yield _sse_event(
-                        event="response.output_text.delta",
-                        sequence=_next_sequence(),
-                        data={
-                            "type": "response.output_text.delta",
-                            "output_index": 0,
-                            "item_id": item_id,
-                            "content_index": 0,
-                            "delta": prompt_route.trace_line,
-                        },
-                    )
                 if (time.monotonic() - last_upstream_activity) >= upstream_idle_timeout_seconds:
                     failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
                     failed_obj = _build_failed_response(
@@ -2454,6 +2868,8 @@ def _run_response(
                         instructions=instructions,
                         input_items=parsed_input.input_items,
                         failure_message=failure_message,
+                        item_id=item_id,
+                        visible_text=f"Error: {failure_message}",
                     )
                     if _should_store_response(request):
                         _store_response(
@@ -2478,9 +2894,29 @@ def _run_response(
                         sequence_fn=_next_sequence,
                         failed_obj=failed_obj,
                         failure_message=failure_message,
+                        item_id=item_id,
                     ):
                         yield event
                     return
+                if not message_stream_open:
+                    for event in _open_message_stream():
+                        yield event
+                    message_stream_open = True
+                keepalive_text = prompt_route.trace_line if prompt_route_trace_pending else _SSE_KEEPALIVE_TEXT
+                prompt_route_trace_pending = False
+                if keepalive_text == _SSE_KEEPALIVE_TEXT:
+                    streamed_text_parts.append(keepalive_text)
+                yield _sse_event(
+                    event="response.output_text.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": keepalive_text,
+                    },
+                )
                 yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
                 continue
             if not isinstance(next_state, tuple) or not next_state:
@@ -2536,6 +2972,8 @@ def _run_response(
                 instructions=instructions,
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
+                item_id=item_id,
+                visible_text=f"Error: {failure_message}",
             )
             if _should_store_response(request):
                 _store_response(
@@ -2550,6 +2988,7 @@ def _run_response(
                 sequence_fn=_next_sequence,
                 failed_obj=failed_obj,
                 failure_message=failure_message,
+                item_id=item_id,
             ):
                 yield event
             return
@@ -2567,6 +3006,8 @@ def _run_response(
                     instructions=instructions,
                     input_items=parsed_input.input_items,
                     failure_message=failure_message,
+                    item_id=item_id,
+                    visible_text=f"Error: {failure_message}",
                 )
                 if _should_store_response(request):
                     _store_response(
@@ -2581,6 +3022,7 @@ def _run_response(
                     sequence_fn=_next_sequence,
                     failed_obj=failed_obj,
                     failure_message=failure_message,
+                    item_id=item_id,
                 ):
                     yield event
                 return
@@ -2597,6 +3039,8 @@ def _run_response(
                 instructions=instructions,
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
+                item_id=item_id,
+                visible_text=f"Error: {failure_message}",
             )
             if _should_store_response(request):
                 _store_response(
@@ -2611,6 +3055,7 @@ def _run_response(
                 sequence_fn=_next_sequence,
                 failed_obj=failed_obj,
                 failure_message=failure_message,
+                item_id=item_id,
             ):
                 yield event
             return
@@ -2700,7 +3145,8 @@ def _run_response(
                 reasoning=request.reasoning,
             )
         else:
-            text = "".join(streamed_text_parts) or (tool_decision.text if tool_decision else result.text)
+            streamed_text = "".join(streamed_text_parts).replace(_SSE_KEEPALIVE_TEXT, "")
+            text = streamed_text or (tool_decision.text if tool_decision else result.text)
             if not message_stream_open:
                 for event in _open_message_stream():
                     yield event
@@ -2718,7 +3164,7 @@ def _run_response(
                         "delta": prompt_route.trace_line,
                     },
                 )
-            if not streamed_text_parts and text:
+            if not streamed_text and text:
                 yield _sse_event(
                     event="response.output_text.delta",
                     sequence=_next_sequence(),
@@ -2922,10 +3368,18 @@ def get_response_input_items(
 def create_response(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    return _run_response(payload, context=context, container=container)
+    header_profile = str(request.headers.get("X-EA-Codex-Profile") or request.headers.get("X-CodexEA-Profile") or "").strip().lower()
+    if header_profile == "jury":
+        header_profile = "audit"
+    if header_profile == "review-light":
+        header_profile = "review_light"
+    if header_profile not in {"core", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
+        header_profile = ""
+    return _run_response(payload, context=context, container=container, codex_profile=header_profile or None)
 
 
 @codex_router.post(

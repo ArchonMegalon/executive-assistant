@@ -451,9 +451,20 @@ class OneminManagerService:
                 result[key] = normalized
         return result
 
-    def leases_snapshot(self) -> list[dict[str, object]]:
-        rows: list[dict[str, object]] = []
+    def _leases_snapshot_rows(self, *, principal_id: str = "") -> list[OneminAllocationLease]:
+        active_by_id = {lease.lease_id: lease for lease in self._active_leases()}
+        normalized_principal = str(principal_id or "").strip()
+        rows: list[OneminAllocationLease] = []
         for lease in self._repo.list_leases(limit=5000):
+            current = active_by_id.get(lease.lease_id) or lease
+            if normalized_principal and current.principal_id != normalized_principal:
+                continue
+            rows.append(current)
+        return rows
+
+    def leases_snapshot(self, *, principal_id: str = "") -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for lease in self._leases_snapshot_rows(principal_id=principal_id):
             rows.append(
                 {
                     "lease_id": lease.lease_id,
@@ -471,6 +482,24 @@ class OneminManagerService:
                 }
             )
         return rows
+
+    def occupancy_snapshot(self) -> dict[str, object]:
+        active = [lease for lease in self._active_leases() if lease.status in {"reserved", "in_flight"}]
+        occupied_account_ids: set[str] = set()
+        occupied_secret_env_names: set[str] = set()
+        for lease in active:
+            metadata = dict(lease.metadata_json or {})
+            account_id = str(lease.account_id or metadata.get("account_name") or "").strip()
+            if account_id:
+                occupied_account_ids.add(account_id)
+            secret_env_name = str(metadata.get("secret_env_name") or "").strip()
+            if secret_env_name:
+                occupied_secret_env_names.add(secret_env_name)
+        return {
+            "active_lease_count": len(active),
+            "occupied_account_ids": sorted(occupied_account_ids),
+            "occupied_secret_env_names": sorted(occupied_secret_env_names),
+        }
 
     def accounts_snapshot(
         self,

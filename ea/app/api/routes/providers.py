@@ -317,10 +317,22 @@ def get_onemin_leases(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
+    return {
+        "provider_key": "onemin",
+        "principal_id": context.principal_id,
+        "leases": container.onemin_manager.leases_snapshot(principal_id=context.principal_id),
+    }
+
+
+@router.get("/onemin/occupancy", response_model=None)
+def get_onemin_occupancy(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
     _ = context
     return {
         "provider_key": "onemin",
-        "leases": container.onemin_manager.leases_snapshot(),
+        **container.onemin_manager.occupancy_snapshot(),
     }
 
 

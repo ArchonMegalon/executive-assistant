@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
 from datetime import datetime, timezone
 import hashlib
+import math
 import json
 import logging
 import inspect
@@ -3205,6 +3206,20 @@ def _post_sse(
         raise ResponsesUpstreamError(f"request_failed:{exc}") from exc
 
 
+def _effective_request_timeout_seconds(
+    *,
+    default_timeout_seconds: int,
+    request_deadline_monotonic: float | None = None,
+) -> int:
+    effective = max(1, int(default_timeout_seconds or 1))
+    if request_deadline_monotonic is None:
+        return effective
+    remaining = request_deadline_monotonic - _now_monotonic()
+    if remaining <= 0:
+        return 1
+    return max(1, min(effective, int(math.ceil(remaining))))
+
+
 def _get_json(
     *,
     url: str,
@@ -3718,6 +3733,7 @@ def _call_magicx(
     model: str,
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
+    request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     if not _magix_is_ready():
         raise ResponsesUpstreamError("magicx_unavailable")
@@ -3752,7 +3768,10 @@ def _call_magicx(
                         "stream": False,
                         "max_tokens": token_limit,
                     },
-                    timeout_seconds=config.timeout_seconds,
+                    timeout_seconds=_effective_request_timeout_seconds(
+                        default_timeout_seconds=config.timeout_seconds,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    ),
                 )
                 latency_ms = _now_ms() - started_at
                 if status < 200 or status >= 300:
@@ -4073,6 +4092,7 @@ def _call_chatplayground_audit(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _compact_chatplayground_audit_prompt(normalized_messages)
@@ -4280,7 +4300,10 @@ def _call_chatplayground_audit(
                         "Content-Type": "application/json",
                     },
                     payload=payload,
-                    timeout_seconds=config.timeout_seconds,
+                    timeout_seconds=_effective_request_timeout_seconds(
+                        default_timeout_seconds=config.timeout_seconds,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    ),
                 )
                 latency_ms = _now_ms() - started_at
                 if status < 200 or status >= 300:
@@ -4386,6 +4409,7 @@ def _call_gemini_vortex(
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
     principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
     prompt_text = _messages_to_prompt(normalized_messages)
@@ -4421,6 +4445,10 @@ def _call_gemini_vortex(
             "model": model,
             "lane": lane,
             "max_output_tokens": max_output_tokens,
+            "timeout_seconds": _effective_request_timeout_seconds(
+                default_timeout_seconds=config.timeout_seconds,
+                request_deadline_monotonic=request_deadline_monotonic,
+            ),
         },
         context_json={"principal_id": principal_id},
     )
@@ -4482,6 +4510,7 @@ def _call_onemin(
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
     principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
@@ -4492,7 +4521,10 @@ def _call_onemin(
     key_names = tuple(config.api_keys)
     if not key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
-    request_timeout_seconds = _resolve_onemin_request_timeout_seconds(lane=lane, default=config.timeout_seconds)
+    request_timeout_seconds = _effective_request_timeout_seconds(
+        default_timeout_seconds=_resolve_onemin_request_timeout_seconds(lane=lane, default=config.timeout_seconds),
+        request_deadline_monotonic=request_deadline_monotonic,
+    )
     required_credits, _ = _onemin_required_credits_for_selection(lane=lane, model=model)
 
     if on_delta is None:
@@ -5098,6 +5130,7 @@ def generate_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     return _run_text_request(
         prompt=prompt,
@@ -5107,6 +5140,7 @@ def generate_text(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        request_deadline_monotonic=request_deadline_monotonic,
         on_delta=None,
     )
 
@@ -5120,6 +5154,7 @@ def stream_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     return _run_text_request(
@@ -5130,6 +5165,7 @@ def stream_text(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        request_deadline_monotonic=request_deadline_monotonic,
         on_delta=on_delta,
     )
 
@@ -5143,6 +5179,7 @@ def _run_text_request(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
@@ -5206,6 +5243,7 @@ def _run_text_request(
                         model=model_name,
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
+                        request_deadline_monotonic=request_deadline_monotonic,
                     )
                 elif config.provider_key == "onemin":
                     result = _call_onemin(
@@ -5216,6 +5254,7 @@ def _run_text_request(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                         principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
                         on_delta=on_delta,
                     )
                 elif config.provider_key == "chatplayground":
@@ -5229,6 +5268,7 @@ def _run_text_request(
                         chatplayground_audit_callback=chatplayground_audit_callback,
                         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
                     )
                 elif config.provider_key == "gemini_vortex":
                     result = _call_gemini_vortex(
@@ -5239,6 +5279,7 @@ def _run_text_request(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                         principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
                     )
                 if result is not None:
                     if on_delta is not None and config.provider_key != "onemin" and result.text:
