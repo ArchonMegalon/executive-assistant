@@ -9,6 +9,47 @@ from app.domain.models import ToolInvocationResult
 from app.services import responses_upstream as upstream
 
 
+class _SlowUrlopenResponse:
+    def __init__(
+        self,
+        *,
+        body_chunks: list[bytes] | None = None,
+        line_chunks: list[bytes] | None = None,
+        tick_seconds: float = 0.0,
+        advance_clock=None,
+        status: int = 200,
+    ) -> None:
+        self.status = status
+        self._body_chunks = list(body_chunks or [])
+        self._line_chunks = list(line_chunks or [])
+        self._tick_seconds = float(tick_seconds)
+        self._advance_clock = advance_clock
+        self.timeouts: list[float] = []
+
+    def __enter__(self) -> _SlowUrlopenResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def settimeout(self, timeout_seconds: float) -> None:
+        self.timeouts.append(float(timeout_seconds))
+
+    def read(self, _size: int = -1) -> bytes:
+        if not self._body_chunks:
+            return b""
+        if self._advance_clock is not None:
+            self._advance_clock(self._tick_seconds)
+        return self._body_chunks.pop(0)
+
+    def readline(self, _size: int = -1) -> bytes:
+        if not self._line_chunks:
+            return b""
+        if self._advance_clock is not None:
+            self._advance_clock(self._tick_seconds)
+        return self._line_chunks.pop(0)
+
+
 def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magicxai,onemin")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
@@ -127,6 +168,121 @@ def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.Monkey
     assert upstream._lane_max_output_tokens(upstream._LANE_HARD) == 1536
     assert upstream._onemin_max_credits_per_hour() == 80000
     assert upstream._onemin_max_credits_per_day() == 600000
+
+
+def test_pick_onemin_key_skips_zero_credit_observed_error_even_with_stale_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("dead", "good")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "dead":
+            return (0, "observed_error", False, 995.0, 995.0)
+        return (245045, "observed_error", False, 995.0, 995.0)
+
+    def fake_recent_success(*, api_key: str, **_: object) -> tuple[float, float, float, int, int]:
+        if api_key == "dead":
+            return (900.0, 900.0, 900.0, 653, 653)
+        return (0.0, 0.0, 0.0, 0, 0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", fake_recent_success)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5",
+        required_credits=653,
+    )
+
+    assert pick is not None
+    assert pick[0] == "good"
+
+
+def test_pick_onemin_key_skips_observed_error_below_required_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("low", "good")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "low":
+            return (489, "observed_error", False, 995.0, 995.0)
+        return (245045, "observed_error", False, 995.0, 995.0)
+
+    def fake_recent_success(*, api_key: str, **_: object) -> tuple[float, float, float, int, int]:
+        if api_key == "low":
+            return (900.0, 900.0, 900.0, 489, 489)
+        return (0.0, 0.0, 0.0, 0, 0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", fake_recent_success)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5",
+        required_credits=653,
+    )
+
+    assert pick is not None
+    assert pick[0] == "good"
+
+
+def test_pick_onemin_key_prefers_observed_balance_over_synthetic_balance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("synthetic", "observed")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "synthetic":
+            return (4052633, "max_minus_observed_usage", False, 0.0, 995.0)
+        return (245045, "observed_error", False, 995.0, 995.0)
+
+    def fake_recent_success(*, api_key: str, **_: object) -> tuple[float, float, float, int, int]:
+        return (900.0, 900.0, 900.0, 2573, 2573)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", fake_recent_success)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5",
+        required_credits=1144,
+    )
+
+    assert pick is not None
+    assert pick[0] == "observed"
 
 
 def test_groundwork_public_model_uses_gemini_only_candidates(
@@ -1312,3 +1468,58 @@ def test_chatplayground_request_urls_prefers_web_with_app_fallback(monkeypatch: 
         "https://app.chatplayground.ai/api/v1/chat/lmsys",
         "https://app.chatplayground.ai/",
     }
+
+
+def test_post_json_enforces_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = {"now": 0.0}
+
+    def advance(seconds: float) -> None:
+        clock["now"] += seconds
+
+    response = _SlowUrlopenResponse(
+        body_chunks=[b'{"partial":', b' true}'],
+        tick_seconds=30.0,
+        advance_clock=advance,
+    )
+
+    monkeypatch.setattr(upstream, "_now_monotonic", lambda: clock["now"])
+    monkeypatch.setattr(upstream.urllib.request, "urlopen", lambda request, timeout: response)
+
+    with pytest.raises(upstream.ResponsesUpstreamError, match=r"request_timeout:45s"):
+        upstream._post_json(
+            url="https://example.invalid/json",
+            headers={},
+            payload={"ping": "pong"},
+            timeout_seconds=45,
+        )
+
+    assert response.timeouts[:2] == pytest.approx([45.0, 15.0])
+
+
+def test_post_sse_enforces_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = {"now": 0.0}
+
+    def advance(seconds: float) -> None:
+        clock["now"] += seconds
+
+    response = _SlowUrlopenResponse(
+        line_chunks=[b"event: content\n", b"data: hi\n", b"\n"],
+        tick_seconds=20.0,
+        advance_clock=advance,
+    )
+    events: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(upstream, "_now_monotonic", lambda: clock["now"])
+    monkeypatch.setattr(upstream.urllib.request, "urlopen", lambda request, timeout: response)
+
+    with pytest.raises(upstream.ResponsesUpstreamError, match=r"request_timeout:45s"):
+        upstream._post_sse(
+            url="https://example.invalid/sse",
+            headers={},
+            payload={"ping": "pong"},
+            timeout_seconds=45,
+            on_event=lambda event, data: events.append((event, data)),
+        )
+
+    assert events == [("content", "hi")]
+    assert response.timeouts[:3] == pytest.approx([45.0, 25.0, 5.0])
