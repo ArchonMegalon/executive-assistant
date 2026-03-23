@@ -86,24 +86,12 @@ class TaskContractService:
                 deliverable_type="rewrite_note",
                 default_risk_class="low",
                 default_approval_class="none",
-                allowed_tools=(
-                    "provider.gemini_vortex.structured_generate",
-                    "provider.magixai.structured_generate",
-                    "browseract.chatplayground_audit",
-                    "artifact_repository",
-                ),
+                allowed_tools=("artifact_repository",),
                 evidence_requirements=(),
                 memory_write_policy="reviewed_only",
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
-                runtime_policy_json={
-                    "workflow_template": "tool_then_artifact",
-                    "pre_artifact_capability_key": "structured_generate",
-                    "brain_profile": "easy",
-                    "posthoc_review_profile": "review_light",
-                    "posthoc_review_required": False,
-                    "fallback_brain_profile": "groundwork",
-                },
+                runtime_policy_json={},
             )
         if normalized in {
             "meeting_prep",
