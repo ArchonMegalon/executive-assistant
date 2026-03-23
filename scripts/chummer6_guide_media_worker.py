@@ -30,7 +30,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chummer6_guide_canon import load_horizon_canon, load_part_canon
+from chummer6_guide_canon import load_horizon_canon, load_media_briefs, load_page_registry, load_part_canon
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 
@@ -147,6 +147,8 @@ _ONEMIN_MANAGER_SELECTION_CACHE: dict[str, object] = {
     "occupied_account_ids": set(),
     "occupied_secret_env_names": set(),
 }
+_MEDIA_BRIEFS_CACHE: dict[str, object] | None = None
+_PAGE_REGISTRY_CACHE: dict[str, object] | None = None
 
 
 def env_value(name: str) -> str:
@@ -356,11 +358,91 @@ def first_contact_target(target: str) -> bool:
     return str(target or "").replace("\\", "/").strip() in FIRST_CONTACT_TARGETS
 
 
+def _media_briefs() -> dict[str, object]:
+    global _MEDIA_BRIEFS_CACHE
+    if _MEDIA_BRIEFS_CACHE is None:
+        _MEDIA_BRIEFS_CACHE = load_media_briefs()
+    return _MEDIA_BRIEFS_CACHE
+
+
+def _page_registry() -> dict[str, object]:
+    global _PAGE_REGISTRY_CACHE
+    if _PAGE_REGISTRY_CACHE is None:
+        _PAGE_REGISTRY_CACHE = load_page_registry()
+    return _PAGE_REGISTRY_CACHE
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(entry).strip() for entry in value if str(entry).strip()]
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return []
+        if "," in cleaned:
+            return [part.strip() for part in cleaned.split(",") if part.strip()]
+        return [cleaned]
+    return []
+
+
+def _boolish(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    cleaned = str(value or "").strip().lower()
+    if cleaned in {"1", "true", "yes", "on", "allow", "allowed"}:
+        return True
+    if cleaned in {"0", "false", "no", "off", "deny", "denied", "forbid", "forbidden"}:
+        return False
+    return default
+
+
+def visual_density_profile_name_for_target(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
+    if normalized == "assets/hero/chummer6-hero.png":
+        return str((page_types.get("root_story") or {}).get("visual_density_profile") or "first_contact_hero").strip()
+    if normalized == "assets/pages/horizons-index.png":
+        return str((page_types.get("horizon_index") or {}).get("visual_density_profile") or "page_index").strip()
+    if normalized == "assets/pages/parts-index.png":
+        return "page_index"
+    if normalized == "assets/horizons/karma-forge.png":
+        return "flagship_horizon"
+    return ""
+
+
+def target_visual_contract(target: str) -> dict[str, object]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    contracts = _media_briefs().get("visual_contract") if isinstance(_media_briefs().get("visual_contract"), dict) else {}
+    profile_name = visual_density_profile_name_for_target(normalized)
+    contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
+    page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
+    if normalized == "assets/pages/horizons-index.png":
+        horizon_index = page_types.get("horizon_index") if isinstance(page_types.get("horizon_index"), dict) else {}
+        anchors = _string_list(contract.get("must_show_semantic_anchors"))
+        anchors.extend(_string_list(horizon_index.get("must_show_semantic_anchors")))
+        if anchors:
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for entry in anchors:
+                key = entry.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(entry)
+            contract["must_show_semantic_anchors"] = deduped
+    return contract
+
+
 def humor_allowed_for_target(*, target: str, contract: dict[str, object] | None) -> bool:
     data = contract if isinstance(contract, dict) else {}
     policy = str(data.get("humor_policy") or "").strip().lower()
+    if policy in {"deny", "denied", "forbid", "forbidden", "none", "off"}:
+        return False
     if policy in {"allow", "allowed", "showcase", "force"}:
         return True
+    visual_contract = target_visual_contract(target)
+    if visual_contract and not _boolish(visual_contract.get("humor_allowed"), default=True):
+        return False
     return str(target or "").replace("\\", "/").strip() in SPARSE_HUMOR_TARGETS
 
 
@@ -2490,7 +2572,14 @@ def normalize_banner_size(*, image_path: Path, width: int, height: int) -> str:
 
 
 def first_contact_variant_count(*, target: str) -> int:
-    return 5 if first_contact_target(target) else 1
+    if not first_contact_target(target):
+        return 1
+    raw = env_value("CHUMMER6_FIRST_CONTACT_VARIANTS")
+    try:
+        value = int(raw) if raw else 5
+    except Exception:
+        value = 5
+    return max(1, min(12, value))
 
 
 def visual_audit_enabled(*, target: str) -> bool:
@@ -2553,7 +2642,10 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
         tile_h = max(1, height // tiles_y)
         active_tiles = 0
         dark_flat_tiles = 0
+        bright_tiles = 0
         spreads: list[float] = []
+        active_cols: set[int] = set()
+        active_rows: set[int] = set()
         for y in range(tiles_y):
             for x in range(tiles_x):
                 crop = image.crop((x * tile_w, y * tile_h, min(width, (x + 1) * tile_w), min(height, (y + 1) * tile_h)))
@@ -2566,14 +2658,51 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
                     dark_flat_tiles += 1
                 if spread >= 42:
                     active_tiles += 1
+                    active_cols.add(x)
+                    active_rows.add(y)
+                if avg >= 92 and spread >= 48:
+                    bright_tiles += 1
         notes: list[str] = []
         score = float(active_tiles * 12 - dark_flat_tiles * 9 + mean(spreads))
-        if dark_flat_tiles > 5:
+        visual_contract = target_visual_contract(target)
+        density = str(visual_contract.get("density_target") or "").strip().lower()
+        overlay_density = str(visual_contract.get("overlay_density") or "").strip().lower()
+        negative_space_cap = str(visual_contract.get("negative_space_cap") or "").strip().lower()
+        flash_level = str(visual_contract.get("flash_level") or "").strip().lower()
+        required_active_tiles = 5
+        max_dark_flat_tiles = 5
+        required_bright_tiles = 0
+        required_active_cols = 0
+        required_active_rows = 0
+        if density == "high":
+            required_active_tiles = max(required_active_tiles, 6)
+            required_active_cols = 3
+            required_active_rows = 2
+        if overlay_density == "medium":
+            required_active_tiles = max(required_active_tiles, 6)
+            required_bright_tiles = max(required_bright_tiles, 1)
+        elif overlay_density == "high":
+            required_active_tiles = max(required_active_tiles, 7)
+            required_bright_tiles = max(required_bright_tiles, 2)
+        if negative_space_cap == "low":
+            max_dark_flat_tiles = min(max_dark_flat_tiles, 4)
+        if flash_level == "bold":
+            required_bright_tiles = max(required_bright_tiles, 2)
+        if dark_flat_tiles > max_dark_flat_tiles:
             notes.append("visual_audit:dead_negative_space")
             score -= 25
-        if active_tiles < 5:
+        if active_tiles < required_active_tiles:
             notes.append("visual_audit:low_semantic_density")
             score -= 25
+        if required_bright_tiles and bright_tiles < required_bright_tiles:
+            notes.append("visual_audit:insufficient_flash")
+            score -= 18
+        if required_active_cols and len(active_cols) < required_active_cols:
+            notes.append("visual_audit:narrow_subject_cluster")
+            score -= 18
+        if required_active_rows and len(active_rows) < required_active_rows:
+            notes.append("visual_audit:shallow_layering")
+            score -= 16
         if target == "assets/pages/horizons-index.png" and len(spreads) >= 12:
             left = mean([spreads[0], spreads[4], spreads[8]])
             center = mean([spreads[1], spreads[5], spreads[9]])
@@ -2647,6 +2776,78 @@ def compact_descriptor(value: object, *, limit: int = 96, item_limit: int = 32, 
     return compact_text(value, limit=limit)
 
 
+def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[str]:
+    contract = target_visual_contract(target)
+    if not contract:
+        return []
+    density = str(contract.get("density_target") or "").strip().lower()
+    overlay_density = str(contract.get("overlay_density") or "").strip().lower()
+    negative_space_cap = str(contract.get("negative_space_cap") or "").strip().lower()
+    flash_level = str(contract.get("flash_level") or "").strip().lower()
+    anchors = [compact_text(entry, limit=72 if compact else 120) for entry in _string_list(contract.get("must_show_semantic_anchors"))]
+    blockers = [compact_text(entry, limit=64 if compact else 110) for entry in _string_list(contract.get("must_not_show"))]
+    parts: list[str] = []
+    if density == "high":
+        parts.append(
+            "Keep the frame packed and layered with grounded clues across foreground, midground, and background."
+            if not compact
+            else "packed layered frame"
+        )
+    if overlay_density == "high":
+        parts.append(
+            "Diegetic overlays must do real semantic work and stay visibly present through the frame."
+            if not compact
+            else "heavy semantic overlays"
+        )
+    elif overlay_density == "medium":
+        parts.append(
+            "Include visible diegetic overlay traces that clarify the scene instead of decorative glow."
+            if not compact
+            else "visible semantic overlays"
+        )
+    if negative_space_cap == "low":
+        parts.append(
+            "Avoid dead empty darkness, sparse corners, and quiet negative-space voids."
+            if not compact
+            else "low negative space"
+        )
+    if flash_level == "bold":
+        parts.append(
+            "Push stronger contrast, sharper focal separation, bolder silhouettes, and more cover-like energy."
+            if not compact
+            else "bold high-contrast energy"
+        )
+    if anchors:
+        joined = "; ".join(entry for entry in anchors if entry)
+        if joined:
+            parts.append(
+                f"Make these semantic anchors legible at a glance: {joined}."
+                if not compact
+                else f"show {joined}"
+            )
+    if blockers:
+        joined = "; ".join(entry for entry in blockers if entry)
+        if joined:
+            parts.append(
+                f"Do not drift into these failure modes: {joined}."
+                if not compact
+                else f"avoid {joined}"
+            )
+    if not _boolish(contract.get("pseudo_text_allowed"), default=True):
+        parts.append(
+            "Do not invent pseudo-text, fake glyph strings, or readable signboard-like lettering."
+            if not compact
+            else "no pseudo-text or readable signs"
+        )
+    if not _boolish(contract.get("humor_allowed"), default=True):
+        parts.append(
+            "No playful visual joke, cute gag, or sparse humor beat on this asset."
+            if not compact
+            else "no humor beat"
+        )
+    return parts
+
+
 def clip_prompt_text(value: object, *, limit: int) -> str:
     cleaned = " ".join(str(value or "").split()).strip()
     if len(cleaned) <= limit:
@@ -2700,6 +2901,7 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
         action,
         metaphor if metaphor else "",
         hard_block,
+        ", ".join(visual_contract_prompt_parts(target=target, compact=True)),
         mood,
         palette,
         "one focal subject",
@@ -2770,7 +2972,9 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     parts = [
         "Grounded cinematic Shadowrun scene still.",
         f"Composition: {composition}." if composition else "",
+        hard_block,
         compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
+        " ".join(visual_contract_prompt_parts(target=target)) if target else "",
         f"Subject: {subject}." if subject else "",
         f"Setting: {environment}." if environment else "",
         f"Moment: {action}." if action else "",
@@ -2781,7 +2985,6 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         f"Lore cues: {lore}." if lore else "",
         f"Framing: {framing}." if framing else "",
         f"Avoid: {avoid}." if avoid else "",
-        hard_block,
         f"Guardrail: {guardrail}." if guardrail else "",
         "Human presence must be obvious; not props alone."
         if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
@@ -3094,6 +3297,7 @@ def asset_specs() -> list[dict[str, object]]:
         prompt_parts = [
             intro_line,
             visual_prompt,
+            *visual_contract_prompt_parts(target=target),
             f"One clear focal subject: {subject}." if subject else "",
             f"Set the scene in {environment}." if environment else "",
             f"Show this happening: {action}." if action else "",
@@ -3483,6 +3687,7 @@ def asset_specs() -> list[dict[str, object]]:
     def repair_media_row(target: str, row: dict[str, object], planned_rows: list[dict[str, str]]) -> tuple[dict[str, object], list[str]]:
         cleaned = copy.deepcopy(row)
         policy = scene_policy_for_target(target)
+        visual_contract = target_visual_contract(target)
         banned = {str(entry).strip() for entry in policy.get("banned", set()) if str(entry).strip()}
         required = str(policy.get("required") or "").strip()
         preferred = str(policy.get("preferred") or required or "").strip()
@@ -3523,6 +3728,22 @@ def asset_specs() -> list[dict[str, object]]:
                     composition = fallback
 
         contract["composition"] = composition
+        if visual_contract:
+            cleaned["visual_contract"] = dict(visual_contract)
+            for field in ("density_target", "overlay_density", "negative_space_cap", "flash_level"):
+                value = str(visual_contract.get(field) or "").strip()
+                if value:
+                    contract[field] = value
+            anchors = _string_list(visual_contract.get("must_show_semantic_anchors"))
+            if anchors:
+                contract["must_show_semantic_anchors"] = anchors
+            blockers = _string_list(visual_contract.get("must_not_show"))
+            if blockers:
+                contract["must_not_show"] = blockers
+            if not _boolish(visual_contract.get("humor_allowed"), default=True):
+                contract["humor_policy"] = "forbid"
+            if not _boolish(visual_contract.get("pseudo_text_allowed"), default=True):
+                contract["pseudo_text_allowed"] = False
         for key in ("subject", "environment", "action", "metaphor", "mood"):
             replacement = str(policy.get(key) or "").strip()
             if replacement:

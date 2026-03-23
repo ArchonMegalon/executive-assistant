@@ -700,6 +700,24 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
 
 
+def test_first_contact_target_variant_count_honors_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_FIRST_CONTACT_VARIANTS", "8")
+
+    assert media.first_contact_variant_count(target="assets/pages/horizons-index.png") == 8
+
+
+def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor() -> None:
+    media = _load_module()
+
+    contract = media.target_visual_contract("assets/horizons/karma-forge.png")
+
+    assert contract["density_target"] == "high"
+    assert contract["overlay_density"] == "high"
+    assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
+    assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
+
+
 def test_visual_audit_score_flags_dead_negative_space(tmp_path: Path) -> None:
     media = _load_module()
     pytest.importorskip("PIL")
