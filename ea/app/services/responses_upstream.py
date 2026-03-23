@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass, replace
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from app.domain.models import (
     ProviderBillingSnapshot,
@@ -36,6 +36,7 @@ from app.services.brain_catalog import (
     GEMINI_VORTEX_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL_ALIAS,
+    HARD_BATCH_PUBLIC_MODEL,
     MAGICX_PUBLIC_MODEL,
     ONEMIN_PUBLIC_MODEL,
     REPAIR_GEMINI_PUBLIC_MODEL,
@@ -1583,7 +1584,7 @@ def _onemin_key_selection_priority(
     required_credits: int | None,
     index: int,
     now: float,
-) -> tuple[int, int, int, float, float, int]:
+) -> tuple[int, int, int, int, float, float, int]:
     (
         remaining_credits,
         balance_basis,
@@ -1606,6 +1607,12 @@ def _onemin_key_selection_priority(
     known_insufficient = False
     if balance_basis in {"inactive_key", "depleted_error"}:
         known_insufficient = True
+    elif balance_basis == "observed_error" and remaining_credits is not None:
+        observed_remaining = int(remaining_credits)
+        if observed_remaining <= 0:
+            known_insufficient = True
+        elif required_credits is not None and required_credits > 0 and observed_remaining < int(required_credits):
+            known_insufficient = True
     elif (
         required_credits is not None
         and required_credits > 0
@@ -1641,10 +1648,17 @@ def _onemin_key_selection_priority(
         capability_bucket = 3
 
     confidence_bucket = 0 if confident_balance else (1 if same_model_success_at > 0.0 or same_lane_success_at > 0.0 else 2)
+    if balance_basis in {"actual_ui_probe", "actual_provider_api", "actual_billing_usage_page", "observed_error"}:
+        balance_basis_bucket = 0
+    elif balance_basis == "max_minus_observed_usage":
+        balance_basis_bucket = 1
+    else:
+        balance_basis_bucket = 2
     known_good_priority = 0 if state.last_success_at > 0.0 and state.last_success_at >= state.last_failure_at else 1
     return (
         capability_bucket,
         confidence_bucket,
+        balance_basis_bucket,
         known_good_priority,
         state.last_used_at,
         -state.last_success_at,
@@ -1900,7 +1914,7 @@ def _pick_onemin_key(
     _clean_onemin_states(key_names)
     states = _onemin_states_snapshot(key_names)
     now = _now_epoch()
-    candidates: list[tuple[str, int, float, float, float]] = []
+    candidates: list[tuple[str, int, int, int, float, float, float]] = []
     blocked: list[tuple[str, float, float]] = []
     for index, api_key in enumerate(key_names):
         state = states.get(api_key) or OneminKeyState(key=api_key)
@@ -1921,8 +1935,8 @@ def _pick_onemin_key(
         )
         candidates.append((api_key, *selection_priority))
     if candidates:
-        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6]))
-        return candidates[0][0], 0.0, float(candidates[0][6])
+        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7]))
+        return candidates[0][0], 0.0, float(candidates[0][7])
     if not blocked:
         return key_names[0], 0.0, 0.0
     blocked.sort(key=lambda item: (item[1], item[2]))
@@ -2712,7 +2726,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_REVIEW_LIGHT
     if normalized in {"ea-review", "ea-critic"}:
         return _LANE_REVIEW
-    if normalized == "ea-coder-hard":
+    if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
         return _LANE_HARD
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         return _LANE_AUDIT
@@ -2773,7 +2787,7 @@ def _provider_model_order_for_lane(
         return _onemin_review_models()
     if normalized in {"ea-review", "ea-critic"}:
         return _onemin_review_models()
-    if normalized == "ea-coder-hard":
+    if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
         return _onemin_hard_models()
     if lane == _LANE_HARD:
         return _onemin_hard_models()
@@ -2903,6 +2917,10 @@ def _now_epoch() -> float:
     return time.time()
 
 
+def _now_monotonic() -> float:
+    return time.monotonic()
+
+
 def _now_ms() -> int:
     return int(time.perf_counter() * 1000.0)
 
@@ -2992,6 +3010,7 @@ def list_response_models() -> list[dict[str, object]]:
         GROUNDWORK_PUBLIC_MODEL_ALIAS,
         SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
+        HARD_BATCH_PUBLIC_MODEL,
         "ea-review",
         "ea-critic",
         FAST_PUBLIC_MODEL,
@@ -3020,6 +3039,60 @@ def _trim_error_payload(payload: Any) -> str:
     return raw[:400]
 
 
+def _set_stream_timeout(stream: object, timeout_seconds: float) -> None:
+    queue: list[object] = [stream]
+    seen: set[int] = set()
+    effective_timeout = max(0.001, float(timeout_seconds))
+    while queue:
+        current = queue.pop(0)
+        current_id = id(current)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        setter = getattr(current, "settimeout", None)
+        if callable(setter):
+            try:
+                setter(effective_timeout)
+                return
+            except Exception:
+                pass
+        for attr_name in ("fp", "raw", "_fp", "_sock", "sock", "buffer"):
+            child = getattr(current, attr_name, None)
+            if child is not None:
+                queue.append(child)
+
+
+def _read_response_bytes(response: object, *, timeout_seconds: int, chunk_size: int = 65536) -> bytes:
+    deadline = _now_monotonic() + max(0.001, float(timeout_seconds))
+    chunks: list[bytes] = []
+    while True:
+        remaining = deadline - _now_monotonic()
+        if remaining <= 0:
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s")
+        _set_stream_timeout(response, remaining)
+        chunk = response.read(chunk_size)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        if _now_monotonic() >= deadline:
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s")
+
+
+def _iter_response_lines(response: object, *, timeout_seconds: int) -> Iterable[bytes]:
+    deadline = _now_monotonic() + max(0.001, float(timeout_seconds))
+    while True:
+        remaining = deadline - _now_monotonic()
+        if remaining <= 0:
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s")
+        _set_stream_timeout(response, remaining)
+        raw_line = response.readline()
+        if not raw_line:
+            return
+        yield raw_line
+        if _now_monotonic() >= deadline:
+            raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s")
+
+
 def _post_json(
     *,
     url: str,
@@ -3042,7 +3115,7 @@ def _post_json(
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             status = int(getattr(response, "status", 200))
-            raw = response.read().decode("utf-8", errors="replace")
+            raw = _read_response_bytes(response, timeout_seconds=timeout_seconds).decode("utf-8", errors="replace")
     except (socket.timeout, TimeoutError) as exc:
         raise ResponsesUpstreamError(f"request_timeout:{timeout_seconds}s") from exc
     except urllib.error.HTTPError as exc:
@@ -3101,7 +3174,7 @@ def _post_sse(
                 event_name = ""
                 data_lines = []
 
-            for raw_line in response:
+            for raw_line in _iter_response_lines(response, timeout_seconds=timeout_seconds):
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
                 if not line:
                     _flush_event()
@@ -3484,7 +3557,7 @@ def _provider_candidates(
             or _onemin_review_models()
         ]
 
-    if normalized == "ea-coder-hard":
+    if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
         return [
             (configs["onemin"], model_name)
             for model_name in _provider_model_order_for_lane("onemin", lane, requested)
