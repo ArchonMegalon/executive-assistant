@@ -2,9 +2,10 @@ x-gemini-runtime: &gemini-runtime
   # Optional local override: mount the host's Gemini CLI + credentials into the EA runtime containers.
   # Usage:
   #   docker compose -f docker-compose.yml -f docker-compose.gemini.yml up -d --force-recreate ea-api ea-worker ea-scheduler
-  user: "${EA_GEMINI_UID:-1000}:${EA_GEMINI_GID:-1000}"
   environment:
     - HOME=/home/ea
+    - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+    - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
     # Use the host-installed Gemini CLI (Node script) via an explicit node invocation.
     - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
   volumes:

@@ -851,6 +851,8 @@ class ProviderRegistryService:
             "chatplayground_audit",
             "reasoned_patch_review",
             "gemini_web_generate",
+            "onemin_billing_usage",
+            "onemin_member_reconciliation",
         }:
             return True
         if normalized_tool in {
@@ -858,6 +860,8 @@ class ProviderRegistryService:
             "browseract.repair_workflow_spec",
             "browseract.chatplayground_audit",
             "browseract.gemini_web_generate",
+            "browseract.onemin_billing_usage",
+            "browseract.onemin_member_reconciliation",
         }:
             return True
         return False

@@ -3,3 +3,13 @@ services:
     environment:
       - EA_STORAGE_BACKEND=memory
     depends_on: []
+
+  ea-worker:
+    environment:
+      - EA_STORAGE_BACKEND=memory
+    depends_on: []
+
+  ea-scheduler:
+    environment:
+      - EA_STORAGE_BACKEND=memory
+    depends_on: []
