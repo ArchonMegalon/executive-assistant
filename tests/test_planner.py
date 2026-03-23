@@ -129,3 +129,38 @@ def test_planner_can_compile_artifact_retry_policy_from_task_contract_metadata()
     assert artifact_step.failure_strategy == "retry"
     assert artifact_step.max_attempts == 3
     assert artifact_step.retry_backoff_seconds == 15
+
+
+def test_planner_inserts_posthoc_review_light_step_after_structured_generate(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    contracts.upsert_contract(
+        task_key="groundwork_review",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("provider.gemini_vortex.structured_generate", "artifact_repository"),
+        memory_write_policy="reviewed_only",
+        runtime_policy_json={
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "structured_generate",
+            "brain_profile": "groundwork",
+            "posthoc_review_profile": "review_light",
+        },
+    )
+    planner = PlannerService(contracts)
+
+    _, plan = planner.build_plan(task_key="groundwork_review", principal_id="exec-1", goal="review this synthesis")
+
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_reasoned_patch_review",
+        "step_artifact_save",
+    ]
+    review_step = plan.steps[2]
+    artifact_step = plan.steps[3]
+    assert review_step.tool_name == "browseract.chatplayground_audit"
+    assert review_step.brain_profile == "review_light"
+    assert artifact_step.depends_on == ("step_structured_generate", "step_reasoned_patch_review")

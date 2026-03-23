@@ -87,6 +87,66 @@ def _collect_asset_urls(value: object) -> list[str]:
 
 
 class OneminToolAdapter:
+    def _request_principal_id(self, request: ToolInvocationRequest) -> str:
+        context_json = dict(request.context_json or {})
+        return str(context_json.get("principal_id") or "").strip()
+
+    def _manager_candidates(
+        self,
+        *,
+        upstream: Any,
+        key_names: tuple[str, ...],
+        filtered_key_names: tuple[str, ...],
+        active_key_names: tuple[str, ...],
+    ) -> list[dict[str, object]]:
+        provider_health = upstream._provider_health_report()
+        onemin_slots = list((((provider_health.get("providers") or {}).get("onemin") or {}).get("slots") or []))
+        slot_by_account = {
+            str(slot.get("account_name") or "").strip(): dict(slot)
+            for slot in onemin_slots
+            if isinstance(slot, dict) and str(slot.get("account_name") or "").strip()
+        }
+        slot_by_name = {
+            str(slot.get("slot") or "").strip(): dict(slot)
+            for slot in onemin_slots
+            if isinstance(slot, dict) and str(slot.get("slot") or "").strip()
+        }
+        state_snapshot = upstream._onemin_states_snapshot(filtered_key_names)
+        manager_candidates: list[dict[str, object]] = []
+        for selected_key in filtered_key_names:
+            account_name = upstream._provider_account_name("onemin", key_names=key_names, key=selected_key)
+            slot_name = upstream._onemin_key_slot(selected_key, key_names=key_names)
+            slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
+            state = state_snapshot.get(selected_key)
+            if state is None:
+                state = upstream.OneminKeyState(key=selected_key)
+            manager_candidates.append(
+                {
+                    "api_key": selected_key,
+                    "account_id": account_name,
+                    "account_name": account_name,
+                    "credential_id": slot_name or account_name,
+                    "slot_name": slot_name,
+                    "secret_env_name": str(slot_row.get("slot_env_name") or account_name or ""),
+                    "slot_role": slot_row.get("slot_role")
+                    or upstream._onemin_slot_role_for_key(
+                        selected_key,
+                        active_keys=active_key_names,
+                        reserve_keys=upstream._onemin_reserve_keys(),
+                    ),
+                    "state": slot_row.get("state") or upstream._onemin_key_state_label(state, now=upstream._now_epoch()),
+                    "estimated_remaining_credits": slot_row.get("estimated_remaining_credits"),
+                    "billing_remaining_credits": slot_row.get("billing_remaining_credits"),
+                    "billing_max_credits": slot_row.get("billing_max_credits"),
+                    "billing_next_topup_at": slot_row.get("billing_next_topup_at"),
+                    "failure_count": state.failure_count,
+                    "last_success_at": state.last_success_at,
+                    "last_used_at": state.last_used_at,
+                    "last_error": state.last_error,
+                }
+            )
+        return manager_candidates
+
     def _default_code_model(self) -> str:
         from app.services import responses_upstream as upstream
 
@@ -144,6 +204,7 @@ class OneminToolAdapter:
         prompt: str,
         model: str,
         lane: str,
+        principal_id: str = "",
     ):
         from app.services import responses_upstream as upstream
 
@@ -158,6 +219,7 @@ class OneminToolAdapter:
                 model=model,
                 max_output_tokens=None,
                 lane=lane,
+                principal_id=principal_id,
             )
         except upstream.ResponsesUpstreamError as exc:
             raise ToolExecutionError(f"onemin_failed:{str(exc)[:400]}") from exc
@@ -167,8 +229,11 @@ class OneminToolAdapter:
         *,
         feature_payload: dict[str, object],
         lane: str,
+        capability: str,
+        principal_id: str = "",
     ) -> tuple[dict[str, Any], str, str, str, int, int]:
         from app.services import responses_upstream as upstream
+        from app.services.onemin_manager import active_onemin_manager
 
         config = upstream._provider_configs().get("onemin")
         if config is None or not config.api_keys:
@@ -180,15 +245,41 @@ class OneminToolAdapter:
         allow_reserve = False
         tested: set[str] = set()
         errors: list[str] = []
+        selection_request_id = f"onemin-tool-{uuid.uuid4().hex[:16]}"
+        manager = active_onemin_manager()
 
         while len(tested) < len(all_key_names):
-            key_pick = upstream._pick_onemin_key(allow_reserve=allow_reserve)
-            if key_pick is None:
-                if not allow_reserve and len(all_key_names) > len(active_key_names):
-                    allow_reserve = True
-                    continue
-                break
-            api_key, wait_until, _ = key_pick
+            candidate_key_names = active_key_names if not allow_reserve else all_key_names
+            filtered_key_names = tuple(key for key in candidate_key_names if key not in tested)
+            manager_lease_id = ""
+            manager_selection: dict[str, object] | None = None
+            if manager is not None and filtered_key_names:
+                manager_selection = manager.reserve_for_candidates(
+                    candidates=self._manager_candidates(
+                        upstream=upstream,
+                        key_names=key_names,
+                        filtered_key_names=filtered_key_names,
+                        active_key_names=active_key_names,
+                    ),
+                    lane=lane,
+                    capability=capability,
+                    principal_id=principal_id,
+                    request_id=selection_request_id,
+                    estimated_credits=None,
+                    allow_reserve=allow_reserve,
+                )
+            if manager_selection is not None:
+                api_key = str(manager_selection.get("api_key") or "")
+                wait_until = 0.0
+                manager_lease_id = str(manager_selection.get("lease_id") or "")
+            else:
+                key_pick = upstream._pick_onemin_key(allow_reserve=allow_reserve)
+                if key_pick is None:
+                    if not allow_reserve and len(all_key_names) > len(active_key_names):
+                        allow_reserve = True
+                        continue
+                    break
+                api_key, wait_until, _ = key_pick
             if api_key in tested:
                 if (
                     not allow_reserve
@@ -203,6 +294,16 @@ class OneminToolAdapter:
                 errors.append(f"cooldown_until_{int(wait_until)}")
                 upstream._rotate_onemin_cursor_after_key_usage(api_key)
                 continue
+
+            def _release_failed(error_text: str) -> None:
+                nonlocal manager_lease_id
+                if manager is not None and manager_lease_id:
+                    manager.release_lease(
+                        lease_id=manager_lease_id,
+                        status="failed",
+                        error=str(error_text or "").strip() or "onemin_feature_failed",
+                    )
+                    manager_lease_id = ""
 
             upstream._mark_onemin_request_start(api_key)
             key_slot = upstream._onemin_key_slot(api_key, key_names=key_names)
@@ -235,10 +336,12 @@ class OneminToolAdapter:
                         detail,
                         temporary_quarantine=False,
                     )
+                _release_failed(detail)
                 errors.append(f"{key_slot}:http_{status}:{detail}")
                 continue
             if not isinstance(payload, dict):
                 upstream._mark_onemin_failure(api_key, "invalid_payload", temporary_quarantine=False)
+                _release_failed("invalid_payload")
                 errors.append(f"{key_slot}:invalid_payload")
                 continue
 
@@ -258,6 +361,7 @@ class OneminToolAdapter:
                     )
                 else:
                     upstream._mark_onemin_failure(api_key, onemin_error, temporary_quarantine=False)
+                _release_failed(onemin_error)
                 errors.append(f"{key_slot}:{onemin_error}")
                 continue
 
@@ -276,6 +380,9 @@ class OneminToolAdapter:
                 lane=lane,
             )
             upstream._mark_onemin_success(api_key)
+            if manager is not None and manager_lease_id:
+                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
+                manager.release_lease(lease_id=manager_lease_id, status="released")
             return payload, account_name, key_slot, resolved_model, tokens_in, tokens_out
 
         raise ToolExecutionError(f"onemin_feature_failed:{'; '.join(errors)[:400] or 'unavailable'}")
@@ -284,7 +391,12 @@ class OneminToolAdapter:
         payload = dict(request.payload_json or {})
         prompt = self._build_code_prompt(payload)
         model = str(payload.get("model") or self._default_code_model()).strip() or self._default_code_model()
-        result = self._call_text(prompt=prompt, model=model, lane="hard")
+        result = self._call_text(
+            prompt=prompt,
+            model=model,
+            lane="hard",
+            principal_id=self._request_principal_id(request),
+        )
         normalized_text, structured_output_json, mime_type = _parse_structured(result.text)
         action_kind = str(request.action_kind or "code.generate") or "code.generate"
         return ToolInvocationResult(
@@ -323,7 +435,12 @@ class OneminToolAdapter:
         payload = dict(request.payload_json or {})
         prompt = self._build_review_prompt(payload)
         model = str(payload.get("model") or self._default_review_model()).strip() or self._default_review_model()
-        result = self._call_text(prompt=prompt, model=model, lane="review")
+        result = self._call_text(
+            prompt=prompt,
+            model=model,
+            lane="review",
+            principal_id=self._request_principal_id(request),
+        )
         normalized_text, structured_output_json, mime_type = _parse_structured(result.text)
         action_kind = str(request.action_kind or "code.review") or "code.review"
         return ToolInvocationResult(
@@ -384,6 +501,8 @@ class OneminToolAdapter:
         raw_response, account_name, key_slot, resolved_model, tokens_in, tokens_out = self._call_feature(
             feature_payload=feature_payload,
             lane="hard",
+            capability="image_generate",
+            principal_id=self._request_principal_id(request),
         )
         asset_urls = _collect_asset_urls(raw_response)
         normalized_text = json.dumps(
@@ -451,6 +570,8 @@ class OneminToolAdapter:
         raw_response, account_name, key_slot, resolved_model, tokens_in, tokens_out = self._call_feature(
             feature_payload=feature_payload,
             lane="hard",
+            capability="media_transform",
+            principal_id=self._request_principal_id(request),
         )
         asset_urls = _collect_asset_urls(raw_response)
         response_text = _extract_text(raw_response)

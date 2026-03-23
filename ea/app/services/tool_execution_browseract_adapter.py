@@ -5792,7 +5792,13 @@ class BrowserActToolAdapter:
             )
         else:
             principal_id = self._resolve_principal_id(request, payload)
-        prompt = str(payload.get("prompt") or "").strip()
+        prompt = str(
+            payload.get("prompt")
+            or payload.get("normalized_text")
+            or payload.get("source_text")
+            or payload.get("diff_text")
+            or ""
+        ).strip()
         if not prompt:
             raise ToolExecutionError(f"prompt_required:{definition.tool_name}")
         binding_metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})

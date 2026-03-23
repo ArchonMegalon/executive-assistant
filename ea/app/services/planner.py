@@ -75,12 +75,21 @@ class PlannerService:
         contract: TaskContract,
         route: CapabilityRoute | None = None,
         principal_id: str = "",
+        profile_name: str = "",
     ) -> dict[str, object]:
-        decision = self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
+        decision = (
+            self._brain_router.resolve_profile(profile_name, principal_id=principal_id or None)
+            if str(profile_name or "").strip()
+            else self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None)
+        )
         metadata: dict[str, object] = {
             "brain_profile": decision.profile,
-            "posthoc_review_profile": self._brain_router.posthoc_review_profile_for_contract(contract),
-            "fallback_brain_profile": self._brain_router.fallback_brain_profile_for_contract(contract),
+            "posthoc_review_profile": ""
+            if str(profile_name or "").strip()
+            else self._brain_router.posthoc_review_profile_for_contract(contract),
+            "fallback_brain_profile": ""
+            if str(profile_name or "").strip()
+            else self._brain_router.fallback_brain_profile_for_contract(contract),
             "provider_hint_order": tuple(decision.provider_hint_order or ()),
             "routed_public_model": decision.public_model,
         }
@@ -394,6 +403,14 @@ class PlannerService:
             )
         if capability == "structured_generate":
             return self._build_structured_generate_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
+        if capability == "reasoned_patch_review":
+            return self._build_reasoned_patch_review_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                route=route,
+            )
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
 
     def _additional_artifact_inputs_for_pre_artifact_capability(self, capability_key: str) -> tuple[str, ...]:
@@ -407,6 +424,7 @@ class PlannerService:
             "workflow_spec_repair",
             "crezlo_property_tour",
             "structured_generate",
+            "reasoned_patch_review",
         }:
             return ("structured_output_json", "preview_text", "mime_type")
         return ()
@@ -629,6 +647,82 @@ class PlannerService:
             **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
+    def _build_reasoned_patch_review_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        route: CapabilityRoute | None = None,
+        profile_name: str = "",
+    ) -> PlanStepSpec:
+        retry_prefix = "browseract" if route is not None and route.provider_key == "browseract" else "artifact"
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix=retry_prefix,
+        )
+        timeout_budget_seconds = (
+            contract.runtime_policy().browseract_timeout_budget_seconds
+            if route is not None and route.provider_key == "browseract"
+            else 180
+        )
+        return PlanStepSpec(
+            step_key="step_reasoned_patch_review",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="review_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=timeout_budget_seconds,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=("normalized_text", "source_text", "diff_text"),
+            output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            **self._step_brain_metadata(
+                contract=contract,
+                route=route,
+                principal_id=principal_id,
+                profile_name=profile_name,
+            ),
+        )
+
+    def _posthoc_review_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+    ) -> PlanStepSpec | None:
+        review_profile = self._brain_router.posthoc_review_profile_for_contract(contract)
+        if not review_profile:
+            return None
+        try:
+            route = self._provider_registry.route_brain_profile_capability_with_context(
+                profile_name=review_profile,
+                capability_key="reasoned_patch_review",
+                principal_id=principal_id,
+                allowed_tools=(),
+                require_executable=True,
+            )
+        except ToolExecutionError:
+            return None
+        return self._build_reasoned_patch_review_step(
+            contract=contract,
+            principal_id=principal_id,
+            depends_on=depends_on,
+            tool_name=route.tool_name,
+            route=route,
+            profile_name=review_profile,
+        )
+
     def _artifact_output_template_key(self, contract: TaskContract) -> str:
         return contract.runtime_policy().artifact_output.template
 
@@ -676,6 +770,16 @@ class PlannerService:
             route=route,
             depends_on=("step_input_prepare",),
         )
+        posthoc_review_step = None
+        artifact_depends_on = (tool_step.step_key,)
+        if str(route.capability_key or "").strip() == "structured_generate":
+            posthoc_review_step = self._posthoc_review_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=(tool_step.step_key,),
+            )
+            if posthoc_review_step is not None:
+                artifact_depends_on = (tool_step.step_key, posthoc_review_step.step_key)
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
         prepare_step = self._build_prepare_step(
             input_keys=tuple(tool_step.input_keys or ("source_text",)),
@@ -690,11 +794,15 @@ class PlannerService:
             intent,
             contract=contract,
             principal_id=principal_id,
-            depends_on=(tool_step.step_key,),
+            depends_on=artifact_depends_on,
             approval_required=False,
             additional_input_keys=additional_input_keys,
         )
-        return (prepare_step, tool_step, artifact_step)
+        steps: list[PlanStepSpec] = [prepare_step, tool_step]
+        if posthoc_review_step is not None:
+            steps.append(posthoc_review_step)
+        steps.append(artifact_step)
+        return tuple(steps)
 
     def _build_dispatch_step(
         self,

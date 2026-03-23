@@ -7,6 +7,7 @@ import shlex
 import shutil
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
@@ -349,6 +350,11 @@ class ProviderRegistryService:
                     ),
                     ProviderCapability(
                         provider_key="browseract",
+                        capability_key="reasoned_patch_review",
+                        tool_name="browseract.chatplayground_audit",
+                    ),
+                    ProviderCapability(
+                        provider_key="browseract",
                         capability_key="gemini_web_generate",
                         tool_name="browseract.gemini_web_generate",
                     ),
@@ -443,8 +449,13 @@ class ProviderRegistryService:
             ProviderBinding(
                 provider_key="magixai",
                 display_name="AI Magicx",
-                executable=False,
+                executable=True,
                 capabilities=(
+                    ProviderCapability(
+                        provider_key="magixai",
+                        capability_key="structured_generate",
+                        tool_name="provider.magixai.structured_generate",
+                    ),
                     ProviderCapability(
                         provider_key="magixai",
                         capability_key="image_generate",
@@ -698,8 +709,17 @@ class ProviderRegistryService:
             return "disabled"
         if status == "maintenance":
             return "maintenance"
+        probe_state = str(record.probe_state or "").strip().lower()
+        if self._record_retry_after(record) > self._now_epoch():
+            return "degraded"
         if status in {"ready", "degraded"}:
             return status
+        if probe_state in {"ready", "healthy"}:
+            return "ready"
+        if probe_state in {"degraded", "cooldown", "rate_limited", "quarantined", "quota_low", "throttled"}:
+            return "degraded"
+        if probe_state in {"error", "failed", "auth_failed", "revoked", "deleted", "expired", "unavailable"}:
+            return "degraded"
 
         if auth_mode == "internal":
             return "ready" if status != "disabled" else "disabled"
@@ -718,6 +738,122 @@ class ProviderRegistryService:
         if status == "degraded":
             return "degraded"
         return "catalog_only" if not binding.executable else "unconfigured"
+
+    @staticmethod
+    def _now_epoch() -> float:
+        return datetime.now(timezone.utc).timestamp()
+
+    @staticmethod
+    def _parse_deadline_epoch(value: object) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value or "").strip()
+        if not text:
+            return 0.0
+        try:
+            return float(text)
+        except Exception:
+            pass
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return 0.0
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).timestamp()
+
+    def _record_retry_after(self, record: ProviderBindingRecord | None) -> float:
+        if record is None:
+            return 0.0
+        details = dict(record.probe_details_json or {})
+        deadline = 0.0
+        for key in ("cooldown_until", "next_retry_at", "quarantine_until"):
+            deadline = max(deadline, self._parse_deadline_epoch(details.get(key)))
+        return deadline
+
+    def _scope_allows_route(
+        self,
+        *,
+        record: ProviderBindingRecord | None,
+        capability_key: str,
+        tool_name: str,
+    ) -> bool:
+        if record is None:
+            return True
+        scope = dict(record.scope_json or {})
+
+        def _values(*keys: str) -> set[str]:
+            found: set[str] = set()
+            for key in keys:
+                raw = scope.get(key)
+                if isinstance(raw, str):
+                    normalized = str(raw or "").strip()
+                    if normalized:
+                        found.add(normalized)
+                elif isinstance(raw, (list, tuple, set)):
+                    for item in raw:
+                        normalized = str(item or "").strip()
+                        if normalized:
+                            found.add(normalized)
+            return found
+
+        allowed_tools = _values("allowed_tools", "tool_names")
+        blocked_tools = _values("blocked_tools")
+        allowed_capabilities = _values("allowed_capabilities", "capabilities")
+        blocked_capabilities = _values("blocked_capabilities")
+
+        if allowed_tools and tool_name not in allowed_tools:
+            return False
+        if tool_name in blocked_tools:
+            return False
+        if allowed_capabilities and capability_key not in allowed_capabilities:
+            return False
+        if capability_key in blocked_capabilities:
+            return False
+        return True
+
+    def _record_blocks_routing(
+        self,
+        *,
+        binding: ProviderBinding,
+        record: ProviderBindingRecord | None,
+        capability_key: str,
+        tool_name: str,
+    ) -> bool:
+        _ = binding
+        if record is None:
+            return False
+        status = str(record.status or "").strip().lower()
+        if status in {"disabled", "maintenance"}:
+            return True
+        probe_state = str(record.probe_state or "").strip().lower()
+        if probe_state in {"error", "failed", "auth_failed", "revoked", "deleted", "expired", "unavailable"}:
+            return True
+        if self._record_retry_after(record) > self._now_epoch():
+            return True
+        if not self._scope_allows_route(record=record, capability_key=capability_key, tool_name=tool_name):
+            return True
+        return False
+
+    def _routing_sort_key(
+        self,
+        *,
+        binding: ProviderBinding,
+        record: ProviderBindingRecord | None,
+        hinted: bool,
+    ) -> tuple[int, int, int, int]:
+        hint_rank = 0 if hinted else 1
+        priority_rank = int(record.priority or 100) if record is not None else 100
+        probe_state = str(record.probe_state or "").strip().lower() if record is not None else ""
+        health_rank = 0
+        if record is not None and str(record.status or "").strip().lower() == "degraded":
+            health_rank = 2
+        elif probe_state in {"degraded", "cooldown", "rate_limited", "quarantined", "quota_low", "throttled"}:
+            health_rank = 2
+        elif probe_state in {"unknown", ""}:
+            health_rank = 1
+        exec_rank = 0 if binding.executable else 1
+        return (hint_rank, priority_rank, health_rank, exec_rank)
 
     @staticmethod
     def _to_state_bool(record: ProviderBindingRecord | None, *, fallback: bool) -> bool:
@@ -1255,18 +1391,11 @@ class ProviderRegistryService:
         }
         allowed_tool_set = {str(value or "").strip() for value in allowed_tools if str(value or "").strip()}
 
-        def _binding_score(binding: ProviderBinding) -> tuple[int, int]:
-            hint_rank = 0 if binding.provider_key in normalized_hints else 1
-            exec_rank = 0 if binding.executable else 1
-            return (hint_rank, exec_rank)
-
-        candidate_bindings = sorted(self._bindings, key=_binding_score)
-        for binding in candidate_bindings:
+        candidates: list[tuple[tuple[int, int, int, int], CapabilityRoute]] = []
+        for binding in self._bindings:
             if require_executable and not binding.executable:
                 continue
             record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
-            if record is not None and str(record.status or "").strip().lower() == "disabled":
-                continue
             for capability in binding.capabilities:
                 if self._normalize_capability_key(capability.capability_key) != normalized_capability:
                     continue
@@ -1274,12 +1403,31 @@ class ProviderRegistryService:
                     continue
                 if allowed_tool_set and capability.tool_name not in allowed_tool_set:
                     continue
-                return CapabilityRoute(
-                    provider_key=binding.provider_key,
+                if self._record_blocks_routing(
+                    binding=binding,
+                    record=record,
                     capability_key=capability.capability_key,
                     tool_name=capability.tool_name,
-                    executable=binding.executable and capability.executable,
+                ):
+                    continue
+                candidates.append(
+                    (
+                        self._routing_sort_key(
+                            binding=binding,
+                            record=record,
+                            hinted=binding.provider_key in normalized_hints,
+                        ),
+                        CapabilityRoute(
+                            provider_key=binding.provider_key,
+                            capability_key=capability.capability_key,
+                            tool_name=capability.tool_name,
+                            executable=binding.executable and capability.executable,
+                        ),
+                    )
                 )
+        if candidates:
+            candidates.sort(key=lambda item: (item[0], item[1].provider_key, item[1].tool_name))
+            return candidates[0][1]
         raise ToolExecutionError(f"provider_capability_unavailable:{normalized_capability}")
 
     def route_tool(self, tool_name: str) -> CapabilityRoute:
@@ -1294,7 +1442,12 @@ class ProviderRegistryService:
                     continue
                 if capability.tool_name == normalized_tool:
                     record = self._get_binding_record(principal_id=None, provider_key=binding.provider_key)
-                    if record is not None and str(record.status or "").strip().lower() == "disabled":
+                    if self._record_blocks_routing(
+                        binding=binding,
+                        record=record,
+                        capability_key=capability.capability_key,
+                        tool_name=capability.tool_name,
+                    ):
                         continue
                     return CapabilityRoute(
                         provider_key=binding.provider_key,
@@ -1322,7 +1475,12 @@ class ProviderRegistryService:
                 if capability.tool_name != normalized_tool:
                     continue
                 record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
-                if record is not None and str(record.status or "").strip().lower() == "disabled":
+                if self._record_blocks_routing(
+                    binding=binding,
+                    record=record,
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                ):
                     continue
                 return CapabilityRoute(
                     provider_key=binding.provider_key,
@@ -1413,11 +1571,9 @@ class ProviderRegistryService:
         )
         allowed_tool_set = {str(value or "").strip() for value in allowed_tools if str(value or "").strip()}
         hint_priority = {provider: index for index, provider in enumerate(normalized_hints)}
-        candidates: list[tuple[int, str, CapabilityRoute]] = []
+        candidates: list[tuple[tuple[int, int, int, int], str, CapabilityRoute]] = []
         for binding in self._bindings:
             record = self._get_binding_record(principal_id=principal_id, provider_key=binding.provider_key)
-            if record is not None and str(record.status or "").strip().lower() == "disabled":
-                continue
             if require_executable and not binding.executable:
                 continue
             for capability in binding.capabilities:
@@ -1427,7 +1583,22 @@ class ProviderRegistryService:
                     continue
                 if allowed_tool_set and capability.tool_name not in allowed_tool_set:
                     continue
-                priority = hint_priority.get(self._normalize_provider_key(binding.provider_key), len(normalized_hints))
+                if self._record_blocks_routing(
+                    binding=binding,
+                    record=record,
+                    capability_key=capability.capability_key,
+                    tool_name=capability.tool_name,
+                ):
+                    continue
+                provider_key = self._normalize_provider_key(binding.provider_key)
+                priority = (
+                    *self._routing_sort_key(
+                        binding=binding,
+                        record=record,
+                        hinted=provider_key in hint_priority,
+                    )[:3],
+                    hint_priority.get(provider_key, len(normalized_hints)),
+                )
                 route = CapabilityRoute(
                     provider_key=binding.provider_key,
                     capability_key=capability.capability_key,
