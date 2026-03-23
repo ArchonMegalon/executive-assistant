@@ -182,6 +182,66 @@ class OneminManagerService:
                 return max(0.0, parsed)
         return 0.0
 
+    def _slot_has_actual_billing(self, slot: dict[str, object]) -> bool:
+        if slot.get("billing_remaining_credits") not in (None, ""):
+            return True
+        if slot.get("billing_max_credits") not in (None, ""):
+            return True
+        basis = str(slot.get("billing_basis") or "").strip().lower()
+        if basis.startswith("actual_"):
+            return True
+        if str(slot.get("last_billing_snapshot_at") or "").strip():
+            return True
+        return False
+
+    def _slot_credit_basis(self, slot: dict[str, object]) -> str:
+        billing_basis = str(slot.get("billing_basis") or "").strip()
+        if billing_basis:
+            return billing_basis
+        if self._slot_has_actual_billing(slot):
+            return "actual_billing_snapshot"
+        for key in ("estimated_credit_basis", "last_balance_source"):
+            value = str(slot.get(key) or "").strip()
+            if value:
+                return value
+        if slot.get("estimated_remaining_credits") not in (None, ""):
+            return "estimated"
+        return "unknown"
+
+    def _account_credit_rollup(self, slots: list[dict[str, object]]) -> dict[str, object]:
+        has_actual_billing = False
+        actual_remaining = 0.0
+        actual_max = 0.0
+        estimated_remaining = 0.0
+        estimated_seen = False
+        actual_basis = ""
+        estimated_basis = ""
+        for slot in slots:
+            if self._slot_has_actual_billing(slot):
+                has_actual_billing = True
+                if not actual_basis:
+                    actual_basis = self._slot_credit_basis(slot)
+                remaining_value = self._parse_float(slot.get("billing_remaining_credits"))
+                if remaining_value is not None:
+                    actual_remaining += max(0.0, remaining_value)
+                max_value = self._parse_float(slot.get("billing_max_credits"))
+                if max_value is not None:
+                    actual_max += max(0.0, max_value)
+            estimated_value = self._parse_float(slot.get("estimated_remaining_credits"))
+            if estimated_value is not None:
+                estimated_seen = True
+                estimated_remaining += max(0.0, estimated_value)
+                if not estimated_basis:
+                    estimated_basis = str(slot.get("estimated_credit_basis") or slot.get("last_balance_source") or "estimated").strip()
+        credit_basis = actual_basis if has_actual_billing else estimated_basis or "unknown"
+        return {
+            "has_actual_billing": has_actual_billing,
+            "actual_remaining_credits": actual_remaining if has_actual_billing else None,
+            "actual_max_credits": actual_max if has_actual_billing and actual_max > 0 else None,
+            "estimated_remaining_credits": estimated_remaining if estimated_seen else None,
+            "credit_basis": credit_basis,
+        }
+
     def _floor_credits(self, remaining_credits: float) -> tuple[float, float, float]:
         core_floor = remaining_credits * self._core_floor_ratio()
         reserve = remaining_credits * self._reserve_ratio()
@@ -309,9 +369,10 @@ class OneminManagerService:
             owner_name = next((str(slot.get("owner_name") or "").strip() for slot in slots if str(slot.get("owner_name") or "").strip()), "")
             last_billing_snapshot_at = max((str(slot.get("last_billing_snapshot_at") or "").strip() for slot in slots if str(slot.get("last_billing_snapshot_at") or "").strip()), default=None)
             last_member_reconciliation_at = max((str(slot.get("member_reconciliation_at") or "").strip() for slot in slots if str(slot.get("member_reconciliation_at") or "").strip()), default=None)
-            billing_remaining = sum(self._parse_float(slot.get("billing_remaining_credits")) or 0.0 for slot in slots if slot.get("billing_remaining_credits") not in (None, ""))
-            estimated_remaining = sum(self._parse_float(slot.get("estimated_remaining_credits")) or 0.0 for slot in slots)
-            remaining_credits = billing_remaining if billing_remaining > 0 else estimated_remaining
+            credit_rollup = self._account_credit_rollup(slots)
+            billing_remaining = self._parse_float(credit_rollup.get("actual_remaining_credits"))
+            estimated_remaining = self._parse_float(credit_rollup.get("estimated_remaining_credits")) or 0.0
+            remaining_credits = billing_remaining if billing_remaining is not None else estimated_remaining
             max_credits = sum((self._parse_float(slot.get("billing_max_credits")) or self._parse_float(slot.get("max_credits")) or 0.0) for slot in slots)
             core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
             states = {str(slot.get("state") or "").strip().lower() for slot in slots}
@@ -336,6 +397,11 @@ class OneminManagerService:
                 last_member_reconciliation_at=last_member_reconciliation_at,
                 details_json={
                     "binding_ids": list(binding_ids),
+                    "credit_basis": str(credit_rollup.get("credit_basis") or "unknown"),
+                    "has_actual_billing": bool(credit_rollup.get("has_actual_billing")),
+                    "actual_remaining_credits": billing_remaining,
+                    "actual_max_credits": self._parse_float(credit_rollup.get("actual_max_credits")),
+                    "estimated_remaining_credits": estimated_remaining if estimated_remaining > 0 else 0.0,
                     "active_lease_count": len(account_leases),
                     "active_lease_task_classes": sorted(
                         {
@@ -518,10 +584,16 @@ class OneminManagerService:
         for account in self._repo.list_accounts():
             account_credentials = credentials_by_account.get(account.account_id, [])
             account_leases = leases_by_account.get(account.account_id, [])
+            details_json = dict(account.details_json or {})
             rows.append(
                 {
                     **asdict(account),
-                    "browseract_binding_ids": list((account.details_json or {}).get("binding_ids") or []),
+                    "browseract_binding_ids": list(details_json.get("binding_ids") or []),
+                    "credit_basis": str(details_json.get("credit_basis") or "unknown"),
+                    "has_actual_billing": bool(details_json.get("has_actual_billing")),
+                    "actual_remaining_credits": self._parse_float(details_json.get("actual_remaining_credits")),
+                    "actual_max_credits": self._parse_float(details_json.get("actual_max_credits")),
+                    "estimated_remaining_credits": self._parse_float(details_json.get("estimated_remaining_credits")),
                     "active_lease_count": len(account_leases),
                     "active_lease_task_classes": sorted(
                         {
@@ -550,6 +622,18 @@ class OneminManagerService:
         image_spendable_total = sum(float(item.get("image_spendable_credits") or 0.0) for item in accounts)
         reserve_total = sum(float(item.get("reserve_credits") or 0.0) for item in accounts)
         ready_accounts = sum(1 for item in accounts if str(item.get("status") or "") == "ready")
+        actual_accounts = [item for item in accounts if bool(item.get("has_actual_billing"))]
+        estimated_accounts = [item for item in accounts if not bool(item.get("has_actual_billing"))]
+        bound_accounts = [item for item in accounts if list(item.get("browseract_binding_ids") or [])]
+        bound_actual_accounts = [item for item in bound_accounts if bool(item.get("has_actual_billing"))]
+        actual_free_total = sum(float(item.get("actual_remaining_credits") or 0.0) for item in actual_accounts)
+        estimated_free_total = sum(float(item.get("estimated_remaining_credits") or item.get("remaining_credits") or 0.0) for item in estimated_accounts)
+        bound_actual_free_total = sum(float(item.get("actual_remaining_credits") or 0.0) for item in bound_actual_accounts)
+        bound_estimated_free_total = sum(
+            float(item.get("estimated_remaining_credits") or item.get("remaining_credits") or 0.0)
+            for item in bound_accounts
+            if not bool(item.get("has_actual_billing"))
+        )
         active_leases = [lease for lease in self.leases_snapshot() if str(lease.get("status") or "") in {"reserved", "in_flight"}]
         return {
             "provider_key": "onemin",
@@ -559,6 +643,8 @@ class OneminManagerService:
             "slot_count": int(onemin.get("configured_slots") or sum(int(item.get("slot_count") or 0) for item in accounts)),
             "sum_free_credits": remaining_total,
             "sum_max_credits": max_total or None,
+            "actual_free_credits_total": actual_free_total,
+            "estimated_free_credits_total": estimated_free_total,
             "core_floor_credits_total": core_floor_total,
             "image_spendable_credits_total": image_spendable_total,
             "reserve_credits_total": reserve_total,
@@ -566,9 +652,53 @@ class OneminManagerService:
             "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
             "days_remaining_at_7d_average": onemin.get("estimated_days_remaining_at_7d_average"),
             "active_lease_count": len(active_leases),
-            "actual_billing_account_count": sum(1 for item in accounts if item.get("last_billing_snapshot_at")),
+            "actual_billing_account_count": len(actual_accounts),
+            "estimated_account_count": len(estimated_accounts),
+            "bound_account_count": len(bound_accounts),
+            "bound_actual_billing_account_count": len(bound_actual_accounts),
+            "bound_actual_free_credits_total": bound_actual_free_total,
+            "bound_estimated_free_credits_total": bound_estimated_free_total,
             "member_reconciled_account_count": sum(1 for item in accounts if item.get("last_member_reconciliation_at")),
             "accounts": accounts,
+        }
+
+    def actual_credits_snapshot(
+        self,
+        *,
+        provider_health: dict[str, object],
+        binding_rows: list[object] | None = None,
+        principal_id: str = "",
+    ) -> dict[str, object]:
+        accounts = self.accounts_snapshot(provider_health=provider_health, binding_rows=binding_rows)
+        bound_accounts = [item for item in accounts if list(item.get("browseract_binding_ids") or [])]
+        actual_accounts = [item for item in bound_accounts if bool(item.get("has_actual_billing"))]
+        return {
+            "provider_key": "onemin",
+            "principal_id": principal_id,
+            "binding_account_count": len(bound_accounts),
+            "actual_billing_account_count": len(actual_accounts),
+            "actual_free_credits_total": sum(float(item.get("actual_remaining_credits") or 0.0) for item in actual_accounts),
+            "actual_max_credits_total": sum(float(item.get("actual_max_credits") or item.get("max_credits") or 0.0) for item in actual_accounts),
+            "accounts_without_actual_billing_count": sum(1 for item in bound_accounts if not bool(item.get("has_actual_billing"))),
+            "accounts": [
+                {
+                    "account_id": str(item.get("account_id") or ""),
+                    "owner_email": str(item.get("owner_email") or ""),
+                    "status": str(item.get("status") or ""),
+                    "remaining_credits": self._parse_float(item.get("actual_remaining_credits")),
+                    "max_credits": self._parse_float(item.get("actual_max_credits") or item.get("max_credits")),
+                    "credit_basis": str(item.get("credit_basis") or "unknown"),
+                    "last_billing_snapshot_at": item.get("last_billing_snapshot_at"),
+                    "last_member_reconciliation_at": item.get("last_member_reconciliation_at"),
+                    "browseract_binding_ids": list(item.get("browseract_binding_ids") or []),
+                }
+                for item in actual_accounts
+            ],
+            "note": "no_enabled_browseract_bindings"
+            if not bound_accounts
+            else "no_actual_billing_snapshots"
+            if not actual_accounts
+            else "",
         }
 
     def runway_snapshot(
