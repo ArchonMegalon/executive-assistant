@@ -43,6 +43,7 @@ from app.services.brain_catalog import (
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
 )
+from app.services.onemin_manager import active_onemin_manager
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter, gemini_vortex_slot_status
 ChatMessage = dict[str, str]
@@ -4480,6 +4481,7 @@ def _call_onemin(
     model: str,
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
+    principal_id: str = "",
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
     normalized_messages = _normalize_messages(prompt=prompt, messages=messages)
@@ -4510,6 +4512,8 @@ def _call_onemin(
     errors: list[str] = []
     failures: list[str] = []
     tested: set[str] = set()
+    selection_request_id = f"onemin-{uuid.uuid4().hex[:16]}"
+    manager = active_onemin_manager()
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
     allow_reserve = False
@@ -4521,19 +4525,80 @@ def _call_onemin(
         raise ResponsesUpstreamError(known_exhaustion)
     while len(tested) < len(all_key_names):
         candidate_key_names = active_key_names if not allow_reserve else all_key_names
-        key_pick = _pick_onemin_key(
-            allow_reserve=allow_reserve,
-            key_names=candidate_key_names,
-            lane=lane,
-            model=model,
-            required_credits=required_credits,
-        )
-        if key_pick is None:
-            if not allow_reserve and len(all_key_names) > len(active_key_names):
-                allow_reserve = True
-                continue
-            break
-        api_key, wait_until, _ = key_pick
+        filtered_key_names = tuple(key for key in candidate_key_names if key not in tested)
+        manager_lease_id = ""
+        manager_selection: dict[str, object] | None = None
+        if manager is not None and filtered_key_names:
+            provider_health = _provider_health_report()
+            onemin_slots = list((((provider_health.get("providers") or {}).get("onemin") or {}).get("slots") or []))
+            slot_by_account = {
+                str(slot.get("account_name") or "").strip(): dict(slot)
+                for slot in onemin_slots
+                if isinstance(slot, dict) and str(slot.get("account_name") or "").strip()
+            }
+            slot_by_name = {
+                str(slot.get("slot") or "").strip(): dict(slot)
+                for slot in onemin_slots
+                if isinstance(slot, dict) and str(slot.get("slot") or "").strip()
+            }
+            state_snapshot = _onemin_states_snapshot(filtered_key_names)
+            manager_candidates: list[dict[str, object]] = []
+            for selected_key in filtered_key_names:
+                account_name = _provider_account_name("onemin", key_names=key_names, key=selected_key)
+                slot_name = _onemin_key_slot(selected_key, key_names=key_names)
+                slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
+                state = state_snapshot.get(selected_key) or OneminKeyState(key=selected_key)
+                manager_candidates.append(
+                    {
+                        "api_key": selected_key,
+                        "account_id": account_name,
+                        "account_name": account_name,
+                        "credential_id": slot_name or account_name,
+                        "slot_name": slot_name,
+                        "secret_env_name": selected_key,
+                        "slot_role": slot_row.get("slot_role") or _onemin_slot_role_for_key(
+                            selected_key,
+                            active_keys=active_key_names,
+                            reserve_keys=_onemin_reserve_keys(),
+                        ),
+                        "state": slot_row.get("state") or _onemin_key_state_label(state, now=_now_epoch()),
+                        "estimated_remaining_credits": slot_row.get("estimated_remaining_credits"),
+                        "billing_remaining_credits": slot_row.get("billing_remaining_credits"),
+                        "billing_max_credits": slot_row.get("billing_max_credits"),
+                        "billing_next_topup_at": slot_row.get("billing_next_topup_at"),
+                        "failure_count": state.failure_count,
+                        "last_success_at": state.last_success_at,
+                        "last_used_at": state.last_used_at,
+                        "last_error": state.last_error,
+                    }
+                )
+            manager_selection = manager.reserve_for_candidates(
+                candidates=manager_candidates,
+                lane=lane,
+                capability="reasoned_patch_review" if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} else "code_generate",
+                principal_id=principal_id,
+                request_id=selection_request_id,
+                estimated_credits=required_credits,
+                allow_reserve=allow_reserve,
+            )
+        if manager_selection is not None:
+            api_key = str(manager_selection.get("api_key") or "")
+            wait_until = 0.0
+            manager_lease_id = str(manager_selection.get("lease_id") or "")
+        else:
+            key_pick = _pick_onemin_key(
+                allow_reserve=allow_reserve,
+                key_names=candidate_key_names,
+                lane=lane,
+                model=model,
+                required_credits=required_credits,
+            )
+            if key_pick is None:
+                if not allow_reserve and len(all_key_names) > len(active_key_names):
+                    allow_reserve = True
+                    continue
+                break
+            api_key, wait_until, _ = key_pick
         if api_key in tested:
             if (
                 not allow_reserve
@@ -4730,6 +4795,9 @@ def _call_onemin(
                     lane=lane,
                 )
                 _mark_onemin_success(api_key)
+                if manager is not None and manager_lease_id:
+                    manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=required_credits, status="success")
+                    manager.release_lease(lease_id=manager_lease_id, status="released")
                 fallback_reason = None
                 if failures or key_fallback_reason:
                     fallback_reason = "; ".join(failures + key_fallback_reason)
@@ -4861,6 +4929,9 @@ def _call_onemin(
                 lane=lane,
             )
             _mark_onemin_success(api_key)
+            if manager is not None and manager_lease_id:
+                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=required_credits, status="success")
+                manager.release_lease(lease_id=manager_lease_id, status="released")
             fallback_reason = None
             if failures or key_fallback_reason:
                 fallback_reason = "; ".join(failures + key_fallback_reason)
@@ -4886,6 +4957,12 @@ def _call_onemin(
                 fallback_reason=fallback_reason,
             )
 
+        if manager is not None and manager_lease_id:
+            manager.release_lease(
+                lease_id=manager_lease_id,
+                status="failed",
+                error="; ".join(key_fallback_reason or failures) or "onemin_candidate_failed",
+            )
         if key_depleted:
             _rotate_onemin_cursor_after_key_usage(api_key)
             _log_provider_selection(
@@ -5132,6 +5209,7 @@ def _run_text_request(
                         model=model_name,
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
+                        principal_id=chatplayground_audit_principal_id,
                         on_delta=on_delta,
                     )
                 elif config.provider_key == "chatplayground":

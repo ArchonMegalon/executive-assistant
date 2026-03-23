@@ -232,6 +232,78 @@ class ProviderMemberReconciliationSnapshot:
 
 
 @dataclass(frozen=True)
+class OneminAccount:
+    account_id: str
+    provider_key: str = "onemin"
+    account_label: str = ""
+    owner_email: str = ""
+    owner_name: str = ""
+    browseract_binding_id: str = ""
+    workspace_id: str = ""
+    status: str = "unknown"
+    remaining_credits: float | None = None
+    max_credits: float | None = None
+    core_floor_credits: float | None = None
+    image_spendable_credits: float | None = None
+    reserve_credits: float | None = None
+    slot_count: int = 0
+    ready_slot_count: int = 0
+    last_billing_snapshot_at: str | None = None
+    last_member_reconciliation_at: str | None = None
+    details_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OneminCredential:
+    credential_id: str
+    account_id: str
+    slot_name: str
+    secret_env_name: str
+    owner_email: str = ""
+    active_role: str = "mixed"
+    state: str = "unknown"
+    remaining_credits: float | None = None
+    max_credits: float | None = None
+    last_probe_at: str | None = None
+    last_success_at: str | None = None
+    last_error: str = ""
+    quarantine_until: str | None = None
+    details_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OneminAllocationLease:
+    lease_id: str
+    request_id: str
+    principal_id: str
+    lane: str
+    capability: str
+    account_id: str
+    credential_id: str
+    estimated_credits: int | None = None
+    actual_credits_delta: int | None = None
+    status: str = "reserved"
+    created_at: str = ""
+    expires_at: str | None = None
+    finished_at: str | None = None
+    error: str = ""
+    metadata_json: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OneminRunwayForecast:
+    remaining_credits: float | None = None
+    core_floor_credits: float | None = None
+    image_spendable_credits: float | None = None
+    reserve_credits: float | None = None
+    current_burn_per_hour: float | None = None
+    hours_remaining_current_pace: float | None = None
+    days_remaining_7d_avg: float | None = None
+    next_topup_at: str | None = None
+    topup_amount: float | None = None
+
+
+@dataclass(frozen=True)
 class MemoryCandidate:
     candidate_id: str
     principal_id: str
@@ -554,6 +626,15 @@ def _policy_json_object_tuple(value: object) -> tuple[dict[str, Any], ...]:
     return tuple(_policy_dict(candidate) for candidate in value if isinstance(candidate, dict))
 
 
+def _policy_string_list_from_any(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple, set)):
+        return tuple(str(candidate or "").strip().lower() for candidate in value if str(candidate or "").strip())
+    if isinstance(value, str) and value.strip():
+        return (value.strip().lower(),)
+    return ()
+
+
+
 @dataclass(frozen=True)
 class TaskContractRetryPolicy:
     failure_strategy: str = "fail"
@@ -664,13 +745,7 @@ def parse_task_contract_runtime_policy(
     tags = _policy_string_tuple(raw_skill_catalog.get("tags"))
     evaluation_cases_json = _policy_json_object_tuple(raw_skill_catalog.get("evaluation_cases_json"))
 
-    raw_packs = metadata.get("post_artifact_packs")
-    if isinstance(raw_packs, (list, tuple)):
-        post_artifact_packs = tuple(str(value or "").strip().lower() for value in raw_packs if str(value or "").strip())
-    elif isinstance(raw_packs, str) and raw_packs.strip():
-        post_artifact_packs = (raw_packs.strip().lower(),)
-    else:
-        post_artifact_packs = ()
+    post_artifact_packs = _policy_string_list_from_any(metadata.get("post_artifact_packs"))
 
     return TaskContractRuntimePolicy(
         budget_class=str(metadata.get("class") or "low"),

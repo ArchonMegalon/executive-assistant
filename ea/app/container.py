@@ -20,6 +20,7 @@ from app.repositories.authority_bindings import InMemoryAuthorityBindingReposito
 from app.repositories.memory_candidates import InMemoryMemoryCandidateRepository
 from app.repositories.memory_items import InMemoryMemoryItemRepository
 from app.repositories.observation import InMemoryObservationEventRepository
+from app.repositories.onemin_manager import build_onemin_manager_service_repo
 from app.repositories.relationships import InMemoryRelationshipRepository
 from app.repositories.provider_bindings import build_provider_binding_service_repo
 from app.repositories.stakeholders import InMemoryStakeholderRepository
@@ -30,6 +31,7 @@ from app.services.channel_runtime import ChannelRuntimeService, build_channel_ru
 from app.services.evidence_runtime import EvidenceRuntimeService, build_evidence_runtime
 from app.services.memory_runtime import MemoryRuntimeService, build_memory_runtime
 from app.services.orchestrator import RewriteOrchestrator, build_artifact_repo, build_default_orchestrator
+from app.services.onemin_manager import OneminManagerService, register_onemin_manager
 from app.services.onboarding import OnboardingService, build_onboarding_service
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService
@@ -114,6 +116,7 @@ class AppContainer:
     planner: PlannerService
     provider_registry: ProviderRegistryService
     brain_router: BrainRouterService
+    onemin_manager: OneminManagerService
     cognitive_load: CognitiveLoadService
     proactive_horizon: ProactiveHorizonService
     onboarding: OnboardingService
@@ -123,6 +126,8 @@ class AppContainer:
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
     provider_registry = ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings))
     brain_router = BrainRouterService(provider_registry=provider_registry)
+    onemin_manager = OneminManagerService(repo=build_onemin_manager_service_repo(settings))
+    register_onemin_manager(onemin_manager)
     artifacts = build_artifact_repo(settings)
     task_contracts = build_task_contract_service(settings=settings)
     planner = PlannerService(task_contracts, provider_registry=provider_registry, brain_router=brain_router)
@@ -195,6 +200,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         planner=planner,
         provider_registry=provider_registry,
         brain_router=brain_router,
+        onemin_manager=onemin_manager,
         cognitive_load=cognitive_load,
         proactive_horizon=proactive_horizon,
         onboarding=onboarding,

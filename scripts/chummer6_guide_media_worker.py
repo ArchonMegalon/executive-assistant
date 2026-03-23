@@ -18,6 +18,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from statistics import mean
+
+try:
+    from PIL import Image, ImageDraw
+except Exception:  # pragma: no cover - optional runtime dependency
+    Image = None
+    ImageDraw = None
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -57,6 +64,13 @@ SURFACE_HEAVY_COMPOSITIONS = TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS | {
 SPARSE_EASTER_EGG_TARGETS = frozenset(
     {
         "assets/pages/start-here.png",
+    }
+)
+FIRST_CONTACT_TARGETS = frozenset(
+    {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
     }
 )
 SPARSE_HUMOR_TARGETS = frozenset(
@@ -127,10 +141,146 @@ READABLE_JOKE_TOKENS = (
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
 FFMPEG_BIN = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+_ONEMIN_MANAGER_SELECTION_CACHE: dict[str, object] = {
+    "expires_at": 0.0,
+    "occupied_account_ids": set(),
+    "occupied_secret_env_names": set(),
+    "slot_to_account_id": {},
+}
 
 
 def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+
+
+def _ea_local_base_url() -> str:
+    return (
+        env_value("CHUMMER6_EA_BASE_URL")
+        or env_value("EA_BASE_URL")
+        or "http://127.0.0.1:8090"
+    ).rstrip("/")
+
+
+def _ea_local_timeout_seconds() -> float:
+    raw = env_value("CHUMMER6_EA_TIMEOUT_SECONDS") or "3"
+    try:
+        return max(0.25, min(10.0, float(raw)))
+    except Exception:
+        return 3.0
+
+
+def _ea_local_cache_ttl_seconds() -> float:
+    raw = env_value("CHUMMER6_ONEMIN_MANAGER_CACHE_TTL_SECONDS") or "15"
+    try:
+        return max(1.0, min(300.0, float(raw)))
+    except Exception:
+        return 15.0
+
+
+def _ea_local_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "EA-Chummer6-1min/1.0",
+    }
+    token = env_value("EA_API_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    principal_id = env_value("CHUMMER6_EA_PRINCIPAL_ID") or env_value("EA_PRINCIPAL_ID")
+    if principal_id:
+        headers["X-EA-Principal-ID"] = principal_id
+    return headers
+
+
+def _ea_local_json_get(path: str) -> object | None:
+    request = urllib.request.Request(
+        f"{_ea_local_base_url()}{path}",
+        headers=_ea_local_headers(),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_ea_local_timeout_seconds()) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    try:
+        return json.loads(payload)
+    except Exception:
+        return None
+
+
+def _normalize_onemin_accounts_payload(payload: object) -> list[dict[str, object]]:
+    if isinstance(payload, dict):
+        rows = payload.get("accounts")
+        if isinstance(rows, list):
+            return [dict(row) for row in rows if isinstance(row, dict)]
+    if isinstance(payload, list):
+        return [dict(row) for row in payload if isinstance(row, dict)]
+    return []
+
+
+def _normalize_onemin_leases_payload(payload: object) -> list[dict[str, object]]:
+    if isinstance(payload, dict):
+        rows = payload.get("leases")
+        if isinstance(rows, list):
+            return [dict(row) for row in rows if isinstance(row, dict)]
+    if isinstance(payload, list):
+        return [dict(row) for row in payload if isinstance(row, dict)]
+    return []
+
+
+def _refresh_onemin_manager_selection_snapshot() -> tuple[set[str], set[str], dict[str, str]]:
+    cached_expires_at = float(_ONEMIN_MANAGER_SELECTION_CACHE.get("expires_at") or 0.0)
+    now = time.time()
+    if cached_expires_at > now:
+        return (
+            set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_account_ids") or set()),
+            set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_secret_env_names") or set()),
+            dict(_ONEMIN_MANAGER_SELECTION_CACHE.get("slot_to_account_id") or {}),
+        )
+
+    accounts_payload = _ea_local_json_get("/v1/providers/onemin/accounts")
+    leases_payload = _ea_local_json_get("/v1/providers/onemin/leases")
+    account_rows = _normalize_onemin_accounts_payload(accounts_payload)
+    lease_rows = _normalize_onemin_leases_payload(leases_payload)
+
+    slot_to_account_id: dict[str, str] = {}
+    for account in account_rows:
+        account_id = str(account.get("account_id") or account.get("account_label") or "").strip()
+        if not account_id:
+            continue
+        for credential in account.get("credentials") or []:
+            if not isinstance(credential, dict):
+                continue
+            for key in (
+                str(credential.get("secret_env_name") or "").strip(),
+                str(credential.get("credential_id") or "").strip(),
+                str(credential.get("slot_name") or "").strip(),
+            ):
+                if key:
+                    slot_to_account_id[key] = account_id
+
+    occupied_account_ids: set[str] = set()
+    occupied_secret_env_names: set[str] = set()
+    for lease in lease_rows:
+        status = str(lease.get("status") or "").strip().lower()
+        if status not in {"reserved", "in_flight"}:
+            continue
+        metadata = lease.get("metadata_json") if isinstance(lease.get("metadata_json"), dict) else {}
+        task_class = str(metadata.get("task_class") or "").strip().lower()
+        if task_class not in {"core_code", "core_review"}:
+            continue
+        account_id = str(lease.get("account_id") or metadata.get("account_name") or "").strip()
+        if account_id:
+            occupied_account_ids.add(account_id)
+        secret_env_name = str(metadata.get("secret_env_name") or "").strip()
+        if secret_env_name:
+            occupied_secret_env_names.add(secret_env_name)
+
+    _ONEMIN_MANAGER_SELECTION_CACHE["occupied_account_ids"] = set(occupied_account_ids)
+    _ONEMIN_MANAGER_SELECTION_CACHE["occupied_secret_env_names"] = set(occupied_secret_env_names)
+    _ONEMIN_MANAGER_SELECTION_CACHE["slot_to_account_id"] = dict(slot_to_account_id)
+    _ONEMIN_MANAGER_SELECTION_CACHE["expires_at"] = now + _ea_local_cache_ttl_seconds()
+    return occupied_account_ids, occupied_secret_env_names, slot_to_account_id
 
 
 def easter_egg_allowed_for_target(target: str) -> bool:
@@ -156,6 +306,10 @@ def media_row_requests_easter_egg(*, target: str, row: dict[str, object] | None)
     if not easter_egg_allowed_for_target(target):
         return False
     return scene_contract_requests_easter_egg(contract)
+
+
+def first_contact_target(target: str) -> bool:
+    return str(target or "").replace("\\", "/").strip() in FIRST_CONTACT_TARGETS
 
 
 def humor_allowed_for_target(*, target: str, contract: dict[str, object] | None) -> bool:
@@ -810,6 +964,12 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
             "brooding alley",
             "moody alley",
             "dominant face crop",
+            "quietly satisfying",
+            "cyberdeck case",
+            "dice tray",
+            "modifier chips",
+            "over-the-shoulder rules-truth",
+            "safehouse edge",
         )
     ):
         return True
@@ -857,6 +1017,13 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
             "central sign panel",
             "text-heavy centerpiece",
             "glowing panel",
+            "empty road",
+            "empty roadway",
+            "single roadway",
+            "one symbol",
+            "one marker",
+            "future table pains",
+            "storefronts",
         )
     ):
         return True
@@ -900,6 +1067,20 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
     if target == "assets/horizons/karma-forge.png" and any(
         token in lowered
         for token in ("literal blacksmith", "anvil", "forge fire", "medieval", "smithy", "hammering metal")
+    ):
+        return True
+    if target == "assets/horizons/karma-forge.png" and any(
+        token in lowered
+        for token in (
+            "rule shards",
+            "hammered into shape",
+            "funny and tactile",
+            "glowing cards",
+            "generic card tinkering",
+            "quiet bench",
+            "sparse bench",
+            "forge scene",
+        )
     ):
         return True
     return False
@@ -1370,23 +1551,11 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
     return False, "magixai:" + " || ".join(errors[:6])
 
 
-def resolve_onemin_image_keys() -> list[str]:
+def resolve_onemin_image_slots() -> list[dict[str, str]]:
     script_path = EA_ROOT / "scripts" / "resolve_onemin_ai_key.sh"
-    keys: list[str] = []
-    seen: set[str] = set()
-    if script_path.exists():
-        try:
-            output = subprocess.check_output(
-                ["bash", str(script_path), "--all"],
-                text=True,
-            )
-        except Exception:
-            output = ""
-        for raw in output.splitlines():
-            key = str(raw or "").strip()
-            if key and key not in seen:
-                seen.add(key)
-                keys.append(key)
+    slots: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    seen_env_names: set[str] = set()
     fallback_env_names = sorted(
         (
             env_name
@@ -1397,14 +1566,48 @@ def resolve_onemin_image_keys() -> list[str]:
     )
     for env_name in ("ONEMIN_AI_API_KEY", *fallback_env_names):
         key = env_value(env_name)
-        if key and key not in seen:
-            seen.add(key)
-            keys.append(key)
+        if key and env_name not in seen_env_names:
+            seen_env_names.add(env_name)
+            seen_keys.add(key)
+            slots.append({"env_name": env_name, "key": key})
+    if script_path.exists():
+        try:
+            output = subprocess.check_output(
+                ["bash", str(script_path), "--all"],
+                text=True,
+            )
+        except Exception:
+            output = ""
+        for raw in output.splitlines():
+            key = str(raw or "").strip()
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                slots.append({"env_name": "", "key": key})
     if str(env_value("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS") or "1").strip().lower() in {"0", "false", "no", "off"}:
-        primary = keys[:1]
+        primary = slots[:1]
         if primary:
             return primary
-    return keys
+    return slots
+
+
+def resolve_onemin_image_keys() -> list[str]:
+    return [str(slot.get("key") or "").strip() for slot in resolve_onemin_image_slots() if str(slot.get("key") or "").strip()]
+
+
+def filter_onemin_image_slots(slots: list[dict[str, str]]) -> list[dict[str, str]]:
+    occupied_account_ids, occupied_secret_env_names, slot_to_account_id = _refresh_onemin_manager_selection_snapshot()
+    if not occupied_account_ids and not occupied_secret_env_names:
+        return slots
+    filtered: list[dict[str, str]] = []
+    for slot in slots:
+        env_name = str(slot.get("env_name") or "").strip()
+        account_id = str(slot_to_account_id.get(env_name) or "").strip()
+        if env_name and env_name in occupied_secret_env_names:
+            continue
+        if account_id and account_id in occupied_account_ids:
+            continue
+        filtered.append(slot)
+    return filtered
 
 
 def _collect_image_candidates(value: object) -> list[str]:
@@ -1550,16 +1753,22 @@ def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list
 
 
 def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
-    keys = resolve_onemin_image_keys()
-    if not keys:
+    configured_slots = resolve_onemin_image_slots()
+    if not configured_slots:
         return False, "onemin:not_configured"
+    slots = filter_onemin_image_slots(configured_slots)
+    if not slots:
+        return False, "onemin:accounts_reserved_for_core"
     model_candidates = onemin_model_candidates()
     endpoints = [
         env_value("CHUMMER6_ONEMIN_ENDPOINT") or "https://api.1min.ai/api/features",
     ]
     errors: list[str] = []
     header_variants = []
-    for key in keys:
+    for slot in slots:
+        key = str(slot.get("key") or "").strip()
+        if not key:
+            continue
         header_variants.append(
             {
                 "User-Agent": "EA-Chummer6-1min/1.0",
@@ -2160,6 +2369,101 @@ def normalize_banner_size(*, image_path: Path, width: int, height: int) -> str:
     return f"normalize_banner_size:applied:{width}x{height}"
 
 
+def first_contact_variant_count(*, target: str) -> int:
+    return 5 if first_contact_target(target) else 1
+
+
+def visual_audit_enabled(*, target: str) -> bool:
+    return first_contact_target(target) and Image is not None
+
+
+def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
+    if not first_contact_target(str(spec.get("target") or "")):
+        return "first_contact_overlay:skipped"
+    if Image is None or ImageDraw is None:
+        return "first_contact_overlay:unavailable"
+    if not image_path.exists():
+        raise RuntimeError(f"first_contact_overlay:missing_image:{image_path}")
+
+    target = str(spec.get("target") or "").strip()
+    with Image.open(image_path).convert("RGBA") as base:
+        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        cyan = (39, 212, 255, 110)
+        amber = (255, 166, 87, 95)
+        red = (255, 78, 78, 110)
+        w, h = base.size
+
+        if target == "assets/hero/chummer6-hero.png":
+            draw.rounded_rectangle((int(w * 0.12), int(h * 0.54), int(w * 0.22), int(h * 0.72)), outline=cyan, width=2, radius=8)
+            draw.rounded_rectangle((int(w * 0.56), int(h * 0.64), int(w * 0.78), int(h * 0.88)), outline=cyan, width=2, radius=8)
+            draw.line((int(w * 0.18), int(h * 0.63), int(w * 0.34), int(h * 0.58)), fill=cyan, width=2)
+            draw.line((int(w * 0.67), int(h * 0.76), int(w * 0.49), int(h * 0.73)), fill=amber, width=2)
+            draw.arc((int(w * 0.46), int(h * 0.27), int(w * 0.62), int(h * 0.43)), start=210, end=330, fill=cyan, width=2)
+        elif target == "assets/pages/horizons-index.png":
+            for index, color in enumerate((amber, cyan, amber)):
+                offset = int(w * (0.16 + index * 0.22))
+                draw.arc((offset, int(h * 0.56), offset + int(w * 0.18), int(h * 1.08)), start=250, end=318, fill=color, width=3)
+            draw.line((int(w * 0.2), int(h * 0.73), int(w * 0.38), int(h * 0.64)), fill=cyan, width=2)
+            draw.line((int(w * 0.5), int(h * 0.7), int(w * 0.62), int(h * 0.58)), fill=amber, width=2)
+            draw.line((int(w * 0.73), int(h * 0.7), int(w * 0.84), int(h * 0.63)), fill=cyan, width=2)
+        elif target == "assets/horizons/karma-forge.png":
+            draw.rounded_rectangle((int(w * 0.08), int(h * 0.72), int(w * 0.26), int(h * 0.87)), outline=amber, width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.34), int(h * 0.68), int(w * 0.5), int(h * 0.83)), outline=cyan, width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.68), int(h * 0.2), int(w * 0.84), int(h * 0.38)), outline=red, width=2, radius=6)
+            draw.line((int(w * 0.26), int(h * 0.79), int(w * 0.34), int(h * 0.75)), fill=cyan, width=2)
+            draw.line((int(w * 0.5), int(h * 0.75), int(w * 0.68), int(h * 0.29)), fill=amber, width=2)
+            draw.arc((int(w * 0.57), int(h * 0.18), int(w * 0.92), int(h * 0.52)), start=180, end=265, fill=red, width=3)
+        else:
+            return "first_contact_overlay:skipped"
+
+        combined = Image.alpha_composite(base, overlay).convert("RGB")
+        combined.save(image_path)
+    return "first_contact_overlay:applied"
+
+
+def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[str]]:
+    if Image is None:
+        return 0.0, []
+    with Image.open(image_path).convert("L") as image:
+        width, height = image.size
+        tiles_x = 4
+        tiles_y = 3
+        tile_w = max(1, width // tiles_x)
+        tile_h = max(1, height // tiles_y)
+        active_tiles = 0
+        dark_flat_tiles = 0
+        spreads: list[float] = []
+        for y in range(tiles_y):
+            for x in range(tiles_x):
+                crop = image.crop((x * tile_w, y * tile_h, min(width, (x + 1) * tile_w), min(height, (y + 1) * tile_h)))
+                low, high = crop.getextrema()
+                pixels = list(crop.getdata())
+                avg = mean(pixels) if pixels else 0.0
+                spread = float((high or 0) - (low or 0))
+                spreads.append(spread)
+                if avg < 70 and spread < 28:
+                    dark_flat_tiles += 1
+                if spread >= 42:
+                    active_tiles += 1
+        notes: list[str] = []
+        score = float(active_tiles * 12 - dark_flat_tiles * 9 + mean(spreads))
+        if dark_flat_tiles > 5:
+            notes.append("visual_audit:dead_negative_space")
+            score -= 25
+        if active_tiles < 5:
+            notes.append("visual_audit:low_semantic_density")
+            score -= 25
+        if target == "assets/pages/horizons-index.png" and len(spreads) >= 12:
+            left = mean([spreads[0], spreads[4], spreads[8]])
+            center = mean([spreads[1], spreads[5], spreads[9]])
+            right = mean([spreads[2], spreads[6], spreads[10]])
+            if min(left, center, right) < 24:
+                notes.append("visual_audit:missing_lane_plurality")
+                score -= 20
+        return score, notes
+
+
 def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
     cleaned = " ".join(str(prompt or "").split()).strip()
     if not cleaned:
@@ -2330,15 +2634,15 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The runner must stay upright at a prep wall or intake rail; no crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, and no dominant face crop."
+        hard_block += " The runner must stay upright at a prep wall or intake rail; no crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, and no quiet side-profile portrait."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
         hard_block += " Keep any device fully secondary or absent; the wall, shelf, glass, and weathered public surface must carry the frame."
     elif target in {"assets/pages/parts-index.png", "assets/pages/horizons-index.png"}:
-        hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or absent, and no title-card centerpiece is allowed. No central sign panel, menu slab, glowing billboard, or directory board may take over the frame."
+        hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or absent, and no title-card centerpiece is allowed. No lone centered silhouette, no central sign panel, no menu slab, no glowing billboard, no single corridor vanishing point, and no directory board may take over the frame."
     elif target == "assets/horizons/karma-forge.png":
-        hard_block += " Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, or a tabletop spread of cards as the whole scene; publication-control hardware and diff pressure must carry the image."
+        hard_block += " Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, paper sheets in hand, loose card inspection, or a tabletop spread of cards as the whole scene; publication-control hardware and diff pressure must carry the image."
     elif target == "assets/horizons/runsite.png":
         hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
     elif target == "assets/horizons/runbook-press.png":
@@ -2768,14 +3072,14 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/hero/chummer6-hero.png": {
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
-            "environment": "a cramped runner prep threshold or streetdoc intake bay packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, translucent rule markers, and hard practical spill",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. This is a streetdoc intake bay or prep cage only. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
+            "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
             "subject": "one standing runner at a prep wall deciding whether tonight's build can be trusted before stepping back into the rain",
             "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live all through the room around them",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped runner prep threshold or streetdoc intake bay: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Use strong foreground props, a readable midground body posture, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No desk, bench, crate, bright screen, glowing panel, framed board, handheld device, phone, card, or lone gadget hero prop.",
-            "framing": "medium-wide standing shot with full upper torso, both hands, dense foreground prep props, the hanging prep wall, and some floor visible; no portrait crop and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, phone glamour close-up, handheld slate, card close-up, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, or a quiet low-density mood still",
+            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Show the body in three-quarter or over-shoulder posture with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground body posture, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
+            "framing": "medium-wide standing shot with full upper torso, both hands, three-quarter or over-shoulder posture, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible; no portrait crop and no empty negative-space void",
+            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, or a quiet low-density mood still",
             "overlay_hint": "build-state provenance traces, target-posture brackets, fit checks, and trust markers",
             "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],
             "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
@@ -2861,14 +3165,14 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Make this a dense future boulevard of districts and pains, not an icon corridor, menu sign, or text-heavy centerpiece. The image should feel like possible Shadowrun lanes worth clicking, with multiple differentiated branches and visible pressure, not a fake UI billboard or a quiet empty road.",
+            "prompt_nudge": "Make this a dense future boulevard of districts and pains, not an icon corridor, menu sign, kiosk, or text-heavy centerpiece. The image should feel like possible Shadowrun lanes worth clicking, with multiple differentiated branches and visible pressure, not a fake UI billboard or a quiet empty road.",
             "subject": "a branching Shadowrun future where several practical lanes peel outward into distinct possible directions",
             "environment": "a rain-dark service interchange with elevated ramps, tunnel mouths, maintenance gantries, branching corridors, route pylons, cable halos, and differentiated lane clutter instead of storefront facades",
             "action": "asking which future lane could carry the work next without pretending any of them are already finished",
             "metaphor": "future lanes branching without promise",
-            "replace_visual_prompt": "A rain-dark future service interchange where several Shadowrun-flavored future lanes peel outward into distinct possibilities: an orange workshop branch with sparks and diff strips, a red dossier corridor with clipped packets, a cobalt relay tunnel with cable halos, a paper-warm proof lane with hanging strips, and a tactical branch with ghosted threat markers. The frame must feel packed, branching, and graphic rather than empty. Lane identity must come from prop silhouettes, color bands, floor arrows, transit geometry, hazard clutter, and diegetic overlays instead of storefronts, placards, glowing rectangles, or readable signs. No centered figure, overhead sign, facade billboard, or text rectangle centerpiece.",
-            "framing": "wide environment-first interchange with at least three distinct branch directions visible, multiple differentiated clue clusters, and no dominant central sign, glowing rectangle, storefront, or solitary figure",
-            "avoid": "central menu sign, placard wall, readable signboard, storefront directory, neon words, overhead billboards, lone centered silhouette, text rectangles, glowing panels, shopfront facades, a single text-heavy centerpiece, or an empty road ambience with one symbol",
+            "replace_visual_prompt": "A rain-dark future service interchange where several Shadowrun-flavored future lanes peel outward into distinct possibilities: an orange workshop branch with sparks and diff strips, a red dossier corridor with clipped packets, a cobalt relay tunnel with cable halos, a paper-warm proof lane with hanging strips, and a tactical branch with ghosted threat markers. The frame must feel packed, branching, and graphic rather than empty. Lane identity must come from prop silhouettes, color bands, floor arrows, transit geometry, hazard clutter, and diegetic overlays instead of storefronts, placards, kiosks, glowing rectangles, or readable signs. No centered figure, no single corridor vanishing point, no overhead sign, no facade billboard, no freestanding sign, and no text rectangle centerpiece.",
+            "framing": "wide environment-first interchange with at least four distinct branch directions visible, multiple differentiated clue clusters, and no dominant central sign, glowing rectangle, kiosk, storefront, solitary figure, or single corridor vanishing point",
+            "avoid": "central menu sign, kiosk, placard wall, readable signboard, storefront directory, neon words, overhead billboards, lone centered silhouette, text rectangles, glowing panels, shopfront facades, a single text-heavy centerpiece, a single corridor vanishing point, or an empty road ambience with one symbol",
             "overlay_hint": "future-lane markers, district callout arcs, contingent route brackets, and subtle threat-posture overlays",
             "props": ["branching ramps", "floor arrows", "hazard pylons", "cable halos", "maintenance gantry", "lane clutter"],
             "overlays": ["future-lane brackets", "route halos", "threat ghosts", "branch markers", "district arcs"],
@@ -2975,13 +3279,13 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/horizons/karma-forge.png": {
             "required": "workshop_bench",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay and not a committee around glowing furniture. This should feel dense, graphic, and high-pressure, with obvious approval, rollback, provenance, and compatibility logic in the frame.",
+            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not a committee around glowing furniture. This should feel dense, graphic, and high-pressure, with obvious approval, rollback, provenance, and compatibility logic in the frame.",
             "subject": "one rulesmith reconciling a volatile house-rule pack through review, diff, and rollback pressure",
             "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "One rulesmith at an industrial review bench reconciling a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop and not generic glowing-card tinkering. No readable labels.",
-            "framing": "medium shot with torso, both hands, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop and not a quiet sparse bench still",
-            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, generic card tinkering, sparse desk still life, or any scene without publication-control cues",
+            "replace_visual_prompt": "One rulesmith at an industrial review bench reconciling a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both hands engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show the operator torso and the control hardware together, not anonymous forge hands over flame. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop and not generic glowing-card tinkering. No readable labels.",
+            "framing": "medium shot with torso, both hands on hardware, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
+            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, or any scene without publication-control cues",
             "overlay_hint": "compatibility arcs, diff markers, approval seals, rollback arcs, provenance rails, and control-state brackets",
             "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers"],
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets"],
@@ -3362,13 +3666,39 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         height = int(spec.get("height", 720))
         out_path = output_dir / target
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        result = render_with_ooda(prompt=prompt, output_path=out_path, width=width, height=height, spec=spec)
-        normalize_status = normalize_banner_size(image_path=out_path, width=width, height=height)
-        postpass_attempts: list[str] = []
-        if troll_postpass_enabled() and scene_contract_requests_easter_egg(contract):
-            postpass_attempts.append(
-                apply_troll_postpass(image_path=out_path, spec=spec, width=width, height=height)
-            )
+        variant_attempts = first_contact_variant_count(target=target)
+        best_result: dict[str, object] | None = None
+        best_statuses: list[str] = []
+        best_score = float("-inf")
+        best_notes: list[str] = []
+        for variant in range(variant_attempts):
+            candidate_path = out_path if variant_attempts == 1 else out_path.with_name(f"{out_path.stem}.__candidate{variant}{out_path.suffix}")
+            result = render_with_ooda(prompt=prompt, output_path=candidate_path, width=width, height=height, spec=spec)
+            statuses: list[str] = list(result["attempts"])
+            statuses.append(normalize_banner_size(image_path=candidate_path, width=width, height=height))
+            if first_contact_target(target):
+                statuses.append(apply_first_contact_overlay_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
+            if troll_postpass_enabled() and scene_contract_requests_easter_egg(contract):
+                statuses.append(apply_troll_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
+            score, notes = visual_audit_score(image_path=candidate_path, target=target) if visual_audit_enabled(target=target) else (0.0, [])
+            statuses.extend(notes)
+            statuses.append(f"visual_audit:score:{score:.2f}")
+            if score > best_score:
+                best_score = score
+                best_result = {"provider": result["provider"], "status": result["status"], "candidate_path": str(candidate_path)}
+                best_statuses = statuses
+                best_notes = notes
+            if variant_attempts > 1 and candidate_path != out_path and score < best_score:
+                try:
+                    candidate_path.unlink()
+                except Exception:
+                    pass
+        if best_result is None:
+            raise RuntimeError(f"render_failed_without_candidate:{target}")
+        chosen_path = Path(str(best_result["candidate_path"]))
+        if chosen_path != out_path:
+            chosen_path.replace(out_path)
+        postpass_attempts = best_statuses
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
         accepted_rows.append(
             {
@@ -3378,7 +3708,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "subject": str(contract.get("subject") or "").strip(),
                 "mood": str(contract.get("mood") or "").strip(),
                 "easter_egg_kind": str(contract.get("easter_egg_kind") or "").strip(),
-                "provider": result["provider"],
+                "provider": str(best_result["provider"]),
                 "prompt_hash": prompt_hash,
                 "style_epoch": dict(spec.get("style_epoch") or {}) if isinstance(spec.get("style_epoch"), dict) else {},
             }
@@ -3387,11 +3717,11 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         return {
             "target": target,
             "output": str(out_path),
-            "provider": result["provider"],
-            "status": result["status"],
-            "attempts": list(result["attempts"]) + [normalize_status] + postpass_attempts,
+            "provider": str(best_result["provider"]),
+            "status": str(best_result["status"]),
+            "attempts": postpass_attempts,
             "prompt": prompt,
-            "scene_audit": list(spec.get("scene_audit") or []),
+            "scene_audit": list(spec.get("scene_audit") or []) + best_notes,
             "easter_egg": egg_payload,
         }
     assets = [_render_spec(spec) for spec in specs]
