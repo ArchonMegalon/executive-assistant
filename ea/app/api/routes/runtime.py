@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
+from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context, resolve_principal_id
 from app.container import AppContainer
 from app.services import responses_upstream as upstream
 
@@ -106,7 +106,14 @@ def get_lane_telemetry(
     window: str = Query(default="1h", min_length=1, max_length=20),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    report = upstream.codex_status_report(window=window)
+    operator_allowed = is_operator_context(context)
+    if operator_allowed:
+        report = upstream.codex_status_report(window=window)
+    else:
+        try:
+            report = upstream.codex_status_report(window=window, principal_id=context.principal_id)
+        except TypeError:
+            report = upstream.codex_status_report(window=window)
     return {
         "principal_id": context.principal_id,
         "window": window,
@@ -114,6 +121,6 @@ def get_lane_telemetry(
         "lane_telemetry": dict(report.get("lane_telemetry") or {}),
         "onemin_aggregate": dict(report.get("onemin_aggregate") or {}),
         "onemin_billing_aggregate": dict(report.get("onemin_billing_aggregate") or {}),
-        "fleet_burn": dict(report.get("fleet_burn") or {}),
+        "fleet_burn": dict(report.get("fleet_burn") or {}) if operator_allowed else {},
         "avoided_credits": dict(report.get("avoided_credits") or {}),
     }

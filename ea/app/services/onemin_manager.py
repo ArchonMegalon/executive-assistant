@@ -657,9 +657,21 @@ class OneminManagerService:
         request_id: str,
         estimated_credits: int | None,
         allow_reserve: bool,
+        allowed_account_labels: set[str] | None = None,
     ) -> dict[str, object] | None:
+        candidates = self._candidates_from_provider_health(provider_health=provider_health)
+        allowed_labels = {str(item or "").strip() for item in (allowed_account_labels or set()) if str(item or "").strip()}
+        if allowed_labels:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if any(
+                    str(candidate.get(key) or "").strip() in allowed_labels
+                    for key in ("account_name", "account_id", "slot_name", "credential_id", "secret_env_name")
+                )
+            ]
         return self.reserve_for_candidates(
-            candidates=self._candidates_from_provider_health(provider_health=provider_health),
+            candidates=candidates,
             lane=lane,
             capability=capability,
             principal_id=principal_id,

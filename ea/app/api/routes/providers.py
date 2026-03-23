@@ -369,6 +369,16 @@ def reserve_onemin_image(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
+    operator_allowed = _is_operator_context(context)
+    binding_rows = _enabled_browseract_bindings(container, context.principal_id)
+    allowed_account_labels = {
+        label
+        for binding in binding_rows
+        for label in _resolve_onemin_account_labels(binding)
+        if str(label or "").strip()
+    }
+    if not operator_allowed and not allowed_account_labels:
+        raise HTTPException(status_code=403, detail="onemin_image_binding_required")
     request_id = str(body.request_id or "").strip() or f"image-{uuid.uuid4().hex[:16]}"
     lease = container.onemin_manager.reserve_for_provider_health(
         provider_health=upstream._provider_health_report(),
@@ -378,21 +388,28 @@ def reserve_onemin_image(
         request_id=request_id,
         estimated_credits=int(body.estimated_credits or 0),
         allow_reserve=bool(body.allow_reserve),
+        allowed_account_labels=None if operator_allowed else allowed_account_labels,
     )
     if lease is None:
         raise HTTPException(status_code=409, detail="onemin_image_capacity_unavailable")
-    return {
+    response = {
         "provider_key": "onemin",
         "principal_id": context.principal_id,
         "lease_id": str(lease.get("lease_id") or ""),
         "request_id": request_id,
-        "account_id": str(lease.get("account_name") or ""),
-        "credential_id": str(lease.get("credential_id") or ""),
-        "slot_name": str(lease.get("slot_name") or ""),
-        "secret_env_name": str(lease.get("secret_env_name") or ""),
         "task_class": str(lease.get("task_class") or ""),
         "estimated_credits": int(body.estimated_credits or 0),
     }
+    if operator_allowed:
+        response.update(
+            {
+                "account_id": str(lease.get("account_name") or ""),
+                "credential_id": str(lease.get("credential_id") or ""),
+                "slot_name": str(lease.get("slot_name") or ""),
+                "secret_env_name": str(lease.get("secret_env_name") or ""),
+            }
+        )
+    return response
 
 
 @router.post("/onemin/leases/{lease_id}/release", response_model=None)

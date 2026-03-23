@@ -226,6 +226,10 @@ class RewriteOrchestrator:
             drain_session_inline=self._queue_runtime_facade.drain_session_inline,
             decorate_human_task=human_task_routing_service.decorate_human_task,
             after_human_task_return=self._after_human_task_return,
+            fetch_operator_profile=lambda operator_id, principal_id: self._operator_profiles.get(operator_id)
+            if self._operator_profiles.get(operator_id) is not None
+            and self._operator_profiles.get(operator_id).principal_id == str(principal_id or "")
+            else None,
         )
         self._human_task_routing_service = human_task_routing_service
         self._operator_task_routing_service = operator_task_routing_service
