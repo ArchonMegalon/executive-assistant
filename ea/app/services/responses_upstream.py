@@ -4555,7 +4555,7 @@ def _call_onemin(
                         "account_name": account_name,
                         "credential_id": slot_name or account_name,
                         "slot_name": slot_name,
-                        "secret_env_name": selected_key,
+                        "secret_env_name": str(slot_row.get("slot_env_name") or account_name or ""),
                         "slot_role": slot_row.get("slot_role") or _onemin_slot_role_for_key(
                             selected_key,
                             active_keys=active_key_names,
@@ -4680,7 +4680,10 @@ def _call_onemin(
                     if _is_onemin_key_depleted(error_detail):
                         key_depleted = True
                     if lane == _LANE_HARD and _is_timeout_error(error_detail) and key_state.last_success_at > key_state.last_failure_at:
-                        raise ResponsesUpstreamError(f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s")
+                        timeout_error = f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s"
+                        if manager is not None and manager_lease_id:
+                            manager.release_lease(lease_id=manager_lease_id, status="failed", error=timeout_error)
+                        raise ResponsesUpstreamError(timeout_error)
                     break
                 latency_ms = _now_ms() - started_at
                 if status < 200 or status >= 300:
@@ -4796,7 +4799,7 @@ def _call_onemin(
                 )
                 _mark_onemin_success(api_key)
                 if manager is not None and manager_lease_id:
-                    manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=required_credits, status="success")
+                    manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
                     manager.release_lease(lease_id=manager_lease_id, status="released")
                 fallback_reason = None
                 if failures or key_fallback_reason:
@@ -4839,7 +4842,10 @@ def _call_onemin(
                 if _is_onemin_key_depleted(error_detail):
                     key_depleted = True
                 if lane == _LANE_HARD and _is_timeout_error(error_detail) and key_state.last_success_at > key_state.last_failure_at:
-                    raise ResponsesUpstreamError(f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s")
+                    timeout_error = f"known_good_timeout:{key_slot}:{mode}:{request_timeout_seconds}s"
+                    if manager is not None and manager_lease_id:
+                        manager.release_lease(lease_id=manager_lease_id, status="failed", error=timeout_error)
+                    raise ResponsesUpstreamError(timeout_error)
                 break
             latency_ms = _now_ms() - started_at
             if status < 200 or status >= 300:
@@ -4930,7 +4936,7 @@ def _call_onemin(
             )
             _mark_onemin_success(api_key)
             if manager is not None and manager_lease_id:
-                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=required_credits, status="success")
+                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
                 manager.release_lease(lease_id=manager_lease_id, status="released")
             fallback_reason = None
             if failures or key_fallback_reason:
