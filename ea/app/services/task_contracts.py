@@ -86,32 +86,64 @@ class TaskContractService:
                 deliverable_type="rewrite_note",
                 default_risk_class="low",
                 default_approval_class="none",
-                allowed_tools=("artifact_repository",),
+                allowed_tools=(
+                    "provider.gemini_vortex.structured_generate",
+                    "provider.magixai.structured_generate",
+                    "browseract.chatplayground_audit",
+                    "artifact_repository",
+                ),
                 evidence_requirements=(),
                 memory_write_policy="reviewed_only",
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
-                runtime_policy_json={},
+                runtime_policy_json={
+                    "workflow_template": "tool_then_artifact",
+                    "pre_artifact_capability_key": "structured_generate",
+                    "brain_profile": "easy",
+                    "posthoc_review_profile": "review_light",
+                    "posthoc_review_required": False,
+                    "fallback_brain_profile": "groundwork",
+                },
             )
-        if normalized in {"meeting_prep", "decision_briefing", "stakeholder_briefing"}:
+        if normalized in {
+            "meeting_prep",
+            "decision_briefing",
+            "stakeholder_briefing",
+            "deadline_briefing",
+            "commitment_briefing",
+            "reflection_brief",
+            "replan_brief",
+        }:
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
                 "decision_briefing": "decision_brief",
                 "stakeholder_briefing": "stakeholder_briefing",
+                "deadline_briefing": "deadline_brief",
+                "commitment_briefing": "commitment_brief",
+                "reflection_brief": "reflection_brief",
+                "replan_brief": "replan_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,
                 deliverable_type=deliverable_type,
                 default_risk_class="low",
                 default_approval_class="none",
-                allowed_tools=("artifact_repository",),
+                allowed_tools=(
+                    "provider.gemini_vortex.structured_generate",
+                    "provider.magixai.structured_generate",
+                    "browseract.chatplayground_audit",
+                    "artifact_repository",
+                ),
                 evidence_requirements=(),
                 memory_write_policy="reviewed_only",
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
                 runtime_policy_json={
+                    "workflow_template": "tool_then_artifact",
+                    "pre_artifact_capability_key": "structured_generate",
                     "brain_profile": "groundwork",
                     "posthoc_review_profile": "review_light",
+                    "posthoc_review_required": False,
                     "fallback_brain_profile": "survival",
                     "artifact_output_template": "groundwork_brief",
                     "skill_catalog_json": {

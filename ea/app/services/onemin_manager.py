@@ -285,6 +285,40 @@ class OneminManagerService:
         normalized = str(account_id or "").strip()
         return [lease for lease in self._active_leases() if lease.account_id == normalized]
 
+    def _provider_health_is_authoritative(self, *, provider_health: dict[str, object]) -> bool:
+        onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
+        slots = [row for row in (onemin.get("slots") or []) if isinstance(row, dict)]
+        if not slots:
+            return False
+        persisted_credentials = list(self._repo.list_credentials())
+        if persisted_credentials and len(slots) < len(persisted_credentials):
+            return False
+        persisted_accounts = list(self._repo.list_accounts())
+        persisted_account_ids = {
+            str(row.account_id or "").strip()
+            for row in persisted_accounts
+            if str(row.account_id or "").strip()
+        }
+        observed_account_ids = {
+            str(row.get("account_name") or row.get("slot_env_name") or row.get("slot") or "").strip()
+            for row in slots
+            if str(row.get("account_name") or row.get("slot_env_name") or row.get("slot") or "").strip()
+        }
+        if persisted_account_ids and len(observed_account_ids) < len(persisted_account_ids):
+            return False
+        configured_slot_count = self._env_int("EA_RESPONSES_ONEMIN_EXPECTED_SLOT_COUNT", 0)
+        try:
+            configured_slot_count = max(configured_slot_count, int(onemin.get("configured_slot_count") or 0))
+        except Exception:
+            pass
+        try:
+            configured_slot_count = max(configured_slot_count, int(onemin.get("slot_count") or 0))
+        except Exception:
+            pass
+        if configured_slot_count > 0 and len(slots) < configured_slot_count:
+            return False
+        return True
+
     def _candidate_allowed(
         self,
         *,
@@ -318,9 +352,12 @@ class OneminManagerService:
             if core_inflight:
                 return False, "core_account_in_use"
         remaining_credits = self._candidate_remaining_credits(candidate)
-        _core_floor, _image_spendable, reserve_credits = self._floor_credits(remaining_credits)
+        core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
         required = max(0, int(estimated_credits or 0))
-        available = max(0.0, remaining_credits - reserve_credits)
+        if task_class in {"image_generation", "media_transform"}:
+            available = max(0.0, min(image_spendable, remaining_credits - core_floor - reserve_credits))
+        else:
+            available = max(0.0, remaining_credits - reserve_credits)
         if required > 0 and available < required:
             return False, "insufficient_budget"
         return True, "eligible"
@@ -491,6 +528,8 @@ class OneminManagerService:
         return rows
 
     def _sync_state(self, *, provider_health: dict[str, object], binding_rows: list[object] | None = None) -> None:
+        if not self._provider_health_is_authoritative(provider_health=provider_health):
+            return
         accounts, credentials = self._state_from_provider_health(provider_health=provider_health, binding_rows=binding_rows)
         self._repo.replace_state(accounts=accounts, credentials=credentials)
 

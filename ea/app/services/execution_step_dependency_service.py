@@ -99,6 +99,22 @@ class ExecutionStepDependencyService:
         for key in self.declared_step_output_keys(rewrite_step):
             if key not in output_json:
                 raise RuntimeError(f"missing_step_output:{plan_step_key}:{key}")
+        desired_output_json = dict((rewrite_step.input_json or {}).get("desired_output_json") or {})
+        expected_format = str(desired_output_json.get("format") or "").strip().lower()
+        required_structured_keys = tuple(
+            str(value or "").strip()
+            for value in (desired_output_json.get("required_structured_keys") or ())
+            if str(value or "").strip()
+        )
+        if rewrite_step.step_kind == "tool_call" and (expected_format in {"groundwork_brief", "review_packet"} or required_structured_keys):
+            structured = output_json.get("structured_output_json")
+            if not isinstance(structured, dict):
+                raise RuntimeError(f"missing_step_output:{plan_step_key}:structured_output_json")
+            if expected_format and str(structured.get("format") or "").strip().lower() not in {"", expected_format}:
+                raise RuntimeError(f"invalid_step_output_format:{plan_step_key}:{expected_format}")
+            for key in required_structured_keys:
+                if key not in structured:
+                    raise RuntimeError(f"missing_step_output_structured_key:{plan_step_key}:{key}")
         return output_json
 
     def merged_step_input_json(self, session_id: str, rewrite_step: ExecutionStep) -> dict[str, object]:

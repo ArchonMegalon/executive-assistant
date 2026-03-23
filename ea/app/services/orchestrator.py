@@ -355,7 +355,7 @@ class RewriteOrchestrator:
             f"session:{human_task.session_id}",
             f"step:{rewrite_step.step_id}",
         )
-        _ = self._style_reflection_service.maybe_stage_reflection(
+        candidate = self._style_reflection_service.maybe_stage_reflection(
             ReflectionRequest(
                 principal_id=human_task.principal_id,
                 source_session_id=human_task.session_id,
@@ -367,6 +367,17 @@ class RewriteOrchestrator:
                 stakeholder_hint=str(human_task.role_required or "").strip(),
             )
         )
+        if candidate is not None:
+            self._ledger.append_event(
+                human_task.session_id,
+                "style_reflection_staged",
+                {
+                    "human_task_id": human_task.human_task_id,
+                    "candidate_id": candidate.candidate_id,
+                    "category": candidate.category,
+                    "confidence": candidate.confidence,
+                },
+            )
 
     def _default_goal_for_task(self, task_key: str) -> str:
         return self._task_orchestration_service.default_goal_for_task(task_key)

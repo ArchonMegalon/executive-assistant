@@ -264,8 +264,47 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=input_keys,
             output_keys=output_keys,
+            desired_output_json=self._artifact_desired_output_json(contract=contract, deliverable_type=intent.deliverable_type),
             **self._step_brain_metadata(contract=contract, principal_id=principal_id),
         )
+
+    def _structured_generate_desired_output_json(self, contract: TaskContract) -> dict[str, object]:
+        runtime_policy = contract.runtime_policy()
+        template = str(runtime_policy.artifact_output.template or "").strip().lower()
+        profile = str(runtime_policy.brain_profile or "").strip().lower()
+        if template == "groundwork_brief" or profile == "groundwork":
+            return {
+                "format": "groundwork_brief",
+                "required_structured_keys": [
+                    "plan",
+                    "risks",
+                    "missing_evidence",
+                    "recommended_next_lane",
+                    "acceptance_checklist",
+                ],
+            }
+        return {}
+
+    def _review_desired_output_json(self, *, profile_name: str) -> dict[str, object]:
+        return {
+            "format": "review_packet",
+            "review_profile": str(profile_name or "review_light").strip() or "review_light",
+            "required_structured_keys": [
+                "recommendation",
+                "risks",
+                "disagreements",
+                "roles",
+                "audit_scope",
+            ],
+        }
+
+    def _artifact_desired_output_json(self, *, contract: TaskContract, deliverable_type: str) -> dict[str, object]:
+        template = self._artifact_output_template_key(contract)
+        if template == "groundwork_brief":
+            return {"format": "groundwork_brief"}
+        if str(deliverable_type or "").strip() == "review_packet":
+            return {"format": "review_packet"}
+        return {}
 
     def _build_browseract_extract_step(
         self,
@@ -682,6 +721,7 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=("normalized_text",),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            desired_output_json=self._structured_generate_desired_output_json(contract),
             **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
@@ -728,6 +768,7 @@ class PlannerService:
             depends_on=depends_on,
             input_keys=("normalized_text", "source_text", "diff_text"),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            desired_output_json=self._review_desired_output_json(profile_name=effective_profile),
             **self._step_brain_metadata(
                 contract=contract,
                 route=route,

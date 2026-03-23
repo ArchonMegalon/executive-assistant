@@ -322,13 +322,26 @@ class ToolExecutionService:
             ),
             routed_definition,
         )
-        output_json = dict(result.output_json or {})
+        output_json = self._normalize_brain_router_output(
+            capability_key=capability_key,
+            profile_name=profile_name,
+            output_json=dict(result.output_json or {}),
+        )
+        route_fallback_used = bool(provider_hints and route.provider_key != provider_hints[0])
         output_json.setdefault("brain_profile", profile_name)
+        output_json.setdefault("posthoc_review_profile", str(payload_json.get("posthoc_review_profile") or "").strip())
+        output_json.setdefault("fallback_brain_profile", str(payload_json.get("fallback_brain_profile") or "").strip())
         output_json.setdefault("routed_provider_key", route.provider_key)
         output_json.setdefault("routed_capability_key", route.capability_key)
+        output_json.setdefault("route_fallback_used", route_fallback_used)
         receipt_json = dict(result.receipt_json or {})
         receipt_json.setdefault("logical_tool_name", definition.tool_name)
         receipt_json.setdefault("brain_profile", profile_name)
+        receipt_json.setdefault("posthoc_review_profile", str(payload_json.get("posthoc_review_profile") or "").strip())
+        receipt_json.setdefault("fallback_brain_profile", str(payload_json.get("fallback_brain_profile") or "").strip())
+        receipt_json.setdefault("routed_provider_key", route.provider_key)
+        receipt_json.setdefault("routed_capability_key", route.capability_key)
+        receipt_json.setdefault("route_fallback_used", route_fallback_used)
         return ToolInvocationResult(
             tool_name=result.tool_name,
             action_kind=result.action_kind,
@@ -341,6 +354,65 @@ class ToolExecutionService:
             tokens_out=result.tokens_out,
             cost_usd=result.cost_usd,
         )
+
+    def _normalize_brain_router_output(
+        self,
+        *,
+        capability_key: str,
+        profile_name: str,
+        output_json: dict[str, object],
+    ) -> dict[str, object]:
+        normalized = dict(output_json or {})
+        structured = dict(normalized.get("structured_output_json") or {})
+        text = str(normalized.get("normalized_text") or "").strip()
+        if capability_key == "structured_generate" and str(profile_name or "").strip() == "groundwork":
+            structured["format"] = "groundwork_brief"
+            structured["plan"] = self._normalize_brain_router_list(structured.get("plan"), fallback=text)
+            structured["risks"] = self._normalize_brain_router_list(structured.get("risks"))
+            structured["missing_evidence"] = self._normalize_brain_router_list(structured.get("missing_evidence"))
+            structured["recommended_next_lane"] = str(
+                structured.get("recommended_next_lane") or "review_light"
+            ).strip() or "review_light"
+            structured["acceptance_checklist"] = self._normalize_brain_router_list(
+                structured.get("acceptance_checklist")
+            )
+            normalized["structured_output_json"] = structured
+            return normalized
+        if capability_key == "reasoned_patch_review":
+            structured["format"] = "review_packet"
+            structured["recommendation"] = str(
+                structured.get("recommendation") or structured.get("consensus") or text
+            ).strip()
+            structured["disagreements"] = self._normalize_brain_router_list(structured.get("disagreements"))
+            structured["risks"] = self._normalize_brain_router_list(structured.get("risks"))
+            structured["roles"] = self._normalize_brain_router_list(structured.get("roles")) or [
+                "factuality",
+                "adversarial",
+                "completeness",
+                "risk",
+            ]
+            structured["audit_scope"] = str(
+                structured.get("audit_scope") or ("jury" if profile_name == "audit" else "review_light")
+            ).strip() or ("jury" if profile_name == "audit" else "review_light")
+            normalized["structured_output_json"] = structured
+        return normalized
+
+    def _normalize_brain_router_list(self, value: object, *, fallback: str = "") -> list[str]:
+        if isinstance(value, list):
+            values = [str(item or "").strip() for item in value if str(item or "").strip()]
+            if values:
+                return values
+        if isinstance(value, tuple):
+            values = [str(item or "").strip() for item in value if str(item or "").strip()]
+            if values:
+                return values
+        text = str(value or "").strip()
+        if text:
+            return [text]
+        fallback_text = str(fallback or "").strip()
+        if fallback_text:
+            return [fallback_text]
+        return []
 
     @property
     def _browseract_live_extract(self):

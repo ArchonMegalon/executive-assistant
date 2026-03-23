@@ -118,9 +118,62 @@ def test_builtin_groundwork_contracts_default_to_groundwork_and_review_light() -
     assert meeting.runtime_policy().brain_profile == "groundwork"
     assert decision.runtime_policy().brain_profile == "groundwork"
     assert stakeholder.runtime_policy().brain_profile == "groundwork"
+    assert meeting.runtime_policy().workflow_template == "tool_then_artifact"
+    assert decision.runtime_policy().workflow_template == "tool_then_artifact"
+    assert stakeholder.runtime_policy().workflow_template == "tool_then_artifact"
+    assert meeting.runtime_policy().pre_artifact_capability_key == "structured_generate"
+    assert decision.runtime_policy().pre_artifact_capability_key == "structured_generate"
+    assert stakeholder.runtime_policy().pre_artifact_capability_key == "structured_generate"
     assert meeting.runtime_policy().posthoc_review_profile == "review_light"
     assert decision.runtime_policy().posthoc_review_profile == "review_light"
     assert stakeholder.runtime_policy().posthoc_review_profile == "review_light"
+    assert meeting.runtime_policy().posthoc_review_required is False
+    assert decision.runtime_policy().posthoc_review_required is False
+    assert stakeholder.runtime_policy().posthoc_review_required is False
+
+
+def test_proactive_horizon_keeps_in_process_dedupe_when_observation_persist_fails() -> None:
+    runtime = _memory_runtime()
+    now = datetime.now(timezone.utc)
+    runtime.upsert_decision_window(
+        principal_id="exec-1",
+        title="Board packet",
+        context="Need a decision on launch timing",
+        closes_at=(now + timedelta(hours=2)).isoformat(),
+    )
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+    orchestrator = _FakeOrchestrator()
+
+    class _FlakyChannelRuntime:
+        def __init__(self) -> None:
+            self._rows = {}
+            self.calls = 0
+
+        def find_observation_by_dedupe(self, dedupe_key: str):
+            return self._rows.get(dedupe_key)
+
+        def ingest_observation(self, principal_id: str, channel: str, event_type: str, payload=None, *, dedupe_key: str = "", **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("observation_write_failed")
+            row = type("ObservationStub", (), {"principal_id": principal_id, "dedupe_key": dedupe_key})()
+            self._rows[dedupe_key] = row
+            return row
+
+    channel_runtime = _FlakyChannelRuntime()
+    service = ProactiveHorizonService(
+        memory_runtime=runtime,
+        orchestrator=orchestrator,  # type: ignore[arg-type]
+        task_contracts=task_contracts,
+        channel_runtime=channel_runtime,  # type: ignore[arg-type]
+    )
+
+    first = service.run_once(now=now)
+    second = service.run_once(now=now)
+
+    assert first == ()
+    assert len(second) == 1
+    assert len(orchestrator.requests) == 1
 
 
 def test_style_reflection_stages_communication_policy_candidate_for_major_human_rewrite() -> None:

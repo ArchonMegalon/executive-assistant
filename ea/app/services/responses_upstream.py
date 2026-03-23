@@ -5425,10 +5425,16 @@ def _status_window_seconds(window: str) -> float:
     return 3600.0
 
 
-def _onemin_lane_burn_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+def _onemin_lane_burn_summary(*, now: float, window_seconds: float, principal_id: str = "") -> dict[str, object]:
     _load_provider_ledgers_once()
+    normalized_principal = str(principal_id or "").strip()
     with _ONEMIN_USAGE_LOCK:
-        usage_events = [item for item in _ONEMIN_USAGE_EVENTS if now - item.happened_at <= window_seconds]
+        usage_events = [
+            item
+            for item in _ONEMIN_USAGE_EVENTS
+            if now - item.happened_at <= window_seconds
+            and (not normalized_principal or str(item.principal_id or "").strip() == normalized_principal)
+        ]
     lane_requests: dict[str, int] = {}
     lane_credits: dict[str, int] = {}
     for item in usage_events:
@@ -5498,10 +5504,16 @@ def _latency_percentile(values: list[int], percentile: float) -> int | None:
     return ordered[rank]
 
 
-def _lane_telemetry_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+def _lane_telemetry_summary(*, now: float, window_seconds: float, principal_id: str = "") -> dict[str, object]:
     _load_provider_ledgers_once()
+    normalized_principal = str(principal_id or "").strip()
     with _ONEMIN_USAGE_LOCK:
-        dispatch_events = [item for item in _PROVIDER_DISPATCH_EVENTS if now - item.happened_at <= window_seconds]
+        dispatch_events = [
+            item
+            for item in _PROVIDER_DISPATCH_EVENTS
+            if now - item.happened_at <= window_seconds
+            and (not normalized_principal or str(item.principal_id or "").strip() == normalized_principal)
+        ]
     by_lane: dict[str, dict[str, object]] = {}
     for item in dispatch_events:
         lane = str(item.lane or _LANE_DEFAULT)
@@ -5594,10 +5606,16 @@ def _provider_dispatch_summary(
     }
 
 
-def _avoided_onemin_credit_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+def _avoided_onemin_credit_summary(*, now: float, window_seconds: float, principal_id: str = "") -> dict[str, object]:
     _load_provider_ledgers_once()
+    normalized_principal = str(principal_id or "").strip()
     with _ONEMIN_USAGE_LOCK:
-        dispatch_events = [item for item in _PROVIDER_DISPATCH_EVENTS if now - item.happened_at <= window_seconds]
+        dispatch_events = [
+            item
+            for item in _PROVIDER_DISPATCH_EVENTS
+            if now - item.happened_at <= window_seconds
+            and (not normalized_principal or str(item.principal_id or "").strip() == normalized_principal)
+        ]
     by_lane: dict[str, dict[str, int]] = {}
     for item in dispatch_events:
         lane = str(item.lane or _LANE_DEFAULT)
@@ -5711,10 +5729,12 @@ def estimate_credit_runway_with_topups(
     }
 
 
-def codex_status_report(*, window: str = "1h") -> dict[str, object]:
+def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[str, object]:
     provider_health = _provider_health_report()
     now = _now_epoch()
     window_seconds = _status_window_seconds(window)
+    normalized_principal = str(principal_id or "").strip()
+    principal_scoped = bool(normalized_principal)
     onemin = dict((provider_health.get("providers") or {}).get("onemin") or {})
     slots = list(onemin.get("slots") or [])
     providers_summary: list[dict[str, object]] = []
@@ -5817,11 +5837,11 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
                 }
             )
     topups = _recent_topup_events(provider_key="onemin", limit=10)
-    burn_1h_summary = _onemin_lane_burn_summary(now=now, window_seconds=3600.0)
-    burn_24h_summary = _onemin_lane_burn_summary(now=now, window_seconds=86400.0)
-    burn_7d_summary = _onemin_lane_burn_summary(now=now, window_seconds=604800.0)
-    selected_window_burn = _onemin_lane_burn_summary(now=now, window_seconds=window_seconds)
-    selected_window_avoided = _avoided_onemin_credit_summary(now=now, window_seconds=window_seconds)
+    burn_1h_summary = _onemin_lane_burn_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal)
+    burn_24h_summary = _onemin_lane_burn_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal)
+    burn_7d_summary = _onemin_lane_burn_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal)
+    selected_window_burn = _onemin_lane_burn_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal)
+    selected_window_avoided = _avoided_onemin_credit_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal)
     basis_counts = dict(onemin.get("balance_basis_counts") or {})
     state_counts: dict[str, int] = {}
     precomputed_slots: list[dict[str, object]] = []
@@ -6085,13 +6105,13 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
     return {
         "generated_at": now,
         "window": str(window or "1h"),
-        "default_profile": provider_health.get("provider_config", {}).get("default_profile"),
-        "default_lane": provider_health.get("provider_config", {}).get("default_lane"),
-        "provider_health": provider_health,
-        "jury_service": dict(provider_health.get("jury_service") or {}),
-        "providers_summary": providers_summary,
-        "onemin_aggregate": onemin_aggregate,
-        "onemin_billing_aggregate": onemin_billing_aggregate,
+        "default_profile": "" if principal_scoped else provider_health.get("provider_config", {}).get("default_profile"),
+        "default_lane": "" if principal_scoped else provider_health.get("provider_config", {}).get("default_lane"),
+        "provider_health": {} if principal_scoped else provider_health,
+        "jury_service": {} if principal_scoped else dict(provider_health.get("jury_service") or {}),
+        "providers_summary": [] if principal_scoped else providers_summary,
+        "onemin_aggregate": {} if principal_scoped else onemin_aggregate,
+        "onemin_billing_aggregate": {} if principal_scoped else onemin_billing_aggregate,
         "fleet_burn": {
             "1h": burn_1h_summary,
             "24h": burn_24h_summary,
@@ -6099,22 +6119,22 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
             "selected_window": selected_window_burn,
         },
         "lane_telemetry": {
-            "1h": _lane_telemetry_summary(now=now, window_seconds=3600.0),
-            "24h": _lane_telemetry_summary(now=now, window_seconds=86400.0),
-            "7d": _lane_telemetry_summary(now=now, window_seconds=604800.0),
-            "selected_window": _lane_telemetry_summary(now=now, window_seconds=window_seconds),
+            "1h": _lane_telemetry_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal),
+            "24h": _lane_telemetry_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal),
+            "7d": _lane_telemetry_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal),
+            "selected_window": _lane_telemetry_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal),
         },
         "avoided_credits": {
-            "1h": _avoided_onemin_credit_summary(now=now, window_seconds=3600.0),
-            "24h": _avoided_onemin_credit_summary(now=now, window_seconds=86400.0),
-            "7d": _avoided_onemin_credit_summary(now=now, window_seconds=604800.0),
+            "1h": _avoided_onemin_credit_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal),
+            "24h": _avoided_onemin_credit_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal),
+            "7d": _avoided_onemin_credit_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal),
             "selected_window": selected_window_avoided,
             "selected_window_text": _avoided_credit_text(
                 actual_onemin_burn=int((selected_window_burn.get("provider_credits") or {}).get("onemin") or 0),
                 avoided=selected_window_avoided,
             ),
         },
-        "topup_summary": {
+        "topup_summary": {} if principal_scoped else {
             "last_actual_balance_check_at": onemin.get("last_actual_balance_at"),
             "last_topup_detected_at": topups[0].happened_at if topups else None,
             "topup_events": [
@@ -6141,7 +6161,7 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
             "depletes_before_next_topup": onemin_billing_aggregate.get("depletes_before_next_topup"),
             "billing_basis_summary": onemin_billing_aggregate.get("basis_summary"),
         },
-        "status_basis": onemin.get("credit_estimation_mode"),
+        "status_basis": "" if principal_scoped else onemin.get("credit_estimation_mode"),
     }
 
 

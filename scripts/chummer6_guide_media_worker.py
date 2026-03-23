@@ -591,7 +591,7 @@ def provider_order() -> list[str]:
     preferred = list(DEFAULT_PROVIDER_ORDER)
     raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
     if not raw:
-        return list(preferred)
+        return _normalized_provider_order(preferred)
     values = [part.strip().lower().replace("-", "_") for part in raw.split(",") if part.strip()]
     filtered: list[str] = []
     for value in values:
@@ -600,6 +600,19 @@ def provider_order() -> list[str]:
         if value not in filtered:
             filtered.append(value)
     return filtered or list(preferred)
+
+
+def _normalized_provider_order(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    deferred_onemin: list[str] = []
+    for raw in values:
+        value = str(raw or "").strip().lower().replace("-", "_")
+        if not value:
+            continue
+        target = deferred_onemin if value in {"onemin", "1min", "1min_ai", "oneminai"} else normalized
+        if value not in normalized and value not in deferred_onemin:
+            target.append(value)
+    return normalized + deferred_onemin
 
 
 def media_factory_render_command() -> list[str]:
@@ -2994,14 +3007,6 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         elif normalized in {"onemin", "1min", "1min.ai", "oneminai"}:
             safe_prompt = build_safe_onemin_prompt(prompt=prompt, spec=spec)
             ok, detail = run_onemin_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
-            if not ok:
-                command_ok, command_detail = run_command_provider("onemin", shlex_command("CHUMMER6_1MIN_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
-                if command_ok or detail.endswith(":not_configured"):
-                    ok, detail = command_ok, command_detail
-            if not ok:
-                url_ok, url_detail = run_url_provider("onemin", url_template("CHUMMER6_1MIN_RENDER_URL_TEMPLATE"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
-                if url_ok or detail.endswith(":not_configured"):
-                    ok, detail = url_ok, url_detail
         elif normalized in {"scene_contract_renderer", "ooda_compositor", "local_raster"}:
             ok, detail = False, f"{normalized}:forbidden_fallback"
         else:
