@@ -78,6 +78,30 @@ class TaskContractService:
     def __init__(self, repo: TaskContractRepository) -> None:
         self._repo = repo
 
+    def _canonical_policy_payloads(
+        self,
+        *,
+        budget_policy_json: dict[str, object] | None = None,
+        runtime_policy_json: dict[str, object] | None = None,
+        runtime_policy: TaskContractRuntimePolicy | None = None,
+    ) -> tuple[dict[str, object], dict[str, Any]]:
+        legacy_budget_payload = dict(budget_policy_json or {})
+        if runtime_policy is not None:
+            parsed_policy = runtime_policy
+        else:
+            parsed_policy = parse_task_contract_runtime_policy(
+                legacy_budget_payload,
+                dict(runtime_policy_json or {}),
+            )
+        canonical_runtime_payload = serialize_task_contract_runtime_policy(parsed_policy)
+        budget_class = str(
+            parsed_policy.budget_class
+            or legacy_budget_payload.get("class")
+            or canonical_runtime_payload.get("class")
+            or "low"
+        ).strip() or "low"
+        return {"class": budget_class}, canonical_runtime_payload
+
     def _builtin_contract(self, task_key: str) -> TaskContract | None:
         normalized = str(task_key or "").strip() or "unknown"
         if normalized == "rewrite_text":
@@ -91,7 +115,23 @@ class TaskContractService:
                 memory_write_policy="reviewed_only",
                 budget_policy_json={"class": "low"},
                 updated_at=now_utc_iso(),
-                runtime_policy_json={},
+                runtime_policy_json={
+                    "workflow_template": "rewrite",
+                    "brain_profile": "easy",
+                    "posthoc_review_profile": "review_light",
+                    "posthoc_review_required": False,
+                    "fallback_brain_profile": "survival",
+                    "skill_catalog_json": {
+                        "skill_key": "rewrite_text",
+                        "name": "rewrite text",
+                        "description": "Cheap-smart default rewrite contract.",
+                        "model_policy_json": {
+                            "brain_profile": "easy",
+                            "posthoc_review_profile": "review_light",
+                            "fallback_brain_profile": "survival",
+                        },
+                    },
+                },
             )
         if normalized in {
             "meeting_prep",
@@ -178,10 +218,11 @@ class TaskContractService:
         runtime_policy_json: dict[str, object] | None = None,
         runtime_policy: TaskContractRuntimePolicy | None = None,
     ) -> TaskContract:
-        policy_payload = dict(budget_policy_json or {})
-        typed_policy_payload = dict(runtime_policy_json or {})
-        if runtime_policy is not None:
-            typed_policy_payload = serialize_task_contract_runtime_policy(runtime_policy)
+        policy_payload, typed_policy_payload = self._canonical_policy_payloads(
+            budget_policy_json=budget_policy_json,
+            runtime_policy_json=runtime_policy_json,
+            runtime_policy=runtime_policy,
+        )
         row = TaskContract(
             task_key=str(task_key or "").strip(),
             deliverable_type=str(deliverable_type or ""),

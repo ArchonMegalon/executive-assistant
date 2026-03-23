@@ -8,7 +8,7 @@ from typing import Any
 @dataclass(frozen=True)
 class RewriteRequest:
     text: str
-    principal_id: str = ""
+    principal_id: str = field(default="", metadata={"min_length": 1})
     goal: str = ""
 
 
@@ -693,6 +693,7 @@ class TaskContractRuntimePolicy:
     workflow_template: str = "rewrite"
     brain_profile: str = ""
     posthoc_review_profile: str = ""
+    posthoc_review_required: bool = False
     fallback_brain_profile: str = ""
     pre_artifact_tool_name: str = ""
     pre_artifact_capability_key: str = ""
@@ -725,7 +726,13 @@ def parse_task_contract_runtime_policy(
             merged[key] = value
         return merged
 
-    metadata = _deep_merge(dict(budget_policy_json or {}), dict(runtime_policy_json or {}))
+    legacy_budget = dict(budget_policy_json or {})
+    runtime_payload = dict(runtime_policy_json or {})
+    runtime_has_meaningful_keys = any(str(key or "").strip() not in {"", "class"} for key in runtime_payload)
+    if runtime_payload and runtime_has_meaningful_keys:
+        metadata = _deep_merge({"class": legacy_budget.get("class")}, runtime_payload)
+    else:
+        metadata = _deep_merge(legacy_budget, runtime_payload)
 
     def _retry(prefix: str) -> TaskContractRetryPolicy:
         failure_strategy = str(metadata.get(f"{prefix}_failure_strategy") or "fail").strip().lower() or "fail"
@@ -768,6 +775,17 @@ def parse_task_contract_runtime_policy(
             or model_policy.get("posthoc_review_profile")
             or ""
         ).strip(),
+        posthoc_review_required=_policy_bool(
+            metadata.get("posthoc_review_required"),
+            default=bool(
+                str(
+                    metadata.get("posthoc_review_profile")
+                    or raw_skill_catalog.get("posthoc_review_profile")
+                    or model_policy.get("posthoc_review_profile")
+                    or ""
+                ).strip()
+            ),
+        ),
         fallback_brain_profile=str(
             metadata.get("fallback_brain_profile")
             or raw_skill_catalog.get("fallback_brain_profile")
