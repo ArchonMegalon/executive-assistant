@@ -21,6 +21,20 @@ def test_brain_router_prefers_available_profile_hints(monkeypatch) -> None:
     assert decision.health_provider_key == "gemini_vortex"
 
 
+def test_brain_router_falls_through_to_magixai_when_gemini_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(principal_id="exec-1", provider_key="gemini_vortex", status="disabled")
+    router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
+
+    decision = router.resolve_profile("easy", principal_id="exec-1")
+
+    assert decision.profile == "easy"
+    assert decision.provider_hint_order == ("magixai",)
+    assert decision.backend_key == "magixai"
+    assert decision.health_provider_key == "magixai"
+
+
 def test_brain_router_merges_contract_profile_and_provider_hints(monkeypatch) -> None:
     contracts = TaskContractService(InMemoryTaskContractRepository())
     bindings = InMemoryProviderBindingRepository()

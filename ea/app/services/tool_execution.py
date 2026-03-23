@@ -18,6 +18,7 @@ from app.services.tool_execution_common import (
 )
 from app.services.tool_execution_connector_dispatch_module import ConnectorDispatchToolExecutionModule
 from app.services.tool_execution_gemini_vortex_module import GeminiVortexToolExecutionModule
+from app.services.tool_execution_magixai_module import MagixaiToolExecutionModule
 from app.services.tool_execution_onemin_module import OneminToolExecutionModule
 from app.services.tool_runtime import ToolRuntimeService
 
@@ -48,6 +49,9 @@ class ToolExecutionService:
         self._gemini_vortex_module = GeminiVortexToolExecutionModule(
             tool_runtime=tool_runtime,
         )
+        self._magixai_module = MagixaiToolExecutionModule(
+            tool_runtime=tool_runtime,
+        )
         self._onemin_module = OneminToolExecutionModule(
             tool_runtime=tool_runtime,
         )
@@ -63,12 +67,14 @@ class ToolExecutionService:
             ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
             ("browseract", "workflow_spec_repair"): self._register_builtin_browseract_workflow_repair,
             ("browseract", "chatplayground_audit"): self._register_builtin_browseract_chatplayground_audit,
+            ("browseract", "reasoned_patch_review"): self._register_builtin_browseract_chatplayground_audit,
             ("browseract", "gemini_web_generate"): self._register_builtin_browseract_gemini_web_generate,
             ("browseract", "onemin_billing_usage"): self._register_builtin_browseract_onemin_billing_usage,
             ("browseract", "onemin_member_reconciliation"): self._register_builtin_browseract_onemin_member_reconciliation,
             ("browseract", "crezlo_property_tour"): self._register_builtin_browseract_crezlo_property_tour,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
+            ("magixai", "structured_generate"): self._register_builtin_magixai_structured_generate,
             ("onemin", "code_generate"): self._register_builtin_onemin_code_generate,
             ("onemin", "reasoned_patch_review"): self._register_builtin_onemin_reasoned_patch_review,
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
@@ -189,6 +195,9 @@ class ToolExecutionService:
 
     def _register_builtin_gemini_vortex_structured_generate(self) -> None:
         self._gemini_vortex_module.register_structured_generate(self.register_handler)
+
+    def _register_builtin_magixai_structured_generate(self) -> None:
+        self._magixai_module.register_structured_generate(self.register_handler)
 
     def _register_builtin_onemin_code_generate(self) -> None:
         self._onemin_module.register_code_generate(self.register_handler)

@@ -70,6 +70,17 @@ class BrainRouterService:
         default_provider_key = effective_hints[0] if effective_hints else ""
         backend_key = str(profile.backend_key or default_provider_key).strip()
         health_provider_key = str(profile.health_provider_key or default_provider_key or backend_key).strip()
+        if effective_hints:
+            if profile.backend_key and str(profile.backend_key).strip() in merged_hints and str(profile.backend_key).strip() not in effective_hints:
+                backend_key = default_provider_key
+            if (
+                profile.health_provider_key
+                and str(profile.health_provider_key).strip() in merged_hints
+                and str(profile.health_provider_key).strip() not in effective_hints
+            ):
+                health_provider_key = default_provider_key or backend_key
+                if str(profile.backend_key or "").strip() == str(profile.health_provider_key or "").strip():
+                    backend_key = health_provider_key
         return BrainRouteDecision(
             profile=profile.profile,
             lane=profile.lane,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.domain.models import PlanValidationError, SkillContract
@@ -69,6 +70,35 @@ def test_provider_registry_routes_gemini_vortex_structured_generate_with_alias_h
     assert route.provider_key == "gemini_vortex"
     assert route.capability_key == "structured_generate"
     assert route.tool_name == "provider.gemini_vortex.structured_generate"
+    assert route.executable is True
+
+
+def test_provider_registry_routes_browseract_reasoned_patch_review_with_aliases() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="patch_review",
+        provider_hints=("BrowserAct", "chatplayground"),
+        allowed_tools=("browseract.chatplayground_audit",),
+    )
+    assert route.provider_key == "browseract"
+    assert route.capability_key == "reasoned_patch_review"
+    assert route.tool_name == "browseract.chatplayground_audit"
+    assert route.executable is True
+
+
+def test_provider_registry_routes_magixai_structured_generate_with_alias_hints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="generate_json",
+        provider_hints=("Magicx",),
+        allowed_tools=("provider.magixai.structured_generate", "artifact_repository"),
+    )
+    assert route.provider_key == "magixai"
+    assert route.capability_key == "structured_generate"
+    assert route.tool_name == "provider.magixai.structured_generate"
     assert route.executable is True
 
 
@@ -282,6 +312,19 @@ def test_provider_registry_normalizes_magicx_aliases() -> None:
     assert state.provider_key == "magixai"
 
 
+def test_provider_registry_exposes_executable_magixai_structured_generate_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    registry = ProviderRegistryService()
+    state = registry.binding_state("magixai")
+    assert state is not None
+    assert state.executable is True
+    assert state.auth_mode == "api_key"
+    assert state.state == "ready"
+    assert "structured_generate" in state.capabilities
+
+
 def test_provider_registry_route_tool_respects_principal_binding_state() -> None:
     repo = InMemoryProviderBindingRepository()
     repo.upsert(
@@ -297,6 +340,73 @@ def test_provider_registry_route_tool_respects_principal_binding_state() -> None
     route = registry.route_tool_with_context("browseract.extract_account_inventory", principal_id="exec-2")
     assert route.provider_key == "browseract"
     assert route.tool_name == "browseract.extract_account_inventory"
+
+
+def test_provider_registry_binding_state_reflects_degraded_probe_health() -> None:
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(
+        principal_id="exec-1",
+        provider_key="browseract",
+        status="enabled",
+        priority=10,
+        probe_state="degraded",
+        probe_details_json={"reason": "quota_low"},
+    )
+    registry = ProviderRegistryService(provider_binding_repo=repo)
+    state = registry.binding_state("browseract", principal_id="exec-1")
+    assert state is not None
+    assert state.state == "degraded"
+    assert state.health_state == "degraded"
+
+
+def test_provider_registry_route_tool_by_capability_blocks_future_retry_window() -> None:
+    repo = InMemoryProviderBindingRepository()
+    retry_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    repo.upsert(
+        principal_id="exec-1",
+        provider_key="browseract",
+        status="enabled",
+        priority=10,
+        probe_state="degraded",
+        probe_details_json={"next_retry_at": retry_at},
+    )
+    registry = ProviderRegistryService(provider_binding_repo=repo)
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:account_inventory"):
+        registry.route_tool_by_capability(
+            capability_key="account_inventory",
+            provider_hints=("browseract",),
+            allowed_tools=("browseract.extract_account_inventory",),
+            principal_id="exec-1",
+        )
+
+
+def test_provider_registry_route_tool_by_capability_respects_binding_scope() -> None:
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(
+        principal_id="exec-1",
+        provider_key="browseract",
+        status="enabled",
+        priority=10,
+        scope_json={
+            "allowed_capabilities": ["account_inventory"],
+            "allowed_tools": ["browseract.extract_account_inventory"],
+        },
+    )
+    registry = ProviderRegistryService(provider_binding_repo=repo)
+    route = registry.route_tool_by_capability(
+        capability_key="account_inventory",
+        provider_hints=("browseract",),
+        allowed_tools=("browseract.extract_account_inventory",),
+        principal_id="exec-1",
+    )
+    assert route.provider_key == "browseract"
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:chatplayground_audit"):
+        registry.route_tool_by_capability(
+            capability_key="chatplayground_audit",
+            provider_hints=("browseract",),
+            allowed_tools=("browseract.chatplayground_audit",),
+            principal_id="exec-1",
+        )
 
 
 def test_provider_registry_rejects_non_executable_capability_route() -> None:

@@ -2149,6 +2149,57 @@ def test_tool_execution_service_rejects_chatplayground_audit_without_prompt() ->
         )
 
 
+def test_tool_execution_service_chatplayground_audit_accepts_normalized_text_as_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_audit(**kwargs: object) -> dict[str, object]:
+        prompt = kwargs.get("prompt")
+        if prompt is None and isinstance(kwargs.get("kwargs"), dict):
+            prompt = kwargs["kwargs"].get("prompt")
+            if prompt is None and isinstance(kwargs["kwargs"].get("payload"), dict):
+                prompt = kwargs["kwargs"]["payload"].get("prompt")
+        assert prompt == "Review this generated summary."
+        return {
+            "consensus": "pass",
+            "recommendation": "ship",
+            "disagreements": [],
+            "risks": [],
+            "model_deltas": [],
+            "roles": ["factuality", "adversarial", "completeness", "risk"],
+            "requested_at": "2026-03-18T00:00:00Z",
+        }
+
+    monkeypatch.setattr(service, "_browseract_chatplayground_audit", _fake_audit)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-audit-normalized-1",
+            step_id="step-browseract-audit-normalized-1",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="audit.review_light",
+            payload_json={
+                "normalized_text": "Review this generated summary.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "browseract.chatplayground_audit"
+    assert result.output_json["consensus"] == "pass"
+    assert result.output_json["recommendation"] == "ship"
+
+
 def test_tool_execution_service_uses_default_chatplayground_audit_roles_and_default_url(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(
@@ -4153,9 +4204,10 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_code_generate_
         artifacts=InMemoryArtifactRepository(),
     )
 
-    def _fake_call_text(self, *, prompt: str, model: str, lane: str):
+    def _fake_call_text(self, *, prompt: str, model: str, lane: str, principal_id: str = ""):
         assert "Implement a safe parser" in prompt
         assert lane == "hard"
+        assert principal_id == "exec-1"
         return UpstreamResult(
             text='{"patch":"safe parser","notes":["bounded change"]}',
             provider_key="onemin",
@@ -4198,6 +4250,64 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_code_generate_
     assert tool_runtime.get_tool("provider.onemin.code_generate") is not None
 
 
+def test_tool_execution_service_self_heals_missing_builtin_magixai_structured_generate_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_call_text(self, *, prompt: str, model: str, lane: str):
+        assert "Summarize the fleet status" in prompt
+        assert lane == "easy"
+        return UpstreamResult(
+            text='{"summary":"fleet stable","risk":"low"}',
+            provider_key="magixai",
+            model=model,
+            provider_key_slot="primary",
+            provider_backend="aimagicx",
+            provider_account_name="AI_MAGICX_API_KEY",
+            tokens_in=23,
+            tokens_out=11,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_magixai_adapter.MagixaiToolAdapter._call_text",
+        _fake_call_text,
+    )
+    registry._rows.pop("provider.magixai.structured_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "provider.magixai.structured_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-magix-1",
+            step_id="step-magix-1",
+            tool_name="provider.magixai.structured_generate",
+            action_kind="content.generate",
+            payload_json={
+                "prompt": "Summarize the fleet status.",
+                "generation_instruction": "Return JSON.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.magixai.structured_generate"
+    assert result.tokens_in == 23
+    assert result.tokens_out == 11
+    assert result.output_json["structured_output_json"]["summary"] == "fleet stable"
+    assert result.output_json["provider_backend"] == "aimagicx"
+    assert result.receipt_json["provider_key"] == "magixai"
+    assert tool_runtime.get_tool("provider.magixai.structured_generate") is not None
+
+
 def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4212,9 +4322,18 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate
         artifacts=InMemoryArtifactRepository(),
     )
 
-    def _fake_call_feature(self, *, feature_payload: dict[str, object], lane: str):
+    def _fake_call_feature(
+        self,
+        *,
+        feature_payload: dict[str, object],
+        lane: str,
+        capability: str,
+        principal_id: str = "",
+    ):
         assert feature_payload["type"] == "IMAGE_GENERATOR"
         assert lane == "hard"
+        assert capability == "image_generate"
+        assert principal_id == "exec-1"
         return (
             {
                 "aiRecord": {
@@ -4258,6 +4377,143 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate
     assert result.output_json["provider_backend"] == "1min"
     assert result.receipt_json["feature_type"] == "IMAGE_GENERATOR"
     assert tool_runtime.get_tool("provider.onemin.image_generate") is not None
+
+
+def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services import responses_upstream as upstream
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+    from app.services.tool_execution_onemin_adapter import OneminToolAdapter
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    class _Config:
+        api_keys = ("key-core", "key-image")
+        timeout_seconds = 5
+
+    class _State:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.failure_count = 0
+            self.last_success_at = 0.0
+            self.last_used_at = 0.0
+            self.last_error = ""
+
+    monkeypatch.setattr(upstream, "_provider_configs", lambda: {"onemin": _Config()})
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda allow_reserve: ("key-core", "key-image"))
+    monkeypatch.setattr(upstream, "_onemin_states_snapshot", lambda keys: {key: _State(key) for key in keys})
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ())
+    monkeypatch.setattr(upstream, "_onemin_key_state_label", lambda state, now=0.0: "ready")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 0.0)
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda provider, key_names, key: "acct-core" if key == "key-core" else "acct-image")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names=(): "ONEMIN_AI_API_KEY" if key == "key-core" else "ONEMIN_AI_API_KEY_FALLBACK_1")
+    monkeypatch.setattr(upstream, "_onemin_slot_role_for_key", lambda key, active_keys=(), reserve_keys=(): "mixed")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "acct-core",
+                            "slot": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "state": "ready",
+                            "estimated_remaining_credits": 100000,
+                        },
+                        {
+                            "account_name": "acct-image",
+                            "slot": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "state": "ready",
+                            "estimated_remaining_credits": 100000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_pick_onemin_key", lambda allow_reserve=False: (_ for _ in ()).throw(AssertionError("legacy picker should not be used")))
+    monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_success", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda api_key, detail, temporary_quarantine=False, quarantine_seconds=None: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_event", lambda **kwargs: None)
+    monkeypatch.setattr(upstream, "_now_ms", lambda: 1000)
+    monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: str(payload))
+    monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
+    monkeypatch.setattr(upstream, "_extract_onemin_model", lambda payload: str(payload.get("model") or "gpt-image-1-mini"))
+
+    seen_headers: list[str] = []
+
+    def _fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int):
+        seen_headers.append(str(headers.get("API-KEY") or ""))
+        return 200, {
+            "model": payload.get("model") or "gpt-image-1-mini",
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "resultObject": {
+                        "url": "https://cdn.1min.ai/generated/manager-image.png",
+                    }
+                }
+            },
+        }
+
+    monkeypatch.setattr(upstream, "_post_json", _fake_post_json)
+
+    core_lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "api_key": "key-core",
+                "account_id": "acct-core",
+                "account_name": "acct-core",
+                "credential_id": "ONEMIN_AI_API_KEY",
+                "slot_name": "ONEMIN_AI_API_KEY",
+                "secret_env_name": "ONEMIN_AI_API_KEY",
+                "slot_role": "mixed",
+                "state": "ready",
+                "estimated_remaining_credits": 100000,
+                "failure_count": 0,
+                "last_success_at": 0.0,
+                "last_used_at": 0.0,
+                "last_error": "",
+            }
+        ],
+        lane="hard",
+        capability="code_generate",
+        principal_id="core-principal",
+        request_id="req-core",
+        estimated_credits=None,
+        allow_reserve=False,
+    )
+    assert core_lease is not None
+
+    adapter = OneminToolAdapter()
+    payload, account_name, key_slot, resolved_model, tokens_in, tokens_out = adapter._call_feature(
+        feature_payload={
+            "type": "IMAGE_GENERATOR",
+            "model": "gpt-image-1-mini",
+            "promptObject": {"prompt": "render a banner"},
+        },
+        lane="hard",
+        capability="image_generate",
+        principal_id="image-principal",
+    )
+
+    assert seen_headers == ["key-image"]
+    assert account_name == "acct-image"
+    assert key_slot == "ONEMIN_AI_API_KEY_FALLBACK_1"
+    assert resolved_model == "gpt-image-1-mini"
+    assert tokens_in == 0
+    assert tokens_out == 0
+    assert payload["aiRecord"]["aiRecordDetail"]["resultObject"]["url"] == "https://cdn.1min.ai/generated/manager-image.png"
+    assert manager.occupancy_snapshot()["active_lease_count"] == 1
+
+    register_onemin_manager(None)
 
 
 def test_tool_execution_service_detects_gemini_web_human_verification(monkeypatch: pytest.MonkeyPatch) -> None:
