@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -178,6 +179,50 @@ class RequestContext:
     authenticated: bool
     auth_source: str = "anonymous"
     access_email: str = ""
+    operator_id: str = ""
+
+
+def _operator_principal_allowlist() -> set[str]:
+    values: set[str] = set()
+    for env_name in ("EA_OPERATOR_PRINCIPAL_IDS", "EA_OPERATOR_PRINCIPALS"):
+        raw = str(os.environ.get(env_name) or "").strip()
+        if not raw:
+            continue
+        for item in raw.split(","):
+            normalized = str(item or "").strip()
+            if normalized:
+                values.add(normalized)
+    return values
+
+
+def _operator_email_allowlist() -> set[str]:
+    values: set[str] = set()
+    for env_name in ("EA_OPERATOR_EMAILS", "EA_OPERATOR_ACCESS_EMAILS"):
+        raw = str(os.environ.get(env_name) or "").strip()
+        if not raw:
+            continue
+        for item in raw.split(","):
+            normalized = str(item or "").strip().lower()
+            if normalized:
+                values.add(normalized)
+    return values
+
+
+def is_operator_context(context: RequestContext) -> bool:
+    principal_id = str(context.principal_id or "").strip()
+    if not principal_id:
+        return False
+    if context.auth_source == "loopback_no_auth":
+        return True
+    if not bool(context.authenticated):
+        return False
+    if principal_id in _operator_principal_allowlist():
+        return True
+    access_email = str(context.access_email or "").strip().lower()
+    if access_email and access_email in _operator_email_allowlist():
+        return True
+    lowered = principal_id.lower()
+    return lowered.startswith(("system", "operator", "admin", "automation", "scheduler", "cron", "daemon", "health"))
 
 
 def get_request_context(
@@ -200,6 +245,7 @@ def get_request_context(
             authenticated=True,
             auth_source="cloudflare_access",
             access_email=access_identity.email,
+            operator_id=build_operator_id(access_identity),
         )
     if _loopback_no_auth_allowed(request, container):
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)
@@ -232,6 +278,11 @@ def get_request_context(
         authenticated=authenticated,
         auth_source="api_token" if authenticated else "anonymous",
     )
+
+
+def require_operator_context(context: RequestContext = Depends(get_request_context)) -> None:
+    if not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
 
 
 def resolve_principal_id(requested_principal_id: str | None, context: RequestContext) -> str:

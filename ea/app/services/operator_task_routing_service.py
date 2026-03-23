@@ -19,6 +19,7 @@ DecorateHumanTaskFn = Callable[[HumanTask], HumanTask]
 QueueNextStepAfterFn = Callable[[str, str, str], object]
 DrainSessionInlineFn = Callable[[str], object]
 AfterHumanTaskReturnFn = Callable[[HumanTask, ExecutionStep], object]
+FetchOperatorProfileFn = Callable[[str, str], object | None]
 
 
 class OperatorTaskRoutingService:
@@ -38,6 +39,7 @@ class OperatorTaskRoutingService:
         drain_session_inline: DrainSessionInlineFn | None = None,
         decorate_human_task: DecorateHumanTaskFn | None = None,
         after_human_task_return: AfterHumanTaskReturnFn | None = None,
+        fetch_operator_profile: FetchOperatorProfileFn | None = None,
     ) -> None:
         self._fetch_human_task = fetch_human_task
         self._claim_human_task = claim_human_task
@@ -52,6 +54,15 @@ class OperatorTaskRoutingService:
         self._drain_session_inline = drain_session_inline
         self._decorate_human_task = decorate_human_task
         self._after_human_task_return = after_human_task_return
+        self._fetch_operator_profile = fetch_operator_profile
+
+    def _operator_profile_exists(self, *, principal_id: str, operator_id: str) -> bool:
+        normalized_operator_id = str(operator_id or "").strip()
+        if not normalized_operator_id:
+            return False
+        if self._fetch_operator_profile is None:
+            return True
+        return self._fetch_operator_profile(normalized_operator_id, str(principal_id or "").strip()) is not None
 
     def claim_human_task(
         self,
@@ -63,6 +74,8 @@ class OperatorTaskRoutingService:
     ) -> HumanTask | None:
         found = self._fetch_human_task(human_task_id)
         if found is None or found.principal_id != str(principal_id or ""):
+            return None
+        if not self._operator_profile_exists(principal_id=principal_id, operator_id=operator_id):
             return None
         updated = self._claim_human_task(
             human_task_id,
@@ -99,6 +112,8 @@ class OperatorTaskRoutingService:
     ) -> HumanTask | None:
         found = self._fetch_human_task(human_task_id)
         if found is None or found.principal_id != str(principal_id or ""):
+            return None
+        if not self._operator_profile_exists(principal_id=principal_id, operator_id=operator_id):
             return None
         updated = self._assign_human_task(
             human_task_id,
@@ -145,6 +160,10 @@ class OperatorTaskRoutingService:
             or self._drain_session_inline is None
             or self._decorate_human_task is None
         ):
+            return None
+        if found.principal_id != str(principal_id or ""):
+            return None
+        if not self._operator_profile_exists(principal_id=principal_id, operator_id=operator_id):
             return None
         updated = self._return_human_task(
             found.human_task_id,

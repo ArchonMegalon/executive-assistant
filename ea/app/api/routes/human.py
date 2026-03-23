@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
+from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context, resolve_principal_id
 from app.container import AppContainer
 
 router = APIRouter(prefix="/v1/human/tasks", tags=["human"])
@@ -238,6 +238,34 @@ def _to_assignment_history_out(
     )
 
 
+def _validate_operator_actor(
+    *,
+    context: RequestContext,
+    operator_id: str,
+) -> str:
+    normalized = str(operator_id or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="operator_id_required")
+    actor_operator_id = str(getattr(context, "operator_id", "") or "").strip()
+    if actor_operator_id and normalized != actor_operator_id and not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_identity_mismatch")
+    return normalized
+
+
+def _require_operator_profile(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    operator_id: str,
+) -> str:
+    normalized = str(operator_id or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="operator_id_required")
+    if container.orchestrator.fetch_operator_profile(normalized, principal_id=principal_id) is None:
+        raise HTTPException(status_code=404, detail="operator_profile_not_found")
+    return normalized
+
+
 @router.post("")
 def create_human_task(
     payload: HumanTaskCreateIn,
@@ -436,11 +464,17 @@ def list_my_human_tasks(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> list[HumanTaskOut]:
+    validated_operator_id = _validate_operator_actor(context=context, operator_id=operator_id)
+    _require_operator_profile(
+        container=container,
+        principal_id=context.principal_id,
+        operator_id=validated_operator_id,
+    )
     rows = container.orchestrator.list_human_tasks(
         principal_id=context.principal_id,
         status=status,
         priority=priority,
-        assigned_operator_id=operator_id,
+        assigned_operator_id=validated_operator_id,
         assignment_source=assignment_source,
         limit=limit,
         sort=sort,
@@ -522,12 +556,18 @@ def assign_human_task(
         if not operator_id:
             raise HTTPException(status_code=409, detail="human_task_no_auto_assign_candidate")
         assignment_source = "recommended"
+    operator_id = _validate_operator_actor(context=context, operator_id=operator_id)
+    operator_id = _require_operator_profile(
+        container=container,
+        principal_id=context.principal_id,
+        operator_id=operator_id,
+    )
     row = container.orchestrator.assign_human_task(
         human_task_id,
         principal_id=context.principal_id,
         operator_id=operator_id,
         assignment_source=assignment_source,
-        assigned_by_actor_id=context.principal_id,
+        assigned_by_actor_id=str(getattr(context, "operator_id", "") or context.principal_id),
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_assignable")
@@ -592,11 +632,17 @@ def claim_human_task(
     found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if found is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
+    operator_id = _validate_operator_actor(context=context, operator_id=payload.operator_id)
+    operator_id = _require_operator_profile(
+        container=container,
+        principal_id=context.principal_id,
+        operator_id=operator_id,
+    )
     row = container.orchestrator.claim_human_task(
         human_task_id,
         principal_id=context.principal_id,
-        operator_id=payload.operator_id,
-        assigned_by_actor_id=payload.operator_id,
+        operator_id=operator_id,
+        assigned_by_actor_id=str(getattr(context, "operator_id", "") or operator_id),
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_claimable")
@@ -614,10 +660,16 @@ def return_human_task(
     found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if found is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
+    operator_id = _validate_operator_actor(context=context, operator_id=payload.operator_id)
+    operator_id = _require_operator_profile(
+        container=container,
+        principal_id=context.principal_id,
+        operator_id=operator_id,
+    )
     row = container.orchestrator.return_human_task(
         human_task_id,
         principal_id=context.principal_id,
-        operator_id=payload.operator_id,
+        operator_id=operator_id,
         resolution=payload.resolution,
         returned_payload_json=payload.returned_payload_json,
         provenance_json=payload.provenance_json,
