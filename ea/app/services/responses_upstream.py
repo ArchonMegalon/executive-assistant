@@ -491,6 +491,7 @@ class ProviderDispatchEvent:
     lane: str
     estimated_onemin_credits: int | None
     backend: str = ""
+    latency_ms: int = 0
     principal_id: str | None = None
     principal_label: str | None = None
     owner_category: str | None = None
@@ -805,6 +806,7 @@ def _load_provider_ledgers_once() -> None:
                             model=str(row.get("model") or ""),
                             lane=str(row.get("lane") or _LANE_DEFAULT),
                             backend=str(row.get("backend") or ""),
+                            latency_ms=int(row.get("latency_ms") or 0),
                             principal_id=str(row.get("principal_id") or "") or None,
                             principal_label=str(row.get("principal_label") or "") or None,
                             owner_category=str(row.get("owner_category") or "") or None,
@@ -5349,6 +5351,7 @@ def _run_text_request(
                         model=result.model,
                         lane=lane,
                         backend=str(result.provider_backend or config.provider_key or ""),
+                        latency_ms=int(result.latency_ms or 0),
                         principal_id=chatplayground_audit_principal_id,
                         principal_label=principal_label(chatplayground_audit_principal_id),
                         owner_category=principal_owner_category(chatplayground_audit_principal_id),
@@ -5450,6 +5453,7 @@ def _record_provider_dispatch_event(
     principal_label: str = "",
     owner_category: str = "",
     estimated_onemin_credits: int | None,
+    latency_ms: int = 0,
     happened_at: float | None = None,
 ) -> None:
     _load_provider_ledgers_once()
@@ -5459,6 +5463,7 @@ def _record_provider_dispatch_event(
         model=str(model or ""),
         lane=str(lane or _LANE_DEFAULT),
         backend=str(backend or ""),
+        latency_ms=max(0, int(latency_ms or 0)),
         principal_id=str(principal_id or "").strip() or None,
         principal_label=str(principal_label or "").strip() or None,
         owner_category=str(owner_category or "").strip() or None,
@@ -5474,12 +5479,68 @@ def _record_provider_dispatch_event(
             "model": event.model,
             "lane": event.lane,
             "backend": event.backend,
+            "latency_ms": event.latency_ms,
             "principal_id": event.principal_id,
             "principal_label": event.principal_label,
             "owner_category": event.owner_category,
             "estimated_onemin_credits": event.estimated_onemin_credits,
         },
     )
+
+
+def _latency_percentile(values: list[int], percentile: float) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(max(0, int(value)) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = max(0, min(len(ordered) - 1, int(round((float(percentile) / 100.0) * (len(ordered) - 1)))))
+    return ordered[rank]
+
+
+def _lane_telemetry_summary(*, now: float, window_seconds: float) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    with _ONEMIN_USAGE_LOCK:
+        dispatch_events = [item for item in _PROVIDER_DISPATCH_EVENTS if now - item.happened_at <= window_seconds]
+    by_lane: dict[str, dict[str, object]] = {}
+    for item in dispatch_events:
+        lane = str(item.lane or _LANE_DEFAULT)
+        bucket = by_lane.setdefault(
+            lane,
+            {
+                "request_count": 0,
+                "provider_counts": {},
+                "latencies": [],
+                "estimated_onemin_credits": 0,
+            },
+        )
+        bucket["request_count"] = int(bucket.get("request_count") or 0) + 1
+        provider_counts = dict(bucket.get("provider_counts") or {})
+        provider_counts[item.provider_key] = int(provider_counts.get(item.provider_key) or 0) + 1
+        bucket["provider_counts"] = provider_counts
+        latencies = list(bucket.get("latencies") or [])
+        if int(item.latency_ms or 0) > 0:
+            latencies.append(int(item.latency_ms or 0))
+        bucket["latencies"] = latencies
+        bucket["estimated_onemin_credits"] = int(bucket.get("estimated_onemin_credits") or 0) + max(
+            0,
+            int(item.estimated_onemin_credits or 0),
+        )
+    lanes: dict[str, dict[str, object]] = {}
+    for lane, bucket in by_lane.items():
+        latencies = list(bucket.get("latencies") or [])
+        lanes[lane] = {
+            "request_count": int(bucket.get("request_count") or 0),
+            "estimated_onemin_credits": int(bucket.get("estimated_onemin_credits") or 0),
+            "p50_latency_ms": _latency_percentile(latencies, 50.0),
+            "p95_latency_ms": _latency_percentile(latencies, 95.0),
+            "max_latency_ms": max(latencies) if latencies else None,
+            "provider_counts": dict(bucket.get("provider_counts") or {}),
+        }
+    return {
+        "window_seconds": window_seconds,
+        "lanes": lanes,
+    }
 
 
 def _latest_provider_dispatch_event(*, provider_key: str) -> ProviderDispatchEvent | None:
@@ -6036,6 +6097,12 @@ def codex_status_report(*, window: str = "1h") -> dict[str, object]:
             "24h": burn_24h_summary,
             "7d": burn_7d_summary,
             "selected_window": selected_window_burn,
+        },
+        "lane_telemetry": {
+            "1h": _lane_telemetry_summary(now=now, window_seconds=3600.0),
+            "24h": _lane_telemetry_summary(now=now, window_seconds=86400.0),
+            "7d": _lane_telemetry_summary(now=now, window_seconds=604800.0),
+            "selected_window": _lane_telemetry_summary(now=now, window_seconds=window_seconds),
         },
         "avoided_credits": {
             "1h": _avoided_onemin_credit_summary(now=now, window_seconds=3600.0),

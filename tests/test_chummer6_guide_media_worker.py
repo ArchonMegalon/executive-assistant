@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -36,13 +37,87 @@ def test_provider_order_preserves_explicit_runtime_priority(monkeypatch: pytest.
     assert media.provider_order() == ["onemin", "magixai", "browseract_prompting_systems"]
 
 
-def test_provider_order_defaults_to_onemin_before_browseract_and_magix(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_IMAGE_PROVIDER_ORDER", raising=False)
     monkeypatch.setattr(media, "LOCAL_ENV", {})
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
-    assert media.provider_order() == ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"]
+    assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
+
+
+def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_22", "key": "key-22"},
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_23", "key": "key-23"},
+        ],
+    )
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot",
+        lambda **kwargs: {
+            "lease_id": "lease-1",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_23",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_23",
+        },
+    )
+    released: list[tuple[str, str, int | None, str]] = []
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot",
+        lambda *, lease_id, status, actual_credits_delta=None, error="": released.append(
+            (lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda: ["gpt-image-1-mini"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda model, **kwargs: [{"type": "IMAGE_GENERATOR", "model": model, "promptObject": {"size": "1024x1024"}}],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="onemin": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    class _Response:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"url": "https://example.test/image.png"}).encode("utf-8")
+
+    seen_api_keys: list[str] = []
+
+    def fake_urlopen(request, timeout=0):
+        headers = {str(key).lower(): value for key, value in request.header_items()}
+        seen_api_keys.append(str(headers.get("api-key", "")))
+        return _Response()
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_api_keys == ["key-23"]
+    assert released[0] == ("lease-1", "released", 900, "")
 
 
 def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -565,6 +640,31 @@ def test_build_render_accounting_summarizes_provider_attempts() -> None:
     assert report["providers"]["onemin"]["successes"] == 1
     assert report["providers"]["magixai"]["estimated_billable_attempts"] == 0
     assert report["providers"]["media_factory"]["attempts"] == 1
+
+
+def test_first_contact_target_variant_count_and_overlay_gate() -> None:
+    media = _load_module()
+
+    assert media.first_contact_target("assets/hero/chummer6-hero.png") is True
+    assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 5
+    assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
+
+
+def test_visual_audit_score_flags_dead_negative_space(tmp_path: Path) -> None:
+    media = _load_module()
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    image_path = tmp_path / "empty.png"
+    Image.new("RGB", (960, 540), (5, 5, 5)).save(image_path)
+
+    score, notes = media.visual_audit_score(
+        image_path=image_path,
+        target="assets/pages/horizons-index.png",
+    )
+
+    assert score < 0
+    assert "visual_audit:dead_negative_space" in notes
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
