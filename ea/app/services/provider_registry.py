@@ -820,7 +820,6 @@ class ProviderRegistryService:
         capability_key: str,
         tool_name: str,
     ) -> bool:
-        _ = binding
         if record is None:
             return False
         status = str(record.status or "").strip().lower()
@@ -1530,14 +1529,28 @@ class ProviderRegistryService:
                 if normalized and normalized not in merged_hints:
                     merged_hints.append(normalized)
         if merged_hints:
+            available_hints: list[str] = []
+            for provider_key in merged_hints:
+                state = self.binding_state(provider_key, principal_id=principal_id)
+                if state is None:
+                    continue
+                if not state.enabled or not state.executable:
+                    continue
+                if state.state in {"disabled", "maintenance", "catalog_only", "unconfigured"}:
+                    continue
+                available_hints.append(state.provider_key)
+            if not available_hints:
+                raise ToolExecutionError(
+                    f"brain_profile_provider_unavailable:{profile.profile}:{resolved_capability}"
+                )
             candidates = self.candidate_routes_by_capability_with_context(
                 capability_key=resolved_capability,
                 principal_id=principal_id,
-                provider_hints=tuple(merged_hints),
+                provider_hints=tuple(available_hints),
                 allowed_tools=allowed_tools,
                 require_executable=require_executable,
             )
-            normalized_hints = set(merged_hints)
+            normalized_hints = set(available_hints)
             for route in candidates:
                 if self._normalize_provider_key(route.provider_key) in normalized_hints:
                     return route

@@ -309,12 +309,26 @@ class OneminToolAdapter:
             key_slot = upstream._onemin_key_slot(api_key, key_names=key_names)
             account_name = upstream._provider_account_name("onemin", key_names=key_names, key=api_key)
             started_at = upstream._now_ms()
-            status, payload = upstream._post_json(
-                url=upstream._onemin_code_url(),
-                headers={"API-KEY": api_key},
-                payload=feature_payload,
-                timeout_seconds=config.timeout_seconds,
-            )
+            try:
+                status, payload = upstream._post_json(
+                    url=upstream._onemin_code_url(),
+                    headers={"API-KEY": api_key},
+                    payload=feature_payload,
+                    timeout_seconds=config.timeout_seconds,
+                )
+            except upstream.ResponsesUpstreamError as exc:
+                detail = str(exc or "").strip() or "request_failed"
+                upstream._mark_onemin_failure(
+                    api_key,
+                    detail,
+                    temporary_quarantine=False,
+                )
+                _release_failed(detail)
+                errors.append(f"{key_slot}:{detail}")
+                continue
+            except Exception as exc:
+                _release_failed(str(exc))
+                raise
             latency_ms = upstream._now_ms() - started_at
             if status < 200 or status >= 300:
                 detail = upstream._trim_error_payload(payload)

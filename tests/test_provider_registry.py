@@ -102,6 +102,24 @@ def test_provider_registry_routes_magixai_structured_generate_with_alias_hints(
     assert route.executable is True
 
 
+def test_provider_registry_does_not_route_unconfigured_magixai_when_gemini_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_MAGICX_API_KEY", raising=False)
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(principal_id="exec-1", provider_key="gemini_vortex", status="disabled")
+    registry = ProviderRegistryService(provider_binding_repo=repo)
+
+    with pytest.raises(ToolExecutionError, match="brain_profile_provider_unavailable:easy:structured_generate"):
+        registry.route_brain_profile_capability_with_context(
+            profile_name="easy",
+            capability_key="structured_generate",
+            principal_id="exec-1",
+            provider_hints=("gemini_vortex", "magixai"),
+            allowed_tools=("provider.gemini_vortex.structured_generate", "provider.magixai.structured_generate"),
+        )
+
+
 def test_provider_registry_routes_browseract_workflow_spec_build_with_alias_hints() -> None:
     registry = ProviderRegistryService()
     route = registry.route_tool_by_capability(
