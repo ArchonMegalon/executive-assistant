@@ -441,8 +441,36 @@ class OneminManagerService:
             return
         self._repo.upsert_lease(replace(lease, status=status, finished_at=self._now_iso(), error=str(error or "").strip()))
 
+    def _public_lease_metadata(self, lease: OneminAllocationLease) -> dict[str, object]:
+        metadata = dict(lease.metadata_json or {})
+        result: dict[str, object] = {}
+        for key in ("task_class", "slot_name", "slot_role", "secret_env_name", "account_name"):
+            value = metadata.get(key)
+            normalized = str(value or "").strip()
+            if normalized:
+                result[key] = normalized
+        return result
+
     def leases_snapshot(self) -> list[dict[str, object]]:
-        return [asdict(row) for row in self._repo.list_leases(limit=5000)]
+        rows: list[dict[str, object]] = []
+        for lease in self._repo.list_leases(limit=5000):
+            rows.append(
+                {
+                    "lease_id": lease.lease_id,
+                    "lane": lease.lane,
+                    "capability": lease.capability,
+                    "account_id": lease.account_id,
+                    "credential_id": lease.credential_id,
+                    "estimated_credits": lease.estimated_credits,
+                    "actual_credits_delta": lease.actual_credits_delta,
+                    "status": lease.status,
+                    "created_at": lease.created_at,
+                    "expires_at": lease.expires_at,
+                    "finished_at": lease.finished_at,
+                    "metadata_json": self._public_lease_metadata(lease),
+                }
+            )
+        return rows
 
     def accounts_snapshot(
         self,

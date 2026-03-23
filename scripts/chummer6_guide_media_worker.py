@@ -145,7 +145,6 @@ _ONEMIN_MANAGER_SELECTION_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "occupied_account_ids": set(),
     "occupied_secret_env_names": set(),
-    "slot_to_account_id": {},
 }
 
 
@@ -228,36 +227,17 @@ def _normalize_onemin_leases_payload(payload: object) -> list[dict[str, object]]
     return []
 
 
-def _refresh_onemin_manager_selection_snapshot() -> tuple[set[str], set[str], dict[str, str]]:
+def _refresh_onemin_manager_selection_snapshot() -> tuple[set[str], set[str]]:
     cached_expires_at = float(_ONEMIN_MANAGER_SELECTION_CACHE.get("expires_at") or 0.0)
     now = time.time()
     if cached_expires_at > now:
         return (
             set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_account_ids") or set()),
             set(_ONEMIN_MANAGER_SELECTION_CACHE.get("occupied_secret_env_names") or set()),
-            dict(_ONEMIN_MANAGER_SELECTION_CACHE.get("slot_to_account_id") or {}),
         )
 
-    accounts_payload = _ea_local_json_get("/v1/providers/onemin/accounts")
     leases_payload = _ea_local_json_get("/v1/providers/onemin/leases")
-    account_rows = _normalize_onemin_accounts_payload(accounts_payload)
     lease_rows = _normalize_onemin_leases_payload(leases_payload)
-
-    slot_to_account_id: dict[str, str] = {}
-    for account in account_rows:
-        account_id = str(account.get("account_id") or account.get("account_label") or "").strip()
-        if not account_id:
-            continue
-        for credential in account.get("credentials") or []:
-            if not isinstance(credential, dict):
-                continue
-            for key in (
-                str(credential.get("secret_env_name") or "").strip(),
-                str(credential.get("credential_id") or "").strip(),
-                str(credential.get("slot_name") or "").strip(),
-            ):
-                if key:
-                    slot_to_account_id[key] = account_id
 
     occupied_account_ids: set[str] = set()
     occupied_secret_env_names: set[str] = set()
@@ -278,9 +258,8 @@ def _refresh_onemin_manager_selection_snapshot() -> tuple[set[str], set[str], di
 
     _ONEMIN_MANAGER_SELECTION_CACHE["occupied_account_ids"] = set(occupied_account_ids)
     _ONEMIN_MANAGER_SELECTION_CACHE["occupied_secret_env_names"] = set(occupied_secret_env_names)
-    _ONEMIN_MANAGER_SELECTION_CACHE["slot_to_account_id"] = dict(slot_to_account_id)
     _ONEMIN_MANAGER_SELECTION_CACHE["expires_at"] = now + _ea_local_cache_ttl_seconds()
-    return occupied_account_ids, occupied_secret_env_names, slot_to_account_id
+    return occupied_account_ids, occupied_secret_env_names
 
 
 def easter_egg_allowed_for_target(target: str) -> bool:
@@ -1595,13 +1574,13 @@ def resolve_onemin_image_keys() -> list[str]:
 
 
 def filter_onemin_image_slots(slots: list[dict[str, str]]) -> list[dict[str, str]]:
-    occupied_account_ids, occupied_secret_env_names, slot_to_account_id = _refresh_onemin_manager_selection_snapshot()
+    occupied_account_ids, occupied_secret_env_names = _refresh_onemin_manager_selection_snapshot()
     if not occupied_account_ids and not occupied_secret_env_names:
         return slots
     filtered: list[dict[str, str]] = []
     for slot in slots:
         env_name = str(slot.get("env_name") or "").strip()
-        account_id = str(slot_to_account_id.get(env_name) or "").strip()
+        account_id = env_name
         if env_name and env_name in occupied_secret_env_names:
             continue
         if account_id and account_id in occupied_account_ids:
