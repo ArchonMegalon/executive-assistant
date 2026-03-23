@@ -21,10 +21,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
 except Exception:  # pragma: no cover - optional runtime dependency
     Image = None
     ImageDraw = None
+    ImageFont = None
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -446,6 +447,22 @@ def humor_allowed_for_target(*, target: str, contract: dict[str, object] | None)
     return str(target or "").replace("\\", "/").strip() in SPARSE_HUMOR_TARGETS
 
 
+def person_count_target_for_target(target: str) -> str:
+    contract = target_visual_contract(target)
+    return str(contract.get("person_count_target") or "").strip().lower()
+
+
+def cast_prompt_clause_for_target(target: str) -> str:
+    profile = person_count_target_for_target(target)
+    if profile == "duo_or_team":
+        return "Prefer two to four people with one focal operator relationship instead of a lone isolated figure."
+    if profile == "plurality_optional":
+        return "Keep the environment plural; if people appear, use multiple partial figures or crews instead of a lone centered silhouette."
+    if profile == "duo_preferred":
+        return "Prefer one active operator plus a visible reviewer, witness, or second pair of hands instead of one isolated person in a glow void."
+    return ""
+
+
 def load_json_file(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -506,9 +523,31 @@ def scene_rows_for_style_epoch(
 def infer_cast_signature(contract: dict[str, object]) -> str:
     subject = str(contract.get("subject") or "").lower()
     composition = str(contract.get("composition") or "").lower()
-    if any(token in subject for token in ("team", "players", "group", "gm and", "crew", "rest of the table")):
+    if any(token in subject for token in ("team", "players", "group", "crew", "rest of the table", "trio", "several", "multiple")):
         return "group"
-    if any(token in subject for token in ("two", "duo", "operator and", "player and", "gm and")):
+    if subject.count(" and ") >= 2 or ("," in subject and " and " in subject):
+        return "group"
+    if any(
+        token in subject
+        for token in (
+            "two",
+            "duo",
+            "pair",
+            "operator and",
+            "player and",
+            "gm and",
+            "streetdoc and",
+            "runner and",
+            "rulesmith and",
+            "reviewer and",
+            "spotter and",
+            "assistant and",
+            "teammate and",
+            "medic and",
+        )
+    ):
+        return "duo"
+    if subject.count(" and ") == 1:
         return "duo"
     if composition in {"group_table", "safehouse_table"}:
         return "group"
@@ -1104,6 +1143,17 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
             "card close-up",
             "alley-brooding",
             "lonely person nursing a gadget",
+            "single person in a dim bay",
+            "single-person dim bay",
+            "one standing runner",
+            "one runner deciding",
+            "solo trust moment",
+            "solo operator",
+            "quiet gear bay",
+            "vague board",
+            "vague prop wall",
+            "one man in profile",
+            "brooding profile",
             "seated alley brood",
             "brooding alley",
             "moody alley",
@@ -1116,6 +1166,8 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
             "safehouse edge",
         )
     ):
+        return True
+    if target == "assets/hero/chummer6-hero.png" and infer_cast_signature(contract) == "solo":
         return True
     if target == "assets/hero/poc-warning.png" and any(
         token in lowered for token in ("desk still life", "scarred desk", "workbench", "coffee ring")
@@ -1164,8 +1216,12 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
             "empty road",
             "empty roadway",
             "single roadway",
+            "mostly empty roadway",
+            "empty interchange",
             "one symbol",
             "one marker",
+            "lone centered silhouette",
+            "single corridor vanishing point",
             "future table pains",
             "storefronts",
         )
@@ -1210,7 +1266,22 @@ def row_has_stale_override_drift(*, target: str, row: dict[str, object]) -> bool
         return True
     if target == "assets/horizons/karma-forge.png" and any(
         token in lowered
-        for token in ("literal blacksmith", "anvil", "forge fire", "medieval", "smithy", "hammering metal")
+        for token in (
+            "literal blacksmith",
+            "anvil",
+            "forge fire",
+            "medieval",
+            "smithy",
+            "hammering metal",
+            "generic card tinkering",
+            "glowing cards",
+            "generic console tinkering",
+            "single operator at a console",
+            "single operator in a glow void",
+            "one operator at a console",
+            "quiet desk still life",
+            "semantically empty glow props",
+        )
     ):
         return True
     if target == "assets/horizons/karma-forge.png" and any(
@@ -2586,6 +2657,42 @@ def visual_audit_enabled(*, target: str) -> bool:
     return first_contact_target(target) and Image is not None
 
 
+def _overlay_font():
+    if ImageFont is None:
+        return None
+    try:
+        return ImageFont.load_default()
+    except Exception:  # pragma: no cover - defensive only
+        return None
+
+
+def _text_box(draw, text: str, *, font) -> tuple[int, int]:
+    try:
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+        return max(1, right - left), max(1, bottom - top)
+    except Exception:  # pragma: no cover - compatibility path
+        width, height = draw.textsize(text, font=font)
+        return max(1, int(width)), max(1, int(height))
+
+
+def _draw_overlay_chip(draw, *, x: int, y: int, text: str, color: tuple[int, int, int, int]) -> None:
+    if not text:
+        return
+    font = _overlay_font()
+    text_w, text_h = _text_box(draw, text, font=font)
+    pad_x = 6
+    pad_y = 4
+    fill = (color[0], color[1], color[2], max(42, min(color[3] // 2, 88)))
+    draw.rounded_rectangle(
+        (x, y, x + text_w + pad_x * 2, y + text_h + pad_y * 2),
+        outline=color,
+        fill=fill,
+        width=2,
+        radius=6,
+    )
+    draw.text((x + pad_x, y + pad_y - 1), text, fill=(241, 246, 250, 220), font=font)
+
+
 def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
     if not first_contact_target(str(spec.get("target") or "")):
         return "first_contact_overlay:skipped"
@@ -2606,9 +2713,14 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
         if target == "assets/hero/chummer6-hero.png":
             draw.rounded_rectangle((int(w * 0.12), int(h * 0.54), int(w * 0.22), int(h * 0.72)), outline=cyan, width=2, radius=8)
             draw.rounded_rectangle((int(w * 0.56), int(h * 0.64), int(w * 0.78), int(h * 0.88)), outline=cyan, width=2, radius=8)
+            draw.rounded_rectangle((int(w * 0.63), int(h * 0.2), int(w * 0.88), int(h * 0.36)), outline=amber, width=2, radius=8)
             draw.line((int(w * 0.18), int(h * 0.63), int(w * 0.34), int(h * 0.58)), fill=cyan, width=2)
             draw.line((int(w * 0.67), int(h * 0.76), int(w * 0.49), int(h * 0.73)), fill=amber, width=2)
+            draw.line((int(w * 0.71), int(h * 0.29), int(w * 0.54), int(h * 0.4)), fill=amber, width=2)
             draw.arc((int(w * 0.46), int(h * 0.27), int(w * 0.62), int(h * 0.43)), start=210, end=330, fill=cyan, width=2)
+            _draw_overlay_chip(draw, x=int(w * 0.12), y=int(h * 0.49), text="TRUST CHECK", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.56), y=int(h * 0.59), text="FIT DELTA", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.63), y=int(h * 0.15), text="UPGRADING", color=amber)
         elif target == "assets/pages/horizons-index.png":
             for index, color in enumerate((amber, cyan, amber)):
                 offset = int(w * (0.16 + index * 0.22))
@@ -2616,6 +2728,9 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             draw.line((int(w * 0.2), int(h * 0.73), int(w * 0.38), int(h * 0.64)), fill=cyan, width=2)
             draw.line((int(w * 0.5), int(h * 0.7), int(w * 0.62), int(h * 0.58)), fill=amber, width=2)
             draw.line((int(w * 0.73), int(h * 0.7), int(w * 0.84), int(h * 0.63)), fill=cyan, width=2)
+            _draw_overlay_chip(draw, x=int(w * 0.12), y=int(h * 0.68), text="ALT-A", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.42), y=int(h * 0.65), text="ALT-B", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.7), y=int(h * 0.66), text="ALT-C", color=amber)
         elif target == "assets/horizons/karma-forge.png":
             draw.rounded_rectangle((int(w * 0.08), int(h * 0.72), int(w * 0.26), int(h * 0.87)), outline=amber, width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.34), int(h * 0.68), int(w * 0.5), int(h * 0.83)), outline=cyan, width=2, radius=6)
@@ -2623,6 +2738,10 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             draw.line((int(w * 0.26), int(h * 0.79), int(w * 0.34), int(h * 0.75)), fill=cyan, width=2)
             draw.line((int(w * 0.5), int(h * 0.75), int(w * 0.68), int(h * 0.29)), fill=amber, width=2)
             draw.arc((int(w * 0.57), int(h * 0.18), int(w * 0.92), int(h * 0.52)), start=180, end=265, fill=red, width=3)
+            _draw_overlay_chip(draw, x=int(w * 0.08), y=int(h * 0.66), text="DIFF", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.34), y=int(h * 0.62), text="APPROVAL", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.62), y=int(h * 0.14), text="ROLLBACK", color=red)
+            _draw_overlay_chip(draw, x=int(w * 0.62), y=int(h * 0.43), text="PROVENANCE", color=cyan)
         else:
             return "first_contact_overlay:skipped"
 
@@ -2688,6 +2807,19 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
             max_dark_flat_tiles = min(max_dark_flat_tiles, 4)
         if flash_level == "bold":
             required_bright_tiles = max(required_bright_tiles, 2)
+        if target == "assets/hero/chummer6-hero.png":
+            required_active_tiles = max(required_active_tiles, 7)
+            required_bright_tiles = max(required_bright_tiles, 3)
+            required_active_cols = max(required_active_cols, 4)
+            required_active_rows = max(required_active_rows, 3)
+        elif target == "assets/pages/horizons-index.png":
+            required_active_tiles = max(required_active_tiles, 7)
+            required_active_cols = max(required_active_cols, 4)
+        elif target == "assets/horizons/karma-forge.png":
+            required_active_tiles = max(required_active_tiles, 8)
+            required_bright_tiles = max(required_bright_tiles, 3)
+            required_active_cols = max(required_active_cols, 4)
+            required_active_rows = max(required_active_rows, 3)
         if dark_flat_tiles > max_dark_flat_tiles:
             notes.append("visual_audit:dead_negative_space")
             score -= 25
@@ -2784,6 +2916,7 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     overlay_density = str(contract.get("overlay_density") or "").strip().lower()
     negative_space_cap = str(contract.get("negative_space_cap") or "").strip().lower()
     flash_level = str(contract.get("flash_level") or "").strip().lower()
+    person_count_target = str(contract.get("person_count_target") or "").strip().lower()
     anchors = [compact_text(entry, limit=72 if compact else 120) for entry in _string_list(contract.get("must_show_semantic_anchors"))]
     blockers = [compact_text(entry, limit=64 if compact else 110) for entry in _string_list(contract.get("must_not_show"))]
     parts: list[str] = []
@@ -2816,6 +2949,24 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             "Push stronger contrast, sharper focal separation, bolder silhouettes, and more cover-like energy."
             if not compact
             else "bold high-contrast energy"
+        )
+    if person_count_target == "duo_or_team":
+        parts.append(
+            "Prefer two to four people with one focal operator relationship instead of a lone isolated figure."
+            if not compact
+            else "two to four people, not one isolated figure"
+        )
+    elif person_count_target == "plurality_optional":
+        parts.append(
+            "Keep the scene plural; if people appear, they should imply multiple lanes or crews rather than a lone centered silhouette."
+            if not compact
+            else "plural scene, no lone centered silhouette"
+        )
+    elif person_count_target == "duo_preferred":
+        parts.append(
+            "Prefer one active operator plus a visible reviewer, witness, or second pair of hands instead of one isolated person in a glow void."
+            if not compact
+            else "visible second actor or witness"
         )
     if anchors:
         joined = "; ".join(entry for entry in anchors if entry)
@@ -2873,6 +3024,7 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     mood = str(contract.get("mood") or "tense but inviting").strip()
     smartlink = compact_text(smartlink_overlay_clause(contract), limit=88)
     lore = compact_text(lore_background_clause(contract), limit=72)
+    cast_clause = compact_text(cast_prompt_clause_for_target(target), limit=80)
     hard_block = ""
     if target == "assets/hero/chummer6-hero.png":
         hard_block = (
@@ -2904,7 +3056,7 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
         ", ".join(visual_contract_prompt_parts(target=target, compact=True)),
         mood,
         palette,
-        "one focal subject",
+        cast_clause if cast_clause else "one focal subject",
         smartlink if smartlink else "",
         lore if lore else "",
         easter_egg_stub(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
@@ -2956,15 +3108,15 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The runner must stay upright at a prep wall or intake rail; no crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, and no quiet side-profile portrait."
+        hard_block += " The hero must show at least two people in the intake lane, with a streetdoc or support figure clearly present beside the focal runner. No crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, and no quiet side-profile portrait."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
         hard_block += " Keep any device fully secondary or absent; the wall, shelf, glass, and weathered public surface must carry the frame."
     elif target in {"assets/pages/parts-index.png", "assets/pages/horizons-index.png"}:
-        hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or absent, and no title-card centerpiece is allowed. No lone centered silhouette, no central sign panel, no menu slab, no glowing billboard, no single corridor vanishing point, and no directory board may take over the frame."
+        hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or plural, and no title-card centerpiece is allowed. No lone centered silhouette, no central sign panel, no menu slab, no glowing billboard, no single corridor vanishing point, and no directory board may take over the frame."
     elif target == "assets/horizons/karma-forge.png":
-        hard_block += " Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, paper sheets in hand, loose card inspection, or a tabletop spread of cards as the whole scene; publication-control hardware and diff pressure must carry the image."
+        hard_block += " Prefer a visible reviewer, witness, or second active figure near the bench. Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, paper sheets in hand, loose card inspection, or a tabletop spread of cards as the whole scene; publication-control hardware and diff pressure must carry the image."
     elif target == "assets/horizons/runsite.png":
         hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
     elif target == "assets/horizons/runbook-press.png":
@@ -3388,19 +3540,20 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/hero/chummer6-hero.png": {
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. Push for packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder foreground clutter. This is a streetdoc intake bay or prep cage only. No alley-brooding at a crate, no desk glamour, no maintainer wink, and no lonely person nursing a gadget in the rain.",
+            "person_count_target": "duo_or_team",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. Push for packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder foreground clutter. This is a streetdoc intake bay or prep cage with at least two people in frame, not alley-brooding at a crate, not desk glamour, not a maintainer wink, and not a lonely person nursing a gadget in the rain.",
             "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
-            "subject": "one standing runner at a prep wall deciding whether tonight's build can be trusted before stepping back into the rain",
-            "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live all through the room around them",
+            "subject": "a streetdoc and a runner locked in an upgrade trust check while a teammate hovers just inside the prep lane",
+            "action": "the streetdoc is mid-adjustment at the prep rail while the runner braces and layered trust traces, fit checks, and proof anchors live all through the room around them",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: one standing runner at a vertical prep wall framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Push it toward packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder silhouettes. Show the body in three-quarter or over-shoulder posture with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground body posture, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
-            "framing": "medium-wide standing shot with full upper torso, both hands, three-quarter or over-shoulder posture, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible, with strong foreground-midground-background separation; no portrait crop and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, or a quiet low-density mood still",
+            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: a streetdoc works on a runner at a vertical prep rail while a teammate or assistant hovers just behind the lane, all framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Push it toward packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder silhouettes. Show at least two people clearly in frame with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground operator relationship, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
+            "framing": "medium-wide two-or-three-person standing shot with the streetdoc, runner, active hands, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible, with strong foreground-midground-background separation; no portrait crop and no empty negative-space void",
+            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, or a quiet low-density mood still",
             "overlay_hint": "build-state provenance traces, target-posture brackets, fit checks, and trust markers",
             "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],
             "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
-            "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check", "inspection pressure"],
-            "overlay_callouts": ["provenance trace", "fit check", "trust mark", "state delta"],
+            "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check", "inspection pressure", "streetdoc assist"],
+            "overlay_callouts": ["provenance trace", "fit check", "trust mark", "state delta", "upgrade state"],
             "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/hero/poc-warning.png": {
@@ -3481,6 +3634,7 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
             "banned": TABLEAU_COMPOSITIONS,
+            "person_count_target": "plurality_optional",
             "prompt_nudge": "Make this a dense future boulevard of districts and pains, not an icon corridor, menu sign, kiosk, or text-heavy centerpiece. The image should feel like possible Shadowrun lanes worth clicking, with multiple differentiated branches and visible pressure, not a fake UI billboard or a quiet empty road.",
             "subject": "a branching Shadowrun future where several practical lanes peel outward into distinct possible directions",
             "environment": "a rain-dark service interchange with elevated ramps, tunnel mouths, maintenance gantries, branching corridors, route pylons, cable halos, and differentiated lane clutter instead of storefront facades",
@@ -3595,18 +3749,20 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/horizons/karma-forge.png": {
             "required": "workshop_bench",
             "banned": TABLEAU_COMPOSITIONS,
-            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not a committee around glowing furniture. This should feel dense, graphic, and high-pressure, with obvious approval, rollback, provenance, and compatibility logic in the frame.",
-            "subject": "one rulesmith reconciling a volatile house-rule pack through review, diff, and rollback pressure",
+            "person_count_target": "duo_preferred",
+            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not a committee around glowing furniture. This should feel dense, graphic, and high-pressure, with obvious approval, rollback, provenance, and compatibility logic in the frame. Prefer a rulesmith plus reviewer or witness over one isolated operator.",
+            "subject": "a rulesmith and skeptical reviewer reconciling a volatile house-rule pack through review, diff, and rollback pressure",
             "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
+            "action": "the rulesmith drives diff controls while a reviewer leans into the approval rail and rollback lane under visible pressure",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "One rulesmith at an industrial review bench reconciling a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both hands engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show the operator torso and the control hardware together, not anonymous forge hands over flame. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop and not generic glowing-card tinkering. No readable labels.",
-            "framing": "medium shot with torso, both hands on hardware, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
-            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, or any scene without publication-control cues",
+            "replace_visual_prompt": "A rulesmith and skeptical reviewer at an industrial review bench reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together, not anonymous forge hands over flame and not one isolated operator in a glow void. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop and not generic glowing-card tinkering. No readable labels.",
+            "framing": "medium-wide two-person shot with both torsos, active hands on hardware, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
+            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, or any scene without publication-control cues",
             "overlay_hint": "compatibility arcs, diff markers, approval seals, rollback arcs, provenance rails, and control-state brackets",
             "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers"],
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets"],
-            "visual_motifs": ["governed rules bench", "rollback lane", "approval pressure", "controlled experimentation"],
-            "overlay_callouts": ["compatibility seal", "rollback route", "approval band", "control state"],
+            "visual_motifs": ["governed rules bench", "rollback lane", "approval pressure", "controlled experimentation", "review witness"],
+            "overlay_callouts": ["compatibility seal", "rollback route", "approval band", "control state", "provenance lock"],
             "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/horizons/runsite.png": {
@@ -3734,6 +3890,9 @@ def asset_specs() -> list[dict[str, object]]:
                 value = str(visual_contract.get(field) or "").strip()
                 if value:
                     contract[field] = value
+            person_count_target = str(visual_contract.get("person_count_target") or policy.get("person_count_target") or "").strip()
+            if person_count_target:
+                contract["person_count_target"] = person_count_target
             anchors = _string_list(visual_contract.get("must_show_semantic_anchors"))
             if anchors:
                 contract["must_show_semantic_anchors"] = anchors
@@ -3755,6 +3914,16 @@ def asset_specs() -> list[dict[str, object]]:
         palette_override = policy.get("palette")
         if palette_override not in (None, ""):
             contract["palette"] = palette_override
+        cast_target = str(contract.get("person_count_target") or policy.get("person_count_target") or "").strip().lower()
+        cast_signature = infer_cast_signature(contract)
+        if cast_target in {"duo_or_team", "duo_preferred"} and cast_signature == "solo":
+            replacement_subject = str(policy.get("subject") or "").strip()
+            if replacement_subject:
+                contract["subject"] = replacement_subject
+            replacement_action = str(policy.get("action") or "").strip()
+            if replacement_action:
+                contract["action"] = replacement_action
+            notes.append(f"scene_plan_audit:cast_density:solo->{cast_target}")
         cleaned["scene_contract"] = contract
 
         prompt_nudge = str(policy.get("prompt_nudge") or "").strip()

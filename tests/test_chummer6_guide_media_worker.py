@@ -710,12 +710,49 @@ def test_first_contact_target_variant_count_honors_env_override(monkeypatch: pyt
 def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor() -> None:
     media = _load_module()
 
+    hero_contract = media.target_visual_contract("assets/hero/chummer6-hero.png")
     contract = media.target_visual_contract("assets/horizons/karma-forge.png")
 
+    assert hero_contract["person_count_target"] == "duo_or_team"
     assert contract["density_target"] == "high"
     assert contract["overlay_density"] == "high"
+    assert contract["person_count_target"] == "duo_preferred"
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
+
+
+def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
+    media = _load_module()
+
+    hero_parts = media.visual_contract_prompt_parts(target="assets/hero/chummer6-hero.png")
+    forge_parts = media.visual_contract_prompt_parts(target="assets/horizons/karma-forge.png")
+
+    assert any("two to four people" in part.lower() for part in hero_parts)
+    assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
+
+
+def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:
+    media = _load_module()
+
+    assert media.infer_cast_signature({"subject": "a streetdoc and a runner locked in an upgrade trust check"}) == "duo"
+    assert media.infer_cast_signature({"subject": "a crew waiting behind the rail"}) == "group"
+
+
+def test_row_has_stale_override_drift_rejects_quiet_solo_hero_prompt() -> None:
+    media = _load_module()
+
+    stale = media.row_has_stale_override_drift(
+        target="assets/hero/chummer6-hero.png",
+        row={
+            "visual_prompt": "One man in profile beside a vague board in a quiet gear bay.",
+            "scene_contract": {
+                "subject": "one standing runner alone at a prep wall",
+                "composition": "clinic_intake",
+            },
+        },
+    )
+
+    assert stale is True
 
 
 def test_visual_audit_score_flags_dead_negative_space(tmp_path: Path) -> None:
