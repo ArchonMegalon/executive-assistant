@@ -229,53 +229,81 @@ class SkillCatalogService:
         provided_fields: set[str] | None = None,
     ) -> SkillContract:
         resolved_task_key = str(task_key or skill_key).strip() or str(skill_key or "").strip()
+        presence_aware = provided_fields is not None
         provided = set(provided_fields or ())
-        existing_contract = self._task_contracts.get_contract(resolved_task_key)
+        existing_contract = self._task_contracts.get_contract(resolved_task_key) if presence_aware else None
         existing_budget_payload = dict(existing_contract.budget_policy_json or {}) if existing_contract is not None else {}
         existing_runtime_payload = (
             serialize_task_contract_runtime_policy(existing_contract.runtime_policy())
             if existing_contract is not None
             else {}
         )
-        merged_runtime_payload = dict(existing_runtime_payload)
-        if "budget_policy_json" in provided and budget_policy_json is not None:
-            merged_runtime_payload = self._deep_merge_dict(merged_runtime_payload, dict(budget_policy_json))
-        if "runtime_policy_json" in provided and runtime_policy_json is not None:
-            merged_runtime_payload = self._deep_merge_dict(merged_runtime_payload, dict(runtime_policy_json))
-        if existing_contract is None and not merged_runtime_payload:
-            merged_runtime_payload = dict(runtime_policy_json or {})
-        base_policy = parse_task_contract_runtime_policy(
-            existing_budget_payload if existing_contract is not None else dict(budget_policy_json or {}),
-            merged_runtime_payload,
-        )
-        if "budget_policy_json" in provided:
-            budget_payload_for_write = dict(budget_policy_json or {})
-        elif existing_contract is not None:
-            budget_payload_for_write = dict(existing_budget_payload)
+        if presence_aware:
+            merged_runtime_payload = dict(existing_runtime_payload)
+            if "budget_policy_json" in provided and budget_policy_json is not None:
+                merged_runtime_payload = self._deep_merge_dict(merged_runtime_payload, dict(budget_policy_json))
+            if "runtime_policy_json" in provided and runtime_policy_json is not None:
+                merged_runtime_payload = self._deep_merge_dict(merged_runtime_payload, dict(runtime_policy_json))
+            if existing_contract is None and not merged_runtime_payload:
+                merged_runtime_payload = dict(runtime_policy_json or {})
+            base_policy = parse_task_contract_runtime_policy(
+                existing_budget_payload if existing_contract is not None else dict(budget_policy_json or {}),
+                merged_runtime_payload,
+            )
+            if "budget_policy_json" in provided:
+                budget_payload_for_write = dict(budget_policy_json or {})
+            elif existing_contract is not None:
+                budget_payload_for_write = dict(existing_budget_payload)
+            else:
+                budget_payload_for_write = dict(budget_policy_json or {})
         else:
+            base_policy = parse_task_contract_runtime_policy(
+                dict(budget_policy_json or {}),
+                dict(runtime_policy_json or {}),
+            )
             budget_payload_for_write = dict(budget_policy_json or {})
         base_skill_catalog = base_policy.skill_catalog
         workflow_value = str(base_policy.workflow_template or "rewrite").strip() or "rewrite"
-        if "workflow_template" in provided:
+        if not presence_aware:
+            candidate = str(workflow_template or "").strip()
+            if candidate:
+                workflow_value = candidate
+        elif "workflow_template" in provided:
             candidate = str(workflow_template or "").strip()
             if candidate:
                 workflow_value = candidate
 
-        memory_reads_value = tuple(memory_reads or ()) if "memory_reads" in provided else tuple(base_skill_catalog.memory_reads or ())
-        memory_writes_value = tuple(memory_writes or ()) if "memory_writes" in provided else tuple(base_skill_catalog.memory_writes or ())
-        tags_value = tuple(tags or ()) if "tags" in provided else tuple(base_skill_catalog.tags or ())
-        input_schema_value = dict(input_schema_json or {}) if "input_schema_json" in provided else dict(base_skill_catalog.input_schema_json or {})
-        output_schema_value = dict(output_schema_json or {}) if "output_schema_json" in provided else dict(base_skill_catalog.output_schema_json or {})
-        authority_profile_value = dict(authority_profile_json or {}) if "authority_profile_json" in provided else dict(base_skill_catalog.authority_profile_json or {})
-        model_policy_value = dict(model_policy_json or {}) if "model_policy_json" in provided else dict(base_skill_catalog.model_policy_json or {})
-        provider_hints_value = dict(provider_hints_json or {}) if "provider_hints_json" in provided else dict(base_skill_catalog.provider_hints_json or {})
-        tool_policy_value = dict(tool_policy_json or {}) if "tool_policy_json" in provided else dict(base_skill_catalog.tool_policy_json or {})
-        human_policy_value = dict(human_policy_json or {}) if "human_policy_json" in provided else dict(base_skill_catalog.human_policy_json or {})
-        evaluation_cases_value = (
-            tuple(dict(value) for value in evaluation_cases_json)
-            if "evaluation_cases_json" in provided
-            else tuple(dict(value) for value in base_skill_catalog.evaluation_cases_json)
-        )
+        if presence_aware:
+            memory_reads_value = tuple(memory_reads or ()) if "memory_reads" in provided else tuple(base_skill_catalog.memory_reads or ())
+            memory_writes_value = tuple(memory_writes or ()) if "memory_writes" in provided else tuple(base_skill_catalog.memory_writes or ())
+            tags_value = tuple(tags or ()) if "tags" in provided else tuple(base_skill_catalog.tags or ())
+            input_schema_value = dict(input_schema_json or {}) if "input_schema_json" in provided else dict(base_skill_catalog.input_schema_json or {})
+            output_schema_value = dict(output_schema_json or {}) if "output_schema_json" in provided else dict(base_skill_catalog.output_schema_json or {})
+            authority_profile_value = dict(authority_profile_json or {}) if "authority_profile_json" in provided else dict(base_skill_catalog.authority_profile_json or {})
+            model_policy_value = dict(model_policy_json or {}) if "model_policy_json" in provided else dict(base_skill_catalog.model_policy_json or {})
+            provider_hints_value = dict(provider_hints_json or {}) if "provider_hints_json" in provided else dict(base_skill_catalog.provider_hints_json or {})
+            tool_policy_value = dict(tool_policy_json or {}) if "tool_policy_json" in provided else dict(base_skill_catalog.tool_policy_json or {})
+            human_policy_value = dict(human_policy_json or {}) if "human_policy_json" in provided else dict(base_skill_catalog.human_policy_json or {})
+            evaluation_cases_value = (
+                tuple(dict(value) for value in evaluation_cases_json)
+                if "evaluation_cases_json" in provided
+                else tuple(dict(value) for value in base_skill_catalog.evaluation_cases_json)
+            )
+        else:
+            memory_reads_value = tuple(memory_reads) or tuple(base_skill_catalog.memory_reads or ())
+            memory_writes_value = tuple(memory_writes) or tuple(base_skill_catalog.memory_writes or ())
+            tags_value = tuple(tags) or tuple(base_skill_catalog.tags or ())
+            input_schema_value = dict(input_schema_json or {}) or dict(base_skill_catalog.input_schema_json or {})
+            output_schema_value = dict(output_schema_json or {}) or dict(base_skill_catalog.output_schema_json or {})
+            authority_profile_value = dict(authority_profile_json or {}) or dict(base_skill_catalog.authority_profile_json or {})
+            model_policy_value = dict(model_policy_json or {}) or dict(base_skill_catalog.model_policy_json or {})
+            provider_hints_value = dict(provider_hints_json or {}) or dict(base_skill_catalog.provider_hints_json or {})
+            tool_policy_value = dict(tool_policy_json or {}) or dict(base_skill_catalog.tool_policy_json or {})
+            human_policy_value = dict(human_policy_json or {}) or dict(base_skill_catalog.human_policy_json or {})
+            evaluation_cases_value = (
+                tuple(dict(value) for value in evaluation_cases_json)
+                or tuple(dict(value) for value in base_skill_catalog.evaluation_cases_json)
+            )
         runtime_policy = TaskContractRuntimePolicy(
             budget_class=base_policy.budget_class,
             workflow_template=workflow_value,
