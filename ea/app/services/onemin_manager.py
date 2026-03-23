@@ -317,7 +317,63 @@ class OneminManagerService:
             pass
         if configured_slot_count > 0 and len(slots) < configured_slot_count:
             return False
+        observed_freshness = self._provider_health_freshness_epoch(provider_health=provider_health)
+        persisted_freshness = self._persisted_state_freshness_epoch()
+        freshness_tolerance = float(self._env_int("EA_ONEMIN_STATE_SYNC_STALENESS_TOLERANCE_SECONDS", 300))
+        if persisted_freshness > 0:
+            if observed_freshness <= 0:
+                return False
+            if observed_freshness + freshness_tolerance < persisted_freshness:
+                return False
         return True
+
+    def _freshness_epoch(self, value: object) -> float:
+        if isinstance(value, (int, float)):
+            try:
+                return max(0.0, float(value))
+            except Exception:
+                return 0.0
+        text = str(value or "").strip()
+        if not text:
+            return 0.0
+        try:
+            numeric = float(text)
+        except Exception:
+            numeric = 0.0
+        if numeric > 0:
+            return numeric
+        parsed = self._parse_iso(text)
+        if parsed is None:
+            return 0.0
+        return parsed.timestamp()
+
+    def _provider_health_freshness_epoch(self, *, provider_health: dict[str, object]) -> float:
+        onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
+        freshest = 0.0
+        for key in ("last_probe_at", "last_actual_balance_at"):
+            freshest = max(freshest, self._freshness_epoch(onemin.get(key)))
+        for slot in onemin.get("slots") or []:
+            if not isinstance(slot, dict):
+                continue
+            for key in (
+                "last_billing_snapshot_at",
+                "member_reconciliation_at",
+                "last_balance_observed_at",
+                "last_probe_at",
+                "last_success_at",
+            ):
+                freshest = max(freshest, self._freshness_epoch(slot.get(key)))
+        return freshest
+
+    def _persisted_state_freshness_epoch(self) -> float:
+        freshest = 0.0
+        for account in self._repo.list_accounts():
+            freshest = max(freshest, self._freshness_epoch(account.last_billing_snapshot_at))
+            freshest = max(freshest, self._freshness_epoch(account.last_member_reconciliation_at))
+        for credential in self._repo.list_credentials():
+            freshest = max(freshest, self._freshness_epoch(credential.last_probe_at))
+            freshest = max(freshest, self._freshness_epoch(credential.last_success_at))
+        return freshest
 
     def _candidate_allowed(
         self,
@@ -695,8 +751,10 @@ class OneminManagerService:
         *,
         provider_health: dict[str, object],
         binding_rows: list[object] | None = None,
+        principal_id: str = "",
     ) -> list[dict[str, object]]:
         self._sync_state(provider_health=provider_health)
+        normalized_principal = str(principal_id or "").strip()
         binding_map = self._binding_map(binding_rows)
         credentials_by_account: dict[str, list[OneminCredential]] = {}
         for credential in self._repo.list_credentials():
@@ -710,9 +768,16 @@ class OneminManagerService:
             account_leases = leases_by_account.get(account.account_id, [])
             details_json = dict(account.details_json or {})
             binding_ids = list(binding_map.get(account.account_id, binding_map.get(account.account_label, [])))
+            if normalized_principal and not binding_ids:
+                continue
+            credential_rows = [asdict(item) for item in sorted(account_credentials, key=lambda row: (row.slot_name, row.credential_id))]
+            if normalized_principal:
+                for item in credential_rows:
+                    item.pop("secret_env_name", None)
             rows.append(
                 {
                     **asdict(account),
+                    **({"owner_email": "", "owner_name": ""} if normalized_principal else {}),
                     "browseract_binding_id": binding_ids[0] if binding_ids else "",
                     "browseract_binding_ids": binding_ids,
                     "credit_basis": str(details_json.get("credit_basis") or "unknown"),
@@ -733,7 +798,7 @@ class OneminManagerService:
                             if str((lease.metadata_json or {}).get("task_class") or "").strip()
                         }
                     ),
-                    "credentials": [asdict(item) for item in sorted(account_credentials, key=lambda row: (row.slot_name, row.credential_id))],
+                    "credentials": credential_rows,
                 }
             )
         return rows
@@ -745,7 +810,11 @@ class OneminManagerService:
         binding_rows: list[object] | None = None,
         principal_id: str = "",
     ) -> dict[str, object]:
-        accounts = self.accounts_snapshot(provider_health=provider_health, binding_rows=binding_rows)
+        accounts = self.accounts_snapshot(
+            provider_health=provider_health,
+            binding_rows=binding_rows,
+            principal_id=principal_id,
+        )
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
         remaining_total = sum(float(item.get("remaining_credits") or 0.0) for item in accounts)
         max_total = sum(float(item.get("max_credits") or 0.0) for item in accounts)
@@ -851,7 +920,11 @@ class OneminManagerService:
         binding_rows: list[object] | None = None,
         principal_id: str = "",
     ) -> dict[str, object]:
-        accounts = self.accounts_snapshot(provider_health=provider_health, binding_rows=binding_rows)
+        accounts = self.accounts_snapshot(
+            provider_health=provider_health,
+            binding_rows=binding_rows,
+            principal_id=principal_id,
+        )
         bound_accounts = [item for item in accounts if list(item.get("browseract_binding_ids") or [])]
         actual_accounts = [item for item in bound_accounts if bool(item.get("has_actual_billing"))]
         observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in actual_accounts)
@@ -901,8 +974,13 @@ class OneminManagerService:
         *,
         provider_health: dict[str, object],
         binding_rows: list[object] | None = None,
+        principal_id: str = "",
     ) -> dict[str, object]:
-        aggregate = self.aggregate_snapshot(provider_health=provider_health, binding_rows=binding_rows)
+        aggregate = self.aggregate_snapshot(
+            provider_health=provider_health,
+            binding_rows=binding_rows,
+            principal_id=principal_id,
+        )
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
         return asdict(
             OneminRunwayForecast(
