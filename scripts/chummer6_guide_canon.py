@@ -87,6 +87,10 @@ def load_page_registry() -> dict[str, object]:
     return _read_yaml(_source_path("page_registry", "PUBLIC_GUIDE_PAGE_REGISTRY.yaml"))
 
 
+def load_media_briefs() -> dict[str, object]:
+    return _read_yaml(_source_path("public_media_briefs", "PUBLIC_MEDIA_BRIEFS.yaml"))
+
+
 def load_export_manifest() -> dict[str, object]:
     return _read_yaml(design_root() / "PUBLIC_GUIDE_EXPORT_MANIFEST.yaml")
 
