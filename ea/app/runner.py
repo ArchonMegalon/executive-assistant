@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import signal
 import time
@@ -39,10 +40,24 @@ def _run_execution_worker(role: str) -> None:
         if role == "scheduler":
             now = time.time()
             if now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
+                observed_at = datetime.now(timezone.utc)
                 try:
-                    launched = container.proactive_horizon.run_once()
+                    candidates = container.proactive_horizon.scan(now=observed_at)
+                    refreshed_principals = {
+                        str(row.principal_id or "").strip()
+                        for row in candidates
+                        if str(row.principal_id or "").strip()
+                    }
+                    for principal_id in sorted(refreshed_principals):
+                        container.cognitive_load.refresh_for_principal(
+                            principal_id,
+                            now=observed_at,
+                        )
+                    launched = container.proactive_horizon.run_once(now=observed_at)
                     if launched:
                         log.info("role=%s proactive horizon launched=%s", role, len(launched))
+                    if refreshed_principals:
+                        log.debug("role=%s cognitive-load refreshed principals=%s", role, len(refreshed_principals))
                 except Exception:
                     log.exception("role=%s proactive horizon scan failed", role)
                 last_horizon_scan_at = now
