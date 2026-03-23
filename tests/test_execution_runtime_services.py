@@ -113,6 +113,45 @@ def test_execution_step_dependency_service_merges_dependency_outputs_and_filters
     assert "leaked" not in merged
 
 
+def test_execution_step_dependency_service_dependency_outputs_override_seeded_task_input_and_synthesize_diff() -> None:
+    prepare = _step(
+        step_id="step-prepare",
+        step_kind="system_task",
+        state="completed",
+        input_json={"plan_step_key": "step_input_prepare"},
+        output_json={"normalized_text": "original text", "source_text": "original text", "text_length": 13},
+    )
+    structured = _step(
+        step_id="step-structured",
+        step_kind="tool_call",
+        state="completed",
+        input_json={"plan_step_key": "step_structured_generate", "depends_on": ["step_input_prepare"]},
+        output_json={"normalized_text": "revised text", "preview_text": "revised text"},
+    )
+    review = _step(
+        step_id="step-review",
+        step_kind="tool_call",
+        state="queued",
+        input_json={
+            "plan_step_key": "step_reasoned_patch_review",
+            "depends_on": ["step_structured_generate"],
+            "input_keys": ["normalized_text", "source_text", "diff_text"],
+            "source_text": "seeded source",
+            "normalized_text": "seeded original",
+        },
+    )
+    service = ExecutionStepDependencyService(
+        get_step=lambda step_id: None,
+        steps_for_session=lambda session_id: [prepare, structured, review],
+    )
+
+    merged = service.merged_step_input_json("session-1", review)
+
+    assert merged["source_text"] == "seeded source"
+    assert merged["normalized_text"] == "revised text"
+    assert "revised text" in merged["diff_text"] or "+revised text" in merged["diff_text"]
+
+
 def test_execution_step_dependency_service_selects_latest_approval_target_step() -> None:
     prepare = _step(
         step_id="step-prepare",

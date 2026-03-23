@@ -111,6 +111,70 @@ def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> 
         )
 
 
+def test_tool_execution_service_executes_structured_generate_via_brain_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_execute(self, request, definition):
+        prompt = str((request.payload_json or {}).get("prompt") or (request.payload_json or {}).get("normalized_text") or "")
+        assert "Summarize fleet health" in prompt
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "content.generate") or "content.generate",
+            target_ref="gemini-vortex:test",
+            output_json={
+                "normalized_text": '{"summary":"healthy"}',
+                "structured_output_json": {"summary": "healthy"},
+                "preview_text": '{"summary":"healthy"}',
+                "mime_type": "application/json",
+                "provider_backend": "gemini-cli",
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "provider_key": "gemini_vortex",
+            },
+            model_name="gemini-2.5-flash",
+            tokens_in=19,
+            tokens_out=7,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_gemini_vortex_adapter.GeminiVortexToolAdapter.execute",
+        _fake_execute,
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-brain-router-1",
+            step_id="step-brain-router-1",
+            tool_name="provider.brain_router.structured_generate",
+            action_kind="content.generate",
+            payload_json={
+                "brain_profile": "groundwork",
+                "provider_hint_order": ["gemini_vortex"],
+                "allowed_tools": ["provider.gemini_vortex.structured_generate", "artifact_repository"],
+                "normalized_text": "Summarize fleet health.",
+                "prompt": "Summarize fleet health.",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.gemini_vortex.structured_generate"
+    assert result.output_json["structured_output_json"]["summary"] == "healthy"
+    assert result.output_json["brain_profile"] == "groundwork"
+    assert result.output_json["routed_provider_key"] == "gemini_vortex"
+    assert result.receipt_json["logical_tool_name"] == "provider.brain_router.structured_generate"
+
+
 def test_provider_registry_exposes_binding_states(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BROWSERLY_API_KEY", "browserly-test-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")

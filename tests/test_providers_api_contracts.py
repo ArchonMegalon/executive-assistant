@@ -255,6 +255,60 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
 
 
+def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/onboarding/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-onboarding-callback")
+
+    started = owner.post(
+        "/v1/onboarding/google/start",
+        json={"scope_bundle": "full_workspace"},
+    )
+    assert started.status_code == 200
+    started_body = started.json()
+    assert started_body["google_start"]["ready"] is True
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(started_body["google_start"]["auth_url"]).query)["state"][0]
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.metadata https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-onboarding",
+            "email": "onboarding@gmail.example",
+            "hd": "gmail.example",
+        },
+    )
+
+    callback = owner.get(
+        "/v1/onboarding/google/callback",
+        params={"code": "code-123", "state": state},
+    )
+    assert callback.status_code == 200
+    callback_body = callback.json()
+    assert callback_body["provider_key"] == "google_gmail"
+    assert callback_body["principal_id"] == "exec-onboarding-callback"
+    assert callback_body["google_email"] == "onboarding@gmail.example"
+    assert callback_body["connector_binding_id"]
+    assert "https://www.googleapis.com/auth/gmail.metadata" in callback_body["granted_scopes"]
+    assert "https://www.googleapis.com/auth/calendar.readonly" in callback_body["granted_scopes"]
+
+
 def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
@@ -272,9 +326,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     setup = owner.get("/setup")
     assert setup.status_code == 200
-    assert "Create Workspace" in setup.text
-    assert "Choose WhatsApp Path" in setup.text
-    assert "Choose the smallest honest Google bundle" in setup.text
+    assert "Create your assistant workspace" in setup.text
+    assert "Connect WhatsApp" in setup.text
+    assert "Google Core is the practical default" in setup.text
 
     privacy = owner.get("/privacy")
     assert privacy.status_code == 200
@@ -701,6 +755,97 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
         "ONEMIN_AI_API_KEY_FALLBACK_1",
         "ONEMIN_AI_API_KEY_FALLBACK_2",
     ]
+
+
+def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actual_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1")
+    from app.api.routes import providers as providers_route
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "owner@example.com",
+            "auth_metadata_json": {
+                "onemin_account_name": "ONEMIN_AI_API_KEY",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "configured_slots": 3,
+                    "estimated_burn_credits_per_hour": 2400.0,
+                    "estimated_hours_remaining_at_current_pace": 50.0,
+                    "estimated_days_remaining_at_7d_average": 4.5,
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "state": "ready",
+                            "owner_email": "owner@example.com",
+                            "billing_remaining_credits": 1000.0,
+                            "billing_max_credits": 2000.0,
+                            "billing_basis": "actual_billing_usage_page",
+                            "billing_observed_usage_burn_credits_per_hour": 1200.0,
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot": "fallback_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "state": "ready",
+                            "owner_email": "owner@example.com",
+                            "estimated_remaining_credits": 0.0,
+                            "billing_observed_usage_burn_credits_per_hour": 300.0,
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                            "slot": "fallback_2",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                            "state": "ready",
+                            "owner_email": "other@example.com",
+                            "estimated_remaining_credits": 500.0,
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    accounts = owner.get("/v1/providers/onemin/accounts")
+    assert accounts.status_code == 200
+    account_row = next(row for row in accounts.json()["accounts"] if row["account_id"] == "ONEMIN_AI_API_KEY")
+    assert account_row["observed_usage_burn_credits_per_hour"] == 1500.0
+    assert account_row["current_burn_credits_per_hour"] == 1500.0
+    assert account_row["burn_basis"] == "observed_usage"
+    assert account_row["slot_count_with_observed_usage_burn"] == 2
+
+    aggregate = owner.get("/v1/providers/onemin/aggregate")
+    assert aggregate.status_code == 200
+    aggregate_body = aggregate.json()
+    assert aggregate_body["observed_usage_burn_credits_per_hour"] == 1500.0
+    assert aggregate_body["estimated_pool_burn_credits_per_hour"] == 2400.0
+    assert aggregate_body["current_burn_credits_per_hour"] == 1500.0
+    assert aggregate_body["burn_basis"] == "observed_usage"
+    assert aggregate_body["bound_observed_usage_burn_credits_per_hour"] == 1500.0
+
+    actual = owner.get("/v1/providers/onemin/actual-credits")
+    assert actual.status_code == 200
+    actual_body = actual.json()
+    assert actual_body["actual_free_credits_total"] == 1000.0
+    assert actual_body["observed_usage_burn_credits_per_hour"] == 1500.0
+    assert actual_body["current_burn_credits_per_hour"] == 1500.0
+    assert actual_body["burn_basis"] == "observed_usage"
+    assert actual_body["global_estimated_pool_burn_credits_per_hour"] == 2400.0
 
 
 def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatch: pytest.MonkeyPatch) -> None:

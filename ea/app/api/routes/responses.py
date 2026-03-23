@@ -69,7 +69,6 @@ _PROMPT_ROUTE_HARD_MODELS = frozenset(
     filter(
         None,
         {
-            str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
             str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
             str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
             "ea-coder-hard",
@@ -712,6 +711,74 @@ def _looks_like_lightweight_ops_query(prompt: str) -> tuple[bool, str]:
     return True, "lightweight_ops_query"
 
 
+def _looks_like_coding_task(prompt: str) -> tuple[bool, str]:
+    normalized = _trim_prompt_route_fillers(_normalized_prompt_route_text(prompt))
+    if not normalized:
+        return False, "empty_prompt"
+    padded = f" {normalized} "
+    coding_prefixes = (
+        "fix ",
+        "implement ",
+        "write ",
+        "edit ",
+        "refactor ",
+        "debug ",
+        "patch ",
+        "review ",
+        "audit ",
+        "investigate ",
+        "trace ",
+        "wire ",
+        "add ",
+        "remove ",
+        "change ",
+        "update ",
+        "create ",
+        "build ",
+    )
+    coding_keywords = (
+        " codebase",
+        " repo",
+        " repository",
+        " file ",
+        " files ",
+        " function",
+        " class ",
+        " api ",
+        " endpoint",
+        " test ",
+        " tests",
+        " bug",
+        " diff",
+        " patch",
+        " traceback",
+        " stack trace",
+        " browseract",
+        " onemin",
+        " codex",
+        " lane",
+        " provider",
+        " routing",
+        " shim",
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        "/docker/",
+        "/v1/",
+        " commit",
+        " push",
+    )
+    if any(marker in normalized for marker in _PROMPT_ROUTE_CODE_MARKERS):
+        return True, "coding_task_requires_core"
+    if any(normalized.startswith(prefix) for prefix in coding_prefixes):
+        return True, "coding_task_requires_core"
+    if any(keyword in padded or keyword in normalized for keyword in coding_keywords):
+        return True, "coding_task_requires_core"
+    return False, "not_coding_task"
+
+
 def _resolve_prompt_route(
     *,
     prompt: str,
@@ -733,6 +800,22 @@ def _resolve_prompt_route(
             reason = demote_reason
         else:
             reason = demote_reason
+    else:
+        normalized_profile = str(original_profile or "").strip().lower()
+        normalized_model = str(original_model or "").strip().lower()
+        coding_task, coding_reason = _looks_like_coding_task(prompt)
+        if coding_task and (
+            not normalized_profile
+            or normalized_profile in {"default", "easy"}
+            or normalized_model in {
+                str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
+                str(FAST_PUBLIC_MODEL or "").strip().lower(),
+            }
+        ):
+            effective_profile = "core"
+            effective_model = "ea-coder-hard"
+            applied = effective_profile != original_profile or effective_model != original_model
+            reason = coding_reason
     trace_profile = str(effective_profile or original_profile or "default")
     trace_line = f"Trace: prompt_route={trace_profile} route_model={effective_model} route_reason={reason}"
     if applied:

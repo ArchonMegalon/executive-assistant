@@ -242,6 +242,28 @@ class OneminManagerService:
             "credit_basis": credit_basis,
         }
 
+    def _account_burn_rollup(self, slots: list[dict[str, object]]) -> dict[str, object]:
+        observed_usage_burn = 0.0
+        observed_usage_slot_count = 0
+        estimated_pool_burn: float | None = None
+        for slot in slots:
+            observed = self._parse_float(slot.get("billing_observed_usage_burn_credits_per_hour"))
+            if observed is not None:
+                observed_usage_burn += max(0.0, observed)
+                observed_usage_slot_count += 1
+            estimated = self._parse_float(slot.get("burn_credits_per_hour"))
+            if estimated is not None and estimated_pool_burn is None:
+                estimated_pool_burn = max(0.0, estimated)
+        current_burn = observed_usage_burn if observed_usage_slot_count > 0 else estimated_pool_burn
+        burn_basis = "observed_usage" if observed_usage_slot_count > 0 else "estimated_pool" if estimated_pool_burn is not None else "unknown"
+        return {
+            "observed_usage_burn_credits_per_hour": round(observed_usage_burn, 2) if observed_usage_slot_count > 0 else None,
+            "slot_count_with_observed_usage_burn": observed_usage_slot_count,
+            "estimated_pool_burn_credits_per_hour": round(estimated_pool_burn, 2) if estimated_pool_burn is not None else None,
+            "current_burn_credits_per_hour": round(current_burn, 2) if current_burn is not None else None,
+            "burn_basis": burn_basis,
+        }
+
     def _floor_credits(self, remaining_credits: float) -> tuple[float, float, float]:
         core_floor = remaining_credits * self._core_floor_ratio()
         reserve = remaining_credits * self._reserve_ratio()
@@ -370,6 +392,7 @@ class OneminManagerService:
             last_billing_snapshot_at = max((str(slot.get("last_billing_snapshot_at") or "").strip() for slot in slots if str(slot.get("last_billing_snapshot_at") or "").strip()), default=None)
             last_member_reconciliation_at = max((str(slot.get("member_reconciliation_at") or "").strip() for slot in slots if str(slot.get("member_reconciliation_at") or "").strip()), default=None)
             credit_rollup = self._account_credit_rollup(slots)
+            burn_rollup = self._account_burn_rollup(slots)
             billing_remaining = self._parse_float(credit_rollup.get("actual_remaining_credits"))
             estimated_remaining = self._parse_float(credit_rollup.get("estimated_remaining_credits")) or 0.0
             remaining_credits = billing_remaining if billing_remaining is not None else estimated_remaining
@@ -402,6 +425,11 @@ class OneminManagerService:
                     "actual_remaining_credits": billing_remaining,
                     "actual_max_credits": self._parse_float(credit_rollup.get("actual_max_credits")),
                     "estimated_remaining_credits": estimated_remaining if estimated_remaining > 0 else 0.0,
+                    "observed_usage_burn_credits_per_hour": self._parse_float(burn_rollup.get("observed_usage_burn_credits_per_hour")),
+                    "slot_count_with_observed_usage_burn": int(burn_rollup.get("slot_count_with_observed_usage_burn") or 0),
+                    "estimated_pool_burn_credits_per_hour": self._parse_float(burn_rollup.get("estimated_pool_burn_credits_per_hour")),
+                    "current_burn_credits_per_hour": self._parse_float(burn_rollup.get("current_burn_credits_per_hour")),
+                    "burn_basis": str(burn_rollup.get("burn_basis") or "unknown"),
                     "active_lease_count": len(account_leases),
                     "active_lease_task_classes": sorted(
                         {
@@ -594,6 +622,11 @@ class OneminManagerService:
                     "actual_remaining_credits": self._parse_float(details_json.get("actual_remaining_credits")),
                     "actual_max_credits": self._parse_float(details_json.get("actual_max_credits")),
                     "estimated_remaining_credits": self._parse_float(details_json.get("estimated_remaining_credits")),
+                    "observed_usage_burn_credits_per_hour": self._parse_float(details_json.get("observed_usage_burn_credits_per_hour")),
+                    "slot_count_with_observed_usage_burn": int(details_json.get("slot_count_with_observed_usage_burn") or 0),
+                    "estimated_pool_burn_credits_per_hour": self._parse_float(details_json.get("estimated_pool_burn_credits_per_hour")),
+                    "current_burn_credits_per_hour": self._parse_float(details_json.get("current_burn_credits_per_hour")),
+                    "burn_basis": str(details_json.get("burn_basis") or "unknown"),
                     "active_lease_count": len(account_leases),
                     "active_lease_task_classes": sorted(
                         {
@@ -634,6 +667,15 @@ class OneminManagerService:
             for item in bound_accounts
             if not bool(item.get("has_actual_billing"))
         )
+        observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in accounts)
+        observed_usage_burn_account_count = sum(1 for item in accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, ""))
+        estimated_pool_burn = self._parse_float(onemin.get("estimated_burn_credits_per_hour"))
+        current_burn = round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else estimated_pool_burn
+        burn_basis = "observed_usage" if observed_usage_burn_account_count > 0 else "estimated_pool" if estimated_pool_burn is not None else "unknown"
+        bound_observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in bound_accounts)
+        bound_observed_usage_burn_account_count = sum(
+            1 for item in bound_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
+        )
         active_leases = [lease for lease in self.leases_snapshot() if str(lease.get("status") or "") in {"reserved", "in_flight"}]
         return {
             "provider_key": "onemin",
@@ -648,6 +690,11 @@ class OneminManagerService:
             "core_floor_credits_total": core_floor_total,
             "image_spendable_credits_total": image_spendable_total,
             "reserve_credits_total": reserve_total,
+            "observed_usage_burn_credits_per_hour": round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else None,
+            "observed_usage_burn_account_count": observed_usage_burn_account_count,
+            "estimated_pool_burn_credits_per_hour": estimated_pool_burn,
+            "current_burn_credits_per_hour": current_burn,
+            "burn_basis": burn_basis,
             "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
             "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
             "days_remaining_at_7d_average": onemin.get("estimated_days_remaining_at_7d_average"),
@@ -658,6 +705,10 @@ class OneminManagerService:
             "bound_actual_billing_account_count": len(bound_actual_accounts),
             "bound_actual_free_credits_total": bound_actual_free_total,
             "bound_estimated_free_credits_total": bound_estimated_free_total,
+            "bound_observed_usage_burn_credits_per_hour": round(bound_observed_usage_burn_total, 2)
+            if bound_observed_usage_burn_account_count > 0
+            else None,
+            "bound_observed_usage_burn_account_count": bound_observed_usage_burn_account_count,
             "member_reconciled_account_count": sum(1 for item in accounts if item.get("last_member_reconciliation_at")),
             "accounts": accounts,
         }
@@ -672,6 +723,11 @@ class OneminManagerService:
         accounts = self.accounts_snapshot(provider_health=provider_health, binding_rows=binding_rows)
         bound_accounts = [item for item in accounts if list(item.get("browseract_binding_ids") or [])]
         actual_accounts = [item for item in bound_accounts if bool(item.get("has_actual_billing"))]
+        observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in actual_accounts)
+        observed_usage_burn_account_count = sum(
+            1 for item in actual_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
+        )
+        estimated_pool_burn = self._parse_float(dict(((provider_health.get("providers") or {}).get("onemin") or {})).get("estimated_burn_credits_per_hour"))
         return {
             "provider_key": "onemin",
             "principal_id": principal_id,
@@ -679,6 +735,11 @@ class OneminManagerService:
             "actual_billing_account_count": len(actual_accounts),
             "actual_free_credits_total": sum(float(item.get("actual_remaining_credits") or 0.0) for item in actual_accounts),
             "actual_max_credits_total": sum(float(item.get("actual_max_credits") or item.get("max_credits") or 0.0) for item in actual_accounts),
+            "observed_usage_burn_credits_per_hour": round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else None,
+            "observed_usage_burn_account_count": observed_usage_burn_account_count,
+            "current_burn_credits_per_hour": round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else None,
+            "burn_basis": "observed_usage" if observed_usage_burn_account_count > 0 else "unknown",
+            "global_estimated_pool_burn_credits_per_hour": estimated_pool_burn,
             "accounts_without_actual_billing_count": sum(1 for item in bound_accounts if not bool(item.get("has_actual_billing"))),
             "accounts": [
                 {
@@ -688,6 +749,9 @@ class OneminManagerService:
                     "remaining_credits": self._parse_float(item.get("actual_remaining_credits")),
                     "max_credits": self._parse_float(item.get("actual_max_credits") or item.get("max_credits")),
                     "credit_basis": str(item.get("credit_basis") or "unknown"),
+                    "observed_usage_burn_credits_per_hour": self._parse_float(item.get("observed_usage_burn_credits_per_hour")),
+                    "current_burn_credits_per_hour": self._parse_float(item.get("current_burn_credits_per_hour")),
+                    "burn_basis": str(item.get("burn_basis") or "unknown"),
                     "last_billing_snapshot_at": item.get("last_billing_snapshot_at"),
                     "last_member_reconciliation_at": item.get("last_member_reconciliation_at"),
                     "browseract_binding_ids": list(item.get("browseract_binding_ids") or []),

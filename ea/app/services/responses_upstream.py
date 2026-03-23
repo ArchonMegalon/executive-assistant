@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import math
 import json
@@ -112,7 +112,7 @@ _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 _ONEMIN_MAX_REQUESTS_PER_HOUR = 0
 _ONEMIN_MAX_CREDITS_PER_HOUR = 80000
 _ONEMIN_MAX_CREDITS_PER_DAY = 600000
-_DEFAULT_LANE_PROFILE = "core"
+_DEFAULT_LANE_PROFILE = "easy"
 _DEFAULT_FLEET_STATUS_CACHE_SECONDS = 60
 _DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS = 2.0
 _FLEET_JURY_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": {}}
@@ -135,6 +135,61 @@ def _resolve_default_response_lane() -> str:
     if raw in {"expensive", "strong", "premium"}:
         return _LANE_HARD
     return _DEFAULT_LANE_PROFILE
+
+
+def _parse_utc_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _hard_default_min_remaining_percent() -> float:
+    return _to_float(_env("EA_RESPONSES_HARD_DEFAULT_MIN_REMAINING_PERCENT", "5.0"), 5.0, minimum=0.0, maximum=100.0)
+
+
+def _hard_default_max_unknown_slots() -> int:
+    return _to_int(_env("EA_RESPONSES_HARD_DEFAULT_MAX_UNKNOWN_SLOTS", "0"), 0, minimum=0, maximum=1000)
+
+
+def _hard_default_admitted() -> tuple[bool, str]:
+    onemin = dict(((_provider_health_report().get("providers") or {}).get("onemin") or {}))
+    state = str(onemin.get("state") or "").strip().lower()
+    if state and state != "ready":
+        return False, "onemin_not_ready"
+    remaining_percent = onemin.get("remaining_percent_of_max")
+    try:
+        remaining_percent_value = float(remaining_percent) if remaining_percent not in (None, "") else None
+    except Exception:
+        remaining_percent_value = None
+    if remaining_percent_value is None:
+        return False, "onemin_unknown_remaining"
+    if remaining_percent_value < _hard_default_min_remaining_percent():
+        return False, "onemin_low_remaining"
+    unknown_slots = _to_int(onemin.get("unknown_balance_slots"), 0, minimum=0, maximum=100000)
+    if unknown_slots > _hard_default_max_unknown_slots():
+        return False, "onemin_unknown_slots"
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=_onemin_background_refresh_stale_seconds())
+    last_actual = _parse_utc_datetime(onemin.get("last_actual_balance_at"))
+    last_probe = _parse_utc_datetime(onemin.get("last_probe_at"))
+    freshness = max((item for item in (last_actual, last_probe) if item is not None), default=None)
+    if freshness is None or freshness < stale_cutoff:
+        return False, "onemin_stale_health"
+    return True, "onemin_ready"
+
+
+def _effective_default_response_lane() -> str:
+    lane = _resolve_default_response_lane()
+    if lane != _LANE_HARD:
+        return lane
+    admitted, _ = _hard_default_admitted()
+    return _LANE_HARD if admitted else _LANE_FAST
 
 
 def _to_float(
@@ -2723,7 +2778,7 @@ def _cheap_provider_order() -> tuple[str, ...]:
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
     normalized = str(requested_model or "").strip().lower()
     if normalized == "":
-        return _resolve_default_response_lane()
+        return _effective_default_response_lane()
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
         return _LANE_REVIEW_LIGHT
     if normalized in {"ea-review", "ea-critic"}:
@@ -2743,7 +2798,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
     if normalized == "ea-overflow":
         return _LANE_OVERFLOW
     if normalized == DEFAULT_PUBLIC_MODEL:
-        return _resolve_default_response_lane()
+        return _effective_default_response_lane()
     return _LANE_DEFAULT
 
 

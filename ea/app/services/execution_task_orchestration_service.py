@@ -281,6 +281,10 @@ class ExecutionTaskOrchestrationService:
         if plan_step.step_kind != "tool_call":
             return ""
         tool_name = str(plan_step.tool_name or "").strip()
+        if tool_name == "provider.brain_router.structured_generate":
+            return "content.generate"
+        if tool_name == "provider.brain_router.reasoned_patch_review":
+            return "audit.review_light"
         if tool_name == "connector.dispatch":
             return "delivery.send"
         if tool_name == "browseract.extract_account_inventory":
@@ -432,6 +436,14 @@ class ExecutionTaskOrchestrationService:
                     "authority_required": plan_step.authority_required,
                     "why_human": plan_step.why_human,
                     "quality_rubric_json": dict(plan_step.quality_rubric_json),
+                    "brain_profile": plan_step.brain_profile,
+                    "posthoc_review_profile": plan_step.posthoc_review_profile,
+                    "fallback_brain_profile": plan_step.fallback_brain_profile,
+                    "provider_hint_order": list(plan_step.provider_hint_order),
+                    "routed_provider_key": plan_step.routed_provider_key,
+                    "routed_capability_key": plan_step.routed_capability_key,
+                    "routed_public_model": plan_step.routed_public_model,
+                    "allowed_tools": list(session.intent.allowed_tools),
                     "step_index": index,
                     "step_count": len(plan_steps),
                 },
