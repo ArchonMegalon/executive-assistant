@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 
 import pytest
@@ -67,11 +68,6 @@ def test_responses_non_stream_returns_response_object(monkeypatch: pytest.Monkey
     assert body["metadata"]["principal_id"] == "codex-test"
     assert body["metadata"]["upstream_provider"] == "magixai"
     assert body["metadata"]["upstream_model"] == "anthropic/claude-3.5-sonnet"
-    assert body["store"] is True
-    assert body["parallel_tool_calls"] is None
-    assert body["tool_choice"] is None
-    assert body["tools"] is None
-    assert body["previous_response_id"] is None
 
 
 def test_responses_stream_emits_sse_events(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,34 +140,55 @@ def test_responses_stream_emits_keepalive_while_waiting(monkeypatch: pytest.Monk
     assert "event: response.completed" in body
 
 
-def test_responses_stream_emits_heartbeat_events_while_tool_decision_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-stream-retrieval")
+    read_client = _client(principal_id="codex-stream-retrieval")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        time.sleep(0.05)
+        return UpstreamResult(
+            text="stream lifecycle",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=2,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream("POST", "/v1/responses", json={"input": "stream lifecycle", "stream": True}) as resp:
+        assert resp.status_code == 200
+        buffer = ""
+        response_id = ""
+        for chunk in resp.iter_text():
+            buffer += chunk
+            if "event: response.created" not in buffer:
+                continue
+            match = re.search(r'"id":"(resp_[^"]+)"', buffer)
+            if match:
+                response_id = match.group(1)
+                break
+        assert response_id
+        retrieved = read_client.get(f"/v1/responses/{response_id}")
+        assert retrieved.status_code == 200
+        assert retrieved.json()["status"] == "in_progress"
+        # Drain remaining SSE payload to let the stream complete cleanly.
+        _ = "".join(resp.iter_text())
+
+
+def test_responses_stream_rejects_unsupported_tools_field(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
-    def fake_tool_decision(
-        *,
-        model: str,
-        max_output_tokens: int | None,
-        instructions: str | None,
-        tools: list[dict[str, object]],
-        history_items: list[dict[str, object]],
-        **_: object,
-    ) -> responses._ToolShimDecision:
-        time.sleep(0.03)
-        return responses._ToolShimDecision(
-            kind="function_call",
-            tool_name="exec_command",
-            arguments={"cmd": "pwd"},
-            upstream_result=UpstreamResult(
-                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
-                provider_key="onemin",
-                model="gpt-5",
-                tokens_in=2,
-                tokens_out=2,
-            ),
-        )
-
-    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
     monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
 
     with client.stream(
@@ -195,14 +212,10 @@ def test_responses_stream_emits_heartbeat_events_while_tool_decision_waits(monke
             ],
         },
     ) as resp:
-        assert resp.status_code == 200
-        assert resp.headers["cache-control"] == "no-cache, no-transform"
-        assert resp.headers["x-accel-buffering"] == "no"
+        assert resp.status_code == 400
         body = "".join(resp.iter_text())
 
-    assert '"heartbeat":true' in body
-    assert "event: response.function_call_arguments.done" in body
-    assert '"arguments":"{\\"cmd\\":\\"pwd\\"}"' in body
+    assert "unsupported_fields:tools" in body
 
 
 def test_models_list_returns_responses_aliases() -> None:
@@ -242,29 +255,26 @@ def test_responses_openapi_publishes_explicit_request_and_response_schema() -> N
         "model",
         "input",
         "instructions",
+        "text",
         "metadata",
         "max_output_tokens",
         "stream",
-        "tools",
-        "tool_choice",
-        "parallel_tool_calls",
         "reasoning",
-        "store",
         "include",
         "service_tier",
         "prompt_cache_key",
-        "previous_response_id",
     }
 
     json_response_schema = post_op["responses"]["200"]["content"]["application/json"]["schema"]
     assert "$ref" in json_response_schema
     response_schema_name = json_response_schema["$ref"].split("/")[-1]
     response_props = body["components"]["schemas"][response_schema_name]["properties"]
-    assert "store" in response_props
-    assert "parallel_tool_calls" in response_props
-    assert "tool_choice" in response_props
-    assert "tools" in response_props
-    assert "previous_response_id" in response_props
+    assert "reasoning" in response_props
+    assert "store" not in response_props
+    assert "parallel_tool_calls" not in response_props
+    assert "tool_choice" not in response_props
+    assert "tools" not in response_props
+    assert "previous_response_id" not in response_props
     assert "text/event-stream" in post_op["responses"]["200"]["content"]
 
 
@@ -407,7 +417,7 @@ def test_responses_accepts_prior_assistant_output_text_parts(monkeypatch: pytest
     assert resp.json()["output_text"] == "continued"
 
 
-def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_responses_accepts_supported_optional_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
@@ -438,11 +448,7 @@ def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.Monkey
         json={
             "model": "ea-coder-best",
             "input": "say hi",
-            "tools": [],
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
             "reasoning": {"effort": "medium"},
-            "store": True,
             "include": ["reasoning.encrypted_content"],
             "service_tier": "fast",
             "prompt_cache_key": "cache-key-1",
@@ -452,47 +458,15 @@ def test_responses_accepts_codex_client_compat_fields(monkeypatch: pytest.Monkey
     body = resp.json()
     assert body["output_text"] == "compat-ok"
     assert body["metadata"]["accepted_client_fields"] == [
-        "tool_choice",
-        "parallel_tool_calls",
         "reasoning",
-        "store",
         "include",
         "service_tier",
         "prompt_cache_key",
     ]
-    assert body["store"] is True
-    assert body["tool_choice"] == "auto"
-    assert body["parallel_tool_calls"] is False
-    assert body["tools"] == []
     assert body["reasoning"] == {"effort": "medium"}
 
 
-def test_responses_rejects_unsupported_top_level_fields() -> None:
-    client = _client(principal_id="codex-test")
-
-    resp = client.post(
-        "/v1/responses",
-        json={"input": "say hi", "conversation": "ignored"},
-    )
-    assert resp.status_code == 400
-    assert "unsupported_fields" in resp.text
-
-
-def test_responses_rejects_more_unsupported_top_level_fields() -> None:
-    client = _client(principal_id="codex-test")
-
-    resp = client.post(
-        "/v1/responses",
-        json={
-            "input": "say hi",
-            "background": True,
-        },
-    )
-    assert resp.status_code == 400
-    assert "unsupported_fields" in resp.text
-
-
-def test_responses_store_false_skips_retrieval_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_responses_accepts_text_output_config_field(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
@@ -504,228 +478,62 @@ def test_responses_store_false_skips_retrieval_state(monkeypatch: pytest.MonkeyP
         max_output_tokens: int | None = None,
         **_: object,
     ) -> UpstreamResult:
+        assert prompt == "say hi"
+        assert messages == [{"role": "user", "content": "say hi"}]
+        assert requested_model == "ea-coder-best"
+        assert max_output_tokens is None
         return UpstreamResult(
-            text="no-store",
-            provider_key="magixai",
-            model="openai/gpt-5.1-codex-mini",
-            tokens_in=1,
-            tokens_out=1,
+            text="text-config-ok",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=10,
+            tokens_out=5,
         )
 
     monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
 
-    created = client.post("/v1/responses", json={"input": "ephemeral", "store": False})
-    assert created.status_code == 200
-    response_id = created.json()["id"]
-
-    fetched = client.get(f"/v1/responses/{response_id}")
-    assert fetched.status_code == 404
-
-
-def test_responses_non_stream_can_return_function_call_items(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(principal_id="codex-tools")
-    from app.api.routes import responses
-
-    def fake_tool_decision(**kwargs: object) -> object:
-        tools = kwargs["tools"]
-        assert isinstance(tools, list)
-        assert tools[0]["name"] == "exec_command"
-        return responses._ToolShimDecision(
-            kind="function_call",
-            tool_name="exec_command",
-            arguments={"cmd": "pwd", "workdir": "/docker/fleet"},
-            upstream_result=UpstreamResult(
-                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd","workdir":"/docker/fleet"}}',
-                provider_key="onemin",
-                model="gpt-5",
-                tokens_in=12,
-                tokens_out=8,
-            ),
-        )
-
-    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
-
-    response = client.post(
+    resp = client.post(
         "/v1/responses",
         json={
-            "model": "gpt-5",
-            "input": "Inspect the repo",
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "exec_command",
-                    "description": "Run a shell command",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"cmd": {"type": "string"}},
-                        "required": ["cmd"],
-                        "additionalProperties": False,
-                    },
-                }
-            ],
+            "model": "ea-coder-best",
+            "input": "say hi",
+            "text": {"format": {"type": "text"}},
         },
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["output_text"] == ""
-    assert body["output"][0]["type"] == "function_call"
-    assert body["output"][0]["name"] == "exec_command"
-    assert json.loads(body["output"][0]["arguments"]) == {"cmd": "pwd", "workdir": "/docker/fleet"}
-    assert body["tool_choice"] == "auto"
-    assert body["parallel_tool_calls"] is False
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "text-config-ok"
+    assert body["metadata"]["accepted_client_fields"] == ["text"]
 
 
-def test_responses_stream_can_emit_function_call_events(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(principal_id="codex-tools")
-    from app.api.routes import responses
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("conversation", "ignored"),
+        ("background", True),
+        ("store", False),
+        ("tools", []),
+        ("tool_choice", "auto"),
+        ("parallel_tool_calls", False),
+        ("previous_response_id", "resp_abc123"),
+    ],
+)
+def test_responses_rejects_unsupported_top_level_fields(field: str, value: object) -> None:
+    client = _client(principal_id="codex-test")
 
-    def fake_tool_decision(**_: object) -> object:
-        return responses._ToolShimDecision(
-            kind="function_call",
-            tool_name="exec_command",
-            arguments={"cmd": "pwd"},
-            upstream_result=UpstreamResult(
-                text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
-                provider_key="onemin",
-                model="gpt-5",
-                tokens_in=9,
-                tokens_out=6,
-            ),
-        )
-
-    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
-
-    with client.stream(
-        "POST",
+    resp = client.post(
         "/v1/responses",
-        json={
-            "model": "gpt-5",
-            "input": "Inspect the repo",
-            "stream": True,
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "exec_command",
-                    "description": "Run a shell command",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"cmd": {"type": "string"}},
-                        "required": ["cmd"],
-                        "additionalProperties": False,
-                    },
-                }
-            ],
-        },
-    ) as response:
-        assert response.status_code == 200
-        body = "".join(response.iter_text())
-
-    assert "event: response.output_item.added" in body
-    assert "event: response.function_call_arguments.delta" in body
-    assert "event: response.function_call_arguments.done" in body
-    assert "event: response.completed" in body
-
-
-def test_responses_previous_response_id_chains_function_call_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(principal_id="codex-tools")
-    from app.api.routes import responses
-
-    calls: list[list[dict[str, object]]] = []
-
-    def fake_tool_decision(**kwargs: object) -> object:
-        history_items = kwargs["history_items"]
-        assert isinstance(history_items, list)
-        calls.append(history_items)
-        if len(calls) == 1:
-            return responses._ToolShimDecision(
-                kind="function_call",
-                tool_name="exec_command",
-                arguments={"cmd": "pwd"},
-                upstream_result=UpstreamResult(
-                    text='{"decision":"function_call","name":"exec_command","arguments":{"cmd":"pwd"}}',
-                    provider_key="onemin",
-                    model="gpt-5",
-                    tokens_in=9,
-                    tokens_out=6,
-                ),
-            )
-        assert any(item.get("type") == "function_call" for item in history_items)
-        assert any(item.get("type") == "function_call_output" for item in history_items)
-        return responses._ToolShimDecision(
-            kind="final",
-            text="done",
-            upstream_result=UpstreamResult(
-                text='{"decision":"final","text":"done"}',
-                provider_key="onemin",
-                model="gpt-5",
-                tokens_in=7,
-                tokens_out=3,
-            ),
-        )
-
-    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_decision)
-
-    created = client.post(
-        "/v1/responses",
-        json={
-            "model": "gpt-5",
-            "input": "Inspect the repo",
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "exec_command",
-                    "description": "Run a shell command",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"cmd": {"type": "string"}},
-                        "required": ["cmd"],
-                        "additionalProperties": False,
-                    },
-                }
-            ],
-        },
+        json={"input": "say hi", field: value},
     )
-    assert created.status_code == 200
-    created_body = created.json()
-    call_id = created_body["output"][0]["call_id"]
+    assert resp.status_code == 400
+    assert "unsupported_fields" in resp.text
 
-    followup = client.post(
-        "/v1/responses",
-        json={
-            "model": "gpt-5",
-            "previous_response_id": created_body["id"],
-            "input": [
-                {
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": "{\"stdout\":\"/docker/fleet\\n\",\"exit_code\":0}",
-                }
-            ],
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "exec_command",
-                    "description": "Run a shell command",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"cmd": {"type": "string"}},
-                        "required": ["cmd"],
-                        "additionalProperties": False,
-                    },
-                }
-            ],
-        },
-    )
-    assert followup.status_code == 200
-    assert followup.json()["output_text"] == "done"
+
+def test_responses_rejects_store_override() -> None:
+    client = _client(principal_id="codex-test")
+    response = client.post("/v1/responses", json={"input": "ephemeral", "store": False})
+    assert response.status_code == 400
+    assert "unsupported_fields:store" in response.text
 
 
 def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -903,8 +711,6 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     fetched_body = fetched.json()
     assert fetched_body["id"] == response_id
     assert fetched_body["instructions"] == "keep concise"
-    assert fetched_body["store"] is True
-    assert fetched_body["parallel_tool_calls"] is None
 
     items = client.get(f"/v1/responses/{response_id}/input_items")
     assert items.status_code == 200
@@ -1025,6 +831,52 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
 
 
+def test_responses_upstream_defaults_to_easy_fast_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream
+
+    monkeypatch.delenv("EA_RESPONSES_DEFAULT_PROFILE", raising=False)
+
+    assert responses_upstream._resolve_default_response_lane() == "fast"
+
+
+def test_prompt_router_does_not_treat_default_public_model_as_hard_context() -> None:
+    from app.api.routes import responses
+
+    decision = responses._resolve_prompt_route(
+        prompt="how many codexes are running?",
+        model="ea-coder-best",
+        codex_profile=None,
+    )
+
+    assert decision.applied is False
+    assert decision.effective_profile is None
+    assert decision.effective_model == "ea-coder-best"
+    assert decision.reason == "session_route"
+
+
+def test_prompt_router_promotes_default_public_model_coding_task_to_core() -> None:
+    from app.api.routes import responses
+
+    decision = responses._resolve_prompt_route(
+        prompt="fix the routing bug in /docker/EA/ea/app/api/routes/responses.py",
+        model="ea-coder-best",
+        codex_profile=None,
+    )
+
+    assert decision.applied is True
+    assert decision.effective_profile == "core"
+    assert decision.effective_model == "ea-coder-hard"
+    assert decision.reason == "coding_task_requires_core"
+
+
+def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream
+
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_ORDER", raising=False)
+
+    assert responses_upstream._provider_order() == ("onemin", "gemini_vortex", "magixai")
+
+
 def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival")
     from app.api.routes import responses
@@ -1115,7 +967,7 @@ def test_codex_survival_rejects_client_tools() -> None:
         },
     )
     assert response.status_code == 400
-    assert "survival_unsupported_fields:tools" in response.text
+    assert "unsupported_fields:tools" in response.text
 
 
 def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:

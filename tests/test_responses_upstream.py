@@ -96,6 +96,48 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
     ]
 
 
+def test_default_core_profile_auto_demotes_to_fast_when_onemin_health_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_DEFAULT_PROFILE", "core")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "remaining_percent_of_max": 42.0,
+                    "unknown_balance_slots": 0,
+                    "last_actual_balance_at": "2026-03-22T00:00:00Z",
+                    "last_probe_at": "2026-03-22T00:00:00Z",
+                }
+            }
+        },
+    )
+
+    assert upstream._effective_request_lane(requested_model="", max_output_tokens=None) == "fast"
+
+
+def test_explicit_hard_model_stays_hard_even_when_onemin_health_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_DEFAULT_PROFILE", "core")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "state": "degraded",
+                    "remaining_percent_of_max": None,
+                    "unknown_balance_slots": 5,
+                    "last_actual_balance_at": "",
+                    "last_probe_at": "",
+                }
+            }
+        },
+    )
+
+    assert upstream._effective_request_lane(requested_model="ea-coder-hard", max_output_tokens=None) == "hard"
+
+
 def test_default_public_model_falls_back_to_gemini_without_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")

@@ -78,6 +78,66 @@ class TaskContractService:
     def __init__(self, repo: TaskContractRepository) -> None:
         self._repo = repo
 
+    def _builtin_contract(self, task_key: str) -> TaskContract | None:
+        normalized = str(task_key or "").strip() or "unknown"
+        if normalized == "rewrite_text":
+            return TaskContract(
+                task_key="rewrite_text",
+                deliverable_type="rewrite_note",
+                default_risk_class="low",
+                default_approval_class="none",
+                allowed_tools=("artifact_repository",),
+                evidence_requirements=(),
+                memory_write_policy="reviewed_only",
+                budget_policy_json={"class": "low"},
+                updated_at=now_utc_iso(),
+                runtime_policy_json={},
+            )
+        if normalized in {"meeting_prep", "decision_briefing", "stakeholder_briefing"}:
+            deliverable_type = {
+                "meeting_prep": "meeting_brief",
+                "decision_briefing": "decision_brief",
+                "stakeholder_briefing": "stakeholder_briefing",
+            }[normalized]
+            return TaskContract(
+                task_key=normalized,
+                deliverable_type=deliverable_type,
+                default_risk_class="low",
+                default_approval_class="none",
+                allowed_tools=("artifact_repository",),
+                evidence_requirements=(),
+                memory_write_policy="reviewed_only",
+                budget_policy_json={"class": "low"},
+                updated_at=now_utc_iso(),
+                runtime_policy_json={
+                    "brain_profile": "groundwork",
+                    "posthoc_review_profile": "review_light",
+                    "fallback_brain_profile": "survival",
+                    "artifact_output_template": "groundwork_brief",
+                    "skill_catalog_json": {
+                        "skill_key": normalized,
+                        "name": normalized.replace("_", " "),
+                        "description": "Groundwork-first briefing contract.",
+                        "output_schema_json": {
+                            "type": "object",
+                            "required": [
+                                "plan",
+                                "risks",
+                                "missing_evidence",
+                                "recommended_next_lane",
+                                "acceptance_checklist",
+                            ],
+                        },
+                        "model_policy_json": {
+                            "brain_profile": "groundwork",
+                            "posthoc_review_profile": "review_light",
+                            "fallback_brain_profile": "survival",
+                        },
+                    },
+                },
+            )
+        return None
+
     def _require_principal_id(self, principal_id: str) -> str:
         resolved = str(principal_id or "").strip()
         if resolved:
@@ -117,7 +177,10 @@ class TaskContractService:
         return self._repo.upsert(row)
 
     def get_contract(self, task_key: str) -> TaskContract | None:
-        return self._repo.get(task_key)
+        found = self._repo.get(task_key)
+        if found is not None:
+            return found
+        return self._builtin_contract(task_key)
 
     def contract_to_policy_record(self, contract: TaskContract) -> TaskContractPolicyRecord:
         runtime_policy = contract.runtime_policy()
@@ -140,23 +203,10 @@ class TaskContractService:
         return self.contract_to_policy_record(contract)
 
     def get_contract_or_raise(self, task_key: str) -> TaskContract:
-        found = self._repo.get(task_key)
+        found = self.get_contract(task_key)
         if found is not None:
             return found
         normalized = str(task_key or "").strip() or "unknown"
-        if normalized == "rewrite_text":
-            return TaskContract(
-                task_key="rewrite_text",
-                deliverable_type="rewrite_note",
-                default_risk_class="low",
-                default_approval_class="none",
-                allowed_tools=("artifact_repository",),
-                evidence_requirements=(),
-                memory_write_policy="reviewed_only",
-                budget_policy_json={"class": "low"},
-                updated_at=now_utc_iso(),
-                runtime_policy_json={},
-            )
         raise ValueError(f"task_contract_not_found:{normalized}")
 
     def list_contracts(self, limit: int = 100) -> list[TaskContract]:

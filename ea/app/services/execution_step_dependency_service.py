@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from typing import Callable
 
 from app.domain.models import ExecutionStep
@@ -105,7 +106,7 @@ class ExecutionStepDependencyService:
         declared_input_keys = set(self.declared_step_input_keys(rewrite_step))
         for dependency in self.dependency_steps_for_step(session_id, rewrite_step):
             for key, value in dict(dependency.output_json or {}).items():
-                if key not in input_json and (not declared_input_keys or key in declared_input_keys):
+                if not declared_input_keys or key in declared_input_keys:
                     input_json[key] = value
             human_payload = (dependency.output_json or {}).get("human_returned_payload_json")
             if isinstance(human_payload, dict):
@@ -124,6 +125,18 @@ class ExecutionStepDependencyService:
             input_json["normalized_text"] = source_text
         if "text_length" not in input_json and source_text:
             input_json["text_length"] = len(source_text)
+        if "diff_text" in declared_input_keys and "diff_text" not in input_json:
+            normalized_text = str(input_json.get("normalized_text") or "").strip()
+            diff_lines = list(
+                difflib.unified_diff(
+                    source_text.splitlines(),
+                    normalized_text.splitlines(),
+                    fromfile="source",
+                    tofile="normalized",
+                    lineterm="",
+                )
+            )
+            input_json["diff_text"] = "\n".join(diff_lines)
         optional_defaults: dict[str, object] = {
             "requested_fields": [],
             "service_names": [],

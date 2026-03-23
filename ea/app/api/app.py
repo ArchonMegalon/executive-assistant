@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     from app.api.routes.public_tours import router as public_tours_router
     from app.api.routes.responses import router as responses_router
     from app.api.routes.rewrite import router as rewrite_router
+    from app.api.routes.runtime import router as runtime_router
     from app.api.routes.skills import router as skills_router
     from app.api.routes.task_contracts import router as task_contracts_router
     from app.api.routes.tools import router as tools_router
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(google_oauth_router)
     app.include_router(policy_router, dependencies=auth_dependency)
     app.include_router(providers_router, dependencies=auth_dependency)
+    app.include_router(runtime_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
     app.include_router(rewrite_router, dependencies=auth_dependency)
     app.include_router(skills_router, dependencies=auth_dependency)

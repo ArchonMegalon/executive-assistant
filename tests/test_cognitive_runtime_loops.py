@@ -100,11 +100,27 @@ def test_proactive_horizon_scans_and_dedupes_successful_launches() -> None:
     assert len(launched) == 3
     assert len(orchestrator.requests) == 3
     assert {row.principal_id for row in launched} == {"exec-1", "exec-2", "exec-3"}
+    assert {row.task_key for row in launched} == {"decision_briefing", "stakeholder_briefing"}
     assert any(ref == f"decision_window:{decision.decision_window_id}" for ref in orchestrator.requests[0].context_refs)
 
     second = service.run_once(now=now)
     assert second == ()
     assert len(orchestrator.requests) == 3
+
+
+def test_builtin_groundwork_contracts_default_to_groundwork_and_review_light() -> None:
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+
+    meeting = contracts.get_contract_or_raise("meeting_prep")
+    decision = contracts.get_contract_or_raise("decision_briefing")
+    stakeholder = contracts.get_contract_or_raise("stakeholder_briefing")
+
+    assert meeting.runtime_policy().brain_profile == "groundwork"
+    assert decision.runtime_policy().brain_profile == "groundwork"
+    assert stakeholder.runtime_policy().brain_profile == "groundwork"
+    assert meeting.runtime_policy().posthoc_review_profile == "review_light"
+    assert decision.runtime_policy().posthoc_review_profile == "review_light"
+    assert stakeholder.runtime_policy().posthoc_review_profile == "review_light"
 
 
 def test_style_reflection_stages_communication_policy_candidate_for_major_human_rewrite() -> None:

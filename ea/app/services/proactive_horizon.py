@@ -41,19 +41,35 @@ class ProactiveHorizonService:
         self._scan_window_hours = max(1, int(scan_window_hours or 24))
         self._log = logging.getLogger("ea.proactive_horizon")
 
-    def scan(self, *, now: datetime | None = None) -> tuple[HorizonCandidate, ...]:
+    def scan(
+        self,
+        *,
+        now: datetime | None = None,
+        scan_window_hours: int | None = None,
+        principal_id: str = "",
+    ) -> tuple[HorizonCandidate, ...]:
         observed_at = now or datetime.now(timezone.utc)
-        horizon_end = observed_at + timedelta(hours=self._scan_window_hours)
+        effective_hours = max(1, int(scan_window_hours or self._scan_window_hours))
+        horizon_end = observed_at + timedelta(hours=effective_hours)
         candidates: list[HorizonCandidate] = []
         candidates.extend(self._decision_window_candidates(closes_before=horizon_end.isoformat()))
         candidates.extend(self._deadline_window_candidates(ends_before=horizon_end.isoformat()))
         candidates.extend(self._commitment_candidates(due_before=horizon_end.isoformat()))
+        normalized_principal = str(principal_id or "").strip()
+        if normalized_principal:
+            candidates = [row for row in candidates if row.principal_id == normalized_principal]
         candidates.sort(key=lambda row: (row.due_at, row.principal_id, row.kind, row.record_id))
         return tuple(candidates)
 
-    def run_once(self, *, now: datetime | None = None) -> tuple[HorizonCandidate, ...]:
+    def run_once(
+        self,
+        *,
+        now: datetime | None = None,
+        scan_window_hours: int | None = None,
+        principal_id: str = "",
+    ) -> tuple[HorizonCandidate, ...]:
         launched: list[HorizonCandidate] = []
-        for candidate in self.scan(now=now):
+        for candidate in self.scan(now=now, scan_window_hours=scan_window_hours, principal_id=principal_id):
             if self._channel_runtime.find_observation_by_dedupe(candidate.dedupe_key) is not None:
                 continue
             try:

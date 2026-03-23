@@ -164,9 +164,10 @@ def test_planner_inserts_posthoc_review_light_step_after_structured_generate(mon
         "step_reasoned_patch_review",
         "step_artifact_save",
     ]
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
     review_step = plan.steps[2]
     artifact_step = plan.steps[3]
-    assert review_step.tool_name == "browseract.chatplayground_audit"
+    assert review_step.tool_name == "provider.brain_router.reasoned_patch_review"
     assert review_step.brain_profile == "review_light"
     assert artifact_step.depends_on == ("step_structured_generate", "step_reasoned_patch_review")
 
@@ -198,6 +199,30 @@ def test_planner_skips_posthoc_review_light_when_not_allowed(monkeypatch) -> Non
         "step_structured_generate",
         "step_artifact_save",
     ]
+
+
+def test_planner_explicit_posthoc_review_profile_fails_closed_when_unavailable(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    contracts.upsert_contract(
+        task_key="groundwork_review_required",
+        deliverable_type="rewrite_note",
+        default_risk_class="low",
+        default_approval_class="none",
+        allowed_tools=("provider.gemini_vortex.structured_generate", "browseract.chatplayground_audit", "artifact_repository"),
+        memory_write_policy="reviewed_only",
+        runtime_policy_json={
+            "workflow_template": "tool_then_artifact",
+            "pre_artifact_capability_key": "structured_generate",
+            "brain_profile": "groundwork",
+            "posthoc_review_profile": "review_light",
+        },
+    )
+    planner = PlannerService(contracts)
+
+    with pytest.raises(PlanValidationError, match="brain_profile_provider_unavailable:review_light:reasoned_patch_review"):
+        planner.build_plan(task_key="groundwork_review_required", principal_id="exec-1", goal="review this synthesis")
 
 
 def test_planner_explicit_pre_artifact_tool_honors_principal_provider_state() -> None:

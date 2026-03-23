@@ -39,6 +39,10 @@ def _tool_authority_class(tool_name: str) -> str:
         return "draft"
     if normalized == "provider.gemini_vortex.structured_generate":
         return "draft"
+    if normalized == "provider.brain_router.structured_generate":
+        return "draft"
+    if normalized == "provider.brain_router.reasoned_patch_review":
+        return "observe"
     if normalized == "artifact_repository":
         return "draft"
     return "observe"
@@ -158,6 +162,19 @@ class PlannerService:
             output_keys=output_keys,
             desired_output_json=dict(desired_output_json or {}),
         )
+
+    def _contract_allows_capability(self, contract: TaskContract, capability_key: str) -> bool:
+        allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
+        if not allowed_tools:
+            return True
+        normalized_capability = str(capability_key or "").strip().lower()
+        for binding in self._provider_registry.list_bindings():
+            for capability in binding.capabilities:
+                if str(capability.capability_key or "").strip().lower() != normalized_capability:
+                    continue
+                if str(capability.tool_name or "").strip() in allowed_tools:
+                    return True
+        return False
 
     def _step_retry_policy(self, contract: TaskContract, *, prefix: str) -> tuple[str, int, int]:
         policy = contract.runtime_policy()
@@ -405,14 +422,19 @@ class PlannerService:
                 route=route,
             )
         if capability == "structured_generate":
-            return self._build_structured_generate_step(contract=contract, principal_id=principal_id, depends_on=depends_on, tool_name=route.tool_name, route=route)
+            return self._build_structured_generate_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name="provider.brain_router.structured_generate",
+            )
         if capability == "reasoned_patch_review":
             return self._build_reasoned_patch_review_step(
                 contract=contract,
                 principal_id=principal_id,
                 depends_on=depends_on,
-                tool_name=route.tool_name,
-                route=route,
+                tool_name="provider.brain_router.reasoned_patch_review",
+                profile_name=self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None).profile,
             )
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
 
@@ -660,14 +682,18 @@ class PlannerService:
         route: CapabilityRoute | None = None,
         profile_name: str = "",
     ) -> PlanStepSpec:
-        retry_prefix = "browseract" if route is not None and route.provider_key == "browseract" else "artifact"
+        effective_profile = str(profile_name or "").strip()
+        browseract_review = effective_profile in {"review_light", "audit"} or (
+            route is not None and route.provider_key == "browseract"
+        )
+        retry_prefix = "browseract" if browseract_review else "artifact"
         failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
             contract,
             prefix=retry_prefix,
         )
         timeout_budget_seconds = (
             contract.runtime_policy().browseract_timeout_budget_seconds
-            if route is not None and route.provider_key == "browseract"
+            if browseract_review
             else 180
         )
         return PlanStepSpec(
@@ -707,22 +733,26 @@ class PlannerService:
         review_profile = self._brain_router.posthoc_review_profile_for_contract(contract)
         if not review_profile:
             return None
+        explicit_review_profile = str(contract.runtime_policy().posthoc_review_profile or "").strip()
+        if not self._contract_allows_capability(contract, "reasoned_patch_review"):
+            return None
         try:
-            route = self._provider_registry.route_brain_profile_capability_with_context(
+            _ = self._provider_registry.route_brain_profile_capability_with_context(
                 profile_name=review_profile,
                 capability_key="reasoned_patch_review",
                 principal_id=principal_id,
                 allowed_tools=tuple(contract.allowed_tools or ()),
                 require_executable=True,
             )
-        except ToolExecutionError:
+        except ToolExecutionError as exc:
+            if explicit_review_profile:
+                raise PlanValidationError(str(exc)) from exc
             return None
         return self._build_reasoned_patch_review_step(
             contract=contract,
             principal_id=principal_id,
             depends_on=depends_on,
-            tool_name=route.tool_name,
-            route=route,
+            tool_name="provider.brain_router.reasoned_patch_review",
             profile_name=review_profile,
         )
 

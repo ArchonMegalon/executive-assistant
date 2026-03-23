@@ -85,6 +85,8 @@ class ToolExecutionService:
                 lambda capability_key=ui_service.capability_key: self._register_builtin_browseract_ui_service(capability_key)
             )
         self._register_executable_provider_bindings()
+        self._register_builtin_brain_router_structured_generate()
+        self._register_builtin_brain_router_reasoned_patch_review()
 
     def register_handler(self, tool_name: str, handler: ToolExecutionHandler) -> None:
         key = str(tool_name or "").strip()
@@ -210,6 +212,128 @@ class ToolExecutionService:
 
     def _register_builtin_onemin_media_transform(self) -> None:
         self._onemin_module.register_media_transform(self.register_handler)
+
+    def _register_builtin_brain_router_structured_generate(self) -> None:
+        self._register_builtin_brain_router_tool(
+            tool_name="provider.brain_router.structured_generate",
+            action_kind="content.generate",
+            capability_key="structured_generate",
+        )
+
+    def _register_builtin_brain_router_reasoned_patch_review(self) -> None:
+        self._register_builtin_brain_router_tool(
+            tool_name="provider.brain_router.reasoned_patch_review",
+            action_kind="audit.review_light",
+            capability_key="reasoned_patch_review",
+        )
+
+    def _register_builtin_brain_router_tool(
+        self,
+        *,
+        tool_name: str,
+        action_kind: str,
+        capability_key: str,
+    ) -> None:
+        self._tool_runtime.upsert_tool(
+            tool_name=tool_name,
+            version="builtin-brain-router-v1",
+            input_schema_json={"type": "object"},
+            output_schema_json={"type": "object"},
+            policy_json={
+                "logical_tool": True,
+                "brain_router": True,
+                "capability_key": capability_key,
+                "action_kind": action_kind,
+            },
+            approval_default="none",
+            enabled=True,
+        )
+
+        def _handler(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+            return self._execute_brain_router_capability(
+                request=request,
+                definition=definition,
+                capability_key=capability_key,
+            )
+
+        self.register_handler(tool_name, _handler)
+
+    def _execute_brain_router_capability(
+        self,
+        *,
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+        capability_key: str,
+    ) -> ToolInvocationResult:
+        payload_json = dict(request.payload_json or {})
+        context_json = dict(request.context_json or {})
+        principal_id = str(context_json.get("principal_id") or "").strip() or None
+        provider_hints = tuple(
+            str(value or "").strip()
+            for value in (payload_json.get("provider_hint_order") or ())
+            if str(value or "").strip()
+        )
+        allowed_tools = tuple(
+            str(value or "").strip()
+            for value in (payload_json.get("allowed_tools") or ())
+            if str(value or "").strip()
+        )
+        profile_name = str(payload_json.get("brain_profile") or "").strip()
+        if not profile_name and capability_key == "reasoned_patch_review":
+            profile_name = str(payload_json.get("posthoc_review_profile") or "").strip()
+        if not profile_name:
+            profile_name = "review_light" if capability_key == "reasoned_patch_review" else "easy"
+        route = self._provider_registry.route_brain_profile_capability_with_context(
+            profile_name=profile_name,
+            capability_key=capability_key,
+            principal_id=principal_id,
+            allowed_tools=allowed_tools,
+            require_executable=True,
+            provider_hints=provider_hints,
+        )
+        self._ensure_builtin_tool_registered(route.tool_name, principal_id=principal_id)
+        routed_definition = self._tool_runtime.get_tool(route.tool_name)
+        if routed_definition is None:
+            raise ToolExecutionError(f"tool_not_registered:{route.tool_name}")
+        if not routed_definition.enabled:
+            raise ToolExecutionError(f"tool_disabled:{route.tool_name}")
+        routed_handler = self._handlers.get(route.tool_name)
+        if routed_handler is None:
+            raise ToolExecutionError(f"tool_handler_missing:{route.tool_name}")
+        routed_payload_json = dict(payload_json)
+        routed_payload_json.setdefault("brain_profile", profile_name)
+        routed_payload_json["routed_provider_key"] = route.provider_key
+        routed_payload_json["routed_capability_key"] = route.capability_key
+        result = routed_handler(
+            ToolInvocationRequest(
+                session_id=request.session_id,
+                step_id=request.step_id,
+                tool_name=route.tool_name,
+                action_kind=request.action_kind,
+                payload_json=routed_payload_json,
+                context_json=context_json,
+            ),
+            routed_definition,
+        )
+        output_json = dict(result.output_json or {})
+        output_json.setdefault("brain_profile", profile_name)
+        output_json.setdefault("routed_provider_key", route.provider_key)
+        output_json.setdefault("routed_capability_key", route.capability_key)
+        receipt_json = dict(result.receipt_json or {})
+        receipt_json.setdefault("logical_tool_name", definition.tool_name)
+        receipt_json.setdefault("brain_profile", profile_name)
+        return ToolInvocationResult(
+            tool_name=result.tool_name,
+            action_kind=result.action_kind,
+            target_ref=result.target_ref,
+            output_json=output_json,
+            receipt_json=receipt_json,
+            artifacts=tuple(result.artifacts or ()),
+            model_name=result.model_name,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            cost_usd=result.cost_usd,
+        )
 
     @property
     def _browseract_live_extract(self):
