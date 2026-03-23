@@ -21,6 +21,9 @@ from app.services.tool_execution_common import ToolExecutionError
 
 router = APIRouter(prefix="/v1/providers", tags=["providers"])
 
+_ONEMIN_DIRECT_API_QUARANTINED_UNTIL = 0.0
+_ONEMIN_DIRECT_API_QUARANTINE_REASON = ""
+
 
 class ProviderBindingIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
@@ -49,6 +52,8 @@ class OneminProbeAllIn(BaseModel):
 class OneminBillingRefreshIn(BaseModel):
     include_members: bool = Field(default=True)
     include_provider_api: bool = Field(default=True)
+    provider_api_all_accounts: bool = Field(default=False)
+    provider_api_continue_on_rate_limit: bool = Field(default=False)
     capture_raw_text: bool = Field(default=True)
     timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
     binding_ids: list[str] = Field(default_factory=list)
@@ -126,7 +131,7 @@ def _state_out(row: ProviderBindingState) -> ProviderStateOut:
     )
 
 
-@router.post("/bindings")
+@router.post("/bindings", response_model=ProviderBindingOut)
 def upsert_provider_binding(
     body: ProviderBindingIn,
     container: AppContainer = Depends(get_container),
@@ -149,7 +154,7 @@ def upsert_provider_binding(
     return _binding_out(row)
 
 
-@router.get("/bindings")
+@router.get("/bindings", response_model=list[ProviderBindingOut])
 def list_provider_bindings(
     principal_id: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=100, ge=1, le=500),
@@ -161,7 +166,7 @@ def list_provider_bindings(
     return [_binding_out(row) for row in rows]
 
 
-@router.get("/bindings/{binding_id}")
+@router.get("/bindings/{binding_id}", response_model=ProviderBindingOut)
 def get_provider_binding(
     binding_id: str,
     container: AppContainer = Depends(get_container),
@@ -176,7 +181,7 @@ def get_provider_binding(
     return _binding_out(row)
 
 
-@router.post("/bindings/{binding_id}/status")
+@router.post("/bindings/{binding_id}/status", response_model=ProviderBindingOut)
 def set_provider_binding_status(
     binding_id: str,
     body: ProviderBindingStatusIn,
@@ -193,7 +198,7 @@ def set_provider_binding_status(
     return _binding_out(row)
 
 
-@router.post("/bindings/{binding_id}/probe")
+@router.post("/bindings/{binding_id}/probe", response_model=ProviderBindingOut)
 def set_provider_binding_probe(
     binding_id: str,
     body: ProviderBindingProbeIn,
@@ -211,7 +216,7 @@ def set_provider_binding_probe(
     return _binding_out(row)
 
 
-@router.get("/states")
+@router.get("/states", response_model=list[ProviderStateOut])
 def list_provider_states(
     principal_id: str | None = Query(default=None, min_length=1),
     container: AppContainer = Depends(get_container),
@@ -222,7 +227,7 @@ def list_provider_states(
     return [_state_out(row) for row in rows]
 
 
-@router.get("/states/{provider_key}")
+@router.get("/states/{provider_key}", response_model=ProviderStateOut)
 def get_provider_state(
     provider_key: str,
     principal_id: str | None = Query(default=None, min_length=1),
@@ -236,7 +241,7 @@ def get_provider_state(
     return _state_out(row)
 
 
-@router.get("/registry", response_model=None)
+@router.get("/registry", response_model=dict[str, object])
 def get_provider_registry(
     principal_id: str | None = Query(default=None, min_length=1),
     container: AppContainer = Depends(get_container),
@@ -252,7 +257,7 @@ def get_provider_registry(
     )
 
 
-@router.post("/onemin/probe-all", response_model=None)
+@router.post("/onemin/probe-all", response_model=dict[str, object])
 def probe_all_onemin(
     body: OneminProbeAllIn | None = None,
     context: RequestContext = Depends(get_request_context),
@@ -263,6 +268,60 @@ def probe_all_onemin(
 
 
 _ONEMIN_SLOT_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?$")
+
+
+@router.get("/onemin/aggregate", response_model=None)
+def get_onemin_aggregate(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    return container.onemin_manager.aggregate_snapshot(
+        provider_health=upstream._provider_health_report(),
+        binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+        principal_id=context.principal_id,
+    )
+
+
+@router.get("/onemin/accounts", response_model=None)
+def get_onemin_accounts(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    return {
+        "provider_key": "onemin",
+        "principal_id": context.principal_id,
+        "accounts": container.onemin_manager.accounts_snapshot(
+            provider_health=upstream._provider_health_report(),
+            binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+        ),
+    }
+
+
+@router.get("/onemin/runway", response_model=None)
+def get_onemin_runway(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    return {
+        "provider_key": "onemin",
+        "principal_id": context.principal_id,
+        "forecast": container.onemin_manager.runway_snapshot(
+            provider_health=upstream._provider_health_report(),
+            binding_rows=_enabled_browseract_bindings(container, context.principal_id),
+        ),
+    }
+
+
+@router.get("/onemin/leases", response_model=None)
+def get_onemin_leases(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    _ = context
+    return {
+        "provider_key": "onemin",
+        "leases": container.onemin_manager.leases_snapshot(),
+    }
 
 
 def _binding_run_url(binding_metadata: dict[str, object], *keys: str) -> str:
@@ -326,6 +385,15 @@ def _resolve_onemin_account_labels(binding) -> tuple[str, ...]:
     return (fallback,) if fallback else ()
 
 
+def _enabled_browseract_bindings(container: AppContainer, principal_id: str) -> list[object]:
+    return [
+        binding
+        for binding in container.tool_runtime.list_connector_bindings(principal_id, limit=500)
+        if str(binding.connector_name or "").strip().lower() == "browseract"
+        and str(binding.status or "").strip().lower() == "enabled"
+    ]
+
+
 def _invoke_browseract_tool(
     *,
     container: AppContainer,
@@ -353,6 +421,48 @@ def _onemin_rest_host() -> str:
 
 def _onemin_app_version() -> str:
     return "1.1.45"
+
+
+def _onemin_request_headers(*, token: str = "", include_json_content_type: bool = False) -> dict[str, str]:
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://app.1min.ai",
+        "Referer": "https://app.1min.ai/",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "X-App-Version": _onemin_app_version(),
+    }
+    if include_json_content_type:
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["X-Auth-Token"] = f"Bearer {token}"
+    return headers
+
+
+def _onemin_direct_api_quarantine_seconds() -> float:
+    raw = str(upstream._env("ONEMIN_DIRECT_API_CLOUDFLARE_COOLDOWN_SECONDS") or "").strip()  # type: ignore[attr-defined]
+    try:
+        seconds = float(raw) if raw else 7200.0
+    except Exception:
+        seconds = 7200.0
+    return max(300.0, seconds)
+
+
+def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
+    remaining = max(0.0, _ONEMIN_DIRECT_API_QUARANTINED_UNTIL - time.time())
+    return remaining, str(_ONEMIN_DIRECT_API_QUARANTINE_REASON or "").strip()
+
+
+def _quarantine_onemin_direct_api(reason: str) -> None:
+    global _ONEMIN_DIRECT_API_QUARANTINED_UNTIL, _ONEMIN_DIRECT_API_QUARANTINE_REASON
+    _ONEMIN_DIRECT_API_QUARANTINE_REASON = str(reason or "cloudflare_quarantine")
+    _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = max(
+        _ONEMIN_DIRECT_API_QUARANTINED_UNTIL,
+        time.time() + _onemin_direct_api_quarantine_seconds(),
+    )
 
 
 def _onemin_password() -> str:
@@ -495,7 +605,7 @@ def _onemin_api_login(*, owner_email: str, timeout_seconds: int) -> dict[str, ob
     request = urllib.request.Request(
         f"{_onemin_rest_host()}/auth/login",
         data=json.dumps({"email": owner_email, "password": password}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=_onemin_request_headers(include_json_content_type=True),
         method="POST",
     )
     try:
@@ -537,10 +647,7 @@ def _refresh_onemin_api_account(
     token = str(user.get("token") or "").strip()
     if not team_id or not token:
         raise RuntimeError("onemin_login_incomplete")
-    headers = {
-        "X-Auth-Token": f"Bearer {token}",
-        "X-App-Version": _onemin_app_version(),
-    }
+    headers = _onemin_request_headers(token=token)
     topups_payload = _onemin_api_get_json(
         url=f"{_onemin_rest_host()}/teams/{team_id}/topups",
         headers=headers,
@@ -650,6 +757,8 @@ def _refresh_onemin_via_provider_api(
     *,
     include_members: bool,
     timeout_seconds: int,
+    all_accounts: bool = False,
+    continue_on_rate_limit: bool = False,
 ) -> tuple[
     list[dict[str, object]],
     list[dict[str, object]],
@@ -667,15 +776,18 @@ def _refresh_onemin_via_provider_api(
         if str(row.get("account_name") or "").strip() and str(row.get("owner_email") or "").strip()
     ]
 
-    max_accounts_raw = str(upstream._env("ONEMIN_DIRECT_API_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
-    try:
-        max_accounts = int(max_accounts_raw) if max_accounts_raw else 0
-    except Exception:
-        max_accounts = 0
-    if max_accounts <= 0:
-        max_accounts = 5
-    if max_accounts > len(owner_rows) and owner_rows:
+    if all_accounts:
         max_accounts = len(owner_rows)
+    else:
+        max_accounts_raw = str(upstream._env("ONEMIN_DIRECT_API_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
+        try:
+            max_accounts = int(max_accounts_raw) if max_accounts_raw else 0
+        except Exception:
+            max_accounts = 0
+        if max_accounts <= 0:
+            max_accounts = 5
+        if max_accounts > len(owner_rows) and owner_rows:
+            max_accounts = len(owner_rows)
 
     delay_raw = str(upstream._env("ONEMIN_DIRECT_API_MIN_ACCOUNT_DELAY_SECONDS") or "").strip()  # type: ignore[attr-defined]
     try:
@@ -685,6 +797,22 @@ def _refresh_onemin_via_provider_api(
 
     attempted_count = 0
     rate_limited = False
+    quarantine_remaining, quarantine_reason = _onemin_direct_api_quarantine_remaining()
+    if quarantine_remaining > 0:
+        errors.append(
+            {
+                "tool_name": "onemin.api.billing_refresh",
+                "error": f"onemin_api_quarantined:{int(round(quarantine_remaining))}s:{quarantine_reason or 'cloudflare_block'}",
+            }
+        )
+        return (
+            billing_results,
+            member_results,
+            errors,
+            0,
+            len(owner_rows),
+            True,
+        )
 
     for idx, row in enumerate(owner_rows):
         if idx >= max_accounts:
@@ -705,18 +833,26 @@ def _refresh_onemin_via_provider_api(
             if member_result is not None:
                 member_results.append(member_result)
         except Exception as exc:
+            error_text = str(exc or "onemin_api_refresh_failed")
             errors.append(
                 {
                     "account_label": account_name,
                     "owner_email": owner_email,
                     "tool_name": "onemin.api.billing_refresh",
-                    "error": str(exc or "onemin_api_refresh_failed"),
+                    "error": error_text,
                 }
             )
-            if "onemin_login_http_429" in str(exc) or "onemin_api_http_429" in str(exc):
+            if (
+                "onemin_login_http_429" in error_text
+                or "onemin_api_http_429" in error_text
+                or "error code: 1010" in error_text
+                or "error code: 1015" in error_text
+            ):
                 rate_limited = True
-                break
-        if idx + 1 < len(owner_rows) and delay_seconds > 0:
+                _quarantine_onemin_direct_api(error_text)
+                if not continue_on_rate_limit:
+                    break
+        if idx + 1 < min(len(owner_rows), max_accounts) and delay_seconds > 0:
             time.sleep(delay_seconds)
     if attempted_count <= len(owner_rows):
         skipped_count = max(0, len(owner_rows) - attempted_count)
@@ -897,6 +1033,8 @@ def refresh_onemin_billing(
         ) = _refresh_onemin_via_provider_api(
             include_members=bool(payload.include_members),
             timeout_seconds=timeout_seconds,
+            all_accounts=bool(payload.provider_api_all_accounts),
+            continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit),
         )
         billing_results.extend(api_billing_results)
         member_results.extend(api_member_results)
@@ -931,3 +1069,25 @@ def refresh_onemin_billing(
         "skipped": skipped,
         "note": note,
     }
+
+
+@router.post("/onemin/member-reconcile", response_model=None)
+def reconcile_onemin_members(
+    body: OneminBillingRefreshIn | None = None,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    payload = body or OneminBillingRefreshIn()
+    return refresh_onemin_billing(
+        OneminBillingRefreshIn(
+            include_members=True,
+            include_provider_api=payload.include_provider_api,
+            provider_api_all_accounts=payload.provider_api_all_accounts,
+            provider_api_continue_on_rate_limit=payload.provider_api_continue_on_rate_limit,
+            capture_raw_text=payload.capture_raw_text,
+            timeout_seconds=payload.timeout_seconds,
+            binding_ids=list(payload.binding_ids),
+        ),
+        container=container,
+        context=context,
+    )
