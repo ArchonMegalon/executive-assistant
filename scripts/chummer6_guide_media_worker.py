@@ -177,6 +177,10 @@ def _ea_local_cache_ttl_seconds() -> float:
         return 15.0
 
 
+def _onemin_allow_reserve() -> bool:
+    return _boolish(env_value("CHUMMER6_ONEMIN_ALLOW_RESERVE"), default=True)
+
+
 def _ea_local_headers() -> dict[str, str]:
     headers = {
         "Accept": "application/json",
@@ -289,12 +293,13 @@ def _estimate_onemin_image_credits(*, width: int, height: int) -> int:
     return int(round(1200.0 * megapixels))
 
 
-def _reserve_onemin_image_slot(*, width: int, height: int) -> dict[str, object] | None:
+def _reserve_onemin_image_slot(*, width: int, height: int, allow_reserve: bool | None = None) -> dict[str, object] | None:
     payload = _ea_local_json_post(
         "/v1/providers/onemin/reserve-image",
         {
             "request_id": f"chummer-image-{int(time.time() * 1000)}-{width}x{height}",
             "estimated_credits": _estimate_onemin_image_credits(width=width, height=height),
+            "allow_reserve": _onemin_allow_reserve() if allow_reserve is None else bool(allow_reserve),
         },
     )
     if not isinstance(payload, dict):
@@ -1815,7 +1820,7 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
     configured_slots = resolve_onemin_image_slots()
     if not configured_slots:
         return False, "onemin:not_configured"
-    reservation = _reserve_onemin_image_slot(width=width, height=height)
+    reservation = _reserve_onemin_image_slot(width=width, height=height, allow_reserve=_onemin_allow_reserve())
     if reservation is None:
         if not _onemin_manager_selection_available():
             return False, "onemin:manager_unavailable"
@@ -2020,7 +2025,14 @@ def prompt_refinement_required() -> bool:
     return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def prompt_refinement_disabled() -> bool:
+    raw = env_value("CHUMMER6_DISABLE_PROMPT_REFINEMENT")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def prompt_refinement_attempts_enabled() -> bool:
+    if prompt_refinement_disabled():
+        return False
     explicit_env_names = [
         "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_COMMAND",
         "CHUMMER6_PROMPTING_SYSTEMS_REFINE_COMMAND",
@@ -2064,6 +2076,8 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     attempted: list[str] = []
     external_expected = prompt_refinement_attempts_enabled()
     refinement_required = prompt_refinement_required()
+    if prompt_refinement_disabled():
+        return base_prompt
     if not external_expected and not refinement_required:
         return base_prompt
     for env_name in command_names:
@@ -3183,7 +3197,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
             "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check", "inspection pressure"],
             "overlay_callouts": ["provenance trace", "fit check", "trust mark", "state delta"],
-            "providers": ["onemin", "browseract_prompting_systems", "media_factory", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -3196,7 +3210,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A sealed concept warning case or barricade block abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable. The object may carry one torn triangle glyph, stripe bands, or abstract hazard pictograms, but never a label plate, poster, engraved plate, stencil word, or readable warning text. Do not print the word warning anywhere. Keep the object scarred and lived-in, not a clean product-shot cube. No desk still life.",
             "avoid": "readable warning labels, the word warning, crate nameplates, poster text, pseudo-branding, stencil words, engraved plates, desk still life, or a clean product-shot cube",
             "overlay_hint": "subtle hazard glyphs and provenance traces",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/what-chummer6-is.png": {
             "required": "review_bay",
@@ -3208,7 +3222,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "One runner at a cramped standing review bay, upper torso and both hands visible while translucent markers, stamped chips, gear tokens, and cause bands are pegged onto a vertical trace rail under hard practical light. Trust is assembled from physical traces in the open, not from paper receipts or a glowing device. Use translucent plastic markers, chips, bands, and rail clips instead of notes, paper, or monitor screens. No readable text, no handwritten cards, and no loose printed sheets.",
             "avoid": "paper receipts with printed lines, handheld paper cards, loose slips, readable forms, pinned handwritten notes, glowing room numbers, glowing handhelds, wall monitors, or a desk spread",
             "overlay_hint": "rule-source provenance tags, trust arrows, and receipt traces",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/where-to-go-deeper.png": {
             "required": "archive_room",
@@ -3219,7 +3233,7 @@ def asset_specs() -> list[dict[str, object]]:
             "metaphor": "follow the source trail deeper into the stacks",
             "replace_visual_prompt": "A narrow archive aisle with drawer towers, sealed canisters, hanging translucent sleeves, shelf rails, and one reader tracing a source deeper into the stacks while standing; shelves and drawer fronts dominate. Use unlabeled containers, plastic sleeves, and hardware pulls instead of binders, paper fronts, or note cards. No desk spread, no CRT hero prop, no paper layout, and no front-facing monitor.",
             "avoid": "desk spreads, seated desk posture, front-facing monitor text, loose paper map spreads, binder spines, label tabs, shelf cards, or a lone CRT taking over the scene",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/start-here.png": {
             "required": "transit_checkpoint",
@@ -3231,7 +3245,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A rain-dark checkpoint split where one runner chooses between rough but useful lanes marked by floor arrows, barrier posts, lane paint, hazard pylons, and grounded route cues. The scene should read as navigation through a concept-stage mess, not a kiosk interaction or wall-reading moment. No public terminal, no menu board, no poster wall, no giant route sign, and no readable text.",
             "avoid": "kiosk, ATM, public terminal, menu board, billboard, poster wall, giant route sign, wall-sized text mark, or readable text",
             "overlay_hint": "lane brackets and route markers",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/current-status.png": {
             "preferred": "street_front",
@@ -3246,7 +3260,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "medium-wide standing street shot with the physical public shelf or notice niche clearly visible and no dominant overhead sign, wall display, or handheld",
             "overlay_hint": "faint provenance traces, weak receipt halos, and fragile target brackets",
             "avoid": "phone glamour close-up, tablet in hand, giant overhead sign, billboard, glowing wall panel, dashboard wallpaper, public monitor, printed portrait poster, flyer wall, or triumphant product hero shot",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/public-surfaces.png": {
             "required": "city_edge",
@@ -3258,7 +3272,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A concrete underpass threshold where several rough public traces survive across physical surfaces: scratched utility windows, taped notice pockets, seal strips, route tiles, and small abstract glows embedded in the wall. One runner passes through the scene standing up, but no device is in their hands and no single panel becomes the composition anchor. No storefront sign, no desk, no readable UI text, no wall placards, and no monitor bank.",
             "avoid": "desk surfaces, seated desk posture, handheld tablet, pocket device glamour, readable storefront signs, OPEN signs, shop windows, wall placards, neat monitor triptychs on a counter, or screen layouts dominated by text lines",
             "overlay_hint": "cross-surface state echoes and route markers",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
@@ -3276,7 +3290,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["future-lane brackets", "route halos", "threat ghosts", "branch markers", "district arcs"],
             "visual_motifs": ["branching ramps", "future lanes", "district pressure", "stacked route choices"],
             "overlay_callouts": ["route branch", "future lane", "threat drift", "district split"],
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/parts/core.png": {
             "required": "review_bay",
@@ -3389,7 +3403,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets"],
             "visual_motifs": ["governed rules bench", "rollback lane", "approval pressure", "controlled experimentation"],
             "overlay_callouts": ["compatibility seal", "rollback route", "approval band", "control state"],
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/horizons/runsite.png": {
             "required": "district_map",
@@ -3425,7 +3439,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "wide room view with multiple distinct physical work zones visible at once and route lines connecting them across the concrete",
             "avoid": "top-down tabletop composition, central command table, boardgame layout, kiosks, terminal banks, labeled doorways, wall signage, framed station headers, floating labels, title banners, specialist desks, seated operators, neat laptops arranged around one surface, or large human figures posed in the room",
             "overlay_hint": "route lines and district callout pings",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/horizons/table-pulse.png": {
             "required": "forensic_replay",

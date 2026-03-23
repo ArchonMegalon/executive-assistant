@@ -120,6 +120,56 @@ def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.
     assert released[0] == ("lease-1", "released", 900, "")
 
 
+def test_reserve_onemin_image_slot_allows_reserve_pool_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        media,
+        "_ea_local_json_post",
+        lambda path, payload: (seen.append((path, dict(payload))), {"lease_id": "lease-1"})[1],
+    )
+
+    payload = media._reserve_onemin_image_slot(width=1536, height=1024)
+
+    assert payload == {"lease_id": "lease-1"}
+    assert seen == [
+        (
+            "/v1/providers/onemin/reserve-image",
+            {
+                "request_id": seen[0][1]["request_id"],
+                "estimated_credits": media._estimate_onemin_image_credits(width=1536, height=1024),
+                "allow_reserve": True,
+            },
+        )
+    ]
+
+
+def test_reserve_onemin_image_slot_can_disable_reserve_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    seen: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setenv("CHUMMER6_ONEMIN_ALLOW_RESERVE", "0")
+    monkeypatch.setattr(
+        media,
+        "_ea_local_json_post",
+        lambda path, payload: (seen.append((path, dict(payload))), {"lease_id": "lease-2"})[1],
+    )
+
+    payload = media._reserve_onemin_image_slot(width=1024, height=1024)
+
+    assert payload == {"lease_id": "lease-2"}
+    assert seen == [
+        (
+            "/v1/providers/onemin/reserve-image",
+            {
+                "request_id": seen[0][1]["request_id"],
+                "estimated_credits": media._estimate_onemin_image_credits(width=1024, height=1024),
+                "allow_reserve": False,
+            },
+        )
+    ]
+
+
 def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_ONEMIN_USE_FALLBACK_KEYS", raising=False)
@@ -676,6 +726,24 @@ def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_re
     refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
 
     assert refined == "refined prompt from external lane"
+
+
+def test_refine_prompt_with_ooda_can_disable_external_refinement(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "env_value",
+        lambda name: "1"
+        if name == "CHUMMER6_DISABLE_PROMPT_REFINEMENT"
+        else "wf-123"
+        if name == "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID"
+        else "",
+    )
+    monkeypatch.setattr(media, "shlex_command", lambda name: ["python3", "-c", "print('should not run')"])
+
+    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
+
+    assert refined == "base prompt"
 
 
 def test_refine_prompt_with_ooda_falls_back_to_local_prompt_on_timeout_when_not_required(

@@ -4636,6 +4636,146 @@ def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account
     register_onemin_manager(None)
 
 
+def test_onemin_tool_adapter_image_request_can_start_on_reserve_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import ToolDefinition
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services import responses_upstream as upstream
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+    from app.services.tool_execution_onemin_adapter import OneminToolAdapter
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    class _Config:
+        api_keys = ("key-active", "key-reserve")
+        timeout_seconds = 5
+
+    class _State:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.failure_count = 0
+            self.last_success_at = 0.0
+            self.last_used_at = 0.0
+            self.last_error = ""
+
+    monkeypatch.setattr(upstream, "_provider_configs", lambda: {"onemin": _Config()})
+    monkeypatch.setattr(
+        upstream,
+        "_ordered_onemin_keys_allow_reserve",
+        lambda allow_reserve: ("key-active",) if not allow_reserve else ("key-active", "key-reserve"),
+    )
+    monkeypatch.setattr(upstream, "_onemin_states_snapshot", lambda keys: {key: _State(key) for key in keys})
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ("key-reserve",))
+    monkeypatch.setattr(upstream, "_onemin_key_state_label", lambda state, now=0.0: "ready")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 0.0)
+    monkeypatch.setattr(
+        upstream,
+        "_provider_account_name",
+        lambda provider, key_names, key: "acct-active" if key == "key-active" else "acct-reserve",
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_key_slot",
+        lambda key, key_names=(): "ONEMIN_AI_API_KEY" if key == "key-active" else "ONEMIN_AI_API_KEY_FALLBACK_9",
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_slot_role_for_key",
+        lambda key, active_keys=(), reserve_keys=(): "image" if key == "key-active" else "reserve",
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "acct-active",
+                            "slot": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot_role": "image",
+                            "state": "degraded",
+                            "estimated_remaining_credits": 730,
+                        },
+                        {
+                            "account_name": "acct-reserve",
+                            "slot": "ONEMIN_AI_API_KEY_FALLBACK_9",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_9",
+                            "slot_role": "reserve",
+                            "state": "ready",
+                            "estimated_remaining_credits": 100000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_pick_onemin_key", lambda allow_reserve=False: (_ for _ in ()).throw(AssertionError("legacy picker should not be used")))
+    monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_success", lambda api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda api_key, detail, temporary_quarantine=False, quarantine_seconds=None: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_event", lambda **kwargs: None)
+    monkeypatch.setattr(upstream, "_now_ms", lambda: 1000)
+    monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: str(payload))
+    monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
+    monkeypatch.setattr(upstream, "_extract_onemin_model", lambda payload: str(payload.get("model") or "gpt-image-1-mini"))
+
+    seen_headers: list[str] = []
+
+    def _fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int):
+        seen_headers.append(str(headers.get("API-KEY") or ""))
+        return 200, {
+            "model": payload.get("model") or "gpt-image-1-mini",
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "resultObject": {
+                        "url": "https://cdn.1min.ai/generated/reserve-first-image.png",
+                    }
+                }
+            },
+        }
+
+    monkeypatch.setattr(upstream, "_post_json", _fake_post_json)
+
+    adapter = OneminToolAdapter()
+    result = adapter.execute_image_generate(
+        ToolInvocationRequest(
+            session_id="session-onemin-image-reserve",
+            step_id="step-onemin-image-reserve",
+            tool_name="provider.onemin.image_generate",
+            action_kind="image.generate",
+            payload_json={
+                "prompt": "Render a receipt-heavy skyline banner.",
+                "size": "1536x1024",
+                "manager_allow_reserve": True,
+            },
+            context_json={"principal_id": "image-principal"},
+        ),
+        ToolDefinition(
+            tool_name="provider.onemin.image_generate",
+            version="v1",
+            input_schema_json={},
+            output_schema_json={},
+            policy_json={"builtin": True, "action_kind": "image.generate"},
+            allowed_channels=(),
+            approval_default="none",
+            enabled=True,
+            updated_at="2026-03-23T00:00:00Z",
+        ),
+    )
+
+    assert seen_headers == ["key-reserve"]
+    assert result.output_json["provider_account_name"] == "acct-reserve"
+    assert result.output_json["provider_key_slot"] == "ONEMIN_AI_API_KEY_FALLBACK_9"
+    assert result.output_json["asset_urls"] == ["https://cdn.1min.ai/generated/reserve-first-image.png"]
+
+    register_onemin_manager(None)
+
+
 def test_onemin_tool_adapter_releases_manager_lease_on_transport_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
