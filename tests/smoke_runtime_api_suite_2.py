@@ -5,7 +5,7 @@ from tests.smoke_runtime_api_support import build_headers as _headers
 
 
 def test_human_task_priority_summary_for_matching_operator_profile() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "operator-matched priority summary seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -137,7 +137,7 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
 
 
 def test_human_task_priority_summary_for_assignment_source() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -594,7 +594,7 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
 
 
 def test_human_task_sort_by_sla_due_at_asc() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "sla sort seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -651,7 +651,7 @@ def test_human_task_sort_by_sla_due_at_asc() -> None:
 
 
 def test_human_task_sort_by_sla_then_last_transition() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "combined sort seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -731,7 +731,7 @@ def test_human_task_sort_by_sla_then_last_transition() -> None:
 
 
 def test_human_task_unscheduled_fallback_sorting_for_sla_modes() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "unscheduled fallback seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -925,7 +925,16 @@ def test_observation_and_delivery_flow() -> None:
 
 
 def test_telegram_adapter_ingest() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
+    created = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "telegram_identity",
+            "external_account_ref": "42",
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
     resp = client.post(
         "/v1/channels/telegram/ingest",
         json={
@@ -946,7 +955,7 @@ def test_telegram_adapter_ingest() -> None:
 
 
 def test_tool_registry_and_connector_bindings_flow() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
 
     tool = client.post(
         "/v1/tools/registry",
@@ -1108,7 +1117,11 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         f"{readonly_binding.json()['binding_id']}:email,email.send,mail,mail.send,send.mail"
     )
 
-    mismatch = client.get("/v1/connectors/bindings", params={"principal_id": "exec-2", "limit": 10})
+    mismatch = client.get(
+        "/v1/connectors/bindings",
+        params={"principal_id": "exec-1", "limit": 10},
+        headers=_headers(token="smoke-token", principal_id="exec-2"),
+    )
     assert mismatch.status_code == 403
     assert mismatch.json()["error"]["code"] == "principal_scope_mismatch"
 
@@ -1168,7 +1181,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "status": "enabled",
         },
     )
-    assert unsigned_binding.status_code == 200
+    assert unsigned_binding.status_code == 403
 
     browseract_unsigned_request_principal_mismatch = unsigned_client.post(
         "/v1/tools/execute",
@@ -1177,7 +1190,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "action_kind": "account.extract",
             "payload_json": {
                 "principal_id": "exec-1",
-                "binding_id": unsigned_binding.json()["binding_id"],
+                "binding_id": browseract_binding.json()["binding_id"],
                 "service_name": "BrowserAct",
             },
         },
@@ -1204,7 +1217,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
 
 
 def test_browseract_tool_execution_and_workflow_template_flow() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -1519,7 +1532,7 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
 
 
 def test_task_contracts_flow_and_rewrite_compilation() -> None:
-    client = _client(storage_backend="memory", approval_threshold_chars=20000)
+    client = _client(storage_backend="memory", approval_threshold_chars=20000, operator=True)
 
     created = client.post(
         "/v1/tasks/contracts",
@@ -1647,7 +1660,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
 
 
 def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
-    client = _client(storage_backend="memory", approval_threshold_chars=20000)
+    client = _client(storage_backend="memory", approval_threshold_chars=20000, operator=True)
 
     created = client.post(
         "/v1/skills",
@@ -1724,7 +1737,7 @@ def test_skill_catalog_flow_and_meeting_prep_compilation() -> None:
 
 
 def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
-    client = _client(storage_backend="memory", approval_threshold_chars=20000)
+    client = _client(storage_backend="memory", approval_threshold_chars=20000, operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -1879,7 +1892,7 @@ def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
 
 
 def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",

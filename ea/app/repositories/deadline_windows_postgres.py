@@ -153,6 +153,7 @@ class PostgresDeadlineWindowRepository:
                         notes = EXCLUDED.notes,
                         source_json = EXCLUDED.source_json,
                         updated_at = EXCLUDED.updated_at
+                    WHERE deadline_windows.principal_id = EXCLUDED.principal_id
                     RETURNING window_id, principal_id, title, start_at, end_at, status, priority, notes, source_json, created_at, updated_at
                     """,
                     (
@@ -171,7 +172,7 @@ class PostgresDeadlineWindowRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, window_id: str) -> DeadlineWindow | None:

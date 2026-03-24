@@ -164,6 +164,7 @@ class PostgresInterruptionBudgetRepository:
                         status = EXCLUDED.status,
                         notes = EXCLUDED.notes,
                         updated_at = EXCLUDED.updated_at
+                    WHERE interruption_budgets.principal_id = EXCLUDED.principal_id
                     RETURNING budget_id, principal_id, scope, window_kind, budget_minutes, used_minutes, reset_at, quiet_hours_json, status, notes, created_at, updated_at
                     """,
                     (
@@ -183,7 +184,7 @@ class PostgresInterruptionBudgetRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, budget_id: str) -> InterruptionBudget | None:

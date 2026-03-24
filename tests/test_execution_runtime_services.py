@@ -936,6 +936,7 @@ def test_execution_task_orchestration_service_materializes_plan_steps_and_return
         )(),
         planner=None,
         task_contracts=None,
+        get_artifact=lambda artifact_id: artifact if artifact_id == artifact.artifact_id else None,
         execute_next_ready_step=lambda session_id: artifact,
         fetch_session_snapshot=lambda session_id: type(
             "SnapshotStub",
@@ -1009,6 +1010,7 @@ def test_execution_task_orchestration_service_returns_snapshot_artifact_when_inl
         )(),
         planner=None,
         task_contracts=None,
+        get_artifact=lambda artifact_id: artifact if artifact_id == artifact.artifact_id else None,
         execute_next_ready_step=lambda session_id: None,
         fetch_session_snapshot=lambda session_id: type(
             "SnapshotStub",
@@ -1041,6 +1043,7 @@ def test_execution_task_orchestration_service_adds_context_pack_to_task_input() 
         ledger=type("LedgerStub", (), {})(),
         planner=None,
         task_contracts=None,
+        get_artifact=lambda artifact_id: None,
         execute_next_ready_step=lambda session_id: None,
         fetch_session_snapshot=lambda session_id: None,
         async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
@@ -1140,6 +1143,7 @@ def test_execution_task_orchestration_service_resolves_skill_key_through_catalog
         planner=None,
         task_contracts=contracts,
         skills=skills,
+        get_artifact=lambda artifact_id: artifact if artifact_id == artifact.artifact_id else None,
         execute_next_ready_step=lambda session_id: artifact,
         fetch_session_snapshot=lambda session_id: type(
             "SnapshotStub",

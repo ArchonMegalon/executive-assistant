@@ -150,6 +150,7 @@ class PostgresFollowUpRepository:
                         notes = EXCLUDED.notes,
                         source_json = EXCLUDED.source_json,
                         updated_at = EXCLUDED.updated_at
+                    WHERE follow_ups.principal_id = EXCLUDED.principal_id
                     RETURNING follow_up_id, principal_id, stakeholder_ref, topic, status, due_at,
                               channel_hint, notes, source_json, created_at, updated_at
                     """,
@@ -169,7 +170,7 @@ class PostgresFollowUpRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, follow_up_id: str) -> FollowUp | None:

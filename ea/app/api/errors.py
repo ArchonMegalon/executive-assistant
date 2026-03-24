@@ -81,6 +81,17 @@ def install_error_handlers(app: FastAPI) -> None:
             details=exc.errors(),
         )
 
+    @app.exception_handler(PermissionError)
+    async def permission_exception_handler(request: Request, exc: PermissionError):  # type: ignore[no-untyped-def]
+        detail = str(exc or "forbidden").strip() or "forbidden"
+        return _error_payload(
+            request=request,
+            status_code=403,
+            code=_code_from_http(403, detail),
+            message=detail,
+            details=detail,
+        )
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
         return _error_payload(

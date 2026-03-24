@@ -204,6 +204,7 @@ class PostgresStakeholderRepository:
                         status = EXCLUDED.status,
                         notes = EXCLUDED.notes,
                         updated_at = EXCLUDED.updated_at
+                    WHERE stakeholders.principal_id = EXCLUDED.principal_id
                     RETURNING stakeholder_id, principal_id, display_name, channel_ref, authority_level, importance, response_cadence, tone_pref,
                               sensitivity, escalation_policy, open_loops_json, friction_points_json, last_interaction_at, status, notes, created_at, updated_at
                     """,
@@ -229,7 +230,7 @@ class PostgresStakeholderRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, stakeholder_id: str) -> Stakeholder | None:

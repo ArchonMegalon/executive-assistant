@@ -166,6 +166,7 @@ class PostgresCommunicationPolicyRepository:
                         status = EXCLUDED.status,
                         notes = EXCLUDED.notes,
                         updated_at = EXCLUDED.updated_at
+                    WHERE communication_policies.principal_id = EXCLUDED.principal_id
                     RETURNING policy_id, principal_id, scope, preferred_channel, tone, max_length, quiet_hours_json, escalation_json, status, notes, created_at, updated_at
                     """,
                     (
@@ -185,7 +186,7 @@ class PostgresCommunicationPolicyRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, policy_id: str) -> CommunicationPolicy | None:

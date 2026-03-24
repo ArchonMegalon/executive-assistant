@@ -145,6 +145,7 @@ class PostgresCommitmentRepository:
                         due_at = EXCLUDED.due_at,
                         source_json = EXCLUDED.source_json,
                         updated_at = EXCLUDED.updated_at
+                    WHERE commitments.principal_id = EXCLUDED.principal_id
                     RETURNING commitment_id, principal_id, title, details, status, priority, due_at, source_json, created_at, updated_at
                     """,
                     (
@@ -162,7 +163,7 @@ class PostgresCommitmentRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, commitment_id: str) -> Commitment | None:

@@ -167,6 +167,7 @@ class PostgresDecisionWindowRepository:
                         notes = EXCLUDED.notes,
                         source_json = EXCLUDED.source_json,
                         updated_at = EXCLUDED.updated_at
+                    WHERE decision_windows.principal_id = EXCLUDED.principal_id
                     RETURNING decision_window_id, principal_id, title, context, opens_at, closes_at, urgency, authority_required, status, notes, source_json, created_at, updated_at
                     """,
                     (
@@ -187,7 +188,7 @@ class PostgresDecisionWindowRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, decision_window_id: str) -> DecisionWindow | None:

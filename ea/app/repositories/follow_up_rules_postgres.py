@@ -181,6 +181,7 @@ class PostgresFollowUpRuleRepository:
                         status = EXCLUDED.status,
                         notes = EXCLUDED.notes,
                         updated_at = EXCLUDED.updated_at
+                    WHERE follow_up_rules.principal_id = EXCLUDED.principal_id
                     RETURNING rule_id, principal_id, name, trigger_kind, channel_scope_json, delay_minutes, max_attempts, escalation_policy, conditions_json, action_json, status, notes, created_at, updated_at
                     """,
                     (
@@ -202,7 +203,7 @@ class PostgresFollowUpRuleRepository:
                 )
                 out = cur.fetchone()
         if not out:
-            return row
+            raise PermissionError("principal_scope_mismatch")
         return self._from_row(out)
 
     def get(self, rule_id: str) -> FollowUpRule | None:
