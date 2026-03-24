@@ -1,0 +1,29 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section grid-2">
+  <section class="card card-strong">
+    <div class="eyebrow">{{ channel_eyebrow }}</div>
+    <h1>{{ channel_title }}</h1>
+    <div class="pill {{ 'good' if channel.status == 'connected' else 'warn' if channel.status else 'muted' }}">{{ channel.status|replace('_', ' ') if channel.status else 'not selected' }}</div>
+    <p class="lead" style="margin-top:16px;">{{ channel.detail or 'No channel detail yet.' }}</p>
+    <ul class="list">
+      {% for item in detail_points %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Current contract</div>
+    <h2>What EA promises here today</h2>
+    <ul class="list">
+      {% for item in body_points %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+    <h3 style="margin-top:18px;">Capabilities</h3>
+    <ul class="list">
+      {% for item in channel.capabilities or [] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+    <h3 style="margin-top:18px;">Limits</h3>
+    <ul class="list">
+      {% for item in channel.limitations or [] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+</section>
+{% endblock %}

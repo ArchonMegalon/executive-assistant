@@ -329,19 +329,27 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     landing = owner.get("/")
     assert landing.status_code == 200
-    assert "Your assistant across Gmail, Telegram, and WhatsApp." in landing.text
-    assert "Start setup" in landing.text
-    assert "One assistant, different working styles" in landing.text
+    assert "Your executive assistant across email, messaging, and calendar." in landing.text
+    assert "Get started" in landing.text
+    assert "A clean assistant product, not a mixed surface." in landing.text
 
-    setup = owner.get("/setup")
+    setup = owner.get("/get-started")
     assert setup.status_code == 200
-    assert "Start with one real assistant workspace" in setup.text
-    assert "Choose the correct WhatsApp path" in setup.text
-    assert "recommended first success is Google Core" in setup.text
+    assert "Connect your workspace in four steps." in setup.text
+    assert "Google Core is the recommended first connection." in setup.text
+    assert "Pick the right WhatsApp path." in setup.text
 
-    privacy = owner.get("/privacy")
+    legacy_setup = owner.get("/setup", follow_redirects=False)
+    assert legacy_setup.status_code == 307
+    assert legacy_setup.headers["location"] == "/get-started"
+
+    privacy = owner.get("/security")
     assert privacy.status_code == 200
-    assert "What the assistant stores and where" in privacy.text
+    assert "Use the backend discipline as a brand advantage." in privacy.text
+
+    legacy_privacy = owner.get("/privacy", follow_redirects=False)
+    assert legacy_privacy.status_code == 307
+    assert legacy_privacy.headers["location"] == "/security"
 
     started = owner.post(
         "/google/connect",
@@ -416,10 +424,9 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     landing = owner.get("/")
     assert landing.status_code == 200
-    assert "Signed in via Cloudflare Access" in landing.text
-    assert "browser@gmail.com" in landing.text
+    assert "Open app" in landing.text
     assert "principal-scoped" in landing.text
-    assert "You already arrived with a Gmail identity" in landing.text
+    assert "browser@gmail.com" not in landing.text
 
     started = owner.post(
         "/google/connect",

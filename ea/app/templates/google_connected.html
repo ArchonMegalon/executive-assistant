@@ -1,0 +1,33 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Google connected</div>
+  <h1>Google is now linked to this assistant.</h1>
+  <p class="lead">The Google binding is attached to principal <code>{{ account.binding.principal_id }}</code> and can now participate in onboarding, channel-aware briefs, and live Gmail smoke tests.</p>
+</section>
+<section class="section grid-2">
+  <section class="card">
+    <div class="eyebrow">Connected account</div>
+    <h2>{{ account.google_email }}</h2>
+    <ul class="list">
+      <li>Consent stage: {{ account.consent_stage }}</li>
+      <li>Token status: {{ account.token_status }}</li>
+      <li>Workspace mode: {{ account.workspace_mode }}</li>
+      <li>Connector binding: {{ account.connector_binding.binding_id if account.connector_binding else '' }}</li>
+    </ul>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Granted scopes</div>
+    <h2>OAuth contract</h2>
+    <ul class="list">
+      {% for scope in scopes %}<li>{{ scope }}</li>{% endfor %}
+    </ul>
+  </section>
+</section>
+<section class="section card">
+  <div class="cta-row">
+    <a class="btn primary" href="/get-started">Continue setup</a>
+    <a class="btn secondary" href="/app/briefing">Open briefing</a>
+  </div>
+</section>
+{% endblock %}

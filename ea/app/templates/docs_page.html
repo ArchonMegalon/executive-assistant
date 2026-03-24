@@ -1,0 +1,18 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Docs</div>
+  <h1>Keep reference material available without letting it define the homepage.</h1>
+  <p class="lead">Docs should support evaluation and operator work. They should not replace the product story.</p>
+</section>
+<section class="section grid">
+  {% for doc in doc_links %}
+  <section class="card">
+    <div class="eyebrow">Reference</div>
+    <h2>{{ doc.title }}</h2>
+    <p class="lead" style="font-size:0.98rem;">{{ doc.body }}</p>
+    <div class="cta-row"><a class="btn secondary" href="{{ doc.href }}">Open</a></div>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

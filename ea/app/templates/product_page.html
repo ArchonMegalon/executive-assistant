@@ -1,0 +1,45 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Product</div>
+  <h1>A serious assistant runtime, packaged like one product.</h1>
+  <p class="lead">Executive Assistant should sell briefings, drafts, follow-ups, memory, and approvals. The runtime remains the reason it is trustworthy, but it should not be the headline.</p>
+</section>
+
+<section class="section card">
+  <div class="eyebrow">Product modules</div>
+  <h2>What belongs in the visible product navigation</h2>
+  <div class="grid" style="margin-top:18px;">
+    {% for module in product_modules %}
+    <section class="surface">
+      <h3>{{ module.title }}</h3>
+      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ module.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section grid-2">
+  <section class="card">
+    <div class="eyebrow">Authenticated app shell</div>
+    <h2>Navigation centered on the daily loop</h2>
+    <ul class="list">
+      {% for group in app_nav_groups %}
+        {% for item in group["items"] %}
+        <li>{{ item.label }}</li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Principle</div>
+    <h2>Keep the surface singular</h2>
+    <ul class="list">
+      <li>No sibling product links in the Executive Assistant nav.</li>
+      <li>No mixed public utility routes in the primary homepage story.</li>
+      <li>Marketing, onboarding, app, and admin are separate surfaces.</li>
+      <li>Runtime nouns belong in docs and operator pages, not the homepage hero.</li>
+    </ul>
+  </section>
+</section>
+{% endblock %}

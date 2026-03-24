@@ -1,0 +1,39 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Security</div>
+  <h1>Use the backend discipline as a brand advantage.</h1>
+  <p class="lead">The system already has principal scoping, approvals, durable state, and receipts. Those are not implementation trivia. They are the trust story.</p>
+</section>
+<section class="section grid">
+  {% for card in trust_cards %}
+  <section class="card">
+    <div class="eyebrow">Trust</div>
+    <h2>{{ card.title }}</h2>
+    <p class="lead" style="font-size:0.98rem; margin-bottom:0;">{{ card.body }}</p>
+  </section>
+  {% endfor %}
+</section>
+<section class="section grid-2">
+  <section class="card">
+    <div class="eyebrow">Storage posture</div>
+    <h2>What the assistant stores and where</h2>
+    <ul class="list">
+      <li>{{ status.storage_posture.source_of_truth or 'EA Postgres' }} is the durable truth when durable storage is configured.</li>
+      <li>{{ status.storage_posture.projection_note or 'Operator projections are mirrors, not the canonical ledger.' }}</li>
+      <li>{{ status.storage_posture.attachment_note or 'Large exports and media belong in object storage.' }}</li>
+    </ul>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Current workspace</div>
+    <h2>Saved privacy posture</h2>
+    <ul class="list">
+      <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
+      <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>
+      <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
+      <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
+      <li>Automatic briefs: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
+    </ul>
+  </section>
+</section>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Integrations</div>
+  <h1>Make connector honesty part of the product.</h1>
+  <p class="lead">Google should be the default first success. Telegram and WhatsApp should stay explicit about identity, history posture, and what is actually supported today.</p>
+</section>
+<section class="section grid">
+  {% for card in channel_cards %}
+  <section class="card">
+    <div class="eyebrow">{{ card.label }}</div>
+    <div class="pill {{ card.tone }}">{{ card.status }}</div>
+    <h2 style="margin-top:14px;">{{ card.label }}</h2>
+    <p class="lead" style="font-size:0.98rem;">{{ card.detail }}</p>
+    {% if card.summary %}<p class="lead" style="font-size:0.94rem;">{{ card.summary }}</p>{% endif %}
+    <div class="cta-row"><a class="btn secondary" href="{{ card.href }}">View contract</a></div>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}
