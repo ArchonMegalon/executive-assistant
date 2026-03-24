@@ -15,6 +15,7 @@ from app.domain.models import (
     validate_plan_spec,
 )
 from app.repositories.ledger import ExecutionLedgerRepository
+from app.services.execution_queue_claim_lease_service import MissingReadyStepError
 from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.planner import PlannerService
 from app.services.skills import SkillCatalogService
@@ -47,6 +48,19 @@ class ExecutionTaskOrchestrationService:
         self._drain_session_inline = drain_session_inline
         self._memory_reasoning_service = memory_reasoning_service
         self._skills = skills
+
+    @staticmethod
+    def _has_active_queue_work(snapshot: object) -> bool:
+        queue_items = list(getattr(snapshot, "queue_items", []) or [])
+        for row in queue_items:
+            state = str(getattr(row, "state", "") or getattr(row, "status", "") or "").strip().lower()
+            if state and state not in {"done", "completed", "failed", "cancelled", "dead_letter", "skipped"}:
+                return True
+        return False
+
+    @staticmethod
+    def _is_missing_ready_step_error(exc: RuntimeError) -> bool:
+        return "did not resolve a ready step" in str(exc or "").strip().lower()
 
     def _logical_artifact_from_snapshot(self, snapshot: object, fallback: Artifact | None = None) -> Artifact | None:
         if fallback is not None:
@@ -110,7 +124,12 @@ class ExecutionTaskOrchestrationService:
         )
         artifact: Artifact | None = None
         for _ in range(8):
-            next_artifact = self._execute_next_ready_step(session.session_id)
+            try:
+                next_artifact = self._execute_next_ready_step(session.session_id)
+            except RuntimeError as exc:
+                if not isinstance(exc, MissingReadyStepError) and not self._is_missing_ready_step_error(exc):
+                    raise
+                next_artifact = None
             if next_artifact is not None and artifact is None:
                 artifact = next_artifact
             snapshot = self._fetch_session_snapshot(session.session_id)
@@ -128,15 +147,11 @@ class ExecutionTaskOrchestrationService:
                 if snapshot_artifacts:
                     return snapshot_artifacts[-1]
                 break
-            queue_items = list(getattr(snapshot, "queue_items", []) or [])
-            has_active_queue = any(
-                str(getattr(row, "state", "") or getattr(row, "status", "") or "").strip().lower()
-                not in {"", "done", "completed", "failed", "cancelled", "dead_letter", "skipped"}
-                for row in queue_items
-            )
+            has_active_queue = self._has_active_queue_work(snapshot)
             if artifact is not None and not has_active_queue:
                 return artifact
-            if not has_active_queue:
+            session_status = str(getattr(session_row, "status", "") or "").strip().lower()
+            if not has_active_queue and session_status not in {"queued", "running"}:
                 break
         if artifact is not None:
             return artifact

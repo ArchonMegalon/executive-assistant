@@ -109,7 +109,7 @@ _ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS = 1800.0
 _ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 12
 _MAGIX_VERIFICATION_TIMEOUT_SECONDS = 5
 
-_ONEMIN_MAX_REQUESTS_PER_HOUR = 0
+_ONEMIN_MAX_REQUESTS_PER_HOUR = 120
 _ONEMIN_MAX_CREDITS_PER_HOUR = 80000
 _ONEMIN_MAX_CREDITS_PER_DAY = 600000
 _DEFAULT_LANE_PROFILE = "easy"
@@ -1211,6 +1211,138 @@ def onemin_owner_rows() -> tuple[dict[str, str], ...]:
     return tuple(dict(row) for row in _onemin_owner_entries())
 
 
+def _load_onemin_account_credentials_payload(value: object) -> object:
+    if isinstance(value, str):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+    return value
+
+
+def _onemin_account_credentials_rows(payload: object) -> tuple[dict[str, str], ...]:
+    if isinstance(payload, dict):
+        if any(
+            key in payload
+            for key in (
+                "account_name",
+                "account_label",
+                "slot_env_name",
+                "login_email",
+                "browseract_username",
+                "owner_email",
+                "email",
+                "login_password",
+                "browseract_password",
+                "password",
+            )
+        ):
+            items = [payload]
+        else:
+            items = []
+            for key, value in payload.items():
+                if not isinstance(value, dict):
+                    continue
+                items.append({"account_name": key, **value})
+    elif isinstance(payload, list):
+        items = [item for item in payload if isinstance(item, dict)]
+    else:
+        items = []
+
+    rows: list[dict[str, str]] = []
+    for item in items:
+        account_name = str(item.get("account_name") or item.get("account_label") or item.get("slot_env_name") or "").strip()
+        login_email = str(
+            item.get("login_email")
+            or item.get("browseract_username")
+            or item.get("owner_email")
+            or item.get("email")
+            or ""
+        ).strip()
+        login_password = str(
+            item.get("login_password")
+            or item.get("browseract_password")
+            or item.get("password")
+            or ""
+        ).strip()
+        if not account_name or (not login_email and not login_password):
+            continue
+        rows.append(
+            {
+                "account_name": account_name,
+                "login_email": login_email,
+                "login_password": login_password,
+            }
+        )
+    return tuple(rows)
+
+
+def _onemin_account_env_prefixes(account_name: str) -> tuple[str, ...]:
+    normalized = str(account_name or "").strip()
+    if not normalized:
+        return ()
+    slug = re.sub(r"[^A-Za-z0-9_]+", "_", normalized).strip("_").upper()
+    prefixes: list[str] = []
+    for value in (normalized, slug):
+        candidate = str(value or "").strip()
+        if candidate and candidate not in prefixes:
+            prefixes.append(candidate)
+    return tuple(prefixes)
+
+
+def onemin_account_login_credentials(
+    *,
+    account_name: str,
+    binding_metadata: dict[str, object] | None = None,
+) -> dict[str, str]:
+    normalized_account_name = str(account_name or "").strip()
+    if not normalized_account_name:
+        return {}
+    lowered_account_name = normalized_account_name.lower()
+    metadata = dict(binding_metadata or {})
+    for payload in (
+        metadata.get("onemin_account_credentials_json"),
+        metadata.get("onemin_account_logins_json"),
+        _env("ONEMIN_ACCOUNT_CREDENTIALS_JSON"),
+        _env("EA_ONEMIN_ACCOUNT_CREDENTIALS_JSON"),
+    ):
+        for row in _onemin_account_credentials_rows(_load_onemin_account_credentials_payload(payload)):
+            if str(row.get("account_name") or "").strip().lower() != lowered_account_name:
+                continue
+            login_email = str(row.get("login_email") or "").strip()
+            login_password = str(row.get("login_password") or "").strip()
+            if login_email or login_password:
+                return {
+                    "login_email": login_email,
+                    "login_password": login_password,
+                }
+
+    login_email = ""
+    login_password = ""
+    for prefix in _onemin_account_env_prefixes(normalized_account_name):
+        if not login_email:
+            for key in (f"{prefix}_LOGIN_EMAIL", f"{prefix}_BROWSERACT_USERNAME"):
+                value = _env(key)
+                if value:
+                    login_email = value
+                    break
+        if not login_password:
+            for key in (f"{prefix}_LOGIN_PASSWORD", f"{prefix}_BROWSERACT_PASSWORD"):
+                value = _env(key)
+                if value:
+                    login_password = value
+                    break
+    if login_email or login_password:
+        return {
+            "login_email": login_email,
+            "login_password": login_password,
+        }
+    return {}
+
+
 def _magicx_urls() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_MAGICX_URLS"))
     legacy = _csv_values(_env("EA_RESPONSES_MAGICX_URL"))
@@ -1821,10 +1953,18 @@ def _run_onemin_background_refresh(*, api_key: str, key_names: tuple[str, ...]) 
             _ONEMIN_BACKGROUND_REFRESH_STATE["finished_at"] = _now_epoch()
 
 
-def _maybe_schedule_onemin_credit_refresh(*, key_names: tuple[str, ...]) -> None:
+def _maybe_schedule_onemin_credit_refresh(
+    *,
+    key_names: tuple[str, ...],
+    exclude_keys: tuple[str, ...] = (),
+) -> None:
     if not _onemin_background_refresh_enabled():
         return
     if not key_names:
+        return
+    excluded = {str(item).strip() for item in exclude_keys if str(item).strip()}
+    candidate_key_names = tuple(key for key in key_names if key not in excluded)
+    if not candidate_key_names:
         return
     now = _now_epoch()
     interval_seconds = _onemin_background_refresh_interval_seconds()
@@ -1837,7 +1977,7 @@ def _maybe_schedule_onemin_credit_refresh(*, key_names: tuple[str, ...]) -> None
         )
         if last_activity_at > 0.0 and (now - last_activity_at) < interval_seconds:
             return
-    candidate_key = _pick_onemin_background_refresh_candidate(key_names=key_names)
+    candidate_key = _pick_onemin_background_refresh_candidate(key_names=candidate_key_names)
     if not candidate_key:
         return
     with _ONEMIN_BACKGROUND_REFRESH_LOCK:
@@ -1854,7 +1994,7 @@ def _maybe_schedule_onemin_credit_refresh(*, key_names: tuple[str, ...]) -> None
         _ONEMIN_BACKGROUND_REFRESH_STATE["api_key"] = candidate_key
     threading.Thread(
         target=_run_onemin_background_refresh,
-        kwargs={"api_key": candidate_key, "key_names": key_names},
+        kwargs={"api_key": candidate_key, "key_names": candidate_key_names},
         daemon=True,
         name="onemin-credit-refresh",
     ).start()
@@ -4608,7 +4748,6 @@ def _call_onemin(
     allow_reserve = False
     if not all_key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
-    _maybe_schedule_onemin_credit_refresh(key_names=all_key_names)
     known_exhaustion = _onemin_known_exhaustion_message(key_names=all_key_names, required_credits=required_credits)
     if known_exhaustion:
         raise ResponsesUpstreamError(known_exhaustion)

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.brain_router import BrainRouterService
@@ -235,6 +235,12 @@ def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: 
 def _prefer_nonstream_upstream(*, model: str = "", codex_profile: str = "") -> bool:
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
+    if normalized_profile:
+        return True
+    if not normalized_model:
+        return True
+    if normalized_model.startswith("ea-"):
+        return True
     return normalized_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower() or normalized_profile == "core_batch"
 
 
@@ -435,6 +441,8 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
 _RESPONSE_REPOSITORY_LOCK = threading.Lock()
 _MEMORY_RESPONSE_REPOSITORY = _MemoryResponseRecordRepository()
 _POSTGRES_RESPONSE_REPOSITORIES: dict[str, _PostgresResponseRecordRepository] = {}
+_STREAM_RESPONSE_OVERRIDE_LOCK = threading.Lock()
+_STREAM_RESPONSE_OVERRIDES: dict[str, tuple[float, str, dict[str, object]]] = {}
 
 _CODEx_PROFILES = tuple(
     {
@@ -449,6 +457,39 @@ _CODEx_PROFILES = tuple(
     }
     for profile in list_brain_profiles()
 )
+
+
+def _set_stream_response_override(
+    *,
+    response_id: str,
+    principal_id: str,
+    response_obj: dict[str, object],
+    ttl_seconds: float = 1.0,
+) -> None:
+    with _STREAM_RESPONSE_OVERRIDE_LOCK:
+        _STREAM_RESPONSE_OVERRIDES[response_id] = (
+            time.monotonic() + max(float(ttl_seconds), 0.0),
+            principal_id,
+            dict(response_obj),
+        )
+
+
+def _stream_response_override(
+    *,
+    response_id: str,
+    principal_id: str,
+) -> dict[str, object] | None:
+    with _STREAM_RESPONSE_OVERRIDE_LOCK:
+        entry = _STREAM_RESPONSE_OVERRIDES.get(response_id)
+        if entry is None:
+            return None
+        expires_at, stored_principal_id, response_obj = entry
+        if expires_at <= time.monotonic():
+            _STREAM_RESPONSE_OVERRIDES.pop(response_id, None)
+            return None
+        if stored_principal_id != principal_id:
+            return None
+        return dict(response_obj)
 
 
 class _ResponsesCreateRequest(BaseModel):
@@ -738,7 +779,6 @@ def _looks_like_coding_task(prompt: str) -> tuple[bool, str]:
     )
     coding_keywords = (
         " codebase",
-        " repo",
         " repository",
         " file ",
         " files ",
@@ -756,7 +796,6 @@ def _looks_like_coding_task(prompt: str) -> tuple[bool, str]:
         " browseract",
         " onemin",
         " codex",
-        " lane",
         " provider",
         " routing",
         " shim",
@@ -803,19 +842,21 @@ def _resolve_prompt_route(
     else:
         normalized_profile = str(original_profile or "").strip().lower()
         normalized_model = str(original_model or "").strip().lower()
-        coding_task, coding_reason = _looks_like_coding_task(prompt)
-        if coding_task and (
-            not normalized_profile
-            or normalized_profile in {"default", "easy"}
-            or normalized_model in {
-                str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
-                str(FAST_PUBLIC_MODEL or "").strip().lower(),
-            }
-        ):
-            effective_profile = "core"
-            effective_model = "ea-coder-hard"
-            applied = effective_profile != original_profile or effective_model != original_model
-            reason = coding_reason
+        lightweight_ops, lightweight_reason = _looks_like_lightweight_ops_query(prompt)
+        if not lightweight_ops:
+            coding_task, coding_reason = _looks_like_coding_task(prompt)
+            if coding_task and (
+                not normalized_profile
+                or normalized_profile in {"default", "easy"}
+                or normalized_model in {
+                    str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
+                    str(FAST_PUBLIC_MODEL or "").strip().lower(),
+                }
+            ):
+                effective_profile = "core"
+                effective_model = "ea-coder-hard"
+                applied = effective_profile != original_profile or effective_model != original_model
+                reason = coding_reason
     trace_profile = str(effective_profile or original_profile or "default")
     trace_line = f"Trace: prompt_route={trace_profile} route_model={effective_model} route_reason={reason}"
     if applied:
@@ -1138,6 +1179,19 @@ def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
     return accepted
 
 
+def _rejected_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
+    rejected: list[str] = []
+    if payload.store is not None:
+        rejected.append("store")
+    if payload.tools is not None:
+        rejected.append("tools")
+    if payload.tool_choice is not None:
+        rejected.append("tool_choice")
+    if payload.parallel_tool_calls is not None:
+        rejected.append("parallel_tool_calls")
+    return rejected
+
+
 def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
     return payload.store is not False
 
@@ -1152,17 +1206,73 @@ def _provider_registry_payload(
     container: object | None = None,
     principal_id: str = "",
     provider_health: dict[str, object] | None = None,
+    include_sensitive: bool = False,
 ) -> dict[str, object]:
     registry = getattr(container, "provider_registry", None)
     if registry is None or not hasattr(registry, "registry_read_model"):
         return {}
     router = _brain_router(container)
     profile_decisions = router.list_profile_decisions(principal_id=principal_id or None) if router is not None else ()
-    return registry.registry_read_model(
+    payload = registry.registry_read_model(
         principal_id=principal_id or None,
         provider_health=provider_health or {},
         profile_decisions=profile_decisions,
     )
+    if include_sensitive:
+        return payload
+    providers = []
+    for provider in list(payload.get("providers") or []):
+        row = dict(provider or {})
+        slot_pool = dict(row.get("slot_pool") or {})
+        slot_pool["owners"] = []
+        slot_pool["lease_holders"] = []
+        slot_pool["last_used_principal_id"] = ""
+        slot_pool["last_used_principal_label"] = ""
+        slot_pool["last_used_owner_category"] = ""
+        slot_pool["last_used_lane_role"] = ""
+        slot_pool["last_used_hub_user_id"] = ""
+        slot_pool["last_used_hub_group_id"] = ""
+        slot_pool["last_used_sponsor_session_id"] = ""
+        slot_pool["last_used_at"] = None
+        row["slot_pool"] = slot_pool
+        row["last_used_principal_id"] = ""
+        row["last_used_principal_label"] = ""
+        row["last_used_owner_category"] = ""
+        row["last_used_lane_role"] = ""
+        row["last_used_hub_user_id"] = ""
+        row["last_used_hub_group_id"] = ""
+        row["last_used_sponsor_session_id"] = ""
+        row["last_used_at"] = None
+        providers.append(row)
+    lanes = []
+    for lane in list(payload.get("lanes") or []):
+        row = dict(lane or {})
+        capacity = dict(row.get("capacity_summary") or {})
+        capacity["slot_owners"] = []
+        capacity["lease_holders"] = []
+        capacity["last_used_principal_id"] = ""
+        capacity["last_used_principal_label"] = ""
+        capacity["last_used_owner_category"] = ""
+        capacity["last_used_lane_role"] = ""
+        capacity["last_used_hub_user_id"] = ""
+        capacity["last_used_hub_group_id"] = ""
+        capacity["last_used_sponsor_session_id"] = ""
+        capacity["last_used_at"] = None
+        row["capacity_summary"] = capacity
+        row["last_used_principal_id"] = ""
+        row["last_used_principal_label"] = ""
+        row["last_used_owner_category"] = ""
+        row["last_used_lane_role"] = ""
+        row["last_used_hub_user_id"] = ""
+        row["last_used_hub_group_id"] = ""
+        row["last_used_sponsor_session_id"] = ""
+        row["last_used_at"] = None
+        lanes.append(row)
+    return {
+        **payload,
+        "providers": providers,
+        "lanes": lanes,
+    }
 
 
 def _codex_profiles(
@@ -1212,6 +1322,7 @@ def _attach_provider_slot_state(
     profiles: list[dict[str, object]],
     *,
     provider_health: dict[str, object],
+    include_sensitive: bool = False,
 ) -> list[dict[str, object]]:
     gemini = dict(((provider_health or {}).get("providers") or {}).get("gemini_vortex") or {})
     gemini_slots = [
@@ -1219,23 +1330,23 @@ def _attach_provider_slot_state(
             "slot": item.get("slot"),
             "account_name": item.get("account_name"),
             "state": item.get("state"),
-            "slot_owner": item.get("slot_owner"),
-            "lease_holder": item.get("lease_holder"),
-            "lease_holder_label": item.get("lease_holder_label"),
-            "lease_holder_owner_category": item.get("lease_holder_owner_category"),
-            "lease_holder_lane_role": item.get("lease_holder_lane_role"),
-            "lease_holder_hub_user_id": item.get("lease_holder_hub_user_id"),
-            "lease_holder_hub_group_id": item.get("lease_holder_hub_group_id"),
-            "lease_holder_sponsor_session_id": item.get("lease_holder_sponsor_session_id"),
+            "slot_owner": item.get("slot_owner") if include_sensitive else "",
+            "lease_holder": item.get("lease_holder") if include_sensitive else "",
+            "lease_holder_label": item.get("lease_holder_label") if include_sensitive else "",
+            "lease_holder_owner_category": item.get("lease_holder_owner_category") if include_sensitive else "",
+            "lease_holder_lane_role": item.get("lease_holder_lane_role") if include_sensitive else "",
+            "lease_holder_hub_user_id": item.get("lease_holder_hub_user_id") if include_sensitive else "",
+            "lease_holder_hub_group_id": item.get("lease_holder_hub_group_id") if include_sensitive else "",
+            "lease_holder_sponsor_session_id": item.get("lease_holder_sponsor_session_id") if include_sensitive else "",
             "lease_expires_at": item.get("lease_expires_at"),
-            "last_used_principal_id": item.get("last_used_principal_id"),
-            "last_used_principal_label": item.get("last_used_principal_label"),
-            "last_used_owner_category": item.get("last_used_owner_category"),
-            "last_used_lane_role": item.get("last_used_lane_role"),
-            "last_used_hub_user_id": item.get("last_used_hub_user_id"),
-            "last_used_hub_group_id": item.get("last_used_hub_group_id"),
-            "last_used_sponsor_session_id": item.get("last_used_sponsor_session_id"),
-            "last_used_at": item.get("last_used_at"),
+            "last_used_principal_id": item.get("last_used_principal_id") if include_sensitive else "",
+            "last_used_principal_label": item.get("last_used_principal_label") if include_sensitive else "",
+            "last_used_owner_category": item.get("last_used_owner_category") if include_sensitive else "",
+            "last_used_lane_role": item.get("last_used_lane_role") if include_sensitive else "",
+            "last_used_hub_user_id": item.get("last_used_hub_user_id") if include_sensitive else "",
+            "last_used_hub_group_id": item.get("last_used_hub_group_id") if include_sensitive else "",
+            "last_used_sponsor_session_id": item.get("last_used_sponsor_session_id") if include_sensitive else "",
+            "last_used_at": item.get("last_used_at") if include_sensitive else None,
             "quota_posture": item.get("quota_posture"),
         }
         for item in gemini.get("slots") or []
@@ -1260,18 +1371,61 @@ def _attach_provider_slot_state(
                     "selection_mode": selection_mode,
                     "configured_slots": configured_slots,
                     "active_lease_count": int(gemini.get("active_lease_count") or 0),
-                    "last_used_principal_id": gemini.get("last_used_principal_id"),
-                    "last_used_principal_label": gemini.get("last_used_principal_label"),
-                    "last_used_owner_category": gemini.get("last_used_owner_category"),
-                    "last_used_lane_role": gemini.get("last_used_lane_role"),
-                    "last_used_hub_user_id": gemini.get("last_used_hub_user_id"),
-                    "last_used_hub_group_id": gemini.get("last_used_hub_group_id"),
-                    "last_used_sponsor_session_id": gemini.get("last_used_sponsor_session_id"),
-                    "last_used_at": gemini.get("last_used_at"),
+                    "last_used_principal_id": gemini.get("last_used_principal_id") if include_sensitive else "",
+                    "last_used_principal_label": gemini.get("last_used_principal_label") if include_sensitive else "",
+                    "last_used_owner_category": gemini.get("last_used_owner_category") if include_sensitive else "",
+                    "last_used_lane_role": gemini.get("last_used_lane_role") if include_sensitive else "",
+                    "last_used_hub_user_id": gemini.get("last_used_hub_user_id") if include_sensitive else "",
+                    "last_used_hub_group_id": gemini.get("last_used_hub_group_id") if include_sensitive else "",
+                    "last_used_sponsor_session_id": gemini.get("last_used_sponsor_session_id") if include_sensitive else "",
+                    "last_used_at": gemini.get("last_used_at") if include_sensitive else None,
                 },
             }
         )
     return enriched
+
+
+def _redacted_provider_health(provider_health: dict[str, object], *, include_sensitive: bool) -> dict[str, object]:
+    if include_sensitive:
+        return provider_health
+    payload = dict(provider_health or {})
+    providers = {}
+    for provider_key, provider in dict(payload.get("providers") or {}).items():
+        row = dict(provider or {})
+        redacted_slots = []
+        for item in list(row.get("slots") or []):
+            if not isinstance(item, dict):
+                continue
+            slot = dict(item)
+            slot["slot_owner"] = ""
+            slot["lease_holder"] = ""
+            slot["lease_holder_label"] = ""
+            slot["lease_holder_owner_category"] = ""
+            slot["lease_holder_lane_role"] = ""
+            slot["lease_holder_hub_user_id"] = ""
+            slot["lease_holder_hub_group_id"] = ""
+            slot["lease_holder_sponsor_session_id"] = ""
+            slot["last_used_principal_id"] = ""
+            slot["last_used_principal_label"] = ""
+            slot["last_used_owner_category"] = ""
+            slot["last_used_lane_role"] = ""
+            slot["last_used_hub_user_id"] = ""
+            slot["last_used_hub_group_id"] = ""
+            slot["last_used_sponsor_session_id"] = ""
+            slot["last_used_at"] = None
+            redacted_slots.append(slot)
+        row["slots"] = redacted_slots
+        row["last_used_principal_id"] = ""
+        row["last_used_principal_label"] = ""
+        row["last_used_owner_category"] = ""
+        row["last_used_lane_role"] = ""
+        row["last_used_hub_user_id"] = ""
+        row["last_used_hub_group_id"] = ""
+        row["last_used_sponsor_session_id"] = ""
+        row["last_used_at"] = None
+        providers[provider_key] = row
+    payload["providers"] = providers
+    return payload
 
 
 def _normalize_payload_for_profile(payload: dict[str, object], *, profile: str) -> dict[str, object]:
@@ -2113,6 +2267,8 @@ def _run_survival_response(
 ) -> Response:
     if str(os.environ.get("EA_SURVIVAL_ENABLED") or "1").strip().lower() in {"0", "false", "no", "off"}:
         raise HTTPException(status_code=503, detail="survival_lane_disabled")
+    if request.stream:
+        raise HTTPException(status_code=400, detail="survival_stream_not_supported_yet")
     rejected_fields = _survival_rejected_fields(request)
     if rejected_fields:
         raise HTTPException(status_code=400, detail=f"survival_unsupported_fields:{','.join(rejected_fields)}")
@@ -2592,6 +2748,9 @@ def _run_response(
     stream = bool(request.stream)
     instructions = request.instructions.strip() if isinstance(request.instructions, str) else None
     accepted_client_fields = _accepted_client_fields(request)
+    rejected_client_fields = _rejected_client_fields(request)
+    if rejected_client_fields:
+        raise HTTPException(status_code=400, detail=f"unsupported_fields:{','.join(rejected_client_fields)}")
     previous_response_id = _requested_previous_response_id(request)
     raw_tools = _response_tools(request)
     supported_tools = _tool_shim_supported_tools(raw_tools)
@@ -3309,6 +3468,11 @@ def _run_response(
                 input_items=parsed_input.input_items,
                 reasoning=request.reasoning,
             )
+        _set_stream_response_override(
+            response_id=response_id,
+            principal_id=context.principal_id,
+            response_obj=in_progress_obj,
+        )
         if _should_store_response(request):
             _store_response(
                 response_id=response_id,
@@ -3392,6 +3556,12 @@ def get_response(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
+    override = _stream_response_override(
+        response_id=response_id,
+        principal_id=context.principal_id,
+    )
+    if override is not None:
+        return JSONResponse(override)
     stored = _load_response(
         response_id=response_id,
         principal_id=context.principal_id,
@@ -3721,7 +3891,9 @@ def list_codex_profiles(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
+    include_sensitive = is_operator_context(context)
     provider_health = _provider_health_report()
+    safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     profiles = [
         {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
         for profile in _codex_profiles(container=container, principal_id=context.principal_id)
@@ -3729,12 +3901,17 @@ def list_codex_profiles(
     return JSONResponse(
         {
             "principal": principal_identity_summary(context.principal_id),
-            "profiles": _attach_provider_slot_state(profiles, provider_health=provider_health),
-            "provider_health": provider_health,
+            "profiles": _attach_provider_slot_state(
+                profiles,
+                provider_health=safe_provider_health,
+                include_sensitive=include_sensitive,
+            ),
+            "provider_health": safe_provider_health,
             "provider_registry": _provider_registry_payload(
                 container=container,
                 principal_id=context.principal_id,
-                provider_health=provider_health,
+                provider_health=safe_provider_health,
+                include_sensitive=include_sensitive,
             ),
         }
     )
@@ -3744,9 +3921,15 @@ def list_codex_profiles(
 def get_codex_status(
     window: str = "1h",
     refresh: bool = False,
+    context: RequestContext = Depends(get_request_context),
 ) -> Response:
     _ = refresh
-    return JSONResponse(codex_status_report(window=window))
+    if is_operator_context(context):
+        report = codex_status_report(window=window)
+    else:
+        report = dict(codex_status_report(window=window, principal_id=context.principal_id))
+        report["fleet_burn"] = {}
+    return JSONResponse(report)
 
 
 router.include_router(models_router)

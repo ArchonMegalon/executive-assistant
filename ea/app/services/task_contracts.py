@@ -99,22 +99,27 @@ class TaskContractService:
                 runtime_payload,
             )
         canonical_runtime_payload = serialize_task_contract_runtime_policy(parsed_policy)
-        budget_class = str(
+        runtime_budget_class = str(
             parsed_policy.budget_class
             or legacy_budget_payload.get("class")
             or canonical_runtime_payload.get("class")
             or "low"
         ).strip() or "low"
+        legacy_budget_class = str(
+            legacy_budget_payload.get("class")
+            or runtime_budget_class
+            or "low"
+        ).strip() or "low"
         if self._has_meaningful_policy_keys(legacy_budget_payload):
             legacy_budget_out = dict(legacy_budget_payload)
-            legacy_budget_out["class"] = budget_class
+            legacy_budget_out["class"] = legacy_budget_class
         elif runtime_policy is not None or self._has_meaningful_policy_keys(runtime_payload):
-            legacy_budget_out: dict[str, object] = {"class": budget_class}
+            legacy_budget_out = {"class": runtime_budget_class}
         elif legacy_budget_payload:
             legacy_budget_out = dict(legacy_budget_payload)
-            legacy_budget_out["class"] = budget_class
+            legacy_budget_out["class"] = legacy_budget_class
         else:
-            legacy_budget_out = {"class": budget_class}
+            legacy_budget_out = {"class": runtime_budget_class}
         return legacy_budget_out, canonical_runtime_payload
 
     def _builtin_contract(self, task_key: str) -> TaskContract | None:
