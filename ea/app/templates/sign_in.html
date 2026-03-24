@@ -1,24 +1,66 @@
 {% extends "base_public.html" %}
 {% block content %}
-<section class="section hero">
-  <div>
-    <div class="eyebrow">Sign in</div>
-    <h1>Open the assistant from your normal workspace identity.</h1>
-    <p class="lead">The public site stays separate from the product shell. Sign in through your configured workspace path, then continue in the app surface.</p>
+<style>
+  .sign-in-hero {
+    align-items: start;
+  }
+  .sign-in-hero .hero-copy {
+    min-height: 0;
+    gap: 18px;
+  }
+  .sign-in-panel {
+    padding: 24px;
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .sign-in-panel .eyebrow {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+</style>
+
+<section class="section hero sign-in-hero">
+  <div class="panel hero-copy">
+    <div>
+      <div class="kicker">Sign in</div>
+      <h1>Open the assistant from your normal workspace identity.</h1>
+      <p class="lead">The public site stays separate from the app. Sign in through the workspace path configured on this deployment, then continue in the product surface.</p>
+    </div>
+    <div class="summary-strip">
+      <div class="summary">
+        <div class="label">Identity first</div>
+        <strong>Use the workspace identity your deployment expects.</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Then workspace</div>
+        <strong>Open the app only after the identity boundary is clear.</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Need setup?</div>
+        <strong>Review the guided onboarding and configure the first channel.</strong>
+      </div>
+    </div>
     <div class="cta-row">
       <a class="btn primary" href="/app/today">Open app</a>
-      <a class="btn secondary" href="/get-started">Review setup</a>
+      <a class="btn ghost" href="/get-started">Review setup</a>
     </div>
   </div>
-  <section class="card card-strong stack">
-    <div class="eyebrow">What to expect</div>
-    <h2>Identity, then workspace.</h2>
-    <ul class="list">
+
+  <section class="panel sign-in-panel">
+    <div>
+      <div class="eyebrow">What to expect</div>
+      <h2>Identity, then workspace.</h2>
+    </div>
+    <ul class="muted-list">
       {% for note in sign_in_notes %}
       <li>{{ note }}</li>
       {% endfor %}
     </ul>
-    <p class="helper-note">If the browser is not already trusted by the deployment, the app surface will continue to enforce the configured authentication and principal rules.</p>
+    <div class="callout">If this browser is not already trusted by the deployment, the app will keep enforcing the configured authentication and principal rules.</div>
   </section>
 </section>
 {% endblock %}

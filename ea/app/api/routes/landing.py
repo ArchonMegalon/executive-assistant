@@ -263,7 +263,7 @@ def _shared_browser_fields(
     if not browser_principal_override_allowed():
         return f"""
         {token_field}
-        <p class=\"helper-note\">Browser setup is bound to the server default principal unless browser principal override is explicitly enabled.</p>
+        <p class=\"helper-note\">This browser is currently setting up the default workspace for this server. A different workspace principal can only be chosen here when browser principal override is explicitly enabled.</p>
         """
     return f"""
     <label for=\"principal_id\">Principal ID</label>
