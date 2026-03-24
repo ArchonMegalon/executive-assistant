@@ -1,0 +1,86 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="hero section">
+  <section class="card card-strong">
+    <div class="eyebrow">AI chief of staff</div>
+    <h1>Your executive assistant across email, messaging, and calendar.</h1>
+    <p class="lead">Start every day with a clear brief, reply faster with source-aware drafts, and never lose track of commitments, follow-ups, or context.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="/get-started">Get started</a>
+      <a class="btn secondary" href="/product">See product</a>
+      <a class="btn secondary" href="/security">Why operators trust it</a>
+    </div>
+    <div class="signal-grid">
+      <div class="signal"><strong>{{ workspace_mode_label }}</strong><div>Workspace mode</div></div>
+      <div class="signal"><strong>{{ selected_channels_label }}</strong><div>Current channel posture</div></div>
+      <div class="signal"><strong>{{ brief_headline }}</strong><div>Outcome-first product story</div></div>
+    </div>
+  </section>
+  <section class="card">
+    <div class="eyebrow">What buyers should understand first</div>
+    <h2>A clean assistant product, not a mixed surface.</h2>
+    <div class="stack">
+      <div class="surface"><strong>Morning brief</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">A ranked start to the day with real follow-ups, priorities, and draft opportunities.</p></div>
+      <div class="surface"><strong>Draft replies</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Source-aware suggestions with approvals and receipts instead of generic AI text.</p></div>
+      <div class="surface"><strong>Follow-up tracker</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Commitments and next steps stay attached to the right people and channels.</p></div>
+      <div class="surface"><strong>Principal-scoped memory</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Durable context and honest channel support are visible product features, not hidden runtime facts.</p></div>
+    </div>
+  </section>
+</section>
+
+<section class="section card">
+  <div class="eyebrow">Core product</div>
+  <h2>The assistant that turns your channels into a prioritized day.</h2>
+  <div class="grid" style="margin-top:18px;">
+    {% for feature in feature_cards %}
+    <section class="surface">
+      <h3>{{ feature.title }}</h3>
+      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ feature.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section grid-2">
+  <section class="card">
+    <div class="eyebrow">What the first brief would say</div>
+    <h2>First visible assistant outcome</h2>
+    <ul class="list">
+      {% for item in first_brief_items %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Trust</div>
+    <h2>Why this should feel safe</h2>
+    <ul class="list">
+      {% for item in trust_notes %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </section>
+</section>
+
+<section class="section card">
+  <div class="eyebrow">How it works</div>
+  <h2>Package the runtime like a product.</h2>
+  <div class="grid" style="margin-top:18px;">
+    {% for step in how_steps %}
+    <section class="surface">
+      <h3>{{ loop.index }}. {{ step.title }}</h3>
+      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ step.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section card">
+  <div class="eyebrow">Who it is for</div>
+  <h2>One product, different operator rhythms.</h2>
+  <div class="grid" style="margin-top:18px;">
+    {% for persona in personas %}
+    <section class="surface">
+      <h3>{{ persona.title }}</h3>
+      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ persona.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

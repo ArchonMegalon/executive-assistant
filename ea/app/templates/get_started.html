@@ -1,0 +1,162 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section card card-strong">
+  <div class="eyebrow">Get started</div>
+  <h1>Connect your workspace in four steps.</h1>
+  <p class="lead">Keep onboarding short: workspace posture, first channel, privacy and approvals, first briefing. The recommended first success is Google Core.</p>
+</section>
+
+<section class="section grid-2">
+  <section class="card">
+    <div class="eyebrow">Step 1</div>
+    <h2>Create the workspace</h2>
+    <p class="lead" style="font-size:0.98rem;">Pick the operating mode first, then choose the channels that should exist in this workspace.</p>
+    <form method="post" action="/setup/start">
+      {{ shared_browser_fields|safe }}
+      <label for="workspace_name">Workspace name</label>
+      <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
+      <div class="split">
+        <div>
+          <label for="workspace_mode">Mode</label>
+          <select id="workspace_mode" name="workspace_mode">
+            <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
+            <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Team / tenant</option>
+            <option value="gm_creator_ops" {% if workspace.mode == 'gm_creator_ops' %}selected{% endif %}>Founder / chief of staff ops</option>
+          </select>
+        </div>
+        <div>
+          <label for="timezone">Timezone</label>
+          <input id="timezone" name="timezone" value="{{ workspace.timezone or '' }}" placeholder="Europe/Vienna">
+        </div>
+      </div>
+      <div class="split">
+        <div>
+          <label for="region">Region</label>
+          <input id="region" name="region" value="{{ workspace.region or '' }}" placeholder="AT">
+        </div>
+        <div>
+          <label for="language">Language</label>
+          <input id="language" name="language" value="{{ workspace.language or '' }}" placeholder="en">
+        </div>
+      </div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}> Google: inbox context, calendar, contacts, first real brief</label>
+        <label class="check"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}> Telegram: personal identity or official bot path</label>
+        <label class="check"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}> WhatsApp: business onboarding or explicit export intake</label>
+      </div>
+      <button type="submit">Save workspace posture</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="eyebrow">Step 2</div>
+    <h2>Google Core is the recommended first connection.</h2>
+    <p class="lead" style="font-size:0.98rem;">It is the fastest path to a real assistant outcome: drafts, delivery checks, calendar context, contacts, and the first useful brief.</p>
+    <p class="helper-note"><strong>Current status:</strong> {{ google.status|replace('_', ' ') if google.status else 'not selected' }}</p>
+    <form method="post" action="/google/connect">
+      {{ shared_browser_fields|safe }}
+      <label for="scope_bundle">Google bundle</label>
+      <select id="scope_bundle" name="scope_bundle">
+        <option value="core">Google Core (recommended)</option>
+        <option value="full_workspace">Google Full Workspace</option>
+        <option value="verify">Advanced Gmail verify</option>
+        <option value="send">Send only</option>
+      </select>
+      <button type="submit">Connect Google</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="eyebrow">Step 3</div>
+    <h2>Telegram stays split between personal identity and bot rollout.</h2>
+    <p class="lead" style="font-size:0.98rem;">Do not blur personal login, history posture, and bot installation into one vague promise.</p>
+    <form method="post" action="/setup/telegram">
+      {{ shared_browser_fields|safe }}
+      <label for="telegram_ref">Telegram handle or account ref</label>
+      <input id="telegram_ref" name="telegram_ref" placeholder="@username">
+      <div class="split">
+        <div>
+          <label for="identity_mode">Identity mode</label>
+          <select id="identity_mode" name="identity_mode">
+            <option value="login_widget">Sign in with Telegram</option>
+            <option value="oidc">Telegram OIDC</option>
+          </select>
+        </div>
+        <div>
+          <label for="history_mode">History mode</label>
+          <select id="history_mode" name="history_mode">
+            <option value="future_only">Future messages only</option>
+            <option value="import_later">Import later</option>
+            <option value="manual_forward">Manual forward / export later</option>
+          </select>
+        </div>
+      </div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="assistant_surfaces" value="dm"> DM</label>
+        <label class="check"><input type="checkbox" name="assistant_surfaces" value="group"> Group</label>
+        <label class="check"><input type="checkbox" name="assistant_surfaces" value="channel"> Channel</label>
+      </div>
+      <button type="submit">Save personal Telegram path</button>
+    </form>
+    <form method="post" action="/setup/telegram/link-bot">
+      {{ shared_browser_fields|safe }}
+      <label for="bot_handle">Official bot handle</label>
+      <input id="bot_handle" name="bot_handle" placeholder="@assistant_bot">
+      <label for="default_chat_ref">Default chat ref</label>
+      <input id="default_chat_ref" name="default_chat_ref" placeholder="chat id or handle">
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="install_surfaces" value="dm"> Install in DM</label>
+        <label class="check"><input type="checkbox" name="install_surfaces" value="group"> Install in group</label>
+        <label class="check"><input type="checkbox" name="install_surfaces" value="channel"> Install in channel</label>
+      </div>
+      <button type="submit">Save Telegram bot plan</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="eyebrow">Step 4</div>
+    <h2>Pick the right WhatsApp path.</h2>
+    <p class="lead" style="font-size:0.98rem;">Business onboarding and export intake mean different things. Keep them distinct so the product stays honest.</p>
+    <form method="post" action="/setup/whatsapp/business">
+      {{ shared_browser_fields|safe }}
+      <label for="phone_number">Business phone number</label>
+      <input id="phone_number" name="phone_number" placeholder="+43...">
+      <label for="business_name">Business name</label>
+      <input id="business_name" name="business_name" placeholder="Acme GmbH">
+      <label class="check"><input type="checkbox" name="import_history_now" value="true"> Request history import only if the supported business flow later allows it</label>
+      <button type="submit">Save WhatsApp Business path</button>
+    </form>
+    <form method="post" action="/setup/whatsapp/export">
+      {{ shared_browser_fields|safe }}
+      <label for="export_label">Export intake plan label</label>
+      <input id="export_label" name="export_label" placeholder="March personal export">
+      <label for="selected_chat_labels_csv">Planned chat labels</label>
+      <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
+      <label class="check"><input type="checkbox" name="include_media" value="true"> Include media references in the intake plan</label>
+      <button type="submit">Save WhatsApp export plan</button>
+    </form>
+  </section>
+
+  <section class="card card-strong">
+    <div class="eyebrow">Finish</div>
+    <h2>Set memory rules and generate the first briefing.</h2>
+    <form method="post" action="/setup/finalize">
+      {{ shared_browser_fields|safe }}
+      <label for="retention_mode">Retention mode</label>
+      <select id="retention_mode" name="retention_mode">
+        <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
+        <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
+        <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
+      </select>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}> Telegram metadata only</label>
+        <label class="check"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}> WhatsApp metadata only</label>
+        <label class="check"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}> Allow draft replies</label>
+        <label class="check"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}> Allow action suggestions</label>
+        <label class="check"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}> Allow automatic briefs</label>
+      </div>
+      <button type="submit">Finish setup and open the briefing</button>
+    </form>
+  </section>
+</section>
+{% endblock %}
