@@ -1,22 +1,29 @@
 {% extends "base_console.html" %}
 {% block content %}
-<section class="card hero">
-  <div class="eyebrow">Authenticated workspace</div>
-  <h1>{{ console_title }}</h1>
-  <p class="muted">{{ console_summary }}</p>
-</section>
-<div class="stats">
+<div class="topbar" style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:18px; flex-wrap:wrap;">
+  <div class="page-title">
+    <h1>{{ console_title }}</h1>
+    <p>{{ console_summary }}</p>
+  </div>
+  <div class="controls">
+    <div class="btn">{{ access_email or principal_id }}</div>
+    {% if operator_id %}<div class="btn">{{ operator_id }}</div>{% endif %}
+  </div>
+</div>
+
+<section class="grid stats">
   {% for stat in stats %}
-  <div class="stat">
-    <div class="eyebrow">{{ stat.label }}</div>
-    <strong>{{ stat.value }}</strong>
+  <div class="card stat">
+    <div class="section-label">{{ stat.label }}</div>
+    <div class="stat-value">{{ stat.value }}</div>
   </div>
   {% endfor %}
-</div>
-<section class="cards">
+</section>
+
+<section class="grid cards">
   {% for card in cards %}
   <section class="card">
-    <div class="eyebrow">{{ card.eyebrow }}</div>
+    <div class="section-label">{{ card.eyebrow }}</div>
     <h2>{{ card.title }}</h2>
     {% if card.body %}<p class="muted">{{ card.body }}</p>{% endif %}
     {% if card["items"] %}
@@ -24,6 +31,7 @@
       {% for item in card["items"] %}<li>{{ item }}</li>{% endfor %}
     </ul>
     {% endif %}
+    {% if loop.first and card.body %}<div class="mini-note">The workspace should feel like an operational queue, not a dramatic dashboard.</div>{% endif %}
   </section>
   {% endfor %}
 </section>

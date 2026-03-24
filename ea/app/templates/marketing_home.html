@@ -1,86 +1,85 @@
 {% extends "base_public.html" %}
 {% block content %}
-<section class="hero section">
-  <section class="card card-strong">
-    <div class="eyebrow">AI chief of staff</div>
-    <h1>Your executive assistant across email, messaging, and calendar.</h1>
-    <p class="lead">Start every day with a clear brief, reply faster with source-aware drafts, and never lose track of commitments, follow-ups, or context.</p>
-    <div class="cta-row">
-      <a class="btn primary" href="/get-started">Get started</a>
-      <a class="btn secondary" href="/product">See product</a>
-      <a class="btn secondary" href="/security">Why operators trust it</a>
+<section class="hero">
+  <section class="panel">
+    <div class="eyebrow">Assistant workspace</div>
+    <h1>Start the day with a clear brief, draft queue, and follow-up list.</h1>
+    <p class="lead">Executive Assistant brings email, messaging, and calendar activity into one reviewed workspace, with durable context and explicit approvals for sensitive actions.</p>
+    <div class="hero-actions">
+      <a class="btn primary" href="/product">See the product</a>
+      <a class="btn" href="/get-started">Get started</a>
     </div>
-    <div class="signal-grid">
-      <div class="signal"><strong>{{ workspace_mode_label }}</strong><div>Workspace mode</div></div>
-      <div class="signal"><strong>{{ selected_channels_label }}</strong><div>Current channel posture</div></div>
-      <div class="signal"><strong>{{ brief_headline }}</strong><div>Outcome-first product story</div></div>
+    <div class="hero-notes">
+      <div class="note"><strong>Briefing</strong><div>What changed, what is blocked, and what needs a reply first.</div></div>
+      <div class="note"><strong>Drafts</strong><div>Reviewed replies with context, sources, and approval points.</div></div>
+      <div class="note"><strong>Follow-ups</strong><div>Commitments and deadlines that stay visible until closed.</div></div>
     </div>
   </section>
-  <section class="card">
-    <div class="eyebrow">What buyers should understand first</div>
-    <h2>A clean assistant product, not a mixed surface.</h2>
-    <div class="stack">
-      <div class="surface"><strong>Morning brief</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">A ranked start to the day with real follow-ups, priorities, and draft opportunities.</p></div>
-      <div class="surface"><strong>Draft replies</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Source-aware suggestions with approvals and receipts instead of generic AI text.</p></div>
-      <div class="surface"><strong>Follow-up tracker</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Commitments and next steps stay attached to the right people and channels.</p></div>
-      <div class="surface"><strong>Principal-scoped memory</strong><p class="lead" style="font-size:0.96rem; margin-top:8px;">Durable context and honest channel support are visible product features, not hidden runtime facts.</p></div>
+
+  <section class="panel">
+    <div class="section-title">Today</div>
+    <h2 style="margin-bottom:12px;">{{ brief_headline }}</h2>
+    <div class="grid-2" style="margin-top:0; grid-template-columns: 220px 1fr; align-items:start;">
+      <aside class="surface" style="padding:14px;">
+        <div class="section-title">Workspace</div>
+        <div class="stack" style="gap:6px;">
+          <div><strong>{{ workspace_mode_label }}</strong><div class="muted" style="font-size:13px;">Current working mode</div></div>
+          <div><strong>{{ selected_channels_label }}</strong><div class="muted" style="font-size:13px;">Connected channel posture</div></div>
+          <div><strong>Approvals</strong><div class="muted" style="font-size:13px;">Reviewable outbound actions</div></div>
+        </div>
+      </aside>
+      <div class="stack">
+        <section class="surface">
+          <div class="section-title">Morning brief</div>
+          <div class="stack" style="gap:10px;">
+            {% for item in first_brief_items[:3] %}
+            <div>
+              <strong style="display:block; margin-bottom:3px; font-size:14px; color:var(--text);">{{ item.split(':', 1)[0] }}</strong>
+              <div class="muted" style="font-size:13px;">{% if ':' in item %}{{ item.split(':', 1)[1].strip() }}{% else %}{{ item }}{% endif %}</div>
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+        <section class="surface">
+          <div class="section-title">Trust</div>
+          <div class="stack" style="gap:8px;">
+            {% for item in trust_notes[:3] %}
+            <div class="muted" style="font-size:13px;">{{ item }}</div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
     </div>
   </section>
 </section>
 
-<section class="section card">
-  <div class="eyebrow">Core product</div>
-  <h2>The assistant that turns your channels into a prioritized day.</h2>
-  <div class="grid" style="margin-top:18px;">
+<section class="section">
+  <div class="eyebrow">What it does</div>
+  <h2>A professional assistant system for daily operator work.</h2>
+  <div class="section-grid">
     {% for feature in feature_cards %}
-    <section class="surface">
+    <section class="tile">
       <h3>{{ feature.title }}</h3>
-      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ feature.body }}</p>
+      <p class="muted">{{ feature.body }}</p>
     </section>
     {% endfor %}
   </div>
 </section>
 
-<section class="section grid-2">
-  <section class="card">
-    <div class="eyebrow">What the first brief would say</div>
-    <h2>First visible assistant outcome</h2>
-    <ul class="list">
-      {% for item in first_brief_items %}<li>{{ item }}</li>{% endfor %}
-    </ul>
-  </section>
-  <section class="card">
-    <div class="eyebrow">Trust</div>
-    <h2>Why this should feel safe</h2>
+<section class="section two-col">
+  <section class="tile">
+    <div class="eyebrow">Why it feels trustworthy</div>
+    <h2>Quiet controls, clear boundaries.</h2>
     <ul class="list">
       {% for item in trust_notes %}<li>{{ item }}</li>{% endfor %}
     </ul>
   </section>
-</section>
-
-<section class="section card">
-  <div class="eyebrow">How it works</div>
-  <h2>Package the runtime like a product.</h2>
-  <div class="grid" style="margin-top:18px;">
-    {% for step in how_steps %}
-    <section class="surface">
-      <h3>{{ loop.index }}. {{ step.title }}</h3>
-      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ step.body }}</p>
-    </section>
-    {% endfor %}
-  </div>
-</section>
-
-<section class="section card">
-  <div class="eyebrow">Who it is for</div>
-  <h2>One product, different operator rhythms.</h2>
-  <div class="grid" style="margin-top:18px;">
-    {% for persona in personas %}
-    <section class="surface">
-      <h3>{{ persona.title }}</h3>
-      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ persona.body }}</p>
-    </section>
-    {% endfor %}
-  </div>
+  <section class="tile">
+    <div class="eyebrow">Recommended path</div>
+    <h2>Get to a first useful briefing quickly.</h2>
+    <ul class="list">
+      {% for step in how_steps %}<li>{{ step.body }}</li>{% endfor %}
+    </ul>
+  </section>
 </section>
 {% endblock %}

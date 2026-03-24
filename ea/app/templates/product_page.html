@@ -2,18 +2,18 @@
 {% block content %}
 <section class="section card card-strong">
   <div class="eyebrow">Product</div>
-  <h1>A serious assistant runtime, packaged like one product.</h1>
-  <p class="lead">Executive Assistant should sell briefings, drafts, follow-ups, memory, and approvals. The runtime remains the reason it is trustworthy, but it should not be the headline.</p>
+  <h1>A shared workspace for briefs, drafts, follow-ups, and approvals.</h1>
+  <p class="lead">Executive Assistant is built for operators who need one place to review the day, prepare replies, track commitments, and keep context attached to the right people and threads.</p>
 </section>
 
 <section class="section card">
-  <div class="eyebrow">Product modules</div>
-  <h2>What belongs in the visible product navigation</h2>
-  <div class="grid" style="margin-top:18px;">
+  <div class="eyebrow">Core product</div>
+  <h2>What the workspace should help you do every day</h2>
+  <div class="grid">
     {% for module in product_modules %}
     <section class="surface">
       <h3>{{ module.title }}</h3>
-      <p class="lead" style="font-size:0.96rem; margin-bottom:0;">{{ module.body }}</p>
+      <p class="muted">{{ module.body }}</p>
     </section>
     {% endfor %}
   </div>
@@ -21,8 +21,8 @@
 
 <section class="section grid-2">
   <section class="card">
-    <div class="eyebrow">Authenticated app shell</div>
-    <h2>Navigation centered on the daily loop</h2>
+    <div class="eyebrow">In the app</div>
+    <h2>Navigation centered on ongoing work</h2>
     <ul class="list">
       {% for group in app_nav_groups %}
         {% for item in group["items"] %}
@@ -32,13 +32,13 @@
     </ul>
   </section>
   <section class="card">
-    <div class="eyebrow">Principle</div>
-    <h2>Keep the surface singular</h2>
+    <div class="eyebrow">Working model</div>
+    <h2>One workspace, different operator rhythms</h2>
     <ul class="list">
-      <li>No sibling product links in the Executive Assistant nav.</li>
-      <li>No mixed public utility routes in the primary homepage story.</li>
-      <li>Marketing, onboarding, app, and admin are separate surfaces.</li>
-      <li>Runtime nouns belong in docs and operator pages, not the homepage hero.</li>
+      <li>Start with a briefing, not a blank inbox.</li>
+      <li>Review drafts before anything sensitive is sent.</li>
+      <li>Keep follow-ups attached to the right thread and owner.</li>
+      <li>Use approvals and durable context to keep the product trustworthy in real work.</li>
     </ul>
   </section>
 </section>

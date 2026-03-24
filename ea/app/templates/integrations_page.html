@@ -2,8 +2,8 @@
 {% block content %}
 <section class="section card card-strong">
   <div class="eyebrow">Integrations</div>
-  <h1>Make connector honesty part of the product.</h1>
-  <p class="lead">Google should be the default first success. Telegram and WhatsApp should stay explicit about identity, history posture, and what is actually supported today.</p>
+  <h1>Connect the channels that shape the day.</h1>
+  <p class="lead">Google, Telegram, and WhatsApp are useful in different ways. The product should make those boundaries explicit so operators know what the assistant can read, draft, and track.</p>
 </section>
 <section class="section grid">
   {% for card in channel_cards %}
@@ -11,9 +11,9 @@
     <div class="eyebrow">{{ card.label }}</div>
     <div class="pill {{ card.tone }}">{{ card.status }}</div>
     <h2 style="margin-top:14px;">{{ card.label }}</h2>
-    <p class="lead" style="font-size:0.98rem;">{{ card.detail }}</p>
-    {% if card.summary %}<p class="lead" style="font-size:0.94rem;">{{ card.summary }}</p>{% endif %}
-    <div class="cta-row"><a class="btn secondary" href="{{ card.href }}">View contract</a></div>
+    <p class="muted">{{ card.detail }}</p>
+    {% if card.summary %}<p class="muted">{{ card.summary }}</p>{% endif %}
+    <div class="cta-row"><a class="btn" href="{{ card.href }}">View details</a></div>
   </section>
   {% endfor %}
 </section>
