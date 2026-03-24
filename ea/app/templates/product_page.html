@@ -1,29 +1,75 @@
 {% extends "base_public.html" %}
 {% block content %}
-<section class="section card card-strong">
-  <div class="eyebrow">Product</div>
+<style>
+  .product-hero,
+  .product-card,
+  .product-detail {
+    padding: 18px;
+  }
+  .product-grid,
+  .product-detail-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .product-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .product-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .module-card,
+  .detail-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 16px;
+  }
+  .module-card .eyebrow,
+  .detail-card .eyebrow {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  @media (max-width: 1080px) {
+    .product-grid,
+    .product-detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel product-hero">
+  <div class="kicker">Product</div>
   <h1>A shared workspace for briefs, drafts, follow-ups, and approvals.</h1>
   <p class="lead">Executive Assistant is built for operators who need one place to review the day, prepare replies, track commitments, and keep context attached to the right people and threads.</p>
 </section>
 
-<section class="section card">
-  <div class="eyebrow">Core product</div>
-  <h2>What the workspace should help you do every day</h2>
-  <div class="grid">
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Core product</div>
+      <h2>What the workspace should help you do every day</h2>
+    </div>
+    <p>The product should feel like a working loop: start with a brief, clear the reply queue, track follow-ups, and keep review points visible.</p>
+  </div>
+  <div class="product-grid">
     {% for module in product_modules %}
-    <section class="surface">
+    <section class="module-card">
+      <div class="eyebrow">Workspace module</div>
       <h3>{{ module.title }}</h3>
-      <p class="muted">{{ module.body }}</p>
+      <p class="copy">{{ module.body }}</p>
     </section>
     {% endfor %}
   </div>
 </section>
 
-<section class="section grid-2">
-  <section class="card">
+<section class="section product-detail-grid">
+  <section class="detail-card">
     <div class="eyebrow">In the app</div>
     <h2>Navigation centered on ongoing work</h2>
-    <ul class="list">
+    <ul class="muted-list">
       {% for group in app_nav_groups %}
         {% for item in group["items"] %}
         <li>{{ item.label }}</li>
@@ -31,10 +77,10 @@
       {% endfor %}
     </ul>
   </section>
-  <section class="card">
+  <section class="detail-card">
     <div class="eyebrow">Working model</div>
     <h2>One workspace, different operator rhythms</h2>
-    <ul class="list">
+    <ul class="muted-list">
       <li>Start with a briefing, not a blank inbox.</li>
       <li>Review drafts before anything sensitive is sent.</li>
       <li>Keep follow-ups attached to the right thread and owner.</li>
