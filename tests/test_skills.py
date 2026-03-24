@@ -41,10 +41,13 @@ def load_chummer_guide_bootstrap_module():
 def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": "exec-1"})
     return client
 
@@ -818,6 +821,27 @@ def test_chummer6_guide_bootstrap_keeps_publish_schedule_off_auditor_skills() ->
         assert "publish_repo" not in budget
         assert "publish_branch" not in budget
         assert "refresh_schedule_utc" not in budget
+
+
+def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_targeted_rerun_scope() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    for skill_key in (
+        "chummer6_visual_director",
+        "chummer6_scene_auditor",
+        "chummer6_visual_auditor",
+        "chummer6_pack_auditor",
+    ):
+        payload = payloads[skill_key]
+        assert "public_media_briefs" in payload["memory_reads"]
+        assert "public_media_briefs" in payload["evidence_requirements"]
+        properties = payload["input_schema_json"]["properties"]
+        assert "critical_asset_targets" in properties
+        assert "asset_contract_overrides" in properties
+        assert "rerun_scope" in properties
+
+    assert "public_media_briefs" not in payloads["chummer6_public_writer"]["memory_reads"]
 
 
 @pytest.mark.parametrize(

@@ -404,43 +404,81 @@ def test_prod_mode_rejects_blank_api_token_startup() -> None:
 
 
 def test_prod_mode_rejects_default_principal_fallback() -> None:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    from app.api.app import create_app
+    saved_env = {
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"),
+    }
+    try:
+        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+        os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER", None)
+        from app.api.app import create_app
 
-    app = create_app()
-    app.state.container = _ProdContainer()
-    client = TestClient(app)
+        app = create_app()
+        app.state.container = _ProdContainer()
+        client = TestClient(app)
 
-    response = client.post(
-        "/v1/memory/candidates",
-        headers={"Authorization": "Bearer secret-token"},
-        json={
-            "category": "stakeholder_pref",
-            "summary": "Principal fallback blocked in prod",
-            "fact_json": {"source": "container-route"},
-        },
-    )
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "principal_required"
+        response = client.post(
+            "/v1/memory/candidates",
+            headers={"Authorization": "Bearer secret-token"},
+            json={
+                "category": "stakeholder_pref",
+                "summary": "Principal fallback blocked in prod",
+                "fact_json": {"source": "container-route"},
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "principal_required"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_prod_mode_rejects_default_principal_fallback_on_rewrite_route() -> None:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    from app.api.app import create_app
+    saved_env = {
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"),
+    }
+    try:
+        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+        os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER", None)
+        from app.api.app import create_app
 
-    app = create_app()
-    app.state.container = _ProdContainer()
-    client = TestClient(app)
+        app = create_app()
+        app.state.container = _ProdContainer()
+        client = TestClient(app)
 
-    response = client.post(
-        "/v1/rewrite/artifact",
-        headers={"Authorization": "Bearer secret-token"},
-        json={"text": "rewrite-principal-required"},
-    )
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "principal_required"
+        response = client.post(
+            "/v1/rewrite/artifact",
+            headers={"Authorization": "Bearer secret-token"},
+            json={"text": "rewrite-principal-required"},
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "principal_required"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_prod_mode_with_empty_token_rejects_auth_dependency() -> None:
@@ -461,25 +499,44 @@ def test_prod_mode_with_empty_token_rejects_auth_dependency() -> None:
 
 
 def test_prod_mode_case_insensitive_value_rejects_default_principal_fallback() -> None:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    from app.api.app import create_app
+    saved_env = {
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"),
+    }
+    try:
+        os.environ["EA_STORAGE_BACKEND"] = "memory"
+        os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+        os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER", None)
+        from app.api.app import create_app
 
-    app = create_app()
-    app.state.container = _ProdContainerCaseInsensitive()
-    client = TestClient(app)
+        app = create_app()
+        app.state.container = _ProdContainerCaseInsensitive()
+        client = TestClient(app)
 
-    response = client.post(
-        "/v1/memory/candidates",
-        headers={"Authorization": "Bearer secret-token"},
-        json={
-            "category": "stakeholder_pref",
-            "summary": "Principal fallback blocked with case-variant prod mode",
-            "fact_json": {"source": "container-route"},
-        },
-    )
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "principal_required"
+        response = client.post(
+            "/v1/memory/candidates",
+            headers={"Authorization": "Bearer secret-token"},
+            json={
+                "category": "stakeholder_pref",
+                "summary": "Principal fallback blocked with case-variant prod mode",
+                "fact_json": {"source": "container-route"},
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "principal_required"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_prod_mode_rejects_channel_runtime_fallback_during_startup(

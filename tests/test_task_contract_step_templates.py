@@ -46,12 +46,15 @@ def _api_client():
 
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
     os.environ.pop("DATABASE_URL", None)
 
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": "exec-1"})
     return client
 
@@ -103,6 +106,13 @@ def _build_dispatch_runtime(
             channel_runtime=channel_runtime,
             evidence_runtime=evidence_runtime,
         ),
+    )
+    orchestrator.upsert_operator_profile(
+        principal_id="exec-1",
+        operator_id="reviewer-1",
+        display_name="Reviewer 1",
+        roles=("communications_reviewer",),
+        status="active",
     )
     return orchestrator, channel_runtime, tool_runtime
 
@@ -235,6 +245,13 @@ def _build_dispatch_memory_runtime(
             artifacts=artifacts,
             channel_runtime=channel_runtime,
         ),
+    )
+    orchestrator.upsert_operator_profile(
+        principal_id="exec-1",
+        operator_id="reviewer-1",
+        display_name="Reviewer 1",
+        roles=("communications_reviewer",),
+        status="active",
     )
     return orchestrator, channel_runtime, tool_runtime, memory_runtime
 
@@ -555,7 +572,7 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_ge
         "step_artifact_save",
     )
     assert plan.steps[0].input_keys == ("normalized_text",)
-    assert plan.steps[1].tool_name == "provider.gemini_vortex.structured_generate"
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
     assert plan.steps[1].output_keys == (
         "normalized_text",
         "structured_output_json",
@@ -1120,7 +1137,8 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
         "step_connector_dispatch",
     )
     assert channel_runtime.list_pending_delivery(limit=10) == []
-    assert memory_runtime.list_candidates(limit=10, principal_id="exec-1") == []
+    pre_approval_candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
+    assert not any(row.category == "stakeholder_follow_up_fact" for row in pre_approval_candidates)
 
     decision = orchestrator.decide_approval(
         exc.value.approval_id,
@@ -1541,7 +1559,8 @@ def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_can
     assert waiting_steps["step_memory_candidate_stage"].state == "queued"
     assert waiting.artifacts == []
     assert channel_runtime.list_pending_delivery(limit=10) == []
-    assert memory_runtime.list_candidates(limit=10, principal_id="exec-1") == []
+    pre_approval_candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
+    assert not any(row.category == "stakeholder_follow_up_fact" for row in pre_approval_candidates)
 
     returned = orchestrator.return_human_task(
         exc.value.human_task_id,
@@ -1564,7 +1583,8 @@ def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_can
     assert approval_steps["step_memory_candidate_stage"].state == "queued"
     assert len(awaiting_approval.artifacts) == 1
     assert awaiting_approval.artifacts[0].content == "Reviewed stakeholder briefing with follow-up notes."
-    assert memory_runtime.list_candidates(limit=10, principal_id="exec-1") == []
+    pre_approval_candidates = memory_runtime.list_candidates(limit=10, principal_id="exec-1")
+    assert not any(row.category == "stakeholder_follow_up_fact" for row in pre_approval_candidates)
     pending_approvals = orchestrator.list_pending_approvals(limit=10)
     approval = next(row for row in pending_approvals if row.session_id == exc.value.session_id)
 

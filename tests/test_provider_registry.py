@@ -14,6 +14,13 @@ from app.services.task_contracts import TaskContractService
 from app.services.tool_execution_common import ToolExecutionError
 
 
+@pytest.fixture(autouse=True)
+def _configured_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+
 def test_provider_registry_matches_allowed_tools_and_provider_hints() -> None:
     registry = ProviderRegistryService()
     skill = SkillContract(
@@ -117,6 +124,20 @@ def test_provider_registry_does_not_route_unconfigured_magixai_when_gemini_is_di
             principal_id="exec-1",
             provider_hints=("gemini_vortex", "magixai"),
             allowed_tools=("provider.gemini_vortex.structured_generate", "provider.magixai.structured_generate"),
+        )
+
+
+def test_provider_registry_does_not_route_unconfigured_browseract_direct_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    registry = ProviderRegistryService()
+
+    with pytest.raises(ToolExecutionError, match="provider_capability_unavailable:account_facts"):
+        registry.route_tool_by_capability_with_context(
+            capability_key="account_facts",
+            principal_id="exec-1",
+            allowed_tools=("browseract.extract_account_facts",),
         )
 
 

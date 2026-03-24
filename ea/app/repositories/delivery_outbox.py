@@ -29,6 +29,7 @@ class DeliveryOutboxRepository(Protocol):
         content: str,
         metadata: dict[str, object] | None = None,
         *,
+        principal_id: str = "",
         idempotency_key: str = "",
     ) -> DeliveryOutboxItem:
         ...
@@ -37,6 +38,7 @@ class DeliveryOutboxRepository(Protocol):
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         receipt_json: dict[str, object] | None = None,
     ) -> DeliveryOutboxItem | None:
         ...
@@ -45,13 +47,14 @@ class DeliveryOutboxRepository(Protocol):
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         error: str,
         next_attempt_at: str | None = None,
         dead_letter: bool = False,
     ) -> DeliveryOutboxItem | None:
         ...
 
-    def list_pending(self, limit: int = 50) -> list[DeliveryOutboxItem]:
+    def list_pending(self, limit: int = 50, *, principal_id: str | None = None) -> list[DeliveryOutboxItem]:
         ...
 
 
@@ -59,7 +62,7 @@ class InMemoryDeliveryOutboxRepository:
     def __init__(self) -> None:
         self._rows: Dict[str, DeliveryOutboxItem] = {}
         self._order: List[str] = []
-        self._idempotency_to_id: Dict[str, str] = {}
+        self._idempotency_to_id: Dict[tuple[str, str], str] = {}
 
     def enqueue(
         self,
@@ -68,15 +71,18 @@ class InMemoryDeliveryOutboxRepository:
         content: str,
         metadata: dict[str, object] | None = None,
         *,
+        principal_id: str = "",
         idempotency_key: str = "",
     ) -> DeliveryOutboxItem:
+        principal = str(principal_id or "").strip()
         idem = str(idempotency_key or "").strip()
         if idem:
-            found_id = self._idempotency_to_id.get(idem)
+            found_id = self._idempotency_to_id.get((principal, idem))
             if found_id and found_id in self._rows:
                 return self._rows[found_id]
         row = DeliveryOutboxItem(
             delivery_id=str(uuid.uuid4()),
+            principal_id=principal,
             channel=str(channel or "unknown").strip(),
             recipient=str(recipient or "").strip(),
             content=str(content or ""),
@@ -94,17 +100,20 @@ class InMemoryDeliveryOutboxRepository:
         self._rows[row.delivery_id] = row
         self._order.append(row.delivery_id)
         if idem:
-            self._idempotency_to_id[idem] = row.delivery_id
+            self._idempotency_to_id[(principal, idem)] = row.delivery_id
         return row
 
     def mark_sent(
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         receipt_json: dict[str, object] | None = None,
     ) -> DeliveryOutboxItem | None:
         found = self._rows.get(str(delivery_id or ""))
         if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
             return None
         updated = replace(
             found,
@@ -122,12 +131,15 @@ class InMemoryDeliveryOutboxRepository:
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         error: str,
         next_attempt_at: str | None = None,
         dead_letter: bool = False,
     ) -> DeliveryOutboxItem | None:
         found = self._rows.get(str(delivery_id or ""))
         if not found:
+            return None
+        if found.principal_id != str(principal_id or "").strip():
             return None
         status = "dead_lettered" if dead_letter else "retry"
         updated = replace(
@@ -141,12 +153,14 @@ class InMemoryDeliveryOutboxRepository:
         self._rows[updated.delivery_id] = updated
         return updated
 
-    def list_pending(self, limit: int = 50) -> list[DeliveryOutboxItem]:
+    def list_pending(self, limit: int = 50, *, principal_id: str | None = None) -> list[DeliveryOutboxItem]:
         n = max(1, min(500, int(limit or 50)))
+        normalized_principal = str(principal_id or "").strip()
         pending_ids = [
             i
             for i in self._order
             if self._rows.get(i)
+            and (not normalized_principal or self._rows[i].principal_id == normalized_principal)
             and self._rows[i].status in {"queued", "retry"}
             and _due(self._rows[i].next_attempt_at)
         ]

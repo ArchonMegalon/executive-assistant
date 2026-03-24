@@ -169,7 +169,7 @@ def test_planner_inserts_posthoc_review_light_step_after_structured_generate(mon
     artifact_step = plan.steps[3]
     assert review_step.tool_name == "provider.brain_router.reasoned_patch_review"
     assert review_step.brain_profile == "review_light"
-    assert artifact_step.depends_on == ("step_structured_generate", "step_reasoned_patch_review")
+    assert artifact_step.depends_on == ("step_reasoned_patch_review", "step_structured_generate")
 
 
 def test_planner_skips_posthoc_review_light_when_not_allowed(monkeypatch) -> None:
@@ -248,3 +248,35 @@ def test_planner_explicit_pre_artifact_tool_honors_principal_provider_state() ->
 
     with pytest.raises(PlanValidationError, match="provider_tool_unavailable:browseract.extract_account_facts"):
         planner.build_plan(task_key="explicit_browseract_extract", principal_id="exec-1", goal="collect facts")
+
+
+def test_builtin_groundwork_contract_builds_tool_then_artifact_plan(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    planner = PlannerService(TaskContractService(InMemoryTaskContractRepository()))
+
+    _, plan = planner.build_plan(task_key="meeting_prep", principal_id="exec-1", goal="prepare a meeting brief")
+
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_reasoned_patch_review",
+        "step_artifact_save",
+    ]
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
+    assert plan.steps[2].tool_name == "provider.brain_router.reasoned_patch_review"
+
+
+def test_builtin_groundwork_contract_skips_optional_review_when_unavailable(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    planner = PlannerService(TaskContractService(InMemoryTaskContractRepository()))
+
+    _, plan = planner.build_plan(task_key="meeting_prep", principal_id="exec-1", goal="prepare a meeting brief")
+
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_artifact_save",
+    ]
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"

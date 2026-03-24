@@ -2911,6 +2911,104 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_bil
     assert tool_runtime.get_tool("browseract.onemin_billing_usage") is not None
 
 
+def test_tool_execution_service_uses_template_backed_onemin_billing_fallback_with_account_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setattr(
+        upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner@example.com", "owner_label": "owner@example.com"},
+        ),
+    )
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={
+            "onemin_account_credentials_json": {
+                "ONEMIN_AI_API_KEY": {
+                    "login_email": "slot@example.com",
+                    "login_password": "slotpass",
+                }
+            }
+        },
+        status="enabled",
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_template_direct(_cls, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "billing_usage_page": "\n".join(
+                [
+                    "Plan: BUSINESS",
+                    "Remaining credits: 12345",
+                    "Max credits: 20000",
+                    "Next top-up: 2026-03-31T00:00:00Z",
+                    "Top-up amount: 20000",
+                ]
+            )
+        }
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_create_template_backed_ui_service_direct",
+        classmethod(_fake_template_direct),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-template-1",
+            step_id="step-browseract-onemin-billing-template-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "account_label": "ONEMIN_AI_API_KEY",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert observed["service"].service_key == "onemin_billing_usage"
+    assert observed["request_payload"]["login_email"] == "slot@example.com"
+    assert observed["request_payload"]["browseract_password"] == "slotpass"
+    assert observed["requested_inputs"]["browseract_username"] == "slot@example.com"
+    assert observed["requested_inputs"]["browseract_password"] == "slotpass"
+    assert result.output_json["remaining_credits"] == 12345
+    assert result.output_json["next_topup_at"] == "2026-03-31T00:00:00Z"
+
+
 def test_tool_execution_service_parses_onemin_billing_workflow_usage_history_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

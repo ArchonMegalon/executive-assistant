@@ -12,10 +12,13 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "operator-1"
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
 
@@ -41,6 +44,7 @@ def test_plan_execute_completed_outputs_stay_in_principal_scope() -> None:
 
     contract = owner.post(
         "/v1/tasks/contracts",
+        headers={"Authorization": "Bearer test-token", "X-EA-Principal-ID": "operator-1"},
         json={
             "task_key": "stakeholder_briefing_scope",
             "deliverable_type": "stakeholder_briefing",
@@ -96,6 +100,7 @@ def test_plan_execute_async_session_stays_in_principal_scope() -> None:
 
     contract = owner.post(
         "/v1/tasks/contracts",
+        headers={"Authorization": "Bearer test-token", "X-EA-Principal-ID": "operator-1"},
         json={
             "task_key": "decision_brief_scope_review",
             "deliverable_type": "decision_brief",

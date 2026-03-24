@@ -692,9 +692,10 @@ def test_onemin_billing_refresh_forwards_full_provider_api_flags(
     assert observed["continue_on_rate_limit"] is True
 
 
-def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
+def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
         json.dumps(
@@ -702,26 +703,150 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
                 "slots": [
                     {
                         "account_name": "ONEMIN_AI_API_KEY",
-                        "owner_email": "owner-1@example.com",
-                    },
-                    {
-                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
-                        "owner_email": "owner-2@example.com",
-                    },
-                    {
-                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
-                        "owner_email": "owner-3@example.com",
-                    },
+                        "owner_email": "owner@example.com",
+                    }
                 ]
             }
         ),
     )
 
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_name": "ONEMIN_AI_API_KEY",
+                "onemin_account_credentials_json": {
+                    "ONEMIN_AI_API_KEY": {
+                        "login_email": "slot@example.com",
+                        "login_password": "slotpass",
+                    }
+                },
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
     from app.api.routes import providers as providers_route
+
+    observed: dict[str, object] = {}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return ([], [], [], 1, 0, False)
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True},
+    )
+    assert response.status_code == 200
+    assert observed["account_labels"] == {"ONEMIN_AI_API_KEY"}
+    assert observed["account_login_credentials"] == {
+        "ONEMIN_AI_API_KEY": {
+            "login_email": "slot@example.com",
+            "login_password": "slotpass",
+        }
+    }
+
+
+def test_onemin_billing_refresh_skips_unconfigured_browseract_template_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_name": "ONEMIN_AI_API_KEY",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    invoked: list[str] = []
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        invoked.append(str(kwargs.get("tool_name") or ""))
+        return {}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return (
+            [{"account_label": "ONEMIN_AI_API_KEY", "refresh_backend": "onemin_api"}],
+            [{"account_label": "ONEMIN_AI_API_KEY", "refresh_backend": "onemin_api"}],
+            [],
+            1,
+            0,
+            False,
+        )
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True},
+    )
+    assert response.status_code == 200
+    assert invoked == []
+    assert observed["account_labels"] == {"ONEMIN_AI_API_KEY"}
+    assert observed["account_login_credentials"] == {}
+    body = response.json()
+    assert body["billing_results"][0]["refresh_backend"] == "onemin_api"
+    assert body["member_results"][0]["refresh_backend"] == "onemin_api"
+
+
+def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner-3@example.com"},
+        ),
+    )
 
     calls: list[str] = []
 
-    def fake_refresh_account(*, account_name: str, owner_email: str, include_members: bool, timeout_seconds: int):
+    def fake_refresh_account(
+        *,
+        account_name: str,
+        owner_email: str,
+        include_members: bool,
+        timeout_seconds: int,
+        login_email: str = "",
+        login_password: str = "",
+    ):
         calls.append(account_name)
         if account_name == "ONEMIN_AI_API_KEY":
             raise RuntimeError("onemin_login_http_429")
@@ -741,6 +866,8 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
 
     monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
     monkeypatch.setattr(providers_route.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(providers_route, "_ONEMIN_DIRECT_API_QUARANTINED_UNTIL", 0.0, raising=False)
+    monkeypatch.setattr(providers_route, "_ONEMIN_DIRECT_API_QUARANTINE_REASON", "", raising=False)
 
     billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
         include_members=True,

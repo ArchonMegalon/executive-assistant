@@ -12,11 +12,14 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "operator-1"
     os.environ["EA_APPROVAL_THRESHOLD_CHARS"] = "5000"
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
 
@@ -63,6 +66,7 @@ def test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance() ->
 
     contract = owner.post(
         "/v1/tasks/contracts",
+        headers={"Authorization": "Bearer test-token", "X-EA-Principal-ID": "operator-1"},
         json={
             "task_key": "rewrite_text",
             "deliverable_type": "rewrite_note",

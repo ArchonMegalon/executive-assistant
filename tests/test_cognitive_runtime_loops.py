@@ -100,7 +100,7 @@ def test_proactive_horizon_scans_and_dedupes_successful_launches() -> None:
     assert len(launched) == 3
     assert len(orchestrator.requests) == 3
     assert {row.principal_id for row in launched} == {"exec-1", "exec-2", "exec-3"}
-    assert {row.task_key for row in launched} == {"decision_briefing", "stakeholder_briefing"}
+    assert {row.task_key for row in launched} == {"decision_briefing", "deadline_briefing", "commitment_briefing"}
     assert any(ref == f"decision_window:{decision.decision_window_id}" for ref in orchestrator.requests[0].context_refs)
 
     second = service.run_once(now=now)
