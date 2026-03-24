@@ -9,6 +9,8 @@ import urllib.parse
 
 
 DEFAULT_MANIFEST_CANDIDATES: tuple[Path, ...] = (
+    Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json"),
+    Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json"),
     Path("/docker/chummercomplete/chummer.run-services/legacy/tooling/docker/Docker/Downloads/releases.json"),
     Path("/docker/chummer5a/Docker/Downloads/releases.json"),
 )
@@ -74,17 +76,21 @@ def _infer_kind(url: str) -> str:
 
 
 def _normalized_artifact(item: dict[str, object], *, base_url: str) -> dict[str, object]:
-    raw_platform = str(item.get("platform") or "").strip()
-    raw_url = str(item.get("url") or "").strip()
+    raw_platform = str(item.get("platformLabel") or item.get("platform") or "").strip()
+    raw_url = str(item.get("url") or item.get("downloadUrl") or "").strip()
+    raw_platform_id = str(item.get("platform") or "").strip().lower()
+    raw_arch = str(item.get("arch") or "").strip().lower()
+    raw_head = str(item.get("head") or "").strip().lower()
+    raw_kind = str(item.get("kind") or "").strip().lower()
     return {
-        "id": str(item.get("id") or "").strip(),
-        "platform": _infer_platform(raw_platform, raw_url),
-        "arch": _infer_arch(raw_platform, raw_url),
-        "head": _infer_head(raw_platform, raw_url),
-        "kind": _infer_kind(raw_url),
+        "id": str(item.get("id") or item.get("artifactId") or "").strip(),
+        "platform": raw_platform_id if raw_platform_id in {"windows", "macos", "linux", "unknown"} else _infer_platform(raw_platform, raw_url),
+        "arch": raw_arch if raw_arch in {"x64", "arm64", "unknown"} else _infer_arch(raw_platform, raw_url),
+        "head": raw_head if raw_head in {"avalonia", "blazor", "desktop"} else _infer_head(raw_platform, raw_url),
+        "kind": raw_kind if raw_kind in {"installer", "dmg", "pkg", "portable", "archive", "artifact"} else _infer_kind(raw_url),
         "platform_label": raw_platform or "Preview build",
         "url": urllib.parse.urljoin(base_url, raw_url),
-        "filename": Path(urllib.parse.urlparse(raw_url).path).name,
+        "filename": str(item.get("fileName") or "").strip() or Path(urllib.parse.urlparse(raw_url).path).name,
         "sha256": str(item.get("sha256") or "").strip(),
         "sizeBytes": int(item.get("sizeBytes") or 0),
     }
@@ -92,9 +98,11 @@ def _normalized_artifact(item: dict[str, object], *, base_url: str) -> dict[str,
 
 def build_release_matrix(*, manifest_path: Path, base_url: str) -> dict[str, object]:
     payload = _read_json(manifest_path)
-    downloads = payload.get("downloads")
+    downloads = payload.get("artifacts")
     if not isinstance(downloads, list):
-        raise ValueError(f"release manifest is missing downloads[]: {manifest_path}")
+        downloads = payload.get("downloads")
+    if not isinstance(downloads, list):
+        raise ValueError(f"release manifest is missing artifacts[] or downloads[]: {manifest_path}")
     artifacts = [
         _normalized_artifact(dict(item), base_url=base_url)
         for item in downloads
@@ -109,7 +117,7 @@ def build_release_matrix(*, manifest_path: Path, base_url: str) -> dict[str, obj
     primary_consumer_ready = primary_kind in {"installer", "dmg", "pkg", "portable"}
     return {
         "version": str(payload.get("version") or "unknown").strip(),
-        "channel": str(payload.get("channel") or "unknown").strip(),
+        "channel": str(payload.get("channel") or payload.get("channelId") or "unknown").strip(),
         "publishedAt": str(payload.get("publishedAt") or "unknown").strip(),
         "source_manifest": str(manifest_path),
         "base_url": base_url,

@@ -116,3 +116,53 @@ def test_default_manifest_path_prefers_first_existing_candidate(monkeypatch: pyt
     monkeypatch.setattr(builder, "DEFAULT_MANIFEST_CANDIDATES", (first, second))
 
     assert builder.default_manifest_path() == first
+
+
+def test_build_release_matrix_accepts_registry_release_channel_artifacts(tmp_path: Path) -> None:
+    builder = _load_module()
+    manifest = tmp_path / "RELEASE_CHANNEL.generated.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": "2026.03.24-preview.1",
+                "channelId": "preview",
+                "publishedAt": "2026-03-24T12:00:00Z",
+                "artifacts": [
+                    {
+                        "artifactId": "avalonia-win-x64-installer",
+                        "head": "avalonia",
+                        "platform": "windows",
+                        "arch": "x64",
+                        "kind": "installer",
+                        "fileName": "chummer-avalonia-win-x64-installer.exe",
+                        "downloadUrl": "/downloads/files/chummer-avalonia-win-x64-installer.exe",
+                        "sha256": "abc123",
+                        "sizeBytes": 123456,
+                        "platformLabel": "Chummer 6 Avalonia Windows x64",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    matrix = builder.build_release_matrix(manifest_path=manifest, base_url="https://chummer.run")
+
+    assert matrix["channel"] == "preview"
+    assert matrix["source_manifest"] == str(manifest)
+    assert matrix["primaryArtifactKind"] == "installer"
+    assert matrix["frontDoorPrimaryCtaEligible"] is True
+    assert matrix["artifacts"] == [
+        {
+            "id": "avalonia-win-x64-installer",
+            "platform": "windows",
+            "arch": "x64",
+            "head": "avalonia",
+            "kind": "installer",
+            "platform_label": "Chummer 6 Avalonia Windows x64",
+            "url": "https://chummer.run/downloads/files/chummer-avalonia-win-x64-installer.exe",
+            "filename": "chummer-avalonia-win-x64-installer.exe",
+            "sha256": "abc123",
+            "sizeBytes": 123456,
+        }
+    ]

@@ -112,6 +112,96 @@ def load_public_guide_policy_text() -> str:
     return _read_text(_source_path("public_guide_policy", "PUBLIC_GUIDE_POLICY.md"))
 
 
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(entry).strip() for entry in value if str(entry).strip()]
+    cleaned = str(value or "").strip()
+    return [cleaned] if cleaned else []
+
+
+def _media_sections() -> dict[str, dict[str, object]]:
+    briefs = load_media_briefs()
+    sections = briefs.get("sections") or []
+    mapped: dict[str, dict[str, object]] = {}
+    if not isinstance(sections, list):
+        return mapped
+    for row in sections:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("id") or "").strip()
+        if key:
+            mapped[key] = dict(row)
+    return mapped
+
+
+def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
+    normalized = str(target_path or "").replace("\\", "/").strip()
+    if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
+        return ("root_story", "hero", "first_contact_hero")
+    if normalized == "assets/pages/horizons-index.png":
+        return ("horizon_index", "coming_next", "page_index")
+    if normalized == "assets/horizons/karma-forge.png":
+        return ("horizon_detail", "coming_next", "flagship_horizon")
+    return ("", "", "")
+
+
+def page_visual_profile(page_type: str) -> dict[str, object]:
+    registry = load_page_registry()
+    page_types = registry.get("page_types") if isinstance(registry.get("page_types"), dict) else {}
+    row = dict(page_types.get(str(page_type or "").strip()) or {}) if isinstance(page_types, dict) else {}
+    profile = str(row.get("visual_density_profile") or "").strip()
+    contracts = load_media_briefs().get("visual_contract") if isinstance(load_media_briefs().get("visual_contract"), dict) else {}
+    merged = dict(contracts.get(profile) or {}) if profile else {}
+    merged.update(row)
+    if profile:
+        merged["visual_density_profile"] = profile
+    if "overlay_density" in merged:
+        merged["required_overlay_density"] = merged.get("overlay_density")
+    if "negative_space_cap" in merged:
+        merged["negative_space_max"] = merged.get("negative_space_cap")
+    if "person_count_target" in merged:
+        merged["required_person_count"] = merged.get("person_count_target")
+    return merged
+
+
+def asset_visual_profile(target_path: str) -> dict[str, object]:
+    page_type, section_id, fallback_profile = _critical_asset_target(target_path)
+    page_profile = page_visual_profile(page_type) if page_type else {}
+    contracts = load_media_briefs().get("visual_contract") if isinstance(load_media_briefs().get("visual_contract"), dict) else {}
+    section = dict(_media_sections().get(section_id) or {}) if section_id else {}
+    profile_name = str(page_profile.get("visual_density_profile") or fallback_profile or "").strip()
+    contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
+    merged: dict[str, object] = {}
+    merged.update(contract)
+    merged.update(section)
+    merged.update(page_profile)
+    if profile_name:
+        merged["visual_density_profile"] = profile_name
+    anchors = _string_list(contract.get("must_show_semantic_anchors")) + _string_list(section.get("must_show_semantic_anchors")) + _string_list(page_profile.get("must_show_semantic_anchors"))
+    blockers = _string_list(contract.get("must_not_show")) + _string_list(section.get("must_not_show")) + _string_list(page_profile.get("must_not_show"))
+    if anchors:
+        seen: set[str] = set()
+        merged["must_show_semantic_anchors"] = [item for item in anchors if not (item.casefold() in seen or seen.add(item.casefold()))]
+    if blockers:
+        seen = set()
+        merged["must_not_show"] = [item for item in blockers if not (item.casefold() in seen or seen.add(item.casefold()))]
+    if "overlay_density" in merged:
+        merged["required_overlay_density"] = merged.get("overlay_density")
+    if "negative_space_cap" in merged:
+        merged["negative_space_max"] = merged.get("negative_space_cap")
+    if "person_count_target" in merged:
+        merged["required_person_count"] = merged.get("person_count_target")
+    return merged
+
+
+def critical_asset_contracts() -> dict[str, dict[str, object]]:
+    return {
+        "assets/hero/chummer6-hero.png": asset_visual_profile("assets/hero/chummer6-hero.png"),
+        "assets/pages/horizons-index.png": asset_visual_profile("assets/pages/horizons-index.png"),
+        "assets/horizons/karma-forge.png": asset_visual_profile("assets/horizons/karma-forge.png"),
+    }
+
+
 def _part_rows() -> list[dict[str, object]]:
     data = _read_yaml(_source_path("part_registry", "PUBLIC_PART_REGISTRY.yaml"))
     rows = data.get("parts") or []

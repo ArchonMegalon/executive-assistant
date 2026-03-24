@@ -72,3 +72,34 @@ def test_load_faq_and_help_canon_track_public_question_sets() -> None:
     assert "What is a booster?" in questions
     assert "Will booster-first previews become free later?" in questions
     assert "the cheap baseline remains the default path" in help_copy["privacy_and_review_safety"]
+
+
+def test_asset_visual_profile_derives_critical_first_contact_requirements() -> None:
+    canon = _load_module()
+
+    hero = canon.asset_visual_profile("assets/hero/chummer6-hero.png")
+    horizons = canon.asset_visual_profile("assets/pages/horizons-index.png")
+    forge = canon.asset_visual_profile("assets/horizons/karma-forge.png")
+
+    assert hero["visual_density_profile"] == "first_contact_hero"
+    assert hero["required_person_count"] == "duo_or_team"
+    assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
+    assert horizons["visual_density_profile"] == "page_index"
+    assert horizons["required_overlay_density"] == "medium"
+    assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()
+    assert forge["visual_density_profile"] == "flagship_horizon"
+    assert forge["required_person_count"] == "duo_preferred"
+    assert "reviewer" in " ".join(forge["must_show_semantic_anchors"]).lower()
+
+
+def test_critical_asset_contracts_returns_three_targeted_rerun_profiles() -> None:
+    canon = _load_module()
+
+    contracts = canon.critical_asset_contracts()
+
+    assert set(contracts) == {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
+    }
+    assert contracts["assets/hero/chummer6-hero.png"]["flash_level"] == "bold"

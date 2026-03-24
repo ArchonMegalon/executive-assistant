@@ -46,6 +46,73 @@ def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(mon
     assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
 
 
+def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("CHUMMER6_MAGIXAI_BASE_URL", "https://beta.aimagicx.com/api/v1")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class _HtmlResponse:
+        def __init__(self, body: str) -> None:
+            self.status = 200
+            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+            self._body = body.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    class _JsonResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.status = 200
+            self.headers = {"Content-Type": "application/json"}
+            self._body = json.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def fake_urlopen(request, timeout=0):
+        payload = json.loads(request.data.decode("utf-8"))
+        calls.append((request.full_url, payload))
+        if payload["size"] == "landscape_16_9":
+            return _HtmlResponse("<!DOCTYPE html><html><body>wrong surface</body></html>")
+        return _JsonResponse({"data": [{"url": "https://example.test/magix-image.png"}]})
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="magixai": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    ok, detail = media.run_magixai_api_provider(
+        prompt="streetdoc clinic hero",
+        output_path=tmp_path / "hero.png",
+        width=1280,
+        height=720,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert calls[0][0] == "https://www.aimagicx.com/api/v1/images/generations"
+    assert calls[0][1]["size"] == "landscape_16_9"
+    assert calls[1][1]["size"] == "1280x720"
+
+
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
     monkeypatch.setattr(
@@ -118,6 +185,141 @@ def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.
     assert detail == "downloaded"
     assert seen_api_keys == ["key-23"]
     assert released[0] == ("lease-1", "released", 900, "")
+
+
+def test_onemin_model_candidates_prefers_flux_schnell_before_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    assert media.onemin_model_candidates()[:3] == [
+        "black-forest-labs/flux-schnell",
+        "gpt-image-1-mini",
+        "gpt-image-1",
+    ]
+
+
+def test_onemin_payloads_build_flux_schnell_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_ONEMIN_FLUX_SCHNELL_MEGAPIXELS", "1")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    payloads = media.onemin_payloads(
+        "black-forest-labs/flux-schnell",
+        prompt="streetdoc clinic hero",
+        width=1280,
+        height=720,
+    )
+
+    assert payloads == [
+        {
+            "type": "IMAGE_GENERATOR",
+            "model": "black-forest-labs/flux-schnell",
+            "promptObject": {
+                "prompt": "streetdoc clinic hero",
+                "aspect_ratio": "16:9",
+                "num_inference_steps": 4,
+                "go_fast": True,
+                "megapixels": "1",
+                "output_quality": 80,
+            },
+        }
+    ]
+
+
+def test_run_release_build_pipeline_refreshes_registry_then_runs_builder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    release_control = tmp_path / "materialize_chummer_release_registry_projection.py"
+    release_control.write_text("", encoding="utf-8")
+    release_builder = tmp_path / "chummer6_release_builder.py"
+    release_builder.write_text("", encoding="utf-8")
+    matrix_path = tmp_path / "chummer6_release_matrix.json"
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str]) -> object:
+        calls.append(list(command))
+        if command[1] == str(release_control):
+            return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return type(
+            "Completed",
+            (),
+            {
+                "returncode": 0,
+                "stdout": json.dumps({"output": str(matrix_path), "artifacts": 3}),
+                "stderr": "",
+            },
+        )()
+
+    monkeypatch.setattr(media, "RELEASE_CONTROL_SCRIPT", release_control)
+    monkeypatch.setattr(media, "RELEASE_BUILDER_SCRIPT", release_builder)
+    monkeypatch.setattr(media, "RELEASE_MATRIX_OUT", matrix_path)
+    monkeypatch.setattr(media, "_run_release_build_command", fake_run)
+
+    result = media.run_release_build_pipeline()
+
+    assert result == {
+        "status": "built",
+        "registry_projection": "refreshed",
+        "output": str(matrix_path),
+        "commands": [
+            ["python3", str(release_control)],
+            ["python3", str(release_builder), "--output", str(matrix_path)],
+        ],
+        "artifacts": 3,
+    }
+    assert calls == result["commands"]
+
+
+def test_render_pack_enables_release_build_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(media, "asset_specs", lambda: [{"target": "assets/hero/chummer6-hero.png"}])
+
+    def fake_render_specs(*, specs, output_dir, build_release=False):
+        seen["specs"] = specs
+        seen["output_dir"] = output_dir
+        seen["build_release"] = build_release
+        return {"output_dir": str(output_dir), "assets": [], "release_build": {"status": "built"}}
+
+    monkeypatch.setattr(media, "render_specs", fake_render_specs)
+
+    media.render_pack(output_dir=tmp_path)
+
+    assert seen["build_release"] is True
+
+
+def test_render_targets_keep_release_build_opt_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    seen: dict[str, object] = {}
+
+    def fake_render_specs(*, specs, output_dir, build_release=False):
+        seen["specs"] = specs
+        seen["output_dir"] = output_dir
+        seen["build_release"] = build_release
+        return {"output_dir": str(output_dir), "assets": [], "release_build": {"status": "skipped"}}
+
+    monkeypatch.setattr(
+        media,
+        "asset_specs",
+        lambda: [
+            {
+                "target": "assets/hero/chummer6-hero.png",
+                "prompt": "",
+                "width": 1280,
+                "height": 720,
+                "media_row": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(media, "render_specs", fake_render_specs)
+
+    media.render_targets(targets=["assets/hero/chummer6-hero.png"], output_dir=tmp_path)
+
+    assert seen["build_release"] is False
 
 
 def test_reserve_onemin_image_slot_allows_reserve_pool_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

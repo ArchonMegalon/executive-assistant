@@ -32,6 +32,14 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from chummer6_guide_canon import load_horizon_canon, load_media_briefs, load_page_registry, load_part_canon
+from chummer6_magixai_api import (
+    MAGIXAI_IMAGE_ENDPOINT,
+    magixai_api_base_urls,
+    magixai_build_url,
+    magixai_image_model_candidates,
+    magixai_looks_like_html,
+    magixai_size_variants,
+)
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 
@@ -43,6 +51,9 @@ SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
+RELEASE_CONTROL_SCRIPT = Path("/docker/fleet/scripts/materialize_chummer_release_registry_projection.py")
+RELEASE_BUILDER_SCRIPT = EA_ROOT / "scripts" / "chummer6_release_builder.py"
+RELEASE_MATRIX_OUT = Path("/docker/fleet/state/chummer6/chummer6_release_matrix.json")
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
 DEFAULT_PROVIDER_ORDER = [
     "media_factory",
@@ -292,6 +303,9 @@ def _estimate_onemin_image_credits(*, width: int, height: int) -> int:
             return max(0, int(float(raw)))
         except Exception:
             pass
+    primary_model = str(env_value("CHUMMER6_ONEMIN_MODEL") or "").strip().lower()
+    if primary_model == "black-forest-labs/flux-schnell":
+        return 9000
     megapixels = max(1.0, (max(1, int(width)) * max(1, int(height))) / 1000000.0)
     return int(round(1200.0 * megapixels))
 
@@ -476,6 +490,55 @@ def load_json_file(path: Path) -> dict[str, object]:
 def write_json_file(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def _release_build_default_for_pack() -> bool:
+    return _boolish(env_value("CHUMMER6_RELEASE_BUILD_ON_PACK"), default=True)
+
+
+def _release_build_default_for_targets() -> bool:
+    return _boolish(env_value("CHUMMER6_RELEASE_BUILD_ON_TARGETS"), default=False)
+
+
+def _run_release_build_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=False, text=True, capture_output=True)
+
+
+def run_release_build_pipeline() -> dict[str, object]:
+    commands: list[list[str]] = []
+    registry_projection = "skipped"
+    if RELEASE_CONTROL_SCRIPT.exists():
+        registry_cmd = ["python3", str(RELEASE_CONTROL_SCRIPT)]
+        commands.append(list(registry_cmd))
+        registry_completed = _run_release_build_command(registry_cmd)
+        if registry_completed.returncode != 0:
+            detail = (registry_completed.stderr or registry_completed.stdout or "").strip()
+            raise RuntimeError(f"release_registry_projection_failed:{detail[:240]}")
+        registry_projection = "refreshed"
+    if not RELEASE_BUILDER_SCRIPT.exists():
+        raise RuntimeError(f"release_builder_missing:{RELEASE_BUILDER_SCRIPT}")
+    release_cmd = ["python3", str(RELEASE_BUILDER_SCRIPT), "--output", str(RELEASE_MATRIX_OUT)]
+    commands.append(list(release_cmd))
+    release_completed = _run_release_build_command(release_cmd)
+    if release_completed.returncode != 0:
+        detail = (release_completed.stderr or release_completed.stdout or "").strip()
+        raise RuntimeError(f"release_builder_failed:{detail[:240]}")
+    payload: dict[str, object] = {}
+    stdout = str(release_completed.stdout or "").strip()
+    if stdout:
+        try:
+            loaded = json.loads(stdout)
+            if isinstance(loaded, dict):
+                payload = loaded
+        except Exception:
+            payload = {"stdout": stdout}
+    return {
+        "status": "built",
+        "registry_projection": registry_projection,
+        "output": str(payload.get("output") or RELEASE_MATRIX_OUT).strip() or str(RELEASE_MATRIX_OUT),
+        "commands": commands,
+        "artifacts": int(payload.get("artifacts") or 0),
+    }
 
 
 def load_scene_ledger() -> dict[str, object]:
@@ -1541,228 +1604,98 @@ def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, heig
     api_key = env_value("AI_MAGICX_API_KEY")
     if not api_key:
         return False, "magixai:not_configured"
-    model_candidates: list[str] = []
-    for candidate in (
-        env_value("CHUMMER6_MAGIXAI_MODEL"),
-        "qwen-image",
-        "seedream",
-        "nano-banana",
-    ):
-        normalized_model = str(candidate or "").strip()
-        if normalized_model and normalized_model not in model_candidates:
-            model_candidates.append(normalized_model)
-    size = f"{width}x{height}"
-    endpoint_specs = [
-        (
-            "/api/v1/ai-image/generate",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "style": "cinematic",
-                "negative_prompt": "text, logo, watermark, UI labels, prompt text, low quality, blurry",
-                "response_format": "url",
-            },
-        ),
-        (
-            "/ai-image/generate",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "style": "cinematic",
-                "negative_prompt": "text, logo, watermark, UI labels, prompt text, low quality, blurry",
-                "response_format": "url",
-            },
-        ),
-        (
-            "/api/v1/images/generations",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "response_format": "url",
-                "n": 1,
-            },
-        ),
-        (
-            "/images/generations",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "response_format": "url",
-                "n": 1,
-            },
-        ),
-        (
-            "/v1/images/generations",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "response_format": "url",
-                "n": 1,
-            },
-        ),
-        (
-            "/v1/ai-image/generate",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "size": size,
-                "quality": "high",
-                "style": "cinematic",
-                "negative_prompt": "text, logo, watermark, UI labels, prompt text, low quality, blurry",
-                "response_format": "url",
-            },
-        ),
-        (
-            "/api/v1/ai-image/generate",
-            {
-                "model": "{model}",
-                "prompt": prompt,
-                "image_size": size,
-                "num_images": 1,
-                "style": "cinematic",
-                "negative_prompt": "text, logo, watermark, UI labels, prompt text, low quality, blurry",
-                "response_format": "url",
-            },
-        ),
-    ]
-    configured_base = env_value("CHUMMER6_MAGIXAI_BASE_URL") or "https://beta.aimagicx.com/api/v1"
-    base_urls: list[str] = []
-    for candidate in (
-        configured_base,
-        "https://beta.aimagicx.com/api/v1",
-        "https://beta.aimagicx.com/api",
-        "https://beta.aimagicx.com/v1",
-        "https://beta.aimagicx.com",
-        "https://api.aimagicx.com/api/v1",
-        "https://api.aimagicx.com/api",
-        "https://api.aimagicx.com",
-        "https://api.aimagicx.com/v1",
-        "https://www.aimagicx.com/api/v1",
-        "https://www.aimagicx.com/api",
-        "https://www.aimagicx.com/v1",
-        "https://www.aimagicx.com",
-    ):
-        normalized = str(candidate or "").strip().rstrip("/")
-        if not normalized or normalized in base_urls:
-            continue
-        base_urls.append(normalized)
-    def build_url(base_url: str, endpoint: str) -> str:
-        clean_base = base_url.rstrip("/")
-        clean_endpoint = endpoint.lstrip("/")
-        if clean_base.endswith("/api/v1") and clean_endpoint.startswith("api/v1/"):
-            clean_endpoint = clean_endpoint[len("api/v1/") :]
-        elif clean_base.endswith("/api") and clean_endpoint.startswith("api/"):
-            clean_endpoint = clean_endpoint[len("api/") :]
-        return clean_base + "/" + clean_endpoint
-    header_variants = [
-        {
-            "User-Agent": "EA-Chummer6-Magicx/1.0",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        {
-            "User-Agent": "EA-Chummer6-Magicx/1.0",
-            "Content-Type": "application/json",
-            "X-API-Key": api_key,
-        },
-        {
-            "User-Agent": "EA-Chummer6-Magicx/1.0",
-            "Content-Type": "application/json",
-            "API-KEY": api_key,
-        },
-        {
-            "User-Agent": "EA-Chummer6-Magicx/1.0",
-            "Content-Type": "application/json",
-            "X-MGX-API-KEY": api_key,
-        },
-    ]
+    model_candidates = magixai_image_model_candidates(env_value("CHUMMER6_MAGIXAI_MODEL"))
+    size_candidates = magixai_size_variants(width=width, height=height)
+    base_urls = magixai_api_base_urls(env_value("CHUMMER6_MAGIXAI_BASE_URL"))
+    headers = {
+        "User-Agent": "EA-Chummer6-Magicx/1.0",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
     errors: list[str] = []
-    seen_requests: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
     for base_url in base_urls:
         for model in model_candidates:
-            for endpoint, payload_template in endpoint_specs:
-                payload = json.loads(json.dumps(payload_template).replace('"{model}"', json.dumps(model)))
-                url = build_url(base_url, endpoint)
-                payload_json = json.dumps(payload, sort_keys=True)
-                for headers in header_variants:
-                    header_key = tuple(sorted((str(key), str(value)) for key, value in headers.items()))
-                    request_key = (url, header_key, payload_json)
-                    if request_key in seen_requests:
+            for size in size_candidates:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "size": size,
+                    "response_format": "url",
+                    "n": 1,
+                }
+                url = magixai_build_url(base_url, MAGIXAI_IMAGE_ENDPOINT)
+                request = urllib.request.Request(
+                    url,
+                    headers=headers,
+                    data=json.dumps(payload, sort_keys=True).encode("utf-8"),
+                    method="POST",
+                )
+                body: dict[str, object] | list[object] | str = {}
+                try:
+                    with urllib.request.urlopen(request, timeout=45) as response:
+                        data = response.read()
+                        content_type = str(response.headers.get("Content-Type") or "").lower()
+                except urllib.error.HTTPError as exc:
+                    body = exc.read().decode("utf-8", errors="replace").strip()
+                    if is_credit_exhaustion_message(body):
+                        return False, f"magixai:insufficient_credits:http_{exc.code}:{body[:180]}"
+                    if '"error":"Forbidden"' in body or '"error": "Forbidden"' in body:
+                        return False, f"magixai:forbidden:http_{exc.code}:{body[:180]}"
+                    if magixai_looks_like_html(content_type=exc.headers.get("Content-Type"), body=body):
+                        errors.append(f"{url}:{model}:{size}:html_response:http_{exc.code}")
                         continue
-                    seen_requests.add(request_key)
-                    request = urllib.request.Request(
-                        url,
-                        headers=headers,
-                        data=payload_json.encode("utf-8"),
-                        method="POST",
-                    )
-                    try:
-                        with urllib.request.urlopen(request, timeout=45) as response:
-                            data = response.read()
-                            content_type = str(response.headers.get("Content-Type") or "").lower()
-                    except urllib.error.HTTPError as exc:
-                        body = exc.read().decode("utf-8", errors="replace").strip()
-                        if is_credit_exhaustion_message(body):
-                            return False, f"magixai:insufficient_credits:http_{exc.code}:{body[:180]}"
-                        errors.append(f"{url}:{model}:http_{exc.code}:{body[:180]}")
+                    errors.append(f"{url}:{model}:{size}:http_{exc.code}:{body[:180]}")
+                    continue
+                except urllib.error.URLError as exc:
+                    errors.append(f"{url}:{model}:{size}:urlerror:{exc.reason}")
+                    continue
+                if data:
+                    if content_type.startswith("image/"):
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
+                        output_path.write_bytes(data)
+                        return True, "magixai:rendered"
+                    decoded = data.decode("utf-8", errors="replace").strip()
+                    if magixai_looks_like_html(content_type=content_type, body=decoded):
+                        errors.append(f"{url}:{model}:{size}:html_response")
                         continue
-                    except urllib.error.URLError as exc:
-                        errors.append(f"{url}:{model}:urlerror:{exc.reason}")
-                        continue
-                    if data:
-                        if content_type.startswith("image/"):
-                            output_path.parent.mkdir(parents=True, exist_ok=True)
-                            output_path.write_bytes(data)
-                            return True, "magixai:rendered"
-                        decoded = data.decode("utf-8", errors="replace").strip()
-                        if decoded.startswith("http://") or decoded.startswith("https://"):
-                            ok, detail = _download_remote_image(decoded, output_path=output_path, name="magixai")
-                            if ok:
-                                return ok, detail
-                            errors.append(detail)
-                            continue
-                        try:
-                            body = json.loads(decoded)
-                        except Exception:
-                            errors.append(f"{url}:{model}:non_json_response:{decoded[:180]}")
-                            continue
-                    candidates: list[str] = []
-                    if isinstance(body, dict):
-                        for field in ("url", "image_url"):
-                            value = str(body.get(field) or "").strip()
-                            if value:
-                                candidates.append(value)
-                        data_rows = body.get("data")
-                        if isinstance(data_rows, list):
-                            for entry in data_rows:
-                                if not isinstance(entry, dict):
-                                    continue
-                                value = str(entry.get("url") or entry.get("image_url") or "").strip()
-                                if value:
-                                    candidates.append(value)
-                        output_rows = body.get("output")
-                        if isinstance(output_rows, list):
-                            for entry in output_rows:
-                                if not isinstance(entry, dict):
-                                    continue
-                                value = str(entry.get("url") or entry.get("image_url") or "").strip()
-                                if value:
-                                    candidates.append(value)
-                    for candidate in candidates:
-                        ok, detail = _download_remote_image(candidate, output_path=output_path, name="magixai")
+                    if decoded.startswith("http://") or decoded.startswith("https://"):
+                        ok, detail = _download_remote_image(decoded, output_path=output_path, name="magixai")
                         if ok:
                             return ok, detail
                         errors.append(detail)
+                        continue
+                    try:
+                        body = json.loads(decoded)
+                    except Exception:
+                        errors.append(f"{url}:{model}:{size}:non_json_response:{decoded[:180]}")
+                        continue
+                candidates: list[str] = []
+                if isinstance(body, dict):
+                    for field in ("url", "image_url"):
+                        value = str(body.get(field) or "").strip()
+                        if value:
+                            candidates.append(value)
+                    data_rows = body.get("data")
+                    if isinstance(data_rows, list):
+                        for entry in data_rows:
+                            if not isinstance(entry, dict):
+                                continue
+                            value = str(entry.get("url") or entry.get("image_url") or "").strip()
+                            if value:
+                                candidates.append(value)
+                    output_rows = body.get("output")
+                    if isinstance(output_rows, list):
+                        for entry in output_rows:
+                            if not isinstance(entry, dict):
+                                continue
+                            value = str(entry.get("url") or entry.get("image_url") or "").strip()
+                            if value:
+                                candidates.append(value)
+                for candidate in candidates:
+                    ok, detail = _download_remote_image(candidate, output_path=output_path, name="magixai")
+                    if ok:
+                        return ok, detail
+                    errors.append(detail)
     return False, "magixai:" + " || ".join(errors[:6])
 
 
@@ -1863,6 +1796,7 @@ def onemin_model_candidates() -> list[str]:
     candidates: list[str] = []
     for candidate in (
         env_value("CHUMMER6_ONEMIN_MODEL"),
+        "black-forest-labs/flux-schnell",
         "gpt-image-1-mini",
         "gpt-image-1",
         "dall-e-3",
@@ -1878,6 +1812,8 @@ def onemin_size_candidates(model: str, *, width: int, height: int) -> list[str]:
     if configured:
         return [configured]
     normalized = str(model or "").strip().lower()
+    if normalized == "black-forest-labs/flux-schnell":
+        return [onemin_aspect_ratio(width, height)]
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
         return ["auto", "1024x1024", "1024x1536", "1536x1024"]
     return [f"{width}x{height}", "1024x1024", "auto"]
@@ -1912,6 +1848,8 @@ def onemin_request_timeout_seconds(model: str) -> int:
         except Exception:
             pass
     normalized = str(model or "").strip().lower()
+    if normalized == "black-forest-labs/flux-schnell":
+        return 90
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
         return 150
     return 45
@@ -1919,6 +1857,22 @@ def onemin_request_timeout_seconds(model: str) -> int:
 
 def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list[dict[str, object]]:
     normalized = str(model or "").strip().lower()
+    if normalized == "black-forest-labs/flux-schnell":
+        prompt_object = {
+            "prompt": prompt,
+            "aspect_ratio": env_value("CHUMMER6_ONEMIN_ASPECT_RATIO") or onemin_aspect_ratio(width, height),
+            "num_inference_steps": int(env_value("CHUMMER6_ONEMIN_FLUX_SCHNELL_STEPS") or 4),
+            "go_fast": str(env_value("CHUMMER6_ONEMIN_FLUX_SCHNELL_GO_FAST") or "1").strip().lower() not in {"0", "false", "no", "off"},
+            "megapixels": str(env_value("CHUMMER6_ONEMIN_FLUX_SCHNELL_MEGAPIXELS") or "1").strip() or "1",
+            "output_quality": int(env_value("CHUMMER6_ONEMIN_FLUX_SCHNELL_OUTPUT_QUALITY") or 80),
+        }
+        return [
+            {
+                "type": "IMAGE_GENERATOR",
+                "model": model,
+                "promptObject": prompt_object,
+            }
+        ]
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
         payloads: list[dict[str, object]] = []
         for size in onemin_size_candidates(model, width=width, height=height):
@@ -4107,7 +4061,7 @@ def asset_specs() -> list[dict[str, object]]:
     return audit_specs(specs)
 
 
-def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[str, object]:
+def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_release: bool = False) -> dict[str, object]:
     if not specs:
         raise RuntimeError("no asset specs selected for rendering")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -4228,12 +4182,16 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
         }
     assets = [_render_spec(spec) for spec in specs]
     render_accounting = build_render_accounting(assets)
+    release_build: dict[str, object] = {"status": "skipped", "reason": "not_requested"}
+    if build_release:
+        release_build = run_release_build_pipeline()
     manifest = {
         "output_dir": str(output_dir),
         "assets": assets,
         "style_epoch": active_style_epoch,
         "pack_audit": pack_audit,
         "render_accounting": render_accounting,
+        "release_build": release_build,
     }
     MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_OUT.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -4253,6 +4211,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path) -> dict[st
                 "attempts": [asset["status"] for asset in assets],
                 "pack_audit": pack_audit,
                 "render_accounting": render_accounting,
+                "release_build": release_build,
             },
             indent=2,
             ensure_ascii=True,
@@ -4356,11 +4315,12 @@ def build_render_accounting(assets: list[dict[str, object]]) -> dict[str, object
     }
 
 
-def render_pack(*, output_dir: Path) -> dict[str, object]:
-    return render_specs(specs=asset_specs(), output_dir=output_dir)
+def render_pack(*, output_dir: Path, build_release: bool | None = None) -> dict[str, object]:
+    enabled = _release_build_default_for_pack() if build_release is None else bool(build_release)
+    return render_specs(specs=asset_specs(), output_dir=output_dir, build_release=enabled)
 
 
-def render_targets(*, targets: list[str], output_dir: Path) -> dict[str, object]:
+def render_targets(*, targets: list[str], output_dir: Path, build_release: bool | None = None) -> dict[str, object]:
     wanted = {str(target).strip() for target in targets if str(target).strip()}
     if not wanted:
         raise RuntimeError("no targets requested")
@@ -4378,7 +4338,8 @@ def render_targets(*, targets: list[str], output_dir: Path) -> dict[str, object]
     )
     if missing:
         raise RuntimeError("unknown render targets: " + ", ".join(missing))
-    return render_specs(specs=selected, output_dir=output_dir)
+    enabled = _release_build_default_for_targets() if build_release is None else bool(build_release)
+    return render_specs(specs=selected, output_dir=output_dir, build_release=enabled)
 
 
 def main() -> int:
@@ -4391,18 +4352,45 @@ def main() -> int:
     render.add_argument("--height", type=int, default=720)
     render_pack_parser = sub.add_parser("render-pack")
     render_pack_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
+    render_pack_parser.add_argument("--skip-release-build", action="store_true")
     render_targets_parser = sub.add_parser("render-targets")
     render_targets_parser.add_argument("--target", action="append", required=True)
     render_targets_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
+    render_targets_parser.add_argument("--build-release", action="store_true")
     args = parser.parse_args()
 
     if args.command == "render-pack":
-        manifest = render_pack(output_dir=Path(args.output_dir).expanduser())
-        print(json.dumps({"output_dir": manifest["output_dir"], "assets": len(manifest["assets"]), "status": "rendered"}))
+        manifest = render_pack(
+            output_dir=Path(args.output_dir).expanduser(),
+            build_release=not bool(args.skip_release_build),
+        )
+        print(
+            json.dumps(
+                {
+                    "output_dir": manifest["output_dir"],
+                    "assets": len(manifest["assets"]),
+                    "status": "rendered",
+                    "release_build": str((manifest.get("release_build") or {}).get("status") or ""),
+                }
+            )
+        )
         return 0
     if args.command == "render-targets":
-        manifest = render_targets(targets=list(args.target), output_dir=Path(args.output_dir).expanduser())
-        print(json.dumps({"output_dir": manifest["output_dir"], "assets": len(manifest["assets"]), "status": "rendered"}))
+        manifest = render_targets(
+            targets=list(args.target),
+            output_dir=Path(args.output_dir).expanduser(),
+            build_release=bool(args.build_release),
+        )
+        print(
+            json.dumps(
+                {
+                    "output_dir": manifest["output_dir"],
+                    "assets": len(manifest["assets"]),
+                    "status": "rendered",
+                    "release_build": str((manifest.get("release_build") or {}).get("status") or ""),
+                }
+            )
+        )
         return 0
 
     output_path = Path(args.output).expanduser()
