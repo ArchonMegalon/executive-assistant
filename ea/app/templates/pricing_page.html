@@ -1,17 +1,133 @@
 {% extends "base_public.html" %}
 {% block content %}
-<section class="section card card-strong">
-  <div class="eyebrow">Pricing</div>
-  <h1>Choose the workspace scope that matches the team.</h1>
-  <p class="lead">Start with a pilot, move into the daily operator loop, and expand to a broader team workspace when the approvals, channels, and follow-ups are already part of the routine.</p>
+<style>
+  .pricing-hero {
+    padding: 24px;
+    display: grid;
+    gap: 18px;
+  }
+  .pricing-strip,
+  .tier-grid,
+  .comparison-grid {
+    display: grid;
+    gap: 14px;
+  }
+  .pricing-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tier-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .comparison-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pricing-summary,
+  .tier-card,
+  .comparison-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 16px;
+  }
+  .pricing-summary strong,
+  .tier-card strong,
+  .comparison-card strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .tier-price {
+    color: var(--accent);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .tier-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+  @media (max-width: 1080px) {
+    .pricing-strip,
+    .tier-grid,
+    .comparison-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel pricing-hero">
+  <div>
+    <div class="kicker">Pricing</div>
+    <h1>Choose the workspace scope that matches the operating loop.</h1>
+    <p class="lead">Price the assistant around how much real work it is helping clear: one operator, one shared team queue, or a more demanding executive operations surface with tighter review and admin control.</p>
+  </div>
+  <div class="pricing-strip">
+    <div class="pricing-summary">
+      <strong>Start with a pilot</strong>
+      Use a narrower workspace first, prove the daily loop, then widen access once the brief, drafts, and follow-ups are working.
+    </div>
+    <div class="pricing-summary">
+      <strong>Expand by operating scope</strong>
+      The jump should come from more operators, more channels, and more approvals, not from packaging jargon.
+    </div>
+    <div class="pricing-summary">
+      <strong>Keep review visible</strong>
+      Higher tiers should buy more team coordination and control, not less visibility into what the assistant is doing.
+    </div>
+  </div>
 </section>
-<section class="section grid">
-  {% for tier in pricing_tiers %}
-  <section class="card">
-    <div class="eyebrow">{{ tier.price }}</div>
-    <h2>{{ tier.title }}</h2>
-    <p class="muted">{{ tier.body }}</p>
-  </section>
-  {% endfor %}
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Plans</div>
+      <h2>Choose the lane that matches the real workload</h2>
+    </div>
+    <p>These plans should read like operator scopes: how many people are clearing the queue, how many channels matter, and how much control the workspace needs.</p>
+  </div>
+  <div class="tier-grid">
+    {% for tier in pricing_tiers %}
+    <section class="tier-card">
+      <div class="tier-price">{{ tier.price }}</div>
+      <strong>{{ tier.title }}</strong>
+      <p class="copy">{{ tier.body }}</p>
+      <div class="tier-actions">
+        <a class="btn {% if loop.first %}primary{% else %}ghost{% endif %}" href="/get-started">{% if loop.first %}Start pilot{% elif loop.last %}Talk to us{% else %}Get started{% endif %}</a>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">What expands by tier</div>
+      <h2>What buyers usually care about</h2>
+    </div>
+    <p>Buyers want to know what changes as the workspace grows: operators, channels, review controls, and reporting. Keep those answers plain.</p>
+  </div>
+  <div class="comparison-grid">
+    <section class="comparison-card">
+      <strong>Typical plan differences</strong>
+      <ul class="muted-list">
+        <li>How many operators or reviewers share the workspace</li>
+        <li>How many channels are live and how much context they contribute</li>
+        <li>How strict the approval and review posture needs to be</li>
+        <li>How much admin visibility and control the team requires</li>
+      </ul>
+    </section>
+    <section class="comparison-card">
+      <strong>Recommended buying path</strong>
+      <ul class="muted-list">
+        <li>Start where one operator can prove value from a real brief and draft queue</li>
+        <li>Add shared review and follow-up visibility when a team is clearing the same work</li>
+        <li>Move to the broadest tier when executive operations and admin controls become part of daily use</li>
+      </ul>
+    </section>
+  </div>
 </section>
 {% endblock %}

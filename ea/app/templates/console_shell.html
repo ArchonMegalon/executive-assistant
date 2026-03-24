@@ -1,38 +1,236 @@
 {% extends "base_console.html" %}
 {% block content %}
-<div class="topbar" style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:18px; flex-wrap:wrap;">
-  <div class="page-title">
-    <h1>{{ console_title }}</h1>
-    <p>{{ console_summary }}</p>
-  </div>
-  <div class="controls">
-    <div class="btn">{{ access_email or principal_id }}</div>
-    {% if operator_id %}<div class="btn">{{ operator_id }}</div>{% endif %}
-  </div>
-</div>
+<style>
+  .console-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .spotlight-card,
+  .support-card,
+  .metric-card,
+  .work-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+  }
+  .spotlight-card,
+  .support-card,
+  .work-card {
+    padding: 18px;
+  }
+  .spotlight-card .eyebrow,
+  .support-card .eyebrow,
+  .work-card .eyebrow {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .spotlight-card h2,
+  .support-card h2,
+  .work-card h2 {
+    margin-bottom: 8px;
+    font-size: 1.15rem;
+  }
+  .spotlight-copy,
+  .support-copy {
+    color: var(--text-soft);
+    margin-bottom: 14px;
+  }
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .metric-card {
+    padding: 14px;
+  }
+  .metric-card .label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .metric-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.45rem;
+    font-weight: 620;
+    letter-spacing: -0.02em;
+  }
+  .metric-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .queue-list,
+  .support-list,
+  .work-list {
+    display: grid;
+    gap: 10px;
+  }
+  .queue-item,
+  .support-item,
+  .work-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .queue-item:last-child,
+  .support-item:last-child,
+  .work-item:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .queue-item strong,
+  .support-item strong,
+  .work-item strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .queue-item small,
+  .support-item small,
+  .work-item small {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .queue-tag,
+  .support-tag,
+  .work-tag {
+    white-space: nowrap;
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .support-card {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .support-note {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02);
+    color: var(--text-soft);
+    font-size: 14px;
+  }
+  .work-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1080px) {
+    .console-hero,
+    .work-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
 
-<section class="grid stats">
-  {% for stat in stats %}
-  <div class="card stat">
-    <div class="section-label">{{ stat.label }}</div>
-    <div class="stat-value">{{ stat.value }}</div>
-  </div>
-  {% endfor %}
+{% set primary_card = cards[0] if cards else None %}
+{% set secondary_card = cards[1] if cards|length > 1 else None %}
+{% set remaining_cards = cards[2:] if cards|length > 2 else [] %}
+
+<section class="console-hero">
+  <section class="spotlight-card">
+    <div class="eyebrow">{{ primary_card.eyebrow if primary_card and primary_card.eyebrow else 'Today' }}</div>
+    <h2>{{ primary_card.title if primary_card else console_title }}</h2>
+    <p class="spotlight-copy">{{ primary_card.body if primary_card and primary_card.body else console_summary }}</p>
+
+    {% if stats %}
+    <div class="metric-grid">
+      {% for stat in stats %}
+      <div class="metric-card">
+        <span class="label">{{ stat.label }}</span>
+        <strong>{{ stat.value }}</strong>
+        <span>Visible in the current workspace view.</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if primary_card and primary_card["items"] %}
+    <div class="queue-list" style="margin-top: 16px;">
+      {% for item in primary_card["items"] %}
+      <div class="queue-item">
+        <div>
+          <strong>{{ item }}</strong>
+          <small>Surface the next action before the user has to hunt for it.</small>
+        </div>
+        <div class="queue-tag">Open</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="support-card">
+    <div>
+      <div class="eyebrow">{{ secondary_card.eyebrow if secondary_card and secondary_card.eyebrow else 'Current lane' }}</div>
+      <h2>{{ secondary_card.title if secondary_card else 'Keep the queue clear.' }}</h2>
+      <p class="support-copy">{{ secondary_card.body if secondary_card and secondary_card.body else 'The app should feel like a working assistant console: current priorities on the left, reviewable supporting queues on the right.' }}</p>
+    </div>
+
+    {% if secondary_card and secondary_card["items"] %}
+    <div class="support-list">
+      {% for item in secondary_card["items"] %}
+      <div class="support-item">
+        <div>
+          <strong>{{ item }}</strong>
+          <small>Easy to clear, easy to review, easy to reopen.</small>
+        </div>
+        <div class="support-tag">Review</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="support-note">Use this lane for the current queue: pending approvals, reply drafts, or the next follow-up batch.</div>
+    {% endif %}
+
+    <div class="support-note">{{ console_summary }}</div>
+  </aside>
 </section>
 
-<section class="grid cards">
-  {% for card in cards %}
-  <section class="card">
-    <div class="section-label">{{ card.eyebrow }}</div>
+{% if remaining_cards %}
+<section class="work-grid">
+  {% for card in remaining_cards[:3] %}
+  <section class="work-card">
+    <div class="eyebrow">{{ card.eyebrow if card.eyebrow else 'Workspace' }}</div>
     <h2>{{ card.title }}</h2>
-    {% if card.body %}<p class="muted">{{ card.body }}</p>{% endif %}
-    {% if card["items"] %}
-    <ul class="card-list">
-      {% for item in card["items"] %}<li>{{ item }}</li>{% endfor %}
-    </ul>
+    {% if card.body %}
+    <p class="support-copy">{{ card.body }}</p>
     {% endif %}
-    {% if loop.first and card.body %}<div class="mini-note">The workspace should feel like an operational queue, not a dramatic dashboard.</div>{% endif %}
+
+    {% if card["items"] %}
+    <div class="work-list">
+      {% for item in card["items"] %}
+      <div class="work-item">
+        <div>
+          <strong>{{ item }}</strong>
+          <small>Presented as part of the same operating loop.</small>
+        </div>
+        <div class="work-tag">Open</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </section>
   {% endfor %}
 </section>
+{% endif %}
 {% endblock %}
