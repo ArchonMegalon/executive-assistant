@@ -1,162 +1,675 @@
 {% extends "base_public.html" %}
 {% block content %}
-<section class="section card card-strong">
-  <div class="eyebrow">Get started</div>
-  <h1>Connect your workspace in four steps.</h1>
-  <p class="lead">Keep onboarding short: workspace posture, first channel, privacy and approvals, first briefing. The recommended first success is Google Core.</p>
+<style>
+  .onboarding-hero {
+    align-items: start;
+  }
+  .onboarding-hero .hero-copy {
+    min-height: 0;
+    gap: 20px;
+  }
+  .onboarding-side {
+    padding: 22px;
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .onboarding-side h2 {
+    margin-bottom: 6px;
+  }
+  .onboarding-side .callout strong,
+  .mode-card strong,
+  .bundle-card strong,
+  .path-card strong,
+  .finish-card strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+  .wizard-shell {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .wizard-nav {
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+    position: sticky;
+    top: 84px;
+  }
+  .wizard-step-button {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02);
+    color: var(--text-soft);
+    text-align: left;
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+  }
+  .wizard-step-button strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .wizard-step-button span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .wizard-step-button.active {
+    border-color: rgba(138, 164, 255, 0.28);
+    background: rgba(138, 164, 255, 0.08);
+  }
+  .wizard-body {
+    display: grid;
+    gap: 16px;
+  }
+  .wizard-panel {
+    padding: 22px;
+    display: none;
+    gap: 18px;
+  }
+  .wizard-panel.active {
+    display: grid;
+  }
+  .wizard-panel-header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .wizard-panel-header .eyebrow {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .wizard-panel-header .step-context {
+    max-width: 52ch;
+    color: var(--text-soft);
+  }
+  .mode-grid,
+  .bundle-grid,
+  .finish-grid,
+  .path-grid,
+  .status-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .mode-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .bundle-grid,
+  .finish-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .path-grid,
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mode-card,
+  .bundle-card,
+  .path-card,
+  .finish-card,
+  .status-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 14px;
+  }
+  .mode-card button,
+  .bundle-card button {
+    margin-top: 12px;
+    width: 100%;
+  }
+  .status-card .kicker {
+    margin-bottom: 4px;
+  }
+  .wizard-form {
+    display: grid;
+    gap: 14px;
+  }
+  .wizard-form label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .wizard-form input,
+  .wizard-form select,
+  .wizard-form textarea {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    color: var(--text);
+    padding: 11px 12px;
+    font: inherit;
+    outline: none;
+  }
+  .wizard-form input::placeholder,
+  .wizard-form textarea::placeholder {
+    color: var(--text-dim);
+  }
+  .wizard-form input:focus,
+  .wizard-form select:focus,
+  .wizard-form textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(138, 164, 255, 0.12);
+  }
+  .wizard-form textarea {
+    min-height: 100px;
+    resize: vertical;
+  }
+  .field-grid,
+  .path-forms {
+    display: grid;
+    gap: 12px;
+  }
+  .field-grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .check-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .check-item {
+    display: flex;
+    align-items: start;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 12px;
+    color: var(--text-soft);
+  }
+  .check-item input {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    accent-color: var(--accent);
+  }
+  .check-item strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .helper-note {
+    margin: 0;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(216, 178, 107, 0.24);
+    background: rgba(216, 178, 107, 0.08);
+    color: #e6d2ab;
+    font-size: 13px;
+  }
+  .field-help {
+    margin-top: 6px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .wizard-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .wizard-actions .right {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .mode-select {
+    display: grid;
+    gap: 12px;
+  }
+  .step-callout {
+    display: grid;
+    gap: 10px;
+  }
+  @media (max-width: 1080px) {
+    .wizard-shell,
+    .mode-grid,
+    .bundle-grid,
+    .finish-grid,
+    .path-grid,
+    .status-grid,
+    .field-grid.two,
+    .check-grid {
+      grid-template-columns: 1fr;
+    }
+    .wizard-nav {
+      position: static;
+    }
+  }
+</style>
+
+<section class="section hero onboarding-hero">
+  <div class="panel hero-copy">
+    <div>
+      <div class="kicker">Get started</div>
+      <h1>Set up the workspace once, then let the assistant settle into your day.</h1>
+      <p class="lead">Start with the operating mode, connect the first channel that produces a useful brief, then decide how drafts, memory, and approvals should behave.</p>
+    </div>
+    <div class="summary-strip">
+      <div class="summary">
+        <div class="label">Step 1</div>
+        <strong>Choose the workspace mode</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Step 2</div>
+        <strong>Connect the first useful channel</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Step 3</div>
+        <strong>Add messaging paths honestly</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Step 4</div>
+        <strong>Set review and memory rules</strong>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel onboarding-side">
+    <div>
+      <div class="kicker">Recommended path</div>
+      <h2>Google first, messaging second.</h2>
+      <p class="copy">Google is the fastest route to a real result: a first brief, draft support, calendar context, and contact memory. Telegram and WhatsApp come after the workspace posture is clear.</p>
+    </div>
+    <div class="callout">
+      <strong>Personal</strong>
+      Best for one person using one inbox, one calendar, and one decision loop.
+    </div>
+    <div class="callout">
+      <strong>Team / tenant</strong>
+      Best for a shared workspace where multiple operators or teammates clear drafts, approvals, and activity together.
+    </div>
+    <div class="callout">
+      <strong>Founder / chief of staff ops</strong>
+      Best when one workspace needs to manage stakeholder traffic, a busy calendar, follow-ups, and review queues around an executive.
+    </div>
+  </aside>
 </section>
 
-<section class="section grid-2">
-  <section class="card">
-    <div class="eyebrow">Step 1</div>
-    <h2>Create the workspace</h2>
-    <p class="lead" style="font-size:0.98rem;">Pick the operating mode first, then choose the channels that should exist in this workspace.</p>
-    <form method="post" action="/setup/start">
-      {{ shared_browser_fields|safe }}
-      <label for="workspace_name">Workspace name</label>
-      <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
-      <div class="split">
+<section class="section wizard-shell" data-onboarding-wizard>
+  <aside class="panel wizard-nav">
+    <button class="wizard-step-button" type="button" data-step-trigger="1">
+      <strong>1. Workspace</strong>
+      <span>Name the workspace, choose the right operating model, and pick the first channels to expose.</span>
+    </button>
+    <button class="wizard-step-button" type="button" data-step-trigger="2">
+      <strong>2. Google</strong>
+      <span>Use Google Core to get to a first useful briefing quickly.</span>
+    </button>
+    <button class="wizard-step-button" type="button" data-step-trigger="3">
+      <strong>3. Messaging</strong>
+      <span>Keep Telegram and WhatsApp paths explicit instead of vague.</span>
+    </button>
+    <button class="wizard-step-button" type="button" data-step-trigger="4">
+      <strong>4. Finish</strong>
+      <span>Choose retention, review, and briefing defaults before opening the app.</span>
+    </button>
+  </aside>
+
+  <div class="wizard-body">
+    <section class="panel wizard-panel" data-step-panel="1">
+      <div class="wizard-panel-header">
         <div>
-          <label for="workspace_mode">Mode</label>
-          <select id="workspace_mode" name="workspace_mode">
-            <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
-            <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Team / tenant</option>
-            <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Founder / chief of staff ops</option>
+          <div class="eyebrow">Step 1</div>
+          <h2>Choose how this workspace should behave.</h2>
+        </div>
+        <p class="step-context">The mode changes how the assistant should prioritize work. Pick the one that matches the real operating loop, not the org chart.</p>
+      </div>
+
+      <div class="mode-grid">
+        <div class="mode-card">
+          <strong>Personal</strong>
+          <p class="copy">One person, one daily brief, one set of channels. Best when the assistant is helping one operator move faster through inbox, calendar, and follow-ups.</p>
+          <button class="btn ghost" type="button" data-set-mode="personal">Use personal</button>
+        </div>
+        <div class="mode-card">
+          <strong>Team / tenant</strong>
+          <p class="copy">A shared workspace for a team, support function, or operating unit. Use this when several people need the same activity, drafts, and approvals.</p>
+          <button class="btn ghost" type="button" data-set-mode="team">Use team / tenant</button>
+        </div>
+        <div class="mode-card">
+          <strong>Founder / chief of staff ops</strong>
+          <p class="copy">For executive operations with tighter review needs: stakeholder replies, meeting prep, escalation follow-ups, and a more approval-heavy daily loop.</p>
+          <button class="btn ghost" type="button" data-set-mode="executive_ops">Use founder / ops</button>
+        </div>
+      </div>
+
+      <form class="wizard-form" method="post" action="/setup/start" data-next-step="2">
+        {{ shared_browser_fields|safe }}
+        <div class="field-grid two">
+          <div>
+            <label for="workspace_name">Workspace name</label>
+            <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
+          </div>
+          <div class="mode-select">
+            <div>
+              <label for="workspace_mode">Workspace mode</label>
+              <select id="workspace_mode" name="workspace_mode">
+                <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
+                <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Team / tenant</option>
+                <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Founder / chief of staff ops</option>
+              </select>
+              <div class="field-help">You can change this later, but the initial mode helps the assistant choose the right tone and workload shape.</div>
+            </div>
+          </div>
+        </div>
+        <div class="field-grid two">
+          <div>
+            <label for="timezone">Timezone</label>
+            <input id="timezone" name="timezone" value="{{ workspace.timezone or '' }}" placeholder="Europe/Vienna">
+          </div>
+          <div>
+            <label for="region">Region</label>
+            <input id="region" name="region" value="{{ workspace.region or '' }}" placeholder="AT">
+          </div>
+        </div>
+        <div class="field-grid two">
+          <div>
+            <label for="language">Language</label>
+            <input id="language" name="language" value="{{ workspace.language or '' }}" placeholder="en">
+          </div>
+          <div>
+            <label>Channels to prepare</label>
+            <div class="field-help">Pick what should appear in the workspace first. Google is the recommended default.</div>
+          </div>
+        </div>
+        <div class="check-grid">
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}><span><strong>Google</strong>Inbox context, calendar, contacts, and the fastest path to a first brief.</span></label>
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}><span><strong>Telegram</strong>Personal identity or bot rollout once the workspace shape is clear.</span></label>
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}><span><strong>WhatsApp</strong>Business onboarding or explicit export intake, depending on your real support posture.</span></label>
+        </div>
+        <div class="wizard-actions">
+          <div class="callout">Pick the closest real-world mode first. The assistant performs better when the workspace posture matches the actual review loop.</div>
+          <div class="right">
+            <button class="btn primary" type="submit">Save workspace and continue</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel wizard-panel" data-step-panel="2">
+      <div class="wizard-panel-header">
+        <div>
+          <div class="eyebrow">Step 2</div>
+          <h2>Connect Google first.</h2>
+        </div>
+        <p class="step-context">Google is where most workspaces get their first genuine value: inbox context, calendar pressure, contacts, and a believable first briefing.</p>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="kicker">Current status</div>
+          <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
+          <p class="copy">This just tells you whether the Google path is ready. It does not force a specific bundle.</p>
+        </div>
+        <div class="status-card">
+          <div class="kicker">Recommended first success</div>
+          <strong>Google Core</strong>
+          <p class="copy">Start with drafts, delivery checks, calendar context, and contacts. Expand to the larger bundle only if the workspace genuinely needs it.</p>
+        </div>
+      </div>
+
+      <div class="bundle-grid">
+        <div class="bundle-card">
+          <strong>Google Core</strong>
+          <p class="copy">Best for most workspaces. Enough to produce a useful brief and support real reply work without over-scoping the initial setup.</p>
+          <button class="btn ghost" type="button" data-set-google-bundle="core">Select Google Core</button>
+        </div>
+        <div class="bundle-card">
+          <strong>Google Full Workspace</strong>
+          <p class="copy">Use this when the assistant needs a larger workspace surface from the start, not just inbox and calendar orientation.</p>
+          <button class="btn ghost" type="button" data-set-google-bundle="full_workspace">Select Full Workspace</button>
+        </div>
+      </div>
+
+      <form class="wizard-form" method="post" action="/google/connect" data-next-step="3">
+        {{ shared_browser_fields|safe }}
+        <div>
+          <label for="scope_bundle">Google bundle</label>
+          <select id="scope_bundle" name="scope_bundle">
+            <option value="core">Google Core (recommended)</option>
+            <option value="full_workspace">Google Full Workspace</option>
+            <option value="verify">Advanced Gmail verify</option>
+            <option value="send">Send only</option>
+          </select>
+          <div class="field-help">If you are unsure, keep the default. It is the shortest route to a useful assistant experience.</div>
+        </div>
+        <div class="wizard-actions">
+          <button class="btn ghost" type="button" data-step-back="1">Back</button>
+          <div class="right">
+            <button class="btn ghost" type="button" data-step-next="3">Skip for now</button>
+            <button class="btn primary" type="submit">Connect Google</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel wizard-panel" data-step-panel="3">
+      <div class="wizard-panel-header">
+        <div>
+          <div class="eyebrow">Step 3</div>
+          <h2>Add messaging paths without overpromising.</h2>
+        </div>
+        <p class="step-context">Telegram and WhatsApp should stay explicit. Personal identity, bot installation, business onboarding, and export intake are different paths and should remain visible as such.</p>
+      </div>
+
+      <div class="path-grid">
+        <section class="path-card">
+          <strong>Telegram personal path</strong>
+          <p class="copy">Use this when the assistant should understand your Telegram identity first and only later expand into bot surfaces or history posture.</p>
+          <form class="wizard-form" method="post" action="/setup/telegram" data-next-step="3">
+            {{ shared_browser_fields|safe }}
+            <div>
+              <label for="telegram_ref">Telegram handle or account ref</label>
+              <input id="telegram_ref" name="telegram_ref" placeholder="@username">
+            </div>
+            <div class="field-grid two">
+              <div>
+                <label for="identity_mode">Identity mode</label>
+                <select id="identity_mode" name="identity_mode">
+                  <option value="login_widget">Sign in with Telegram</option>
+                  <option value="oidc">Telegram OIDC</option>
+                </select>
+              </div>
+              <div>
+                <label for="history_mode">History mode</label>
+                <select id="history_mode" name="history_mode">
+                  <option value="future_only">Future messages only</option>
+                  <option value="import_later">Import later</option>
+                  <option value="manual_forward">Manual forward / export later</option>
+                </select>
+              </div>
+            </div>
+            <div class="check-grid">
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="dm"><span><strong>Direct messages</strong>Use the assistant in a one-to-one thread.</span></label>
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="group"><span><strong>Groups</strong>Expose the assistant in group discussions once the identity path is clear.</span></label>
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="channel"><span><strong>Channels</strong>Use this only when channel automation is a real workflow need.</span></label>
+            </div>
+            <button class="btn" type="submit">Save Telegram personal path</button>
+          </form>
+        </section>
+
+        <section class="path-card">
+          <strong>Telegram bot rollout</strong>
+          <p class="copy">Treat bot installation as its own decision. This avoids promising that identity setup automatically means the assistant belongs everywhere.</p>
+          <form class="wizard-form" method="post" action="/setup/telegram/link-bot" data-next-step="3">
+            {{ shared_browser_fields|safe }}
+            <div>
+              <label for="bot_handle">Official bot handle</label>
+              <input id="bot_handle" name="bot_handle" placeholder="@assistant_bot">
+            </div>
+            <div>
+              <label for="default_chat_ref">Default chat ref</label>
+              <input id="default_chat_ref" name="default_chat_ref" placeholder="chat id or handle">
+            </div>
+            <div class="check-grid">
+              <label class="check-item"><input type="checkbox" name="install_surfaces" value="dm"><span><strong>Install in DM</strong>Private conversations first.</span></label>
+              <label class="check-item"><input type="checkbox" name="install_surfaces" value="group"><span><strong>Install in group</strong>Shared room with explicit rollout.</span></label>
+              <label class="check-item"><input type="checkbox" name="install_surfaces" value="channel"><span><strong>Install in channel</strong>Only where publishing is truly needed.</span></label>
+            </div>
+            <button class="btn" type="submit">Save Telegram bot plan</button>
+          </form>
+        </section>
+
+        <section class="path-card">
+          <strong>WhatsApp Business path</strong>
+          <p class="copy">Use this when you need a formal business setup. Keep it separate from export intake so the product stays honest about what is live and what is imported.</p>
+          <form class="wizard-form" method="post" action="/setup/whatsapp/business" data-next-step="3">
+            {{ shared_browser_fields|safe }}
+            <div>
+              <label for="phone_number">Business phone number</label>
+              <input id="phone_number" name="phone_number" placeholder="+43...">
+            </div>
+            <div>
+              <label for="business_name">Business name</label>
+              <input id="business_name" name="business_name" placeholder="Acme GmbH">
+            </div>
+            <label class="check-item"><input type="checkbox" name="import_history_now" value="true"><span><strong>Request history import only when supported</strong>Do not assume live business setup automatically means full historical sync.</span></label>
+            <button class="btn" type="submit">Save WhatsApp Business path</button>
+          </form>
+        </section>
+
+        <section class="path-card">
+          <strong>WhatsApp export intake</strong>
+          <p class="copy">Use this when the real workflow is import-first. This is the right choice when live sync is not the product claim you want to make.</p>
+          <form class="wizard-form" method="post" action="/setup/whatsapp/export" data-next-step="3">
+            {{ shared_browser_fields|safe }}
+            <div>
+              <label for="export_label">Export intake plan label</label>
+              <input id="export_label" name="export_label" placeholder="March personal export">
+            </div>
+            <div>
+              <label for="selected_chat_labels_csv">Planned chat labels</label>
+              <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
+            </div>
+            <label class="check-item"><input type="checkbox" name="include_media" value="true"><span><strong>Include media references</strong>Capture media references as part of the planned intake.</span></label>
+            <button class="btn" type="submit">Save WhatsApp export plan</button>
+          </form>
+        </section>
+      </div>
+
+      <div class="wizard-actions">
+        <button class="btn ghost" type="button" data-step-back="2">Back</button>
+        <div class="right">
+          <button class="btn primary" type="button" data-step-next="4">Continue to privacy and finish</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel wizard-panel" data-step-panel="4">
+      <div class="wizard-panel-header">
+        <div>
+          <div class="eyebrow">Step 4</div>
+          <h2>Set the review and memory rules before the assistant starts working.</h2>
+        </div>
+        <p class="step-context">This is where you decide how much content should be retained, whether drafts are allowed, and how autonomous the briefing loop should be.</p>
+      </div>
+
+      <div class="finish-grid">
+        <div class="finish-card">
+          <strong>Review posture</strong>
+          <p class="copy">If you are unsure, allow drafts and action suggestions, but keep sending decisions with a human. That gives you value fast without pretending the assistant should act unchecked.</p>
+        </div>
+        <div class="finish-card">
+          <strong>Retention posture</strong>
+          <p class="copy">Choose the narrowest retention mode that still lets the assistant produce a useful brief. You can widen it later if the workspace proves it needs more continuity.</p>
+        </div>
+      </div>
+
+      <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="4">
+        {{ shared_browser_fields|safe }}
+        <div>
+          <label for="retention_mode">Retention mode</label>
+          <select id="retention_mode" name="retention_mode">
+            <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
+            <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
+            <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
           </select>
         </div>
-        <div>
-          <label for="timezone">Timezone</label>
-          <input id="timezone" name="timezone" value="{{ workspace.timezone or '' }}" placeholder="Europe/Vienna">
+        <div class="check-grid">
+          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>Telegram metadata only</strong>Useful when Telegram should inform prioritization without storing full message bodies.</span></label>
+          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>WhatsApp metadata only</strong>Keep visibility into message flow while retaining less content.</span></label>
+          <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare responses for review before anything is sent.</span></label>
+          <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and follow-up recommendations.</span></label>
+          <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic briefs</strong>Generate briefs on a schedule once the workspace is stable enough.</span></label>
         </div>
-      </div>
-      <div class="split">
-        <div>
-          <label for="region">Region</label>
-          <input id="region" name="region" value="{{ workspace.region or '' }}" placeholder="AT">
+        <div class="wizard-actions">
+          <button class="btn ghost" type="button" data-step-back="3">Back</button>
+          <div class="right">
+            <button class="btn primary" type="submit">Finish setup and open the briefing</button>
+          </div>
         </div>
-        <div>
-          <label for="language">Language</label>
-          <input id="language" name="language" value="{{ workspace.language or '' }}" placeholder="en">
-        </div>
-      </div>
-      <div class="checks">
-        <label class="check"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}> Google: inbox context, calendar, contacts, first real brief</label>
-        <label class="check"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}> Telegram: personal identity or official bot path</label>
-        <label class="check"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}> WhatsApp: business onboarding or explicit export intake</label>
-      </div>
-      <button type="submit">Save workspace posture</button>
-    </form>
-  </section>
-
-  <section class="card">
-    <div class="eyebrow">Step 2</div>
-    <h2>Google Core is the recommended first connection.</h2>
-    <p class="lead" style="font-size:0.98rem;">It is the fastest path to a real assistant outcome: drafts, delivery checks, calendar context, contacts, and the first useful brief.</p>
-    <p class="helper-note"><strong>Current status:</strong> {{ google.status|replace('_', ' ') if google.status else 'not selected' }}</p>
-    <form method="post" action="/google/connect">
-      {{ shared_browser_fields|safe }}
-      <label for="scope_bundle">Google bundle</label>
-      <select id="scope_bundle" name="scope_bundle">
-        <option value="core">Google Core (recommended)</option>
-        <option value="full_workspace">Google Full Workspace</option>
-        <option value="verify">Advanced Gmail verify</option>
-        <option value="send">Send only</option>
-      </select>
-      <button type="submit">Connect Google</button>
-    </form>
-  </section>
-
-  <section class="card">
-    <div class="eyebrow">Step 3</div>
-    <h2>Telegram stays split between personal identity and bot rollout.</h2>
-    <p class="lead" style="font-size:0.98rem;">Do not blur personal login, history posture, and bot installation into one vague promise.</p>
-    <form method="post" action="/setup/telegram">
-      {{ shared_browser_fields|safe }}
-      <label for="telegram_ref">Telegram handle or account ref</label>
-      <input id="telegram_ref" name="telegram_ref" placeholder="@username">
-      <div class="split">
-        <div>
-          <label for="identity_mode">Identity mode</label>
-          <select id="identity_mode" name="identity_mode">
-            <option value="login_widget">Sign in with Telegram</option>
-            <option value="oidc">Telegram OIDC</option>
-          </select>
-        </div>
-        <div>
-          <label for="history_mode">History mode</label>
-          <select id="history_mode" name="history_mode">
-            <option value="future_only">Future messages only</option>
-            <option value="import_later">Import later</option>
-            <option value="manual_forward">Manual forward / export later</option>
-          </select>
-        </div>
-      </div>
-      <div class="checks">
-        <label class="check"><input type="checkbox" name="assistant_surfaces" value="dm"> DM</label>
-        <label class="check"><input type="checkbox" name="assistant_surfaces" value="group"> Group</label>
-        <label class="check"><input type="checkbox" name="assistant_surfaces" value="channel"> Channel</label>
-      </div>
-      <button type="submit">Save personal Telegram path</button>
-    </form>
-    <form method="post" action="/setup/telegram/link-bot">
-      {{ shared_browser_fields|safe }}
-      <label for="bot_handle">Official bot handle</label>
-      <input id="bot_handle" name="bot_handle" placeholder="@assistant_bot">
-      <label for="default_chat_ref">Default chat ref</label>
-      <input id="default_chat_ref" name="default_chat_ref" placeholder="chat id or handle">
-      <div class="checks">
-        <label class="check"><input type="checkbox" name="install_surfaces" value="dm"> Install in DM</label>
-        <label class="check"><input type="checkbox" name="install_surfaces" value="group"> Install in group</label>
-        <label class="check"><input type="checkbox" name="install_surfaces" value="channel"> Install in channel</label>
-      </div>
-      <button type="submit">Save Telegram bot plan</button>
-    </form>
-  </section>
-
-  <section class="card">
-    <div class="eyebrow">Step 4</div>
-    <h2>Pick the right WhatsApp path.</h2>
-    <p class="lead" style="font-size:0.98rem;">Business onboarding and export intake mean different things. Keep them distinct so the product stays honest.</p>
-    <form method="post" action="/setup/whatsapp/business">
-      {{ shared_browser_fields|safe }}
-      <label for="phone_number">Business phone number</label>
-      <input id="phone_number" name="phone_number" placeholder="+43...">
-      <label for="business_name">Business name</label>
-      <input id="business_name" name="business_name" placeholder="Acme GmbH">
-      <label class="check"><input type="checkbox" name="import_history_now" value="true"> Request history import only if the supported business flow later allows it</label>
-      <button type="submit">Save WhatsApp Business path</button>
-    </form>
-    <form method="post" action="/setup/whatsapp/export">
-      {{ shared_browser_fields|safe }}
-      <label for="export_label">Export intake plan label</label>
-      <input id="export_label" name="export_label" placeholder="March personal export">
-      <label for="selected_chat_labels_csv">Planned chat labels</label>
-      <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
-      <label class="check"><input type="checkbox" name="include_media" value="true"> Include media references in the intake plan</label>
-      <button type="submit">Save WhatsApp export plan</button>
-    </form>
-  </section>
-
-  <section class="card card-strong">
-    <div class="eyebrow">Finish</div>
-    <h2>Set memory rules and generate the first briefing.</h2>
-    <form method="post" action="/setup/finalize">
-      {{ shared_browser_fields|safe }}
-      <label for="retention_mode">Retention mode</label>
-      <select id="retention_mode" name="retention_mode">
-        <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
-        <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
-        <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
-      </select>
-      <div class="checks">
-        <label class="check"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}> Telegram metadata only</label>
-        <label class="check"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}> WhatsApp metadata only</label>
-        <label class="check"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}> Allow draft replies</label>
-        <label class="check"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}> Allow action suggestions</label>
-        <label class="check"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}> Allow automatic briefs</label>
-      </div>
-      <button type="submit">Finish setup and open the briefing</button>
-    </form>
-  </section>
+      </form>
+    </section>
+  </div>
 </section>
+
+<script>
+(() => {
+  const root = document.querySelector('[data-onboarding-wizard]');
+  if (!root) return;
+  const panels = Array.from(root.querySelectorAll('[data-step-panel]'));
+  const triggers = Array.from(root.querySelectorAll('[data-step-trigger]'));
+  const modeSelect = document.getElementById('workspace_mode');
+  const bundleSelect = document.getElementById('scope_bundle');
+  const storageKey = 'ea_onboarding_step';
+
+  const render = (step) => {
+    const safeStep = panels.some((panel) => Number(panel.dataset.stepPanel) === step) ? step : 1;
+    panels.forEach((panel) => panel.classList.toggle('active', Number(panel.dataset.stepPanel) === safeStep));
+    triggers.forEach((trigger) => trigger.classList.toggle('active', Number(trigger.dataset.stepTrigger) === safeStep));
+    try { window.localStorage.setItem(storageKey, String(safeStep)); } catch (_) {}
+  };
+
+  let currentStep = 1;
+  try {
+    currentStep = Number(window.localStorage.getItem(storageKey) || '1');
+  } catch (_) {
+    currentStep = 1;
+  }
+  render(currentStep);
+
+  triggers.forEach((trigger) => {
+    trigger.addEventListener('click', () => render(Number(trigger.dataset.stepTrigger)));
+  });
+  root.querySelectorAll('[data-step-next]').forEach((button) => {
+    button.addEventListener('click', () => render(Number(button.dataset.stepNext)));
+  });
+  root.querySelectorAll('[data-step-back]').forEach((button) => {
+    button.addEventListener('click', () => render(Number(button.dataset.stepBack)));
+  });
+  root.querySelectorAll('form[data-next-step]').forEach((form) => {
+    form.addEventListener('submit', () => {
+      try { window.localStorage.setItem(storageKey, form.dataset.nextStep || '1'); } catch (_) {}
+    });
+  });
+  root.querySelectorAll('[data-set-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (modeSelect) modeSelect.value = button.dataset.setMode;
+      render(1);
+    });
+  });
+  root.querySelectorAll('[data-set-google-bundle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (bundleSelect) bundleSelect.value = button.dataset.setGoogleBundle;
+      render(2);
+    });
+  });
+})();
+</script>
 {% endblock %}
