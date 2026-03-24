@@ -26,7 +26,11 @@
         var(--bg);
       font: 16px/1.65 "IBM Plex Sans", "Segoe UI", sans-serif;
     }
-    a { color: inherit; text-decoration: none; }
+    a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
     .shell { width: min(1180px, calc(100vw - 32px)); margin: 0 auto; }
     .topbar {
       position: sticky;
@@ -55,8 +59,18 @@
       box-shadow: 0 16px 32px rgba(37, 99, 235, 0.24);
       font-size: 13px;
     }
-    .nav { display: flex; gap: 24px; align-items: center; color: var(--muted); font-weight: 700; }
-    .nav a.active, .nav a:hover { color: var(--ink); }
+    .nav { display: flex; gap: 10px; align-items: center; color: var(--muted); font-weight: 700; }
+    .nav a {
+      padding: 10px 12px;
+      border-radius: 999px;
+    }
+    .nav a.active,
+    .nav a:hover {
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+      transform: translateY(-1px);
+    }
     .actions { display: flex; gap: 12px; align-items: center; }
     .btn {
       display: inline-flex;
@@ -67,6 +81,7 @@
       border-radius: 999px;
       font-weight: 700;
       border: 1px solid transparent;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
     }
     .btn.primary {
       color: #fff;
@@ -108,6 +123,7 @@
       border-radius: 24px;
       padding: 24px;
       box-shadow: var(--shadow);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
     }
     .card-strong { background: rgba(255,255,255,0.96); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
@@ -118,6 +134,7 @@
       border-radius: 18px;
       padding: 16px;
       background: var(--panel-2);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
     }
     .stack > * + * { margin-top: 12px; }
     .pill {
@@ -147,6 +164,7 @@
       color: var(--ink);
       padding: 11px 12px;
       font: inherit;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
     }
     textarea { min-height: 96px; resize: vertical; }
     .checks { display: grid; gap: 8px; margin-top: 10px; }
@@ -158,6 +176,7 @@
       border-radius: 14px;
       padding: 10px 12px;
       background: rgba(255,255,255,0.82);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
     }
     .check input { width: auto; margin: 0; }
     .split { display: flex; gap: 14px; flex-wrap: wrap; }
@@ -171,6 +190,43 @@
       background: linear-gradient(135deg, var(--accent), #1d4ed8);
       font-weight: 700;
       cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+    }
+    .btn:hover,
+    button:hover {
+      transform: translateY(-1px);
+    }
+    .btn.primary:hover,
+    button:hover {
+      box-shadow: 0 18px 32px rgba(37, 99, 235, 0.28);
+    }
+    .btn.secondary:hover {
+      background: rgba(255, 255, 255, 0.92);
+      border-color: #c5d2e3;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+    }
+    .card:hover,
+    .signal:hover,
+    .surface:hover,
+    .check:hover {
+      transform: translateY(-2px);
+      border-color: #c5d2e3;
+      box-shadow: 0 20px 36px rgba(15, 23, 42, 0.09);
+    }
+    .footer-links a:hover {
+      color: var(--ink);
+    }
+    input:hover, select:hover, textarea:hover {
+      border-color: #bfd0e3;
+      background: #fff;
+    }
+    input:focus, select:focus, textarea:focus,
+    button:focus-visible, a:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
     }
     footer { padding: 0 0 40px; }
     .footer-card {
@@ -204,7 +260,7 @@
         {% endfor %}
       </nav>
       <div class="actions">
-        <a class="btn secondary" href="/app/today">{% if access_identity %}Open app{% else %}Sign in{% endif %}</a>
+        <a class="btn secondary" href="{% if access_identity %}/app/today{% else %}/sign-in{% endif %}">{% if access_identity %}Open app{% else %}Sign in{% endif %}</a>
         <a class="btn primary" href="/get-started">Get started</a>
       </div>
     </div>

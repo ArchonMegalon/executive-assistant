@@ -1,0 +1,24 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section hero">
+  <div>
+    <div class="eyebrow">Sign in</div>
+    <h1>Open the assistant from your normal workspace identity.</h1>
+    <p class="lead">The public site stays separate from the product shell. Sign in through your configured workspace path, then continue in the app surface.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="/app/today">Open app</a>
+      <a class="btn secondary" href="/get-started">Review setup</a>
+    </div>
+  </div>
+  <section class="card card-strong stack">
+    <div class="eyebrow">What to expect</div>
+    <h2>Identity, then workspace.</h2>
+    <ul class="list">
+      {% for note in sign_in_notes %}
+      <li>{{ note }}</li>
+      {% endfor %}
+    </ul>
+    <p class="helper-note">If the browser is not already trusted by the deployment, the app surface will continue to enforce the configured authentication and principal rules.</p>
+  </section>
+</section>
+{% endblock %}

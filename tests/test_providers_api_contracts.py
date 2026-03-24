@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import urllib.parse
 from pathlib import Path
 
@@ -31,6 +32,19 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
         client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
+
+
+def _assert_no_product_drift(text: str) -> None:
+    lower = text.lower()
+    assert "chummer" not in lower
+    assert "gm_creator_ops" not in lower
+    assert "gm / creator / campaign ops" not in lower
+    assert "campaign or community ops" not in lower
+
+
+def _internal_links(html: str) -> list[str]:
+    refs = sorted(set(re.findall(r'href="([^"]+)"', html)))
+    return [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
 
 
 def test_provider_bindings_are_principal_scoped_and_support_probe_updates() -> None:
@@ -329,15 +343,25 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     landing = owner.get("/")
     assert landing.status_code == 200
+    _assert_no_product_drift(landing.text)
     assert "Your executive assistant across email, messaging, and calendar." in landing.text
     assert "Get started" in landing.text
     assert "A clean assistant product, not a mixed surface." in landing.text
+    for href in _internal_links(landing.text):
+        resolved = owner.get(href, follow_redirects=False)
+        assert resolved.status_code in {200, 303, 307}, href
 
     setup = owner.get("/get-started")
     assert setup.status_code == 200
+    _assert_no_product_drift(setup.text)
     assert "Connect your workspace in four steps." in setup.text
     assert "Google Core is the recommended first connection." in setup.text
     assert "Pick the right WhatsApp path." in setup.text
+
+    sign_in = owner.get("/sign-in")
+    assert sign_in.status_code == 200
+    _assert_no_product_drift(sign_in.text)
+    assert "Open the assistant from your normal workspace identity." in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
@@ -345,7 +369,13 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     privacy = owner.get("/security")
     assert privacy.status_code == 200
+    _assert_no_product_drift(privacy.text)
     assert "Use the backend discipline as a brand advantage." in privacy.text
+
+    for path in ("/product", "/integrations", "/pricing", "/docs"):
+        page = owner.get(path)
+        assert page.status_code == 200
+        _assert_no_product_drift(page.text)
 
     legacy_privacy = owner.get("/privacy", follow_redirects=False)
     assert legacy_privacy.status_code == 307
@@ -465,6 +495,44 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert callback.status_code == 200
     assert "Google is now linked to this assistant" in callback.text
     assert "cf-email:browser@gmail.com" in callback.text
+
+
+def test_browser_shell_routes_and_nav_links_resolve() -> None:
+    user = _client(principal_id="exec-browser-shell")
+    operator = _client(principal_id="operator-browser-shell", operator=True)
+
+    for path in (
+        "/app/today",
+        "/app/briefing",
+        "/app/inbox",
+        "/app/follow-ups",
+        "/app/memory",
+        "/app/contacts",
+        "/app/channels",
+        "/app/automations",
+        "/app/activity",
+        "/app/settings",
+    ):
+        page = user.get(path)
+        assert page.status_code == 200
+        _assert_no_product_drift(page.text)
+        for href in _internal_links(page.text):
+            resolved = user.get(href, follow_redirects=False)
+            assert resolved.status_code in {200, 303, 307}, (path, href)
+
+    for path in (
+        "/admin/policies",
+        "/admin/providers",
+        "/admin/audit-trail",
+        "/admin/operators",
+        "/admin/api",
+    ):
+        page = operator.get(path)
+        assert page.status_code == 200
+        _assert_no_product_drift(page.text)
+        for href in _internal_links(page.text):
+            resolved = operator.get(href, follow_redirects=False)
+            assert resolved.status_code in {200, 303, 307}, (path, href)
 
 
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:

@@ -1534,7 +1534,12 @@ def test_build_page_prompt_includes_supporting_public_context() -> None:
     prompt = worker.build_page_prompt("start_here", worker.PAGE_PROMPTS["start_here"])
 
     assert "Supporting public context" in prompt
-    assert "See what is real now" in prompt or "Check the live proof shelf" in prompt
+    assert (
+        "See what is real now" in prompt
+        or "Check the live proof shelf" in prompt
+        or "Live now" in prompt
+        or "Preview releases, channels, and notes" in prompt
+    )
 
 
 def test_build_horizon_prompt_includes_rollout_access_canon() -> None:
