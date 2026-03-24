@@ -71,6 +71,7 @@ ADAPTER_ENV_NAMES = {
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
 _ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+PREFERRED_PROVIDER_STATUSES = {"ready", "workflow_query_only"}
 
 
 def env_value(name: str) -> str:
@@ -231,8 +232,8 @@ def provider_state(name: str) -> dict[str, object]:
     if name == "magixai":
         available = bool(raw_keys or adapters)
         if available and raw_keys:
-            status = "experimental_ready"
-            detail = "AI Magicx credentials are present and the built-in API lane will be tried."
+            status = "credential_only"
+            detail = "AI Magicx credentials are present, but the raw image API lane still needs live route verification before it should be preferred."
         else:
             status = "not_configured"
             detail = "No AI Magicx credentials found."
@@ -354,7 +355,10 @@ def main() -> int:
     result = {
         "provider_order": providers,
         "providers": states,
-        "recommended_provider": next((row["provider"] for row in states if row["available"]), ""),
+        "recommended_provider": next(
+            (row["provider"] for row in states if row["status"] in PREFERRED_PROVIDER_STATUSES),
+            next((row["provider"] for row in states if row["available"]), ""),
+        ),
         "text_provider_order": text_providers,
         "text_providers": text_states,
         "recommended_text_provider": next((row["provider"] for row in text_states if row["available"]), ""),

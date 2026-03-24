@@ -139,6 +139,25 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
     }
 
 
+def _apply_visual_contract_context(payload: dict[str, object]) -> dict[str, object]:
+    memory_reads = [str(value).strip() for value in (payload.get("memory_reads") or []) if str(value or "").strip()]
+    if "public_media_briefs" not in memory_reads:
+        memory_reads.append("public_media_briefs")
+    payload["memory_reads"] = memory_reads
+    evidence = [str(value).strip() for value in (payload.get("evidence_requirements") or []) if str(value or "").strip()]
+    if "public_media_briefs" not in evidence:
+        evidence.append("public_media_briefs")
+    payload["evidence_requirements"] = evidence
+    schema = dict(payload.get("input_schema_json") or {})
+    properties = dict(schema.get("properties") or {})
+    properties.setdefault("critical_asset_targets", {"type": "array", "items": {"type": "string"}})
+    properties.setdefault("asset_contract_overrides", {"type": "object"})
+    properties.setdefault("rerun_scope", {"type": "string"})
+    schema["properties"] = properties
+    payload["input_schema_json"] = schema
+    return payload
+
+
 def build_public_writer_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=True)
     payload.update(
@@ -166,7 +185,7 @@ def build_visual_director_skill_payload() -> dict[str, object]:
         {
             "skill_key": "chummer6_visual_director",
             "name": "Chummer6 Visual Director",
-            "description": "Planner-executed Chummer6 scene planning, style-epoch selection, scene-ledger guidance, and structured visual-direction skill for the public-facing guide.",
+            "description": "Planner-executed Chummer6 visual-direction lane: media-brief-driven scene planning, style-epoch selection, critical-asset rerun scope, and structured guidance for denser first-contact art.",
             "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
             "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
             "provider_hints_json": {
@@ -178,7 +197,7 @@ def build_visual_director_skill_payload() -> dict[str, object]:
             },
         }
     )
-    return payload
+    return _apply_visual_contract_context(payload)
 
 
 def build_public_auditor_skill_payload() -> dict[str, object]:
@@ -209,7 +228,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_scene_auditor",
             "task_key": "chummer6_scene_plan_audit",
             "name": "Chummer6 Scene Auditor",
-            "description": "Audit and repair lane for Chummer6 scene plans before rendering: composition diversity, page-role fit, and table-scene relapse prevention.",
+            "description": "Audit and repair lane for Chummer6 scene plans before rendering: person-count fit, composition diversity, critical-asset scene grammar, and anti-generic-solo rejection.",
             "memory_writes": ["chummer6_scene_audit_fact"],
             "tags": ["chummer6", "guide", "scene-audit", "visual-direction", "qa"],
             "provider_hints_json": {
@@ -220,7 +239,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
             },
         }
     )
-    return payload
+    return _apply_visual_contract_context(payload)
 
 
 def build_visual_auditor_skill_payload() -> dict[str, object]:
@@ -230,7 +249,7 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_visual_auditor",
             "task_key": "chummer6_visual_audit",
             "name": "Chummer6 Visual Auditor",
-            "description": "Post-render visual QA lane for Chummer6 guide assets: reject placeholder vibes, detect repetition, and enforce pack-level premium feel.",
+            "description": "Post-render visual QA lane for Chummer6 guide assets: enforce overlay density, semantic anchors, poster energy, and critical-asset visual-density gates before publish.",
             "memory_writes": ["chummer6_visual_audit_fact"],
             "tags": ["chummer6", "guide", "visual-audit", "qa"],
             "provider_hints_json": {
@@ -242,7 +261,7 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
             },
         }
     )
-    return payload
+    return _apply_visual_contract_context(payload)
 
 
 def build_pack_auditor_skill_payload() -> dict[str, object]:
@@ -252,7 +271,7 @@ def build_pack_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_pack_auditor",
             "task_key": "chummer6_pack_audit",
             "name": "Chummer6 Pack Auditor",
-            "description": "Whole-pack audit lane for Chummer6 guide output: editorial drift, scene diversity, style-epoch coherence, and publish readiness checks.",
+            "description": "Whole-pack audit lane for Chummer6 guide output: editorial drift, style-epoch coherence, critical-asset readiness, and pack-level publish gates.",
             "memory_writes": ["chummer6_pack_audit_fact"],
             "tags": ["chummer6", "guide", "pack-audit", "qa"],
             "provider_hints_json": {
@@ -263,7 +282,7 @@ def build_pack_auditor_skill_payload() -> dict[str, object]:
             },
         }
     )
-    return payload
+    return _apply_visual_contract_context(payload)
 
 
 def build_skill_payloads() -> list[dict[str, object]]:
