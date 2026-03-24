@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import get_container, require_operator_context
 from app.container import AppContainer
 
-router = APIRouter(prefix="/v1/tasks/contracts", tags=["task-contracts"])
+router = APIRouter(prefix="/v1/tasks/contracts", tags=["task-contracts"], dependencies=[Depends(require_operator_context)])
 
 
 class TaskContractIn(BaseModel):

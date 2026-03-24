@@ -87,6 +87,17 @@ class MemoryRuntimeService:
         self._follow_up_rules = follow_up_rules
         self._interruption_budgets = interruption_budgets
 
+    @staticmethod
+    def _ensure_owned_existing(row_id: str | None, *, principal_id: str, fetch) -> None:  # type: ignore[no-untyped-def]
+        key = str(row_id or "").strip()
+        if not key:
+            return
+        found = fetch(key)
+        if found is None:
+            return
+        if str(getattr(found, "principal_id", "") or "").strip() != str(principal_id or "").strip():
+            raise PermissionError("principal_scope_mismatch")
+
     def stage_candidate(
         self,
         *,
@@ -300,6 +311,7 @@ class MemoryRuntimeService:
         source_json: dict[str, object] | None = None,
         commitment_id: str | None = None,
     ) -> Commitment:
+        self._ensure_owned_existing(commitment_id, principal_id=principal_id, fetch=self._commitments.get)
         return self._commitments.upsert_commitment(
             principal_id=principal_id,
             title=title,
@@ -346,6 +358,7 @@ class MemoryRuntimeService:
         notes: str = "",
         policy_id: str | None = None,
     ) -> CommunicationPolicy:
+        self._ensure_owned_existing(policy_id, principal_id=principal_id, fetch=self._communication_policies.get)
         return self._communication_policies.upsert_policy(
             principal_id=principal_id,
             scope=scope,
@@ -395,6 +408,7 @@ class MemoryRuntimeService:
         source_json: dict[str, object] | None = None,
         decision_window_id: str | None = None,
     ) -> DecisionWindow:
+        self._ensure_owned_existing(decision_window_id, principal_id=principal_id, fetch=self._decision_windows.get)
         return self._decision_windows.upsert_decision_window(
             principal_id=principal_id,
             title=title,
@@ -443,6 +457,7 @@ class MemoryRuntimeService:
         source_json: dict[str, object] | None = None,
         window_id: str | None = None,
     ) -> DeadlineWindow:
+        self._ensure_owned_existing(window_id, principal_id=principal_id, fetch=self._deadline_windows.get)
         return self._deadline_windows.upsert_deadline_window(
             principal_id=principal_id,
             title=title,
@@ -495,6 +510,7 @@ class MemoryRuntimeService:
         notes: str = "",
         stakeholder_id: str | None = None,
     ) -> Stakeholder:
+        self._ensure_owned_existing(stakeholder_id, principal_id=principal_id, fetch=self._stakeholders.get)
         return self._stakeholders.upsert_stakeholder(
             principal_id=principal_id,
             display_name=display_name,
@@ -546,6 +562,7 @@ class MemoryRuntimeService:
         status: str = "active",
         binding_id: str | None = None,
     ) -> AuthorityBinding:
+        self._ensure_owned_existing(binding_id, principal_id=principal_id, fetch=self._authority_bindings.get)
         return self._authority_bindings.upsert_binding(
             principal_id=principal_id,
             subject_ref=subject_ref,
@@ -590,6 +607,7 @@ class MemoryRuntimeService:
         status: str = "active",
         preference_id: str | None = None,
     ) -> DeliveryPreference:
+        self._ensure_owned_existing(preference_id, principal_id=principal_id, fetch=self._delivery_preferences.get)
         return self._delivery_preferences.upsert_preference(
             principal_id=principal_id,
             channel=channel,
@@ -635,6 +653,7 @@ class MemoryRuntimeService:
         source_json: dict[str, object] | None = None,
         follow_up_id: str | None = None,
     ) -> FollowUp:
+        self._ensure_owned_existing(follow_up_id, principal_id=principal_id, fetch=self._follow_ups.get)
         return self._follow_ups.upsert_follow_up(
             principal_id=principal_id,
             stakeholder_ref=stakeholder_ref,
@@ -684,6 +703,7 @@ class MemoryRuntimeService:
         notes: str = "",
         rule_id: str | None = None,
     ) -> FollowUpRule:
+        self._ensure_owned_existing(rule_id, principal_id=principal_id, fetch=self._follow_up_rules.get)
         return self._follow_up_rules.upsert_rule(
             principal_id=principal_id,
             name=name,
@@ -734,6 +754,7 @@ class MemoryRuntimeService:
         notes: str = "",
         budget_id: str | None = None,
     ) -> InterruptionBudget:
+        self._ensure_owned_existing(budget_id, principal_id=principal_id, fetch=self._interruption_budgets.get)
         return self._interruption_budgets.upsert_budget(
             principal_id=principal_id,
             scope=scope,

@@ -33,6 +33,7 @@ class ExecutionTaskOrchestrationService:
         execute_next_ready_step: Callable[[str], Artifact | None],
         fetch_session_snapshot: Callable[[str], object | None],
         async_state_service: ExecutionAsyncStateService,
+        drain_session_inline: Callable[[str], object] | None = None,
         memory_reasoning_service: MemoryReasoningService | None = None,
         skills: SkillCatalogService | None = None,
     ) -> None:
@@ -43,6 +44,7 @@ class ExecutionTaskOrchestrationService:
         self._execute_next_ready_step = execute_next_ready_step
         self._fetch_session_snapshot = fetch_session_snapshot
         self._async_state_service = async_state_service
+        self._drain_session_inline = drain_session_inline
         self._memory_reasoning_service = memory_reasoning_service
         self._skills = skills
 
@@ -128,7 +130,9 @@ class ExecutionTaskOrchestrationService:
                 break
             queue_items = list(getattr(snapshot, "queue_items", []) or [])
             has_active_queue = any(
-                str(getattr(row, "status", "") or "").strip().lower() in {"queued", "leased"} for row in queue_items
+                str(getattr(row, "status", "") or "").strip().lower()
+                not in {"", "done", "completed", "failed", "cancelled", "dead_letter", "skipped"}
+                for row in queue_items
             )
             if artifact is not None and not has_active_queue:
                 return artifact
@@ -141,6 +145,17 @@ class ExecutionTaskOrchestrationService:
             self._async_state_service.raise_for_snapshot_state(snapshot)
             session_row = getattr(snapshot, "session", None)
             if session_row is not None and getattr(session_row, "status", "") == "completed":
+                logical_artifact = self._logical_artifact_from_snapshot(snapshot, artifact)
+                if logical_artifact is not None:
+                    return logical_artifact
+                snapshot_artifacts = list(getattr(snapshot, "artifacts", []) or [])
+                if snapshot_artifacts:
+                    return snapshot_artifacts[-1]
+        if self._drain_session_inline is not None:
+            self._drain_session_inline(session.session_id)
+            snapshot = self._fetch_session_snapshot(session.session_id)
+            if snapshot is not None:
+                self._async_state_service.raise_for_snapshot_state(snapshot)
                 logical_artifact = self._logical_artifact_from_snapshot(snapshot, artifact)
                 if logical_artifact is not None:
                     return logical_artifact

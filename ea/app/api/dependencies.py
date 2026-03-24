@@ -44,7 +44,7 @@ def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if not normalized:
         return False
-    if normalized == "localhost":
+    if normalized in {"localhost", "testclient"}:
         return True
     try:
         return ipaddress.ip_address(normalized).is_loopback
@@ -142,7 +142,14 @@ def _resolved_principal_id(
     if principal_id:
         if profile.caller_principal_header_requires_authentication and not authenticated:
             return ""
-        return principal_id
+        if _loopback_no_auth_allowed(request, container):
+            return principal_id
+        if authenticated and not authenticated_principal_override_allowed():
+            principal_id = ""
+        else:
+            return principal_id
+    if fallback_principal and authenticated:
+        return fallback_principal
     if profile.default_principal_fallback_allowed:
         return fallback_principal or "local-user"
     return ""
@@ -208,6 +215,27 @@ def _operator_email_allowlist() -> set[str]:
     return values
 
 
+def authenticated_principal_override_allowed() -> bool:
+    for env_name in (
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER",
+    ):
+        if str(os.environ.get(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def browser_principal_override_allowed() -> bool:
+    for env_name in (
+        "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE",
+        "EA_ALLOW_BROWSER_PRINCIPAL_OVERRIDE",
+    ):
+        if str(os.environ.get(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
 def is_operator_context(context: RequestContext) -> bool:
     principal_id = str(context.principal_id or "").strip()
     if not principal_id:
@@ -221,6 +249,8 @@ def is_operator_context(context: RequestContext) -> bool:
     access_email = str(context.access_email or "").strip().lower()
     if access_email and access_email in _operator_email_allowlist():
         return True
+    if context.auth_source != "cloudflare_access":
+        return False
     lowered = principal_id.lower()
     return lowered.startswith(("system", "operator", "admin", "automation", "scheduler", "cron", "daemon", "health"))
 

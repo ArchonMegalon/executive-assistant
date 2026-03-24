@@ -12,14 +12,23 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 
-def _client(*, principal_id: str) -> TestClient:
+def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+    if operator:
+        os.environ["EA_API_TOKEN"] = "test-token"
+        os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+    else:
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    if operator:
+        client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
 
@@ -326,9 +335,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     setup = owner.get("/setup")
     assert setup.status_code == 200
-    assert "Create your assistant workspace" in setup.text
-    assert "Connect WhatsApp" in setup.text
-    assert "Google Core is the practical default" in setup.text
+    assert "Start with one real assistant workspace" in setup.text
+    assert "Choose the correct WhatsApp path" in setup.text
+    assert "recommended first success is Google Core" in setup.text
 
     privacy = owner.get("/privacy")
     assert privacy.status_code == 200
@@ -336,7 +345,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     started = owner.post(
         "/google/connect",
-        data={"principal_id": "exec-browser", "scope_bundle": "send", "api_token": ""},
+        data={"scope_bundle": "send", "api_token": ""},
         follow_redirects=False,
     )
     assert started.status_code == 303
@@ -452,14 +461,14 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
 
 def test_provider_bindings_reject_cross_principal_query_scope() -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     response = owner.get("/v1/providers/bindings?principal_id=exec-2")
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "principal_scope_mismatch"
 
 
 def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     from app.services import responses_upstream as upstream
 
     upstream._test_reset_onemin_states()
@@ -507,7 +516,7 @@ def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.Monk
 def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
         json.dumps(
@@ -577,7 +586,7 @@ def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
 def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
         json.dumps(
@@ -624,7 +633,10 @@ def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
         ),
     )
 
-    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": True})
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "provider_api_all_accounts": True},
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["provider_key"] == "onemin"
@@ -642,7 +654,7 @@ def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
 def test_onemin_billing_refresh_forwards_full_provider_api_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
         json.dumps(
@@ -760,7 +772,7 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
 def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actual_credits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
     from app.api.routes import providers as providers_route
 
     created = owner.post(
@@ -849,7 +861,7 @@ def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actua
 
 
 def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="exec-1", operator=True)
 
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
@@ -1048,7 +1060,7 @@ def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> 
 
 
 def test_onemin_image_reservation_and_release_are_principal_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = _client(principal_id="exec-image")
+    owner = _client(principal_id="exec-image", operator=True)
     from app.api.routes import providers as providers_route
 
     monkeypatch.setattr(

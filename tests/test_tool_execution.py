@@ -4449,11 +4449,13 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate
         lane: str,
         capability: str,
         principal_id: str = "",
+        allow_reserve: bool = False,
     ):
         assert feature_payload["type"] == "IMAGE_GENERATOR"
         assert lane == "hard"
         assert capability == "image_generate"
         assert principal_id == "exec-1"
+        assert allow_reserve is False
         return (
             {
                 "aiRecord": {
