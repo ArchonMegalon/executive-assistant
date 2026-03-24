@@ -59,14 +59,14 @@ class ChannelRuntimeService:
             self._cognitive_load.refresh_for_principal(principal_id)
         return event
 
-    def list_recent_observations(self, limit: int = 50) -> list[ObservationEvent]:
-        return self._observations.list_recent(limit=limit)
+    def list_recent_observations(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
+        return self._observations.list_recent(limit=limit, principal_id=principal_id)
 
-    def find_observation_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+    def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         normalized = str(dedupe_key or "").strip()
         if not normalized:
             return None
-        return self._observations.get_by_dedupe(normalized)
+        return self._observations.get_by_dedupe(normalized, principal_id=principal_id)
 
     def count_recent_observations_for_principal(self, principal_id: str, *, since: str) -> int:
         return self._observations.count_recent_for_principal(str(principal_id or "").strip(), since=since)
@@ -78,10 +78,14 @@ class ChannelRuntimeService:
         content: str,
         metadata: dict[str, object] | None = None,
         *,
+        principal_id: str = "",
         idempotency_key: str = "",
     ) -> DeliveryOutboxItem:
         normalized_metadata = dict(metadata or {})
+        normalized_principal = str(principal_id or normalized_metadata.get("principal_id") or "").strip()
+        normalized_metadata["principal_id"] = normalized_principal
         row = self._outbox.enqueue(
+            principal_id=normalized_principal,
             channel=channel,
             recipient=recipient,
             content=content,
@@ -91,6 +95,7 @@ class ChannelRuntimeService:
         if self._should_defer_delivery(normalized_metadata):
             deferred = self._outbox.mark_failed(
                 row.delivery_id,
+                principal_id=normalized_principal,
                 error="deferred_by_interruption_budget",
                 next_attempt_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
                 dead_letter=False,
@@ -103,27 +108,34 @@ class ChannelRuntimeService:
         self,
         delivery_id: str,
         *,
+        principal_id: str,
         receipt_json: dict[str, object] | None = None,
     ) -> DeliveryOutboxItem | None:
-        return self._outbox.mark_sent(delivery_id=delivery_id, receipt_json=receipt_json)
+        return self._outbox.mark_sent(
+            delivery_id=delivery_id,
+            principal_id=str(principal_id or "").strip(),
+            receipt_json=receipt_json,
+        )
 
     def mark_delivery_failed(
         self,
         delivery_id: str,
         *,
+        principal_id: str,
         error: str,
         next_attempt_at: str | None = None,
         dead_letter: bool = False,
     ) -> DeliveryOutboxItem | None:
         return self._outbox.mark_failed(
             delivery_id=delivery_id,
+            principal_id=str(principal_id or "").strip(),
             error=error,
             next_attempt_at=next_attempt_at,
             dead_letter=dead_letter,
         )
 
-    def list_pending_delivery(self, limit: int = 50) -> list[DeliveryOutboxItem]:
-        return self._outbox.list_pending(limit=limit)
+    def list_pending_delivery(self, limit: int = 50, *, principal_id: str | None = None) -> list[DeliveryOutboxItem]:
+        return self._outbox.list_pending(limit=limit, principal_id=principal_id)
 
     def _is_principal_originated(
         self,

@@ -845,26 +845,9 @@ class ProviderRegistryService:
             return True
         normalized_capability = str(capability_key or "").strip().lower()
         normalized_tool = str(tool_name or "").strip()
-        if normalized_capability in {
-            "workflow_spec_build",
-            "workflow_spec_repair",
-            "chatplayground_audit",
-            "reasoned_patch_review",
-            "gemini_web_generate",
-            "onemin_billing_usage",
-            "onemin_member_reconciliation",
-        }:
-            return True
-        if normalized_tool in {
-            "browseract.build_workflow_spec",
-            "browseract.repair_workflow_spec",
-            "browseract.chatplayground_audit",
-            "browseract.gemini_web_generate",
-            "browseract.onemin_billing_usage",
-            "browseract.onemin_member_reconciliation",
-        }:
-            return True
-        return False
+        if normalized_tool:
+            return False
+        return normalized_capability == "account_facts"
 
     def _state_blocks_direct_routing(
         self,

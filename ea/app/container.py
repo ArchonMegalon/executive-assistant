@@ -124,12 +124,22 @@ class AppContainer:
 
 
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
-    provider_registry = ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings))
+    try:
+        provider_registry = ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings))
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "provider registry bootstrap", exc)
+        raise
     brain_router = BrainRouterService(provider_registry=provider_registry)
-    onemin_manager = OneminManagerService(repo=build_onemin_manager_service_repo(settings))
-    register_onemin_manager(onemin_manager)
-    artifacts = build_artifact_repo(settings)
-    task_contracts = build_task_contract_service(settings=settings)
+    try:
+        artifacts = build_artifact_repo(settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "artifact repo bootstrap", exc)
+        raise
+    try:
+        task_contracts = build_task_contract_service(settings=settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "task contracts bootstrap", exc)
+        raise
     planner = PlannerService(task_contracts, provider_registry=provider_registry, brain_router=brain_router)
     skills = SkillCatalogService(task_contracts)
     policy = PolicyDecisionService(
@@ -155,8 +165,22 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
     )
     channel_runtime._cognitive_load = cognitive_load  # type: ignore[attr-defined]
     channel_runtime._policy = policy  # type: ignore[attr-defined]
-    evidence_runtime = build_evidence_runtime(settings=settings)
-    tool_runtime = build_tool_runtime(settings=settings)
+    try:
+        evidence_runtime = build_evidence_runtime(settings=settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "evidence runtime bootstrap", exc)
+        raise
+    try:
+        tool_runtime = build_tool_runtime(settings=settings)
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "tool runtime bootstrap", exc)
+        raise
+    try:
+        onemin_manager = OneminManagerService(repo=build_onemin_manager_service_repo(settings))
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, "onemin manager bootstrap", exc)
+        raise
+    register_onemin_manager(onemin_manager)
     tool_execution = ToolExecutionService(
         tool_runtime=tool_runtime,
         artifacts=artifacts,

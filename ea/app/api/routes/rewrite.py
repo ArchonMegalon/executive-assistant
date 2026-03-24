@@ -326,6 +326,16 @@ def _resolve_skill_key(container: AppContainer, task_key: str) -> str:
     return str(row.skill_key or resolved_task_key)
 
 
+def _fetch_session_snapshot(container: AppContainer, session_id: str, *, principal_id: str):
+    fetch_scoped = getattr(container.orchestrator, "fetch_session_for_principal", None)
+    if callable(fetch_scoped):
+        return fetch_scoped(session_id, principal_id=principal_id)
+    fetch_unscoped = getattr(container.orchestrator, "fetch_session", None)
+    if callable(fetch_unscoped):
+        return fetch_unscoped(session_id)
+    return None
+
+
 def _step_dependency_projection(step, steps) -> tuple[list[str], dict[str, str], dict[str, str], list[str], bool]:  # type: ignore[no-untyped-def]
     dependency_keys = [str(value) for value in (step.input_json.get("depends_on") or []) if str(value)]
     lookup: dict[str, object] = {}
@@ -430,7 +440,7 @@ def create_artifact(
     except PolicyDeniedError as exc:
         reason = str(exc or "policy_denied")
         raise HTTPException(status_code=403, detail=f"policy_denied:{reason}") from exc
-    session = container.orchestrator.fetch_session(artifact.execution_session_id)
+    session = _fetch_session_snapshot(container, artifact.execution_session_id, principal_id=principal_id)
     task_key = session.session.intent.task_type if session is not None else "rewrite_text"
     return RewriteOut(
         skill_key=_resolve_skill_key(container, task_key),
@@ -448,7 +458,7 @@ def get_session(
     context: RequestContext = Depends(get_request_context),
 ) -> SessionOut:
     try:
-        found = container.orchestrator.fetch_session_for_principal(session_id, principal_id=context.principal_id)
+        found = _fetch_session_snapshot(container, session_id, principal_id=context.principal_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc) or "principal_scope_mismatch") from exc
     if not found:

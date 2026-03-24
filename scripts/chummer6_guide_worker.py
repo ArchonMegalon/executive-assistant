@@ -21,10 +21,13 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from chummer6_guide_canon import (
+    asset_visual_profile,
     load_faq_canon,
     load_help_canon,
     load_horizon_canon,
+    load_media_briefs,
     load_part_canon,
+    load_page_registry,
     load_public_feature_registry,
 )
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
@@ -266,14 +269,11 @@ SECTION_OODA_DRIFT_PHRASES: tuple[str, ...] = (
     "the math should explain itself",
 )
 SPARSE_EASTER_EGG_ASSET_TARGETS: frozenset[str] = frozenset(
-    {
-        "assets/horizons/karma-forge.png",
-    }
+    set()
 )
 SPARSE_HUMOR_ASSET_TARGETS: frozenset[str] = frozenset(
     {
         "assets/hero/poc-warning.png",
-        "assets/horizons/karma-forge.png",
     }
 )
 BOOSTER_REFERENCE_HORIZON = "karma-forge"
@@ -306,6 +306,13 @@ MEDIA_READABLE_JOKE_TOKENS: tuple[str, ...] = (
     "sticker reads",
     "placard reads",
     "quote:",
+)
+CRITICAL_VISUAL_TARGETS: frozenset[str] = frozenset(
+    {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
+    }
 )
 COMPOSITION_SLUG_RE = re.compile(r"^[a-zA-Z0-9_-]{2,80}$")
 TABLEAU_COMPOSITIONS = {"safehouse_table", "group_table"}
@@ -475,13 +482,14 @@ def variation_guardrails_for(target: str, rows: list[dict[str, object]]) -> list
         if safehouse_count >= 2:
             rules.append("Safehouse-table grammar is already overserved. Use prop-led, solo-operator, dossier, workshop, transit, street, archive, or service-rack grammar instead.")
     if target.endswith("README.md") or target.endswith("chummer6-hero.png"):
-        rules.append("The landing hero must feel like product truth under pressure, not just another meeting shot.")
+        rules.append("The landing hero must show visible trust pressure in Shadowrun life, not a quiet lone-operator still or a generic meeting tableau.")
     if target.endswith("what-chummer6-is.png"):
-        rules.append("Prefer over-shoulder receipt proof or a solo trust moment, not a group huddle.")
+        rules.append("Prefer an inspectable trust moment or operator relationship, not a generic group huddle.")
     if target.endswith("core.png"):
         rules.append("Core should be evidence-first: hands, dice, sheets, traces, and proof beat faces.")
     if target.endswith("horizons-index.png"):
-        rules.append("Horizons index must be environment-first boulevard grammar, not an icon wall and not a meeting tableau.")
+        rules.append("Horizons index must show multiple future lanes, grounded clue clusters, and branching plurality; do not solve it with atmosphere alone, a single corridor, or a central sign.")
+    rules.extend(visual_contract_guardrails_for_target(target))
     return rules
 
 
@@ -694,8 +702,13 @@ def media_easter_egg_allowed(*, kind: str, item: dict[str, object], contract: di
 def media_humor_allowed(*, kind: str, item: dict[str, object], contract: dict[str, object]) -> bool:
     target = media_asset_target(kind=kind, item=item)
     policy = str(contract.get("humor_policy") or "").strip().lower()
+    if policy in {"deny", "denied", "forbid", "forbidden", "none", "off"}:
+        return False
     if policy in {"allow", "allowed", "showcase", "force"}:
         return True
+    visual_contract = visual_contract_for_target(target)
+    if visual_contract and not _boolish(visual_contract.get("humor_allowed"), default=True):
+        return False
     return target in SPARSE_HUMOR_ASSET_TARGETS
 
 
@@ -839,6 +852,7 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
     tableau = 0
     surface_heavy = 0
     invalid: list[dict[str, str]] = []
+    critical_findings: list[dict[str, str]] = []
 
     def audit_row(scope: str, *, target: str, row: object) -> None:
         nonlocal checked, tableau, surface_heavy
@@ -857,6 +871,8 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
                     override_comp = str(override_contract.get("composition") or "").strip()
                 if override_comp:
                     composition = override_comp
+        for reason in critical_visual_findings_for_target(target, row):
+            critical_findings.append({"scope": scope, "reason": reason})
         if not composition:
             return
         checked += 1
@@ -883,6 +899,7 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
         "tableau_count": tableau,
         "surface_heavy_count": surface_heavy,
         "invalid_compositions": invalid,
+        "critical_target_findings": critical_findings,
     }
     if tableau > 2:
         raise RuntimeError(f"scene_plan_audit_failed:tableau_count:{tableau}")
@@ -890,6 +907,9 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
         raise RuntimeError(f"scene_plan_audit_failed:surface_heavy_count:{surface_heavy}")
     if invalid:
         raise RuntimeError(f"scene_plan_audit_failed:invalid_compositions:{invalid[:4]}")
+    if critical_findings:
+        scope_list = ", ".join(f"{row['scope']}:{row['reason']}" for row in critical_findings[:8])
+        raise RuntimeError(f"scene_plan_audit_failed:critical_targets:{scope_list}")
     return summary
 
 
@@ -941,6 +961,8 @@ PARTS = load_part_canon()
 HORIZONS = load_horizon_canon()
 FAQ = load_faq_canon()
 HELP = load_help_canon()
+PAGE_REGISTRY = load_page_registry()
+MEDIA_BRIEFS = load_media_briefs()
 PUBLIC_FEATURE_REGISTRY = load_public_feature_registry()
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
 PUBLIC_SIGNAL_TAG_HINTS: tuple[tuple[str, str], ...] = (
@@ -962,6 +984,336 @@ PUBLIC_SIGNAL_TAG_HINTS: tuple[tuple[str, str], ...] = (
     ("dossier", "dossier_artifacts"),
     ("runsite", "runsite_artifacts"),
 )
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(entry).strip() for entry in value if str(entry).strip()]
+    if value in (None, ""):
+        return []
+    cleaned = str(value).strip()
+    return [cleaned] if cleaned else []
+
+
+def _boolish(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    cleaned = str(value or "").strip().lower()
+    if cleaned in {"1", "true", "yes", "on", "allow", "allowed"}:
+        return True
+    if cleaned in {"0", "false", "no", "off", "deny", "denied", "forbid", "forbidden"}:
+        return False
+    return default
+
+
+def visual_density_profile_name_for_target(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    page_types = PAGE_REGISTRY.get("page_types") if isinstance(PAGE_REGISTRY.get("page_types"), dict) else {}
+    if normalized.endswith("assets/hero/chummer6-hero.png") or normalized.endswith("README.md"):
+        return str((page_types.get("root_story") or {}).get("visual_density_profile") or "first_contact_hero").strip()
+    if normalized.endswith("assets/pages/horizons-index.png"):
+        return str((page_types.get("horizon_index") or {}).get("visual_density_profile") or "page_index").strip()
+    if normalized.endswith("assets/horizons/karma-forge.png"):
+        return "flagship_horizon"
+    return ""
+
+
+def visual_contract_for_target(target: str) -> dict[str, object]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized in CRITICAL_VISUAL_TARGETS or normalized.endswith("README.md"):
+        profile = asset_visual_profile(normalized)
+        if profile:
+            return profile
+    contracts = MEDIA_BRIEFS.get("visual_contract") if isinstance(MEDIA_BRIEFS.get("visual_contract"), dict) else {}
+    profile = visual_density_profile_name_for_target(normalized)
+    return dict(contracts.get(profile) or {}) if profile else {}
+
+
+def visual_contract_guardrails_for_target(target: str) -> list[str]:
+    contract = visual_contract_for_target(target)
+    if not contract:
+        return []
+    rules: list[str] = []
+    density = str(contract.get("density_target") or "").strip().lower()
+    flash = str(contract.get("flash_level") or "").strip().lower()
+    negative_space = str(contract.get("negative_space_cap") or "").strip().lower()
+    person_count = str(contract.get("person_count_target") or "").strip().lower()
+    if density == "high":
+        rules.append("Keep this frame packed and layered with grounded clues in foreground, midground, and background.")
+    if flash == "bold":
+        rules.append("Push harder poster energy with stronger contrast, bolder silhouettes, and less tasteful restraint.")
+    if negative_space == "low":
+        rules.append("Avoid dead darkness, sparse corners, and calm negative-space voids.")
+    if person_count == "duo_or_team":
+        rules.append("Prefer two to four people with a visible operator relationship instead of one isolated figure.")
+    elif person_count == "duo_preferred":
+        rules.append("Prefer a visible reviewer, witness, or second active figure instead of one isolated operator.")
+    anchors = _string_list(contract.get("must_show_semantic_anchors"))
+    if anchors:
+        rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
+    blockers = _string_list(contract.get("must_not_show"))
+    if blockers:
+        rules.append("Do not drift into these failures: " + "; ".join(blockers) + ".")
+    if not _boolish(contract.get("humor_allowed"), default=True):
+        rules.append("Do not solve this asset with a sparse humor beat or cute visual joke.")
+    if not _boolish(contract.get("pseudo_text_allowed"), default=True):
+        rules.append("Do not invent pseudo-text, readable signboards, or fake lettering.")
+    return rules
+
+
+def visual_contract_prompt_clause(target: str) -> str:
+    rules = visual_contract_guardrails_for_target(target)
+    if not rules:
+        return ""
+    return " ".join(rules[:4]).strip()
+
+
+def _dedupe_casefolded(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped
+
+
+def _row_text_bundle(row: dict[str, object]) -> str:
+    scene = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    values: list[str] = []
+    for key in ("badge", "title", "subtitle", "kicker", "note", "visual_prompt", "overlay_hint"):
+        cleaned = str(row.get(key) or "").strip()
+        if cleaned:
+            values.append(cleaned)
+    for key in ("subject", "environment", "action", "metaphor", "composition", "humor"):
+        cleaned = str(scene.get(key) or "").strip()
+        if cleaned:
+            values.append(cleaned)
+    for key in ("props", "overlays"):
+        values.extend(_string_list(scene.get(key)))
+    for key in ("visual_motifs", "overlay_callouts"):
+        values.extend(_string_list(row.get(key)))
+    return " ".join(values).strip().lower()
+
+
+def _has_visible_relationship_signal(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    phrases = (
+        " and ",
+        " with ",
+        " alongside ",
+        " reviewer",
+        " witness",
+        " teammate",
+        " support figure",
+        " assistant",
+        " streetdoc",
+        " runner",
+        " duo",
+        " team",
+        " operator relationship",
+    )
+    hits = sum(1 for phrase in phrases if phrase in lowered)
+    return hits >= 2 or ("streetdoc" in lowered and "runner" in lowered)
+
+
+def _looks_like_statusish_overlay_signal(text: str) -> bool:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    if "|" in cleaned or "_" in cleaned:
+        return True
+    if re.search(r"\b0x[0-9a-f]+\b", lowered):
+        return True
+    if re.search(r"\b\d+(?:\.\d+)?%\b", cleaned):
+        return True
+    if re.search(r"\bv\d+(?:\.\d+)*\b", lowered):
+        return True
+    if re.match(r"^[A-Z]{2,}(?:-[A-Z0-9]{1,})+$", cleaned):
+        return True
+    status_tokens = (
+        "verified",
+        "validated",
+        "status:",
+        "hash verified",
+        "source truth",
+        "artifact ready",
+        "prototype logic",
+        "governed ruleset evolution",
+        "metadata hud",
+    )
+    if any(token in lowered for token in status_tokens):
+        return True
+    letters = [char for char in cleaned if char.isalpha()]
+    if letters and sum(1 for char in letters if char.isupper()) >= max(6, int(len(letters) * 0.75)):
+        return True
+    return False
+
+
+def _critical_target_phrase_groups(target: str) -> tuple[tuple[str, ...], ...]:
+    if target == "assets/hero/chummer6-hero.png":
+        return (
+            ("streetdoc", "clinic", "triage", "intake", "prep cage", "prep rail"),
+            ("runner", "support figure", "assistant", "teammate"),
+            ("trust", "build-state", "provenance", "fit check", "receipt", "upgrade"),
+        )
+    if target == "assets/pages/horizons-index.png":
+        return (
+            ("branch", "branching", "split", "interchange"),
+            ("lane", "future lane", "route", "district"),
+            ("multiple", "several", "stacked", "plurality"),
+        )
+    if target == "assets/horizons/karma-forge.png":
+        return (
+            ("rulesmith", "reviewer", "witness", "approval"),
+            ("rollback", "provenance", "compatibility", "consequence"),
+            ("diff", "bench", "rail", "cassette", "seal", "control"),
+        )
+    return ()
+
+
+def _critical_target_banned_compositions(target: str) -> set[str]:
+    base = {"single_protagonist", "solo_operator"}
+    if target == "assets/hero/chummer6-hero.png":
+        return base | {"city_edge", "service_rack", "desk_still_life", "dossier_desk"}
+    if target == "assets/pages/horizons-index.png":
+        return base | {"city_edge", "transit_checkpoint", "service_rack"}
+    if target == "assets/horizons/karma-forge.png":
+        return base | {"desk_still_life", "dossier_desk", "service_rack", "city_edge", "workshop"}
+    return base
+
+
+def contains_machine_overlay_language(text: str) -> bool:
+    lowered = " ".join(str(text or "").split()).strip().lower()
+    if not lowered:
+        return False
+    banned_tokens = (
+        "device id",
+        "signal strength",
+        "ghost-label",
+        "ghost label",
+        "metadata string",
+        "metadata strings",
+        "provenance hash",
+        "provenance hashes",
+        "version receipt",
+        "version receipts",
+        "verified stamp",
+        "verified stamps",
+        "compatibility checkmark",
+        "compatibility checkmarks",
+        "hud style:",
+        "id callout",
+        "id callouts",
+        "link verified",
+        "evidence chain",
+        "weapon diagnostics",
+        "accuracy modifiers",
+        "damage modifiers",
+        "smartlink electronics",
+        "barrel rifling",
+        "hardware diagnostics verified",
+        "ares predator",
+        "source truth verified",
+        "artifact ready for print",
+        "entry point validated",
+        "zero_drift",
+        "hash_verified",
+        "lua_driven",
+        "mesh_stability",
+        "debug text",
+        "layout text",
+        "status stamp",
+        "readable text",
+        "typography",
+        "metadata hud",
+        "dossier metadata hud",
+        "prototype logic",
+        "rules-truth",
+        "hud-style",
+        "data-source labels",
+        "biometric lock icons",
+        "integrity signatures",
+        "build timestamps",
+    )
+    if any(token in lowered for token in banned_tokens):
+        return True
+    if re.search(r"\b0x[0-9a-f]+\b", lowered):
+        return True
+    if re.search(r"\b\d+(?:\.\d+)?%\b", lowered):
+        return True
+    if re.search(r"\b\d+(?:\.\d+){1,}\b", lowered) and any(ch.isalpha() for ch in lowered):
+        return True
+    if ("'" in lowered or '"' in lowered) and (
+        re.search(r"['\"][A-Z0-9 _-]{3,}['\"]", str(text or ""))
+        or re.search(r"['\"][A-Za-z][^'\"]{2,}['\"]", str(text or ""))
+    ):
+        return True
+    return False
+
+
+def looks_like_status_label(text: str) -> bool:
+    cleaned_text = " ".join(str(text or "").split()).strip()
+    if not cleaned_text:
+        return False
+    lowered = cleaned_text.lower()
+    if contains_machine_overlay_language(cleaned_text):
+        return True
+    if "|" in cleaned_text or "_" in cleaned_text:
+        return True
+    if re.search(r"\bv\d+(?:\.\d+)*\b", lowered):
+        return True
+    if re.match(r"^[A-Z]{2,}(?:-[A-Z0-9]{1,})+$", cleaned_text):
+        return True
+    return False
+
+
+def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized not in CRITICAL_VISUAL_TARGETS or not isinstance(row, dict):
+        return []
+    contract = visual_contract_for_target(normalized)
+    scene = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    composition = str(scene.get("composition") or "").strip().lower().replace("-", "_")
+    props = _dedupe_casefolded(_string_list(scene.get("props")))
+    overlays = _dedupe_casefolded(_string_list(scene.get("overlays")))
+    motifs = _dedupe_casefolded(_string_list(row.get("visual_motifs")))
+    callouts = _dedupe_casefolded(_string_list(row.get("overlay_callouts")))
+    overlay_signals = _dedupe_casefolded(overlays + callouts)
+    combined = _row_text_bundle(row)
+    findings: list[str] = []
+
+    if not composition:
+        findings.append("critical_composition:missing")
+    if composition in _critical_target_banned_compositions(normalized):
+        findings.append(f"critical_composition:{composition}")
+    if str(contract.get("density_target") or "").strip().lower() == "high" and len(props) < 4 and len(motifs) < 4:
+        findings.append("critical_density:too_sparse")
+    overlay_density = str(contract.get("required_overlay_density") or contract.get("overlay_density") or "").strip().lower()
+    overlay_min = 4 if overlay_density == "high" else 3 if overlay_density == "medium" else 2
+    if len(overlay_signals) < overlay_min:
+        findings.append(f"critical_overlays:below_{overlay_min}")
+    person_target = str(contract.get("required_person_count") or contract.get("person_count_target") or "").strip().lower()
+    if person_target in {"duo_or_team", "duo_preferred"} and not _has_visible_relationship_signal(combined):
+        findings.append("critical_cast:missing_visible_relationship")
+    for token_group in _critical_target_phrase_groups(normalized):
+        if not any(token in combined for token in token_group):
+            findings.append(f"critical_anchor_missing:{token_group[0]}")
+    if not _boolish(contract.get("humor_allowed"), default=True) and str(scene.get("humor") or "").strip():
+        findings.append("critical_humor:forbidden")
+    if not _boolish(contract.get("pseudo_text_allowed"), default=True):
+        offending = next((entry for entry in overlay_signals if _looks_like_statusish_overlay_signal(entry)), "")
+        if offending:
+            findings.append(f"critical_pseudo_text:{offending}")
+    return findings
 WEAK_COPY_PHRASES: tuple[str, ...] = (
     "toolkit",
     "management suite",
@@ -2201,7 +2553,7 @@ def _section_ooda_defaults(
         scene_logic = "One inspectable trust moment beats an abstract feature poster."
         one_liner = "What Chummer6 is should feel like a trust problem caught in the act, not a finished system pitch."
         paragraph_seed = "This page matters when someone wants to know what kind of Shadowrun pain this idea is trying to relieve, without pretending the tool already exists."
-        visual_seed = "One runner inspecting a suspect receipt trail in a rain-cut alley or kiosk mouth, with visible stakes and no group huddle."
+        visual_seed = "A visible trust relationship under pressure: runner, reviewer, or spotter inspecting a suspect receipt trail in a rain-cut threshold, with visible stakes and no generic group huddle."
     return {
         "observe": {
             "reader_question": question,
@@ -3262,6 +3614,10 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     if section_type == "part":
         if any(token in lowered for token in ("digital handshake", "background systems", "platform posture")):
             findings.append("Keep the part grounded in visible user behavior instead of background-system metaphors.")
+        if any(phrase in lowered for phrase in ("coordination story", "public posture", "hosted posture", "coordination lane")):
+            findings.append("Translate hosted coordination into visible public jobs like sign-in, participation, shared status, or hosted traces instead of abstract posture language.")
+        if any(phrase in lowered for phrase in ("one-off visual reinvention", "one-off visual reinventions", "visual reinvention", "design-system maintenance")):
+            findings.append("Keep part copy reader-facing. Do not complain about internal reinvention or maintenance churn.")
         if re.search(r"\b(?:you|your)\b", lowered):
             findings.append("Keep part copy in a detached public voice. Avoid abrupt second-person phrasing like 'you' or 'your'.")
         now_lowered = str(row.get("now", "")).strip().lower()
@@ -3314,9 +3670,13 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             findings.append("Keep TABLE PULSE `meanwhile` in short cautionary sentences, not comma-heavy feature-list bullets.")
         if any(
             token in meanwhile_lowered
-            for token in ("provenance", "cache recovery", "manifests", "vendor dashboards")
+            for token in ("provenance", "cache recovery", "manifests", "vendor dashboards", "local-first ingestion", "ingestion")
         ):
             findings.append("Translate `meanwhile` into plain public language. Do not rely on internal shorthand like provenance, cache recovery, manifests, or vendor dashboards without explaining the user-facing consequence.")
+        if name == "table-pulse" and any(
+            token in lowered for token in ("spotlight ghost", "local-first ingestion", "ingestion pipeline", "operator replay")
+        ):
+            findings.append("Keep TABLE PULSE in post-session coaching language. Do not drift into internal replay or ingestion implementation terms.")
         if any(
             phrase in meanwhile_lowered or phrase in why_waits_lowered
             for phrase in (
@@ -3339,6 +3699,8 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ):
             findings.append("State the broad-access or free-later intent when canon provides it.")
         if name == BOOSTER_REFERENCE_HORIZON:
+            if "booster lane" in lowered or "booster lanes" in lowered:
+                findings.append("Translate booster lane into plain public language like optional paid preview. Do not rely on internal shorthand.")
             if "paid booster preview" in lowered or "paid booster previews" in lowered:
                 findings.append("Translate booster disclosure into plain public language like optional paid preview. Do not lean on booster-internal phrasing.")
             if not any(token in lowered for token in ("expensive", "review-heavy", "careful review", "booster-first", "preview")):
@@ -3574,13 +3936,13 @@ def fallback_part_copy(name: str, item: dict[str, object]) -> dict[str, str]:
         },
         "hub": {
             "when": "If there is ever a hosted front door, hub is the layer that would have to keep it coherent.",
-            "why": "It represents the hosted identity and coordination story the concept would need later.",
-            "now": "For now it mostly means public posture, a few hosted traces, and a lot of honesty about how little should be treated as dependable.",
+            "why": "It would keep sign-in, public participation, and hosted status from turning into scavenger hunts or backroom admin work.",
+            "now": "Today the visible bits are the front door, the participation route, and a few hosted traces you can inspect, but they are still too provisional to treat like a finished service.",
         },
         "ui-kit": {
             "when": "If the project ever stops looking accidental, UI Kit is part of how that would happen.",
             "why": "A shared visual language would make future surfaces easier to read instead of forcing every reader to relearn the interface from scratch.",
-            "now": "Publicly, this mostly shows up as repeated visual cues across rough guide and proof surfaces so the idea stops looking accidental. It is not a polished system you should rely on yet.",
+            "now": "Publicly, you can already spot repeated badges, chrome, and dense-data cues across the rough guide and proof surfaces, but it is still more of a shared visual direction than a polished kit to rely on.",
         },
         "hub-registry": {
             "when": "Registry is where public artifacts would stay findable instead of turning into rumor.",
@@ -3678,7 +4040,7 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
                 ]
             ),
             "why_great": "It could let tables evolve rules without splintering into silent canon, unreadable forks, or post-hoc apology culture.",
-            "why_waits": "At most this starts as an optional paid preview through the booster lane while safe review still costs real effort, and even then the pass may still produce nothing useful or shippable.",
+            "why_waits": "At most this starts as an optional paid preview because safe review still costs real effort, and even then the pass may still produce nothing useful or shippable.",
             "pitch_line": "Evolve the rules without pretending every clever hack deserves to become canon.",
         },
         "jackpoint": {
@@ -4466,7 +4828,7 @@ Requirements:
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
 - overlay_callouts must stay in plain language; never use uppercase status labels, IDs, percentages, version strings, or exact telemetry
 - avoid repeating a recently accepted composition family when a different scene family would work
-- if the landing truth can be shown with one operator, one prop cluster, one transit lane, or one over-shoulder proof moment, prefer that over a group huddle
+- if the landing truth can be shown with one vivid operator relationship, one prop cluster, one transit lane, or one over-shoulder proof moment, prefer that over a generic group huddle
 - scene_contract must be an object with keys:
   - subject
   - environment
@@ -5025,15 +5387,16 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, object]] = {
             "hero": {
-                "subject": "one streetdoc-style operator checking whether a rough runner dossier deserves trust",
-                "environment": "a clinic triage bay with hanging gear rails, sample trays, and one lit slate",
-                "action": "deciding whether the build trail survives triage and deserves trust before the next job leaves the room",
+                "subject": "a streetdoc and runner locked in a triage trust check while a support figure hangs just behind the rail",
+                "environment": "a clinic triage bay packed with hanging gear rails, clipped med tags, intake trays, med drawers, and one lit slate",
+                "action": "checking whether the build trail survives triage and deserves trust before the next job leaves the room",
                 "metaphor": "triage truth check",
-                "props": ["hanging gear rail", "sample tray", "lit slate"],
-                "overlays": ["build-state provenance traces", "target posture brackets", "trust markers"],
+                "props": ["hanging gear rail", "clipped med tags", "intake tray", "lit slate"],
+                "overlays": ["build-state provenance traces", "target posture brackets", "trust markers", "upgrade-state chips"],
                 "composition": "clinic_intake",
                 "palette": "clinic white, bruise blue, arterial amber",
-                "mood": "wary, tactile, and first-contact honest",
+                "mood": "wary, tactical, and first-contact honest",
+                "humor_policy": "forbid",
             },
             "core": {
                 "subject": "one rules referee cross-checking dice, chips, and a fragile rules trace",
@@ -5146,15 +5509,17 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "mood": "clinical, tense, and predictive",
             },
             "karma-forge": {
-                "subject": "a rulesmith forcing unstable house-rule chips into a governed forge bench",
-                "environment": "a grimy workshop bench lit by sodium spill and terminal glow",
+                "subject": "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench",
+                "environment": "an industrial review bench lit by sodium spill, approval rails, rollback cassettes, and terminal glow",
                 "action": "checking whether the latest experiment can be rolled back before it burns the table",
-                "metaphor": "governed rules forge",
-                "props": ["rule lattice", "forge tools", "rollback seals"],
-                "overlays": ["compatibility markers", "rollback seals", "receipt traces"],
+                "metaphor": "governed rules evolution under pressure",
+                "props": ["rule lattice", "approval rail", "rollback cassette", "provenance seals"],
+                "overlays": ["compatibility markers", "rollback seals", "receipt traces", "approval state brackets"],
                 "composition": "workshop_bench",
                 "palette": "forge orange, audit green, midnight iron",
-                "mood": "volatile, expensive, and controlled",
+                "mood": "volatile, expensive, and tightly governed",
+                "humor_policy": "forbid",
+                "easter_egg_policy": "deny",
             },
             "jackpoint": {
                 "subject": "a fixer assembling a hot dossier from real evidence and dirty notes",
@@ -5594,12 +5959,18 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             asset_key="hero",
             visual_prompt=str(normalized["visual_prompt"]),
         )
+        hero_target = media_asset_target(kind=kind, item=item)
+        hero_visual_contract = visual_contract_for_target(hero_target)
+        if hero_visual_contract:
+            normalized["scene_contract"]["visual_contract"] = hero_visual_contract
+        hero_contract_clause = visual_contract_prompt_clause(hero_target)
         fallback_visual_prompt = (
             f"{normalized['scene_contract'].get('subject')}, "
             f"{normalized['scene_contract'].get('action')}, "
             f"{normalized['scene_contract'].get('environment')}, "
-            f"{normalized['scene_contract'].get('palette')}, cinematic 35mm, grounded prop-led still."
-        )
+            f"{normalized['scene_contract'].get('palette')}, cinematic 35mm, grounded prop-led still. "
+            f"{hero_contract_clause}"
+        ).strip()
         normalized["visual_prompt"] = sanitize_visual_prompt_text(
             str(normalized["visual_prompt"]),
             fallback=fallback_visual_prompt,
@@ -5763,12 +6134,18 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         asset_key=asset_key,
         visual_prompt=str(normalized["visual_prompt"]),
     )
+    media_target = media_asset_target(kind=kind, item=item)
+    visual_contract = visual_contract_for_target(media_target)
+    if visual_contract:
+        normalized["scene_contract"]["visual_contract"] = visual_contract
+    contract_clause = visual_contract_prompt_clause(media_target)
     fallback_visual_prompt = (
         f"{normalized['scene_contract'].get('subject')}, "
         f"{normalized['scene_contract'].get('action')}, "
         f"{normalized['scene_contract'].get('environment')}, "
-        f"{normalized['scene_contract'].get('palette')}, cinematic 35mm."
-    )
+        f"{normalized['scene_contract'].get('palette')}, cinematic 35mm. "
+        f"{contract_clause}"
+    ).strip()
     normalized["visual_prompt"] = sanitize_visual_prompt_text(
         str(normalized["visual_prompt"]),
         fallback=fallback_visual_prompt,

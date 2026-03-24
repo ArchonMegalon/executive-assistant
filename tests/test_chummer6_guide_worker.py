@@ -588,7 +588,13 @@ def test_normalize_media_override_strips_unbacked_overlay_callouts_but_keeps_pac
         {"slug": "ui", "title": "UI"},
     )
 
-    assert normalized["overlay_callouts"] == ["receipt traces"]
+    assert normalized["overlay_callouts"] == [
+        "build-state deltas",
+        "inspection brackets",
+        "shared component echoes",
+    ]
+    assert "AP -2 smartlink feed" not in normalized["overlay_callouts"]
+    assert "LOADOUT_VALID" not in normalized["overlay_callouts"]
 
 
 def test_normalize_media_override_strips_machine_overlay_labels_from_scene_contract() -> None:
@@ -625,8 +631,14 @@ def test_normalize_media_override_strips_machine_overlay_labels_from_scene_contr
         {"slug": "jackpoint", "title": "JackPoint"},
     )
 
-    assert normalized["overlay_callouts"] == ["receipt markers"]
-    assert normalized["scene_contract"]["overlays"] == ["receipt markers"]
+    assert normalized["overlay_hint"] == "source anchors and redaction bars"
+    assert normalized["overlay_callouts"] == [
+        "source anchors",
+        "redaction bars",
+        "evidence pins",
+    ]
+    assert "SIG_MATCH: 99.8%" not in normalized["overlay_callouts"]
+    assert normalized["scene_contract"]["overlays"] == ["source anchors", "redaction bars", "evidence pins"]
     assert "verified" not in normalized["visual_prompt"].lower()
     assert "metadata" not in normalized["visual_prompt"].lower()
     assert "hash" not in normalized["overlay_hint"].lower()
@@ -675,7 +687,7 @@ def test_normalize_media_override_strips_non_sparse_easter_eggs_but_keeps_meta_h
     assert not any("troll" in entry.lower() for entry in normalized["visual_motifs"])
 
 
-def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> None:
+def test_normalize_media_override_strips_flagship_horizon_easter_egg_and_humor_softness() -> None:
     worker = _load_worker_module()
 
     normalized = worker.normalize_media_override(
@@ -711,7 +723,236 @@ def test_normalize_media_override_keeps_sparse_showcase_easter_egg_target() -> N
         {"slug": "karma-forge", "title": "KARMA FORGE"},
     )
 
-    assert "easter_egg_kind" in normalized["scene_contract"]
+    assert "easter_egg_kind" not in normalized["scene_contract"]
+    assert normalized["scene_contract"]["humor"] == ""
+
+
+def test_media_humor_allowed_respects_explicit_forbid_policy() -> None:
+    worker = _load_worker_module()
+
+    assert (
+        worker.media_humor_allowed(
+            kind="horizon",
+            item={"slug": "karma-forge"},
+            contract={"humor_policy": "forbid"},
+        )
+        is False
+    )
+
+
+def test_visual_contract_for_target_loads_first_contact_page_index_and_flagship_profiles() -> None:
+    worker = _load_worker_module()
+
+    hero_contract = worker.visual_contract_for_target("assets/hero/chummer6-hero.png")
+    horizons_contract = worker.visual_contract_for_target("assets/pages/horizons-index.png")
+    forge_contract = worker.visual_contract_for_target("assets/horizons/karma-forge.png")
+
+    assert hero_contract["density_target"] == "high"
+    assert hero_contract["person_count_target"] == "duo_or_team"
+    assert horizons_contract["visual_density_profile"] == "page_index"
+    assert horizons_contract["required_overlay_density"] == "medium"
+    assert forge_contract["flash_level"] == "bold"
+    assert forge_contract["person_count_target"] == "duo_preferred"
+
+
+def test_variation_guardrails_include_visual_contract_requirements_for_hero() -> None:
+    worker = _load_worker_module()
+
+    rules = worker.variation_guardrails_for("assets/hero/chummer6-hero.png", [])
+    joined = "\n".join(rules).lower()
+
+    assert "packed and layered" in joined
+    assert "two to four people" in joined
+    assert "pseudo-text" in joined or "fake lettering" in joined
+
+
+def test_media_humor_allowed_respects_flagship_visual_contract() -> None:
+    worker = _load_worker_module()
+
+    assert worker.media_humor_allowed(kind="horizon", item={"slug": "karma-forge"}, contract={}) is False
+
+
+def test_normalize_media_override_biases_hero_and_karma_forge_away_from_quiet_solo_defaults() -> None:
+    worker = _load_worker_module()
+
+    hero = worker.normalize_media_override(
+        "hero",
+        {
+            "badge": "TRUST CHECK",
+            "title": "Chummer6",
+            "subtitle": "Let the build show its work before the table has to improvise trust.",
+            "kicker": "See the upgrade pressure before it goes live.",
+            "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
+            "meta": "Idea stage | accidental public traces only",
+            "visual_prompt": "Quiet operator in a dim bay.",
+            "overlay_hint": "BUILD_TRACE",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {},
+        },
+        {},
+    )
+    forge = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "FLAGSHIP",
+            "title": "KARMA FORGE",
+            "subtitle": "Governed rules evolution under pressure.",
+            "kicker": "Approval and rollback before folklore.",
+            "note": "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature.",
+            "meta": "Concept lane | expensive experiments, no promises",
+            "visual_prompt": "One operator at a glowing console.",
+            "overlay_hint": "VALIDATION",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {},
+        },
+        {"slug": "karma-forge", "title": "KARMA FORGE"},
+    )
+
+    assert "streetdoc and runner" in hero["scene_contract"]["subject"]
+    assert "upgrade-state chips" in hero["scene_contract"]["overlays"]
+    assert "rulesmith and skeptical reviewer" in forge["scene_contract"]["subject"]
+    assert "approval rail" in forge["scene_contract"]["props"]
+
+
+def test_scene_plan_pack_audit_rejects_quiet_single_person_hero_metadata() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(RuntimeError, match="scene_plan_audit_failed:critical_targets"):
+        worker.scene_plan_pack_audit(
+            {
+                "media": {
+                    "hero": {
+                        "visual_prompt": "One operator in a dim bay beside a wall of vague props.",
+                        "overlay_hint": "receipt traces",
+                        "visual_motifs": ["quiet mood", "neon melancholy"],
+                        "overlay_callouts": ["receipt traces"],
+                        "scene_contract": {
+                            "subject": "one operator alone at a vague prop wall",
+                            "environment": "a dim bay with empty corners",
+                            "action": "thinking quietly before the next move",
+                            "metaphor": "brooding profile",
+                            "composition": "solo_operator",
+                            "props": ["one vague wall"],
+                            "overlays": ["receipt traces"],
+                        },
+                    },
+                    "parts": {},
+                    "horizons": {},
+                }
+            }
+        )
+
+
+def test_scene_plan_pack_audit_rejects_generic_single_operator_karma_forge_metadata() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(RuntimeError, match="scene_plan_audit_failed:critical_targets"):
+        worker.scene_plan_pack_audit(
+            {
+                "media": {
+                    "hero": {},
+                    "parts": {},
+                    "horizons": {
+                        "karma-forge": {
+                            "title": "KARMA FORGE",
+                            "visual_prompt": "One operator at a glowing console in a quiet workshop.",
+                            "overlay_hint": "receipt traces",
+                            "visual_motifs": ["orange glow", "card tinkering"],
+                            "overlay_callouts": ["receipt traces"],
+                            "scene_contract": {
+                                "subject": "one operator alone at a console",
+                                "environment": "a quiet desk still life with orange glow props",
+                                "action": "tinkering with rules cards in private",
+                                "metaphor": "generic glowing workshop",
+                                "composition": "solo_operator",
+                                "props": ["glow cards"],
+                                "overlays": ["receipt traces"],
+                            },
+                        }
+                    },
+                }
+            }
+        )
+
+
+def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> None:
+    worker = _load_worker_module()
+
+    hero = worker.normalize_media_override(
+        "hero",
+        {
+            "badge": "Trust Check",
+            "title": "Chummer6",
+            "subtitle": "Let the build show its work before the table improvises trust.",
+            "kicker": "See the upgrade pressure before it goes live.",
+            "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
+            "meta": "Idea stage | accidental public traces only",
+            "visual_prompt": "Quiet operator in a dim bay.",
+            "overlay_hint": "BUILD_TRACE",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {},
+        },
+        {},
+    )
+    forge = worker.normalize_media_override(
+        "horizon",
+        {
+            "badge": "Flagship",
+            "title": "KARMA FORGE",
+            "subtitle": "Governed rules evolution under pressure.",
+            "kicker": "Approval and rollback before folklore.",
+            "note": "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature.",
+            "meta": "Concept lane | expensive experiments, no promises",
+            "visual_prompt": "One operator at a glowing console.",
+            "overlay_hint": "VALIDATION",
+            "visual_motifs": [],
+            "overlay_callouts": [],
+            "scene_contract": {},
+        },
+        {"slug": "karma-forge", "title": "KARMA FORGE"},
+    )
+
+    result = worker.scene_plan_pack_audit(
+        {
+            "media": {
+                "hero": hero,
+                "parts": {},
+                "horizons": {"karma-forge": forge},
+            }
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["critical_target_findings"] == []
+
+
+def test_copy_quality_findings_rejects_internal_part_posture_language() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "part",
+        "hub",
+        {
+            "when": "If there is ever a hosted front door, hub is the layer that would have to keep it coherent.",
+            "why": "It represents the hosted identity and coordination story the concept would need later.",
+            "now": "For now it mostly means public posture and a few hosted traces.",
+        },
+        worker.PARTS["hub"],
+    )
+
+    assert any("visible public jobs" in finding for finding in findings)
+
+
+def test_fallback_horizon_copy_translates_booster_lane_into_plain_preview_language() -> None:
+    worker = _load_worker_module()
+
+    row = worker.fallback_horizon_copy("karma-forge", worker.HORIZONS["karma-forge"])
+
+    assert "booster lane" not in row["why_waits"].lower()
+    assert "optional paid preview" in row["why_waits"].lower()
 
 
 def test_normalize_media_override_strips_overliteralized_weapon_diagnostics_and_reanchors_scene() -> None:
@@ -743,8 +984,8 @@ def test_normalize_media_override_strips_overliteralized_weapon_diagnostics_and_
     assert "barrel rifling" not in lowered_prompt
     assert "damage modifiers" not in lowered_prompt
     assert "link verified" not in normalized["overlay_hint"].lower()
-    assert normalized["scene_contract"]["composition"] == "over_shoulder_receipt"
-    assert "receipt markers" in normalized["scene_contract"]["overlays"]
+    assert normalized["scene_contract"]["composition"] == "clinic_intake"
+    assert "build-state provenance traces" in normalized["scene_contract"]["overlays"]
 
 
 def test_normalize_media_override_reanchors_generic_horizon_scene_contract_and_status_labels() -> None:
@@ -786,8 +1027,8 @@ def test_normalize_media_override_reanchors_generic_horizon_scene_contract_and_s
     )
 
     assert normalized["meta"] == "Concept lane | books that still point back to source"
-    assert normalized["scene_contract"]["subject"] == "a campaign writer marking up a district guide on a rugged slate"
-    assert normalized["scene_contract"]["composition"] == "dossier_desk"
+    assert normalized["scene_contract"]["subject"] == "a campaign writer pushing raw district material through a rail-side proof room"
+    assert normalized["scene_contract"]["composition"] == "proof_room"
     assert "Source Truth Verified" not in normalized["overlay_callouts"]
     assert "Artifact Ready for Print" not in normalized["overlay_callouts"]
     assert "a cyberpunk protagonist" not in normalized["visual_motifs"]
@@ -820,13 +1061,13 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
         {"title": "KARMA FORGE"},
     )
 
-    assert normalized["badge"] == "Concept // expensive lane"
+    assert normalized["badge"] == "Expensive Lane"
     assert normalized["kicker"] == "house rules with rollback dreams"
-    assert normalized["note"] == "An expensive experiment lane. API budget might get burned here and still produce nothing useful."
+    assert normalized["note"] == "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature."
     assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
-    assert normalized["overlay_hint"] == "compatibility markers and receipt traces"
-    assert normalized["scene_contract"]["subject"] == "a rulesmith forcing unstable house-rule chips into a governed forge bench"
-    assert normalized["scene_contract"]["environment"] == "a grimy workshop bench lit by sodium spill and terminal glow"
+    assert normalized["overlay_hint"] == "compatibility seals and rollback markers"
+    assert normalized["scene_contract"]["subject"] == "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench"
+    assert normalized["scene_contract"]["environment"] == "an industrial review bench lit by sodium spill, approval rails, rollback cassettes, and terminal glow"
     assert normalized["scene_contract"]["composition"] == "workshop_bench"
 
 
@@ -857,7 +1098,7 @@ def test_normalize_media_override_preserves_curated_scene_contract_for_known_hor
         {"title": "RUNBOOK PRESS"},
     )
 
-    assert normalized["badge"] == "Concept // handbook lane"
+    assert normalized["badge"] == "Handbook Lane"
     assert normalized["kicker"] == "books that still remember the source"
     assert normalized["note"] == "Long-form publishing is still an idea lane here, not a finished press."
 
@@ -883,14 +1124,14 @@ def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hint
         {},
     )
 
-    assert normalized["badge"] == "Idea Trace"
+    assert normalized["badge"] == "Trust Check"
     assert normalized["note"] == "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support."
     assert "metadata hud" not in normalized["overlay_hint"].lower()
     assert "concept" in normalized["meta"].lower()
     assert normalized["overlay_hint"]
     assert "runner" in normalized["scene_contract"]["subject"].lower()
     assert "receipt" in normalized["scene_contract"]["action"].lower() or "trust" in normalized["scene_contract"]["action"].lower()
-    assert normalized["scene_contract"]["composition"] == "over_shoulder_receipt"
+    assert normalized["scene_contract"]["composition"] == "clinic_intake"
 
 
 def test_collect_interest_signals_prefers_public_safe_sources() -> None:
@@ -1229,8 +1470,7 @@ def test_fallback_horizon_copy_keeps_karma_forge_booster_honesty() -> None:
     row = worker.fallback_horizon_copy("karma-forge", worker.HORIZONS["karma-forge"])
 
     lowered = json.dumps(row).lower()
-    assert "booster" in lowered
-    assert "api" in lowered
+    assert "optional paid preview" in lowered or "preview" in lowered
     assert "not" in row["why_waits"].lower() or "not" in row["meanwhile"].lower()
     worker.assert_public_reader_safe(row, context="horizon:karma-forge:fallback")
 
@@ -1246,10 +1486,27 @@ def test_fallback_horizon_copy_keeps_non_karma_horizons_free_of_booster_copy() -
     worker.assert_public_reader_safe(row, context="horizon:jackpoint:fallback")
 
 
+def test_fallback_horizon_copy_uses_varied_scene_lengths() -> None:
+    worker = _load_worker_module()
+
+    counts = {
+        name: len(
+            [
+                line
+                for line in worker.fallback_horizon_copy(name, worker.HORIZONS[name])["table_scene"].splitlines()
+                if line.strip()
+            ]
+        )
+        for name in ("nexus-pan", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press", "table-pulse")
+    }
+
+    assert len(set(counts.values())) >= 3
+
+
 def test_media_easter_egg_allowed_is_sparse_by_default_but_respects_force_policy() -> None:
     worker = _load_worker_module()
 
-    assert worker.media_easter_egg_allowed(kind="hero", item={}, contract={}) is True
+    assert worker.media_easter_egg_allowed(kind="hero", item={}, contract={}) is False
     assert worker.media_easter_egg_allowed(kind="part", item={"slug": "ui"}, contract={}) is False
     assert worker.media_easter_egg_allowed(
         kind="part",
@@ -1290,6 +1547,22 @@ def test_build_horizon_prompt_includes_rollout_access_canon() -> None:
     assert "Free-later intent:" in prompt
     assert "Booster API scope note:" in prompt
     assert "Booster outcome note:" in prompt
+    assert "avoid the default symmetrical five-line GM/player exchange" in prompt
+
+
+def test_build_horizons_bundle_prompt_requires_scene_cadence_variation() -> None:
+    worker = _load_worker_module()
+
+    prompt = worker.build_horizons_bundle_prompt(
+        items={"karma-forge": worker.HORIZONS["karma-forge"], "jackpoint": worker.HORIZONS["jackpoint"]},
+        global_ooda={},
+        section_oodas={},
+        style_epoch={},
+        recent_scenes=[],
+    )
+
+    assert "vary `table_scene` cadence across the set" in prompt
+    assert "mix beat counts, speaker mixes" in prompt
 
 
 def test_non_karma_horizons_do_not_carry_booster_rollout_context() -> None:
@@ -1332,8 +1605,8 @@ def test_copy_quality_findings_flags_generic_copy_and_missing_booster_posture() 
     assert "generic filler" in joined
     assert "booster-first preview posture" in joined
     assert "broad-access or free-later intent" in joined
-    assert "api-side consumption for development" in joined
-    assert "does not promise a useful or shippable result" in joined
+    assert "expensive and review-heavy even in preview" in joined
+    assert "may still produce nothing useful or shippable" in joined
 
 
 def test_copy_quality_findings_does_not_force_booster_copy_for_non_karma_horizons() -> None:
@@ -1388,6 +1661,24 @@ def test_copy_quality_findings_flags_horizon_shape_drift() -> None:
     joined = " ".join(findings)
     assert "table_scene" in joined
     assert "meanwhile" in joined
+
+
+def test_copy_quality_findings_flags_truncated_public_copy() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "page",
+        "current_phase",
+        {
+            "intro": "The current phase is grounded trust work.",
+            "body": "The current phase is still grounded tr…",
+            "kicker": "Trust work first, product posture later.",
+        },
+        worker.PAGE_PROMPTS["current_phase"],
+    )
+
+    joined = " ".join(findings).lower()
+    assert "truncated public copy" in joined
 
 
 def test_global_ooda_defaults_do_not_force_trolls_or_edgy_dev_snark() -> None:
@@ -1527,7 +1818,7 @@ def test_finalize_copy_row_prefers_curated_horizon_copy(monkeypatch: pytest.Monk
 
     lowered = json.dumps(finalized).lower()
     assert "booster" not in lowered
-    assert "packet" in lowered or "provenance" in lowered
+    assert "packet" in lowered or "receipt" in lowered
 
 
 def test_section_ooda_defaults_no_longer_force_troll_easter_eggs() -> None:
@@ -1722,6 +2013,78 @@ def test_normalize_horizon_meanwhile_splits_sentences_into_multiple_bullets() ->
     assert all(line.startswith("- ") for line in lines)
 
 
+def test_normalize_horizon_meanwhile_accepts_json_array_strings() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_horizon_meanwhile(
+        '["- Editorial polish stays tied to source proof.","- Editorial polish stays tied to source proof.","- Finished packets still need receipts."]'
+    )
+
+    lines = [line for line in normalized.splitlines() if line.strip()]
+    assert lines == [
+        "- Editorial polish stays tied to source proof",
+        "- Finished packets still need receipts",
+    ]
+
+
+def test_normalize_horizon_meanwhile_cleans_nested_literal_list_strings() -> None:
+    worker = _load_worker_module()
+
+    normalized = worker.normalize_horizon_meanwhile(
+        "- ['Later revisions still point back to the source.', 'Updates should not turn the book into salvage work.']"
+    )
+
+    assert normalized.splitlines() == [
+        "- Later revisions still point back to the source",
+        "- Updates should not turn the book into salvage work",
+    ]
+
+
+def test_copy_quality_findings_flags_second_person_in_part_copy() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.copy_quality_findings(
+        "part",
+        "hub-registry",
+        {
+            "when": "If you find rough artifacts later, you will want labels.",
+            "why": "It keeps rumor from replacing a shelf.",
+            "now": "Today your lucky leaks would still need sorting before they turn into folklore.",
+        },
+        {"title": "Hub Registry"},
+    )
+
+    assert any("second-person" in finding.lower() or "detached public voice" in finding.lower() for finding in findings)
+
+
+def test_normalize_horizons_bundle_falls_back_when_media_block_is_incomplete() -> None:
+    worker = _load_worker_module()
+
+    copy_rows, media_rows = worker.normalize_horizons_bundle(
+        {
+            "karma-forge": {
+                "copy": {
+                    "hook": "Hook.",
+                    "problem": "Problem.",
+                    "table_scene": "GM: One.\nPlayer: Two.\nRigger: Three.\nFace: Four.\nChummer6: Five.",
+                    "meanwhile": "- One\n- Two",
+                    "why_great": "Why great.",
+                    "why_waits": "Why waits.",
+                    "pitch_line": "Pitch.",
+                },
+                "media": {
+                    "title": "Broken media row without badge",
+                },
+            }
+        },
+        items={"karma-forge": worker.HORIZONS["karma-forge"]},
+    )
+
+    assert copy_rows["karma-forge"]["hook"] == "Hook."
+    assert media_rows["karma-forge"]["badge"]
+    assert media_rows["karma-forge"]["visual_prompt"]
+
+
 def test_selected_mapping_keeps_requested_order_subset() -> None:
     worker = _load_worker_module()
 
@@ -1903,7 +2266,7 @@ def test_generate_overrides_falls_back_to_default_global_ooda_when_writer_return
     )
 
     assert overrides["ooda"]["act"]["landing_tagline"] == "An idea for less mystical Shadowrun rulings."
-    assert overrides["pages"]["start_here"]["intro"] == "Start with the idea, not the illusion of a product."
+    assert overrides["pages"]["start_here"]["intro"] == "If you only look once, use this page to choose the next shelf."
 
 
 def test_generate_overrides_can_force_single_page_batches_for_quality(monkeypatch: pytest.MonkeyPatch) -> None:

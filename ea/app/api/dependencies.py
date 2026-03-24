@@ -148,7 +148,7 @@ def _resolved_principal_id(
             principal_id = ""
         else:
             return principal_id
-    if fallback_principal and authenticated:
+    if fallback_principal and authenticated and profile.default_principal_fallback_allowed:
         return fallback_principal
     if profile.default_principal_fallback_allowed:
         return fallback_principal or "local-user"

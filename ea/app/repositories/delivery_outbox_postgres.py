@@ -16,6 +16,7 @@ def _to_iso(value: Any) -> str:
 def _as_delivery(row: tuple[Any, ...]) -> DeliveryOutboxItem:
     (
         delivery_id,
+        principal_id,
         channel,
         recipient,
         content,
@@ -32,6 +33,7 @@ def _as_delivery(row: tuple[Any, ...]) -> DeliveryOutboxItem:
     ) = row
     return DeliveryOutboxItem(
         delivery_id=str(delivery_id),
+        principal_id=str(principal_id or ""),
         channel=str(channel),
         recipient=str(recipient),
         content=str(content),
@@ -74,6 +76,7 @@ class PostgresDeliveryOutboxRepository:
                     """
                     CREATE TABLE IF NOT EXISTS delivery_outbox (
                         delivery_id TEXT PRIMARY KEY,
+                        principal_id TEXT NOT NULL DEFAULT '',
                         channel TEXT NOT NULL,
                         recipient TEXT NOT NULL,
                         content TEXT NOT NULL,
@@ -90,6 +93,14 @@ class PostgresDeliveryOutboxRepository:
                     )
                     """
                 )
+                cur.execute("ALTER TABLE delivery_outbox ADD COLUMN IF NOT EXISTS principal_id TEXT NOT NULL DEFAULT ''")
+                cur.execute(
+                    """
+                    UPDATE delivery_outbox
+                    SET principal_id = COALESCE(NULLIF(metadata_json->>'principal_id', ''), principal_id, '')
+                    WHERE COALESCE(principal_id, '') = ''
+                    """
+                )
                 cur.execute("ALTER TABLE delivery_outbox ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT ''")
                 cur.execute("ALTER TABLE delivery_outbox ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0")
                 cur.execute("ALTER TABLE delivery_outbox ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NULL")
@@ -104,10 +115,11 @@ class PostgresDeliveryOutboxRepository:
                     ON delivery_outbox(status, created_at DESC)
                     """
                 )
+                cur.execute("DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique")
                 cur.execute(
                     """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_idempotency_key_unique
-                    ON delivery_outbox(idempotency_key)
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_principal_idempotency_unique
+                    ON delivery_outbox(principal_id, idempotency_key)
                     WHERE idempotency_key <> ''
                     """
                 )
@@ -115,6 +127,12 @@ class PostgresDeliveryOutboxRepository:
                     """
                     CREATE INDEX IF NOT EXISTS idx_delivery_outbox_retry_schedule
                     ON delivery_outbox(status, next_attempt_at, created_at DESC)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_delivery_outbox_principal_status_created
+                    ON delivery_outbox(principal_id, status, created_at DESC)
                     """
                 )
 
@@ -125,27 +143,30 @@ class PostgresDeliveryOutboxRepository:
         content: str,
         metadata: dict[str, object] | None = None,
         *,
+        principal_id: str = "",
         idempotency_key: str = "",
     ) -> DeliveryOutboxItem:
+        principal = str(principal_id or "").strip()
         idem = str(idempotency_key or "").strip()
         if idem:
             with self._connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT delivery_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
+                        SELECT delivery_id, principal_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
                                idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at
                         FROM delivery_outbox
-                        WHERE idempotency_key = %s
+                        WHERE principal_id = %s AND idempotency_key = %s
                         LIMIT 1
                         """,
-                        (idem,),
+                        (principal, idem),
                     )
                     found = cur.fetchone()
             if found:
                 return _as_delivery(found)
         row = DeliveryOutboxItem(
             delivery_id=str(uuid.uuid4()),
+            principal_id=principal,
             channel=str(channel or "unknown").strip(),
             recipient=str(recipient or "").strip(),
             content=str(content or ""),
@@ -165,12 +186,13 @@ class PostgresDeliveryOutboxRepository:
                 cur.execute(
                     """
                     INSERT INTO delivery_outbox
-                    (delivery_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
+                    (delivery_id, principal_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
                      idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         row.delivery_id,
+                        row.principal_id,
                         row.channel,
                         row.recipient,
                         row.content,
@@ -192,11 +214,13 @@ class PostgresDeliveryOutboxRepository:
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         receipt_json: dict[str, object] | None = None,
     ) -> DeliveryOutboxItem | None:
         did = str(delivery_id or "")
         if not did:
             return None
+        principal = str(principal_id or "").strip()
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -208,11 +232,11 @@ class PostgresDeliveryOutboxRepository:
                         last_error = '',
                         next_attempt_at = NULL,
                         dead_lettered_at = NULL
-                    WHERE delivery_id = %s
-                    RETURNING delivery_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
+                    WHERE delivery_id = %s AND principal_id = %s
+                    RETURNING delivery_id, principal_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
                               idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at
                     """,
-                    (now_utc_iso(), self._json_value(dict(receipt_json or {})), did),
+                    (now_utc_iso(), self._json_value(dict(receipt_json or {})), did, principal),
                 )
                 row = cur.fetchone()
         if not row:
@@ -223,6 +247,7 @@ class PostgresDeliveryOutboxRepository:
         self,
         delivery_id: str,
         *,
+        principal_id: str = "",
         error: str,
         next_attempt_at: str | None = None,
         dead_letter: bool = False,
@@ -230,6 +255,7 @@ class PostgresDeliveryOutboxRepository:
         did = str(delivery_id or "")
         if not did:
             return None
+        principal = str(principal_id or "").strip()
         status = "dead_lettered" if dead_letter else "retry"
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -241,8 +267,8 @@ class PostgresDeliveryOutboxRepository:
                         next_attempt_at = %s,
                         last_error = %s,
                         dead_lettered_at = %s
-                    WHERE delivery_id = %s
-                    RETURNING delivery_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
+                    WHERE delivery_id = %s AND principal_id = %s
+                    RETURNING delivery_id, principal_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
                               idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at
                     """,
                     (
@@ -251,6 +277,7 @@ class PostgresDeliveryOutboxRepository:
                         str(error or ""),
                         now_utc_iso() if dead_letter else None,
                         did,
+                        principal,
                     ),
                 )
                 row = cur.fetchone()
@@ -258,21 +285,25 @@ class PostgresDeliveryOutboxRepository:
             return None
         return _as_delivery(row)
 
-    def list_pending(self, limit: int = 50) -> list[DeliveryOutboxItem]:
+
+    def list_pending(self, limit: int = 50, *, principal_id: str | None = None) -> list[DeliveryOutboxItem]:
         n = max(1, min(500, int(limit or 50)))
+        normalized_principal = str(principal_id or "").strip()
+        query = """
+            SELECT delivery_id, principal_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
+                   idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at
+            FROM delivery_outbox
+            WHERE status IN ('queued', 'retry')
+              AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+        """
+        params: list[Any] = []
+        if normalized_principal:
+            query += " AND principal_id = %s"
+            params.append(normalized_principal)
+        query += " ORDER BY created_at DESC, delivery_id DESC LIMIT %s"
+        params.append(n)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT delivery_id, channel, recipient, content, status, metadata_json, created_at, sent_at,
-                           idempotency_key, attempt_count, next_attempt_at, last_error, receipt_json, dead_lettered_at
-                    FROM delivery_outbox
-                    WHERE status = 'queued'
-                       OR (status = 'retry' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
-                    ORDER BY created_at DESC, delivery_id DESC
-                    LIMIT %s
-                    """,
-                    (n,),
-                )
+                cur.execute(query, tuple(params))
                 rows = cur.fetchall()
         return [_as_delivery(row) for row in rows]

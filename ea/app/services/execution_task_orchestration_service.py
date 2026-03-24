@@ -130,7 +130,7 @@ class ExecutionTaskOrchestrationService:
                 break
             queue_items = list(getattr(snapshot, "queue_items", []) or [])
             has_active_queue = any(
-                str(getattr(row, "status", "") or "").strip().lower()
+                str(getattr(row, "state", "") or getattr(row, "status", "") or "").strip().lower()
                 not in {"", "done", "completed", "failed", "cancelled", "dead_letter", "skipped"}
                 for row in queue_items
             )

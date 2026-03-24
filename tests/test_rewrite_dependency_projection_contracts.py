@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 def _client(*, approval_threshold_chars: int | None = None) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
     if approval_threshold_chars is None:
         os.environ.pop("EA_APPROVAL_THRESHOLD_CHARS", None)
     else:
@@ -19,6 +21,7 @@ def _client(*, approval_threshold_chars: int | None = None) -> TestClient:
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": "exec-1"})
     return client
 
