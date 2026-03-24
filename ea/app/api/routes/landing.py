@@ -123,6 +123,12 @@ PRODUCT_MODULES = (
     {"title": "Approvals", "body": "Keep the operator in control for outbound actions, edits, and high-trust workflows."},
 )
 
+SIGN_IN_NOTES = (
+    "Use your normal workspace authentication path to open the product shell.",
+    "On Cloudflare Access deployments, the browser identity becomes the workspace principal automatically.",
+    "On local or operator hosts, browser setup remains bound to the configured token and principal rules.",
+)
+
 PRICING_TIERS = (
     {"title": "Starter", "price": "Pilot", "body": "Single workspace, Google Core first, and the daily brief loop for one operator."},
     {"title": "Executive", "price": "Core", "body": "Inbox, follow-ups, approvals, and multi-channel operating rhythms for active leaders."},
@@ -800,6 +806,28 @@ def docs_page(
             status=status,
             access_identity=access_identity,
             extra={"doc_links": DOC_LINKS},
+        ),
+    )
+
+
+@router.get("/sign-in", response_class=HTMLResponse)
+def sign_in_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    return _render_public_template(
+        request,
+        "sign_in.html",
+        **_public_context(
+            request=request,
+            current_nav="docs",
+            page_title="Sign in to Executive Assistant",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={"sign_in_notes": SIGN_IN_NOTES},
         ),
     )
 
