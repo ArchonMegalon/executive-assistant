@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
+from app.services.google_oauth import (
+    complete_google_oauth_callback,
+    GOOGLE_PROVIDER_KEY,
+)
 
 router = APIRouter(prefix="/v1/onboarding", tags=["onboarding"])
 
@@ -53,6 +57,13 @@ class OnboardingWhatsappExportIn(BaseModel):
     include_media: bool = Field(default=False)
 
 
+class OnboardingWhatsappExportAckIn(BaseModel):
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    binding_id: str = Field(min_length=1, max_length=200)
+    imported_message_count: int = Field(default=0, ge=0)
+    status: str = Field(default="imported", min_length=1, max_length=80)
+
+
 class OnboardingFinalizeIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     retention_mode: str = Field(default="full_bodies", min_length=1, max_length=80)
@@ -62,7 +73,116 @@ class OnboardingFinalizeIn(BaseModel):
     allow_auto_briefs: bool = Field(default=False)
 
 
-@router.post("/start", response_model=None)
+class OnboardingEnvelopeOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    principal_id: str = ""
+    status: str = ""
+    workspace: dict[str, object] = Field(default_factory=dict)
+    selected_channels: list[str] = Field(default_factory=list)
+    privacy: dict[str, object] = Field(default_factory=dict)
+    assistant_modes: list[dict[str, object]] = Field(default_factory=list)
+    featured_domains: list[dict[str, object]] = Field(default_factory=list)
+    storage_posture: dict[str, object] = Field(default_factory=dict)
+    channels: dict[str, object] = Field(default_factory=dict)
+    brief_preview: dict[str, object] = Field(default_factory=dict)
+    next_step: str = ""
+    onboarding_id: str = ""
+
+
+class OnboardingStartOut(OnboardingEnvelopeOut):
+    pass
+
+
+class OnboardingGoogleStartOut(OnboardingEnvelopeOut):
+    google_start: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingTelegramStartOut(OnboardingEnvelopeOut):
+    telegram_start: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingTelegramBotOut(OnboardingEnvelopeOut):
+    telegram_bot: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingWhatsappBusinessOut(OnboardingEnvelopeOut):
+    whatsapp_business: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingWhatsappExportOut(OnboardingEnvelopeOut):
+    whatsapp_export: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingWhatsappExportAckOut(OnboardingEnvelopeOut):
+    whatsapp_export: dict[str, object] = Field(default_factory=dict)
+
+
+class OnboardingCallbackOut(BaseModel):
+    provider_key: str
+    principal_id: str
+    binding_id: str
+    connector_binding_id: str
+    google_email: str
+    google_subject: str
+    google_hosted_domain: str
+    granted_scopes: list[str]
+    consent_stage: str
+    workspace_mode: str
+    token_status: str
+    last_refresh_at: str
+    reauth_required_reason: str
+
+
+def _google_callback_payload(account) -> dict[str, object]:
+    return {
+        "provider_key": GOOGLE_PROVIDER_KEY,
+        "principal_id": account.binding.principal_id,
+        "binding_id": account.binding.binding_id,
+        "connector_binding_id": account.connector_binding.binding_id if account.connector_binding is not None else "",
+        "google_email": account.google_email,
+        "google_subject": account.google_subject,
+        "google_hosted_domain": account.google_hosted_domain,
+        "granted_scopes": list(account.granted_scopes),
+        "consent_stage": account.consent_stage,
+        "workspace_mode": account.workspace_mode,
+        "token_status": account.token_status,
+        "last_refresh_at": account.last_refresh_at,
+        "reauth_required_reason": account.reauth_required_reason,
+    }
+
+
+def _complete_onboarding_google_callback(
+    code: str = Query(..., min_length=1),
+    state: str = Query(..., min_length=1),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, object]:
+    try:
+        account = complete_google_oauth_callback(container=container, code=code, state=state)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _google_callback_payload(account)
+
+
+@router.get("/google/callback", response_model=OnboardingCallbackOut)
+def onboarding_google_callback_get(
+    code: str = Query(..., min_length=1),
+    state: str = Query(..., min_length=1),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, object]:
+    return _complete_onboarding_google_callback(code=code, state=state, container=container)
+
+
+@router.post("/google/callback", response_model=OnboardingCallbackOut)
+def onboarding_google_callback_post(
+    code: str = Query(..., min_length=1),
+    state: str = Query(..., min_length=1),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, object]:
+    return _complete_onboarding_google_callback(code=code, state=state, container=container)
+
+
+@router.post("/start", response_model=OnboardingStartOut)
 def onboarding_start(
     body: OnboardingStartIn,
     container: AppContainer = Depends(get_container),
@@ -80,7 +200,7 @@ def onboarding_start(
     )
 
 
-@router.get("/status", response_model=None)
+@router.get("/status", response_model=OnboardingStartOut)
 def onboarding_status(
     principal_id: str | None = None,
     container: AppContainer = Depends(get_container),
@@ -90,23 +210,20 @@ def onboarding_status(
     return container.onboarding.status(principal_id=resolved)
 
 
-@router.post("/google/start", response_model=None)
+@router.post("/google/start", response_model=OnboardingGoogleStartOut)
 def onboarding_google_start(
     body: OnboardingGoogleStartIn,
-    request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     principal_id = resolve_principal_id(body.principal_id, context)
-    redirect_uri = str(request.url_for("google_oauth_browser_callback"))
     return container.onboarding.start_google(
         principal_id=principal_id,
         scope_bundle=body.scope_bundle,
-        redirect_uri_override=redirect_uri,
     )
 
 
-@router.post("/telegram/start", response_model=None)
+@router.post("/telegram/start", response_model=OnboardingTelegramStartOut)
 def onboarding_telegram_start(
     body: OnboardingTelegramStartIn,
     container: AppContainer = Depends(get_container),
@@ -122,7 +239,7 @@ def onboarding_telegram_start(
     )
 
 
-@router.post("/telegram/link-bot", response_model=None)
+@router.post("/telegram/link-bot", response_model=OnboardingTelegramBotOut)
 def onboarding_telegram_link_bot(
     body: OnboardingTelegramBotIn,
     container: AppContainer = Depends(get_container),
@@ -137,7 +254,7 @@ def onboarding_telegram_link_bot(
     )
 
 
-@router.post("/whatsapp/start-business", response_model=None)
+@router.post("/whatsapp/start-business", response_model=OnboardingWhatsappBusinessOut)
 def onboarding_whatsapp_start_business(
     body: OnboardingWhatsappBusinessIn,
     container: AppContainer = Depends(get_container),
@@ -152,7 +269,7 @@ def onboarding_whatsapp_start_business(
     )
 
 
-@router.post("/whatsapp/import-export", response_model=None)
+@router.post("/whatsapp/import-export", response_model=OnboardingWhatsappExportOut)
 def onboarding_whatsapp_import_export(
     body: OnboardingWhatsappExportIn,
     container: AppContainer = Depends(get_container),
@@ -167,7 +284,22 @@ def onboarding_whatsapp_import_export(
     )
 
 
-@router.post("/finalize", response_model=None)
+@router.post("/whatsapp/import-export/ack", response_model=OnboardingWhatsappExportAckOut)
+def onboarding_whatsapp_import_export_ack(
+    body: OnboardingWhatsappExportAckIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    principal_id = resolve_principal_id(body.principal_id, context)
+    return container.onboarding.acknowledge_whatsapp_export_import(
+        principal_id=principal_id,
+        binding_id=body.binding_id,
+        imported_message_count=body.imported_message_count,
+        status=body.status,
+    )
+
+
+@router.post("/finalize", response_model=OnboardingStartOut)
 def onboarding_finalize(
     body: OnboardingFinalizeIn,
     container: AppContainer = Depends(get_container),
