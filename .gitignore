@@ -19,6 +19,7 @@ daemon-gogcli-config/
 data-*/
 *.log
 config/*.local.yml
+config/onemin_slot_owners.local.json
 artifacts/
 
 # Editor/OS noise
