@@ -344,9 +344,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Start the day with a clear brief, draft queue, and follow-up list." in landing.text
+    assert "An assistant for email, calendar, and follow-ups." in landing.text
     assert "Get started" in landing.text
-    assert "Quiet controls, clear boundaries." in landing.text
+    assert "What the product should make easy" in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
@@ -354,9 +354,10 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/get-started")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Connect your workspace in four steps." in setup.text
-    assert "Google Core is the recommended first connection." in setup.text
-    assert "Pick the right WhatsApp path." in setup.text
+    assert "Set up the workspace once, then let the assistant settle into your day." in setup.text
+    assert "Choose how this workspace should behave." in setup.text
+    assert "Connect Google first." in setup.text
+    assert "Founder / chief of staff ops" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
@@ -370,7 +371,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "Clear approvals, scoped context, and durable records." in privacy.text
+    assert "Reviewable actions, explicit channel boundaries, and durable workspace context." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
