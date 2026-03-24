@@ -2,15 +2,15 @@
 {% block content %}
 <section class="section card card-strong">
   <div class="eyebrow">Security</div>
-  <h1>Use the backend discipline as a brand advantage.</h1>
-  <p class="lead">The system already has principal scoping, approvals, durable state, and receipts. Those are not implementation trivia. They are the trust story.</p>
+  <h1>Clear approvals, scoped context, and durable records.</h1>
+  <p class="lead">Executive work needs review points, explicit channel boundaries, and durable storage for context that should survive the day. Those controls are part of the product experience, not background detail.</p>
 </section>
 <section class="section grid">
   {% for card in trust_cards %}
   <section class="card">
     <div class="eyebrow">Trust</div>
     <h2>{{ card.title }}</h2>
-    <p class="lead" style="font-size:0.98rem; margin-bottom:0;">{{ card.body }}</p>
+    <p class="muted">{{ card.body }}</p>
   </section>
   {% endfor %}
 </section>
@@ -26,7 +26,7 @@
   </section>
   <section class="card">
     <div class="eyebrow">Current workspace</div>
-    <h2>Saved privacy posture</h2>
+    <h2>Saved review and privacy posture</h2>
     <ul class="list">
       <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
       <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>

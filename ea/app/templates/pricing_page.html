@@ -2,15 +2,15 @@
 {% block content %}
 <section class="section card card-strong">
   <div class="eyebrow">Pricing</div>
-  <h1>Sell the assistant by operating scope, not by infrastructure jargon.</h1>
-  <p class="lead">The packaging should match the buyer conversation: pilot, executive core, and team operations. Keep the runtime complexity behind the product line.</p>
+  <h1>Choose the workspace scope that matches the team.</h1>
+  <p class="lead">Start with a pilot, move into the daily operator loop, and expand to a broader team workspace when the approvals, channels, and follow-ups are already part of the routine.</p>
 </section>
 <section class="section grid">
   {% for tier in pricing_tiers %}
   <section class="card">
     <div class="eyebrow">{{ tier.price }}</div>
     <h2>{{ tier.title }}</h2>
-    <p class="lead" style="font-size:0.98rem; margin-bottom:0;">{{ tier.body }}</p>
+    <p class="muted">{{ tier.body }}</p>
   </section>
   {% endfor %}
 </section>

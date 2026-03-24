@@ -344,9 +344,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Your executive assistant across email, messaging, and calendar." in landing.text
+    assert "Start the day with a clear brief, draft queue, and follow-up list." in landing.text
     assert "Get started" in landing.text
-    assert "A clean assistant product, not a mixed surface." in landing.text
+    assert "Quiet controls, clear boundaries." in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
@@ -370,7 +370,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "Use the backend discipline as a brand advantage." in privacy.text
+    assert "Clear approvals, scoped context, and durable records." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
