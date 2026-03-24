@@ -106,7 +106,7 @@ def test_runtime_mode_case_variants_disables_storage_fallback() -> None:
 def test_runtime_mode_prod_rejects_empty_api_token() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
-    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access auth to be set"):
         _ = get_settings()
 
 
@@ -114,7 +114,7 @@ def test_runtime_mode_prod_rejects_whitespace_api_token() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "   \t\n"
-    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+    with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access auth to be set"):
         _ = get_settings()
 
 

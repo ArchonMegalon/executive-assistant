@@ -190,11 +190,13 @@ def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
     database_url = _database_url(settings)
     auth_mode = "anonymous_dev"
-    if settings.auth.api_token and settings.auth.cf_access_enabled:
+    api_token = str(getattr(settings.auth, "api_token", "") or "").strip()
+    cf_access_enabled = bool(getattr(settings.auth, "cf_access_enabled", False))
+    if api_token and cf_access_enabled:
         auth_mode = "token_or_access"
-    elif settings.auth.api_token:
+    elif api_token:
         auth_mode = "token"
-    elif settings.auth.cf_access_enabled:
+    elif cf_access_enabled:
         auth_mode = "access"
     if is_prod_mode(settings.runtime.mode):
         return RuntimeProfile(

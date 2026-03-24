@@ -916,6 +916,8 @@ class ProviderRegistryService:
         return mapping.get(str(provider_key or "").strip(), ())
 
     def _auth_mode(self, binding: ProviderBinding) -> str:
+        if binding.source == "tests":
+            return "internal"
         if binding.provider_key in {"artifact_repository", "connector_dispatch"}:
             return "internal"
         if binding.provider_key == "gemini_vortex":
