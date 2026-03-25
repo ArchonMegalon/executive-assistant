@@ -1083,6 +1083,14 @@ class ProductService:
         rows.sort(key=lambda row: (priority_weight(row.escalation_status), due_bonus(row.due_time), row.summary.lower()), reverse=True)
         return tuple(rows[:limit])
 
+    def get_handoff(self, *, principal_id: str, handoff_ref: str) -> HandoffNote | None:
+        if not str(handoff_ref or "").startswith("human_task:"):
+            return None
+        found = self._container.orchestrator.fetch_human_task(handoff_ref.split(":", 1)[1], principal_id=principal_id)
+        if found is None:
+            return None
+        return self._handoff_from_human_task(found)
+
     def assign_handoff(self, *, principal_id: str, handoff_ref: str, operator_id: str, actor: str) -> HandoffNote | None:
         if not handoff_ref.startswith("human_task:"):
             return None

@@ -462,6 +462,19 @@ def list_handoffs(
     ]
 
 
+@router.get("/handoffs/{handoff_ref:path}", response_model=HandoffNoteOut)
+def get_handoff(
+    handoff_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HandoffNoteOut:
+    service = build_product_service(container)
+    found = service.get_handoff(principal_id=context.principal_id, handoff_ref=handoff_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return handoff_out(found)
+
+
 @router.post("/handoffs/{handoff_ref:path}/assign", response_model=HandoffNoteOut)
 def assign_handoff(
     handoff_ref: str,

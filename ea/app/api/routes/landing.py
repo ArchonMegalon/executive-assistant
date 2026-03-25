@@ -755,6 +755,72 @@ def person_detail(
     )
 
 
+@router.get("/app/commitment-items/{commitment_ref:path}", response_class=HTMLResponse)
+def commitment_detail(
+    commitment_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    commitment = product.get_commitment(principal_id=context.principal_id, commitment_ref=commitment_ref)
+    if commitment is None:
+        raise HTTPException(status_code=404, detail="commitment_not_found")
+    history = product.get_commitment_history(principal_id=context.principal_id, commitment_ref=commitment_ref, limit=8)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="commitment_opened",
+        surface=f"commitment:{commitment_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {commitment.statement}",
+        current_nav="follow-ups",
+        console_title=commitment.statement,
+        console_summary="Commitment source, owner, due date, risk, and recent ledger activity.",
+        object_kind="Commitment ledger",
+        object_title=commitment.statement,
+        object_summary=f"{commitment.counterparty or 'Office loop'} · {commitment.status.replace('_', ' ')}",
+        object_meta=[
+            {"label": "Owner", "value": str(commitment.owner or "office").replace("_", " ").title()},
+            {"label": "Counterparty", "value": commitment.counterparty or "Unknown"},
+            {"label": "Due", "value": str(commitment.due_at or "")[:10] or "No due date"},
+            {"label": "Risk", "value": str(commitment.risk_level or "normal").title()},
+        ],
+        object_sidebar_title="Commitment posture",
+        object_sidebar_copy="A commitment should stay visible until it is closed, deferred, dropped, or reopened with a reason.",
+        object_sidebar_rows=[
+            _object_detail_row("Source", str(commitment.source_type or "manual").replace("_", " ").title(), "Source"),
+            _object_detail_row("Source ref", commitment.source_ref or "No source ref attached.", "Reference"),
+            _object_detail_row("Last activity", str(commitment.last_activity_at or "")[:10] or "Unknown", "Activity"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Evidence",
+                "title": "Supporting proof",
+                "items": _evidence_detail_rows(commitment.proof_refs),
+            },
+            {
+                "eyebrow": "History",
+                "title": "Recent ledger activity",
+                "items": [
+                    _object_detail_row(
+                        str(item.event_type or "history").replace("_", " ").title(),
+                        item.detail or "Ledger event recorded.",
+                        str(item.created_at or "")[:10] or "Event",
+                    )
+                    for item in history
+                ] or [_object_detail_row("No history yet", "No commitment history rows were recorded.", "History")],
+            },
+        ],
+    )
+
+
 @router.get("/app/decisions/{decision_ref}", response_class=HTMLResponse)
 def decision_detail(
     decision_ref: str,
@@ -818,6 +884,81 @@ def decision_detail(
                 "eyebrow": "Evidence",
                 "title": "Supporting evidence",
                 "items": _evidence_detail_rows(decision.evidence_refs),
+            },
+        ],
+    )
+
+
+@router.get("/app/handoffs/{handoff_ref:path}", response_class=HTMLResponse)
+def handoff_detail(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    handoff = product.get_handoff(principal_id=context.principal_id, handoff_ref=handoff_ref)
+    if handoff is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    task_id = handoff.id.split(":", 1)[1] if handoff.id.startswith("human_task:") else handoff.id
+    history_rows = container.orchestrator.list_human_task_assignment_history(task_id, principal_id=context.principal_id, limit=8)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="handoff_opened",
+        surface=f"handoff:{handoff_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {handoff.summary}",
+        current_nav="activity",
+        console_title=handoff.summary,
+        console_summary="Assignment state, escalation pressure, evidence, and recent handoff routing history.",
+        object_kind="Handoffs",
+        object_title=handoff.summary,
+        object_summary=f"{handoff.owner or 'Office'} · {handoff.status.replace('_', ' ')}",
+        object_meta=[
+            {"label": "Owner", "value": handoff.owner or "Unassigned"},
+            {"label": "Due", "value": str(handoff.due_time or "")[:10] or "No due date"},
+            {"label": "Escalation", "value": str(handoff.escalation_status or "normal").title()},
+            {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
+        ],
+        object_sidebar_title="Operator workflow",
+        object_sidebar_copy="A handoff should show who owns it, whether it is waiting on the principal, and what evidence supports the transfer.",
+        object_sidebar_rows=[
+            _object_detail_row("Queue item", handoff.queue_item_ref or "No queue item ref attached.", "Queue"),
+            _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
+            _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Evidence",
+                "title": "Supporting evidence",
+                "items": _evidence_detail_rows(handoff.evidence_refs),
+            },
+            {
+                "eyebrow": "Routing history",
+                "title": "Recent assignment events",
+                "items": [
+                    _object_detail_row(
+                        str(getattr(item, "event_name", "") or "assignment").replace("_", " ").title(),
+                        " · ".join(
+                            part
+                            for part in (
+                                str(getattr(item, "assigned_operator_id", "") or "").strip(),
+                                str(getattr(item, "assigned_by_actor_id", "") or "").strip(),
+                                str(getattr(item, "assignment_source", "") or "").strip(),
+                            )
+                            if part
+                        ) or "Assignment event recorded.",
+                        str(getattr(item, "created_at", "") or "")[:10] or "Event",
+                    )
+                    for item in history_rows
+                ] or [_object_detail_row("No routing history yet", "No assignment changes were recorded yet.", "History")],
             },
         ],
     )
