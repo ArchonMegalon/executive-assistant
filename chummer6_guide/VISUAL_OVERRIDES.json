@@ -1,17 +1,16 @@
 {
   "assets/hero/chummer6-hero.png": {
-    "visual_prompt": "Rainy over-the-shoulder rules-truth scene at night: one runner leans over a battered commlink cradle while a receipt trail resolves across dice, chips, and a scratched cyberdeck case, one blurred teammate and one waiting GM live only at the edge of frame, a worn brass-and-cyan troll sticker is clearly visible on the deck case, tactile clutter and wet window light everywhere, gritty cinematic realism, no readable text, not a poster.",
+    "visual_prompt": "First-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage, never an alley and never a tabletop. One standing runner works a vertical prep wall crowded with hanging gear rails, clipped med tags, sealed pouches, harness straps, intake bins, translucent stat markers, med drawers, and proof anchors while build-state provenance traces and fit-check brackets cling to those physical props. The frame must feel dense, layered, and immediately specific to character-build trust, rules inspection pressure, and Chummer-style visible reasoning. Push it toward packed flashy cover energy: stronger orange-cyan contrast, harder rim light, bolder foreground clutter, and obvious foreground-midground-background separation. Show the runner in three-quarter or over-shoulder posture with both arms actively sorting gear and tags, surrounded by foreground clutter on both sides. Strong foreground props, readable midground posture, rich background clues, no readable text, no table scene, no desk glamour, no cards or paper in hand, no phone hero prop, no empty darkness, and no quiet side-profile portrait.",
     "scene_contract": {
-      "subject": "one runner catching a ruling in the act while the receipt trail blooms over the evidence",
-      "environment": "a rain-lit safehouse edge with one task lamp, a battered table corner, and neon leaking through the window",
-      "action": "showing that the rules truth is visible before the argument turns into folklore",
-      "composition": "over_shoulder_receipt",
-      "props": ["rugged cyberdeck", "dice tray", "modifier chips", "receipt hologram"],
-      "mood": "tense, grounded, and quietly satisfying",
-      "easter_egg_kind": "worn troll sticker",
-      "easter_egg_placement": "on the cyberdeck case near the lower-left third, clearly lamp-lit and fully inside the safe crop",
-      "easter_egg_detail": "classic Chummer troll silhouette as a worn brass-and-cyan sticker on the deck case",
-      "easter_egg_visibility": "small but obvious enough to spot on a README banner without zooming"
+      "subject": "one standing runner deciding whether tonight's build can be trusted before stepping back into the rain",
+      "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
+      "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live through the room around them",
+      "composition": "clinic_intake",
+      "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],
+      "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
+      "mood": "tense, specific, and high-pressure instead of brooding",
+      "easter_egg_policy": "forbid",
+      "humor_policy": "forbid"
     }
   },
   "assets/hero/poc-warning.png": {
@@ -135,18 +134,17 @@
     }
   },
   "assets/pages/horizons-index.png": {
-    "visual_prompt": "Neon boulevard of future table pains at street level: five distinct storefronts, transit entrances, alley mouths, and clinic doors hint at desync recovery, forensic math, rulesmithing, sim-lab stress tests, and dossier generation, with real wet pavement, service clutter, cables, window glow, and believable district depth, symbol-first wayfinding instead of word signs, and one rude crossed-out troll door pictogram on a dive-bar side entrance in the right alley, not abstract concept art or icon wallpaper.",
+    "visual_prompt": "Dense horizon boulevard crossroads at street level: multiple future lanes split into differentiated clinics, archive drops, transit cuts, rulesmith benches, and sim-lab stress corridors with wet pavement, service clutter, cables, layered window glow, and several distinct grounded clues pulling the eye deeper. The image must sell branching possibility and multiple futures worth clicking, not one empty road, not one signboard, and not a central symbol doing all the work. Make it environment-first with no lone centered silhouette, no single corridor vanishing point, and no freestanding sign or kiosk. No readable text, no billboard centerpiece, no menu-board composition, no empty darkness.",
     "scene_contract": {
       "subject": "a horizon boulevard crossroads where five future districts tempt the viewer deeper",
-      "environment": "a neon transit district with storefronts, alleys, station mouths, and future neighborhoods receding into rain",
+      "environment": "a neon transit district with ramps, alleys, station mouths, maintenance cuts, and future neighborhoods receding into rain",
       "action": "turning the horizons list into a menu of future pains instead of a codename graveyard",
       "composition": "horizon_boulevard",
-      "props": ["storefronts", "station lights", "side alleys", "rain puddles"],
-      "mood": "tempting, funny, and a little dangerous",
-      "easter_egg_kind": "crossed-out troll door pictogram",
-      "easter_egg_placement": "painted on a dive-bar side-door plate in the right third, fully inside the safe crop",
-      "easter_egg_detail": "classic Chummer troll silhouette used in a rude crossed-out bar pictogram",
-      "easter_egg_visibility": "visible on a page banner without stealing focus"
+      "props": ["future-lane storefronts", "station lights", "service clutter", "rain puddles", "split alleys", "district cues"],
+      "overlays": ["future-lane markers", "district callout arcs", "contingent route brackets", "threat-posture overlays"],
+      "mood": "dense, tempting, and full of branching possibility",
+      "easter_egg_policy": "forbid",
+      "humor_policy": "forbid"
     }
   },
   "assets/parts/core.png": {
@@ -350,13 +348,17 @@
     }
   },
   "assets/horizons/karma-forge.png": {
-    "visual_prompt": "Rulesmithing forge scene at a workshop bench: custom rule shards, rollback markers, and receipt traces are being hammered into shape by one stubborn rulesmith under hard bench lighting, funny and tactile rather than mystical, no meeting tableau.",
+    "visual_prompt": "Governed rules evolution under pressure at an industrial review bench: one rulesmith reconciles a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately communicate approval, rollback, provenance, consequence, and bounded experimentation for a Shadowrun table before anyone reads a caption. Dense, graphic, and cover-like rather than quiet or documentary. Keep both hands on hardware, rails, cassettes, clamps, or diff controls rather than loose paper or card handling. No readable text, no literal forge, no anvil, no sparks-and-hammer focus, no glowing-card cliché, no sparse bench still, and no face-hidden generic hand close-up.",
     "scene_contract": {
+      "subject": "one rulesmith reconciling a volatile house-rule pack through review, diff, and rollback pressure",
+      "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
+      "action": "forcing volatile rule deltas through governed approval, rollback, and provenance checks before they can touch a table",
       "composition": "workshop_bench",
-      "easter_egg_kind": "troll shoulder patch",
-      "easter_egg_placement": "on the apron shoulder of the rulesmith in the mid-left third",
-      "easter_egg_detail": "classic Chummer troll embroidered as a forge patch",
-      "easter_egg_visibility": "visible on the banner"
+      "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers"],
+      "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets"],
+      "mood": "high-pressure, governed, and semantically explicit",
+      "easter_egg_policy": "forbid",
+      "humor_policy": "forbid"
     }
   },
   "assets/horizons/mirrorshard.png": {

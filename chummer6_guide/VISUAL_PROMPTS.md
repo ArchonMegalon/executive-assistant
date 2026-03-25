@@ -2,7 +2,7 @@
 
 This file is the art-direction contract for generated Chummer6 guide images.
 
-The short version: every image should show a real moment, and every image should hide one small troll easter egg in-world.
+The short version: every image should show a real moment, and first-contact assets must read dense, specific, and unmistakably Chummer before anyone reads a caption.
 
 ## Generation workflow
 
@@ -12,14 +12,14 @@ Use the image pipeline in this order:
 2. Inject a second art-direction instruction set for scene integrity and troll placement so the image keeps telling a story instead of inventing fake signage.
 3. Normalize the output back to the target banner size.
 4. QA the scene for context, legibility, and accidental text.
-5. Apply the deterministic troll postpass only if the prompt-only path still loses the motif.
+5. Apply the deterministic troll postpass only on targets that explicitly allow a recurring motif.
 6. QA again before copying into the repo.
 
 Why the postpass exists as a fallback:
 
 - some remote models still hallucinate fake UI text
-- some remote models hide tiny easter eggs in mushy lighting
-- the troll motif needs to survive the pipeline, not just the prompt
+- some remote models flatten prop density and overlays into vague mood lighting
+- any recurring motif needs to survive the pipeline, not just the prompt
 
 The worker now supports targeted rerenders so one bad banner does not force a full pack rerun.
 
@@ -42,6 +42,7 @@ Use that ledger before rerendering:
 
 - do not reuse the same composition family on adjacent major pages when a different camera grammar would work
 - do not let `safehouse_table` become the default answer for every product truth page
+- do not let hero, horizons index, or `KARMA FORGE` collapse into one subject plus one wall plus darkness
 - if a new image shares composition with a recent one, force a different cast count, focal prop cluster, and camera distance
 - at least one-third of the major banners should be prop-led, street-led, or environment-led instead of people-around-table scenes
 
@@ -79,12 +80,14 @@ The next full pass should deliberately switch to a different style epoch instead
 
 - Show a scene, not a concept poster.
 - Give the image one focal action, one readable prop cluster, and one secondary clue.
+- First-contact assets need stronger density: layered foreground, readable midground action, and a background that carries semantic clues instead of empty darkness.
 - Keep the world grounded: table play, desks, alleys, labs, archives, shops, transit, cheap neon, expensive mistakes.
 - Prefer props that explain the feature before the third paragraph does.
 - Use symbol-first signage and unreadable paperwork. If the scene wants a joke sign, make it a pictogram, partial scribble, or crossed-out mascot, not crisp words.
 - Avoid abstract UI wallpaper, floating icon soup, generic skylines, and brochure-cover posing.
 - Diegetic overlays are fine if they appear attached to actual screens, AR views, or surfaces.
 - No readable titles, no watermarks, no giant centered logos.
+- No first-contact asset should pass with a sparse center-weighted composition, dead roadway ambience, or a single sign/board doing all the semantic work.
 - No repeated medium-wide table huddles unless the page explicitly depends on that exact social geometry.
 - A table scene is one scene family, not the default answer for truth, trust, or tension.
 
@@ -117,9 +120,9 @@ Hard rules:
 - `Core` should prefer proof-on-props or over-shoulder receipt grammar over faces
 - `WHAT_CHUMMER6_IS` should prefer one trust moment or over-shoulder proof, not another three-person confrontation
 
-## Troll easter egg rule
+## Recurring Motif Rule
 
-Every generated Chummer6 image should include one small recurring troll motif.
+Only selected non-first-contact assets may include one small recurring troll motif.
 
 The motif should feel diegetic:
 
@@ -180,9 +183,10 @@ Also fail the image if:
 - the crop collapses the scene into a random close-up
 - the troll lands on a face and accidentally becomes body-horror comedy
 
+Do not use the motif on the README hero, the horizons index, or `KARMA FORGE`. Those assets need semantic density and clarity, not cuteness.
+
 ## Placement ideas
 
-- Hero and landing scenes: pin on a jacket, transit ad in the midground, sticker on street hardware
 - Table scenes: phone-case sticker, jacket pin, dice-bag charm
 - Dossier and archive scenes: wax seal, approval stamp, chip-case sticker
 - Forge and workshop scenes: shoulder patch, toolbag decal, bench sticker
@@ -193,6 +197,7 @@ Also fail the image if:
 ## Composition rules
 
 - `README` hero: product-truth under pressure, ideally over-shoulder receipt proof or street-side stakes, not another generic huddle
+- `README` hero: treat it like a cover, not a moody still; dense prep props, visible trust pressure, layered overlays, and no empty negative space
 - `WHAT_CHUMMER6_IS`: one trust moment with visible receipts, ideally solo or duo with the proof path doing the heavy lifting
 - `Core`: over-shoulder or prop-led rules proof, where dice, sheets, traces, and chips carry the scene
 - `Mobile`: play-shell continuity in motion, preferably asymmetrical devices or one reconnect moment instead of a posed group
@@ -200,8 +205,8 @@ Also fail the image if:
 - `NEXUS-PAN`: reconnect moment anchored around the returning device or operator, not a blurry background support group
 - `ALICE`: sim bench / crash chamber / failure trace, never another social huddle
 - `JACKPOINT`: dossier workspace first, faces optional
-- `KARMA FORGE`: workshop bench or rulesmith station, not a concept slide and not another committee around a table
-- `Horizons index`: boulevard/environment shot first, people secondary at most
+- `KARMA FORGE`: governed rules evolution with approval, rollback, provenance, diff pressure, and smartlink-like control overlays; not a concept slide, not a quiet bench still, and not generic glowing cards
+- `Horizons index`: boulevard/environment shot first, people secondary at most, with multiple differentiated future clues instead of one sign or empty road
 
 ## Page prompt starters
 

@@ -1067,8 +1067,8 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
     assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
     assert normalized["overlay_hint"] == "compatibility seals and rollback markers"
     assert normalized["scene_contract"]["subject"] == "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench"
-    assert normalized["scene_contract"]["environment"] == "an industrial review bench lit by sodium spill, approval rails, rollback cassettes, and terminal glow"
-    assert normalized["scene_contract"]["composition"] == "workshop_bench"
+    assert normalized["scene_contract"]["environment"] == "an industrial approval rail lit by sodium spill, rollback cassettes, provenance seals, and hard task light"
+    assert normalized["scene_contract"]["composition"] == "approval_rail"
 
 
 def test_normalize_media_override_preserves_curated_scene_contract_for_known_horizon_assets() -> None:
