@@ -124,6 +124,13 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "pending" in support_body["approvals"]
     assert isinstance(support_body["human_tasks"], list)
 
+    channel_loop = client.get("/app/api/channel-loop")
+    assert channel_loop.status_code == 200
+    channel_loop_body = channel_loop.json()
+    assert channel_loop_body["headline"] == "Inline loop"
+    assert any(item["action_label"] == "Approve now" for item in channel_loop_body["items"])
+    assert any("/app/channel/drafts/" in item.get("action_href", "") for item in channel_loop_body["items"])
+
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
     principal_id = "exec-product-resolve"

@@ -262,6 +262,37 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Support bundle" in support_page.text
     assert "Pending review and recent decisions" in support_page.text
 
+    channel_loop = client.get("/app/channel-loop")
+    assert channel_loop.status_code == 200
+    assert "Inline loop" in channel_loop.text
+    assert "Approve now" in channel_loop.text
+
+
+def test_channel_loop_get_actions_work() -> None:
+    principal_id = "exec-browser-channel-loop"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    loop_page = client.get("/app/channel-loop")
+    assert loop_page.status_code == 200
+    assert "Inline loop" in loop_page.text
+
+    approved = client.get(
+        f"/app/channel/drafts/approval:{seeded['approval_id']}/approve?return_to=/app/channel-loop",
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+    assert approved.headers["location"] == "/app/channel-loop"
+    assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
+
+    closed = client.get(
+        f"/app/channel/queue/commitment:{seeded['commitment_id']}/resolve?action=close&return_to=/app/channel-loop",
+        follow_redirects=False,
+    )
+    assert closed.status_code == 303
+    assert closed.headers["location"] == "/app/channel-loop"
+    assert "Send board materials" not in client.get("/app/inbox").text
+
 
 def test_browser_commitment_capture_actions_work() -> None:
     principal_id = "exec-browser-capture"

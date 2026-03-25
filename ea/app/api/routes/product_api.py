@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
     BriefResponse,
+    ChannelLoopOut,
     CommitmentCandidateOut,
     CommitmentCandidateReviewIn,
     CommitmentCandidateStageIn,
@@ -699,6 +700,26 @@ def get_workspace_support_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+
+
+@router.get("/channel-loop", response_model=ChannelLoopOut)
+def get_channel_loop(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> ChannelLoopOut:
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="channel_loop_opened",
+        surface="channel_loop_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return ChannelLoopOut(
+        **service.channel_loop_pack(
+            principal_id=context.principal_id,
+            operator_id=str(context.operator_id or "").strip(),
+        )
+    )
 
 @router.get("/people/{person_id}/detail/history", response_model=list[HistoryEntryOut])
 def get_person_detail_history(

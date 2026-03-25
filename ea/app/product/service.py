@@ -1828,6 +1828,131 @@ class ProductService:
             ],
         }
 
+    def channel_loop_pack(self, *, principal_id: str, operator_id: str = "") -> dict[str, object]:
+        snapshot = self.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
+        operator_key = str(operator_id or "").strip()
+        items: list[dict[str, str]] = []
+        if snapshot.brief_items:
+            memo = snapshot.brief_items[0]
+            items.append(
+                {
+                    "title": "Morning memo",
+                    "detail": memo.why_now or memo.summary or "Open the memo before the day fragments.",
+                    "tag": "Memo",
+                    "href": "/app/today",
+                    "action_href": "/app/today",
+                    "action_label": "Open memo",
+                    "action_method": "get",
+                }
+            )
+        if snapshot.drafts:
+            draft = snapshot.drafts[0]
+            items.append(
+                {
+                    "title": f"Approve draft for {draft.recipient_summary or 'next reply'}",
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            draft.intent.title(),
+                            draft.send_channel,
+                            draft.approval_status,
+                        )
+                        if part
+                    )
+                    or "Draft is waiting for approval.",
+                    "tag": "Draft",
+                    "href": "/app/inbox",
+                    "action_href": f"/app/channel/drafts/{draft.id}/approve?return_to=%2Fapp%2Fchannel-loop",
+                    "action_label": "Approve now",
+                    "action_method": "get",
+                }
+            )
+        if snapshot.commitments:
+            commitment = snapshot.commitments[0]
+            items.append(
+                {
+                    "title": commitment.statement,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            commitment.counterparty,
+                            f"Due {commitment.due_at[:10]}" if commitment.due_at else "",
+                            commitment.risk_level.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "Commitment still needs a visible next action.",
+                    "tag": "Commitment",
+                    "href": f"/app/commitment-items/{commitment.id}",
+                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop",
+                    "action_label": "Close",
+                    "action_method": "get",
+                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop",
+                    "secondary_action_label": "Defer",
+                    "secondary_action_method": "get",
+                }
+            )
+        if snapshot.handoffs:
+            preferred_handoff = next((row for row in snapshot.handoffs if operator_key and row.owner == operator_key), snapshot.handoffs[0])
+            action_href = f"/app/channel/handoffs/{preferred_handoff.id}/assign?return_to=%2Fapp%2Fchannel-loop"
+            action_label = "Claim"
+            if operator_key and preferred_handoff.owner == operator_key:
+                action_href = f"/app/channel/handoffs/{preferred_handoff.id}/complete?return_to=%2Fapp%2Fchannel-loop"
+                action_label = "Complete"
+            items.append(
+                {
+                    "title": preferred_handoff.summary,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            preferred_handoff.owner,
+                            f"Due {preferred_handoff.due_time[:10]}" if preferred_handoff.due_time else "",
+                            preferred_handoff.escalation_status.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "Handoff is waiting in the operator lane.",
+                    "tag": "Handoff",
+                    "href": f"/app/handoffs/{preferred_handoff.id}",
+                    "action_href": action_href,
+                    "action_label": action_label,
+                    "action_method": "get",
+                }
+            )
+        if snapshot.decisions:
+            decision = snapshot.decisions[0]
+            items.append(
+                {
+                    "title": decision.title,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            decision.sla_status.replace("_", " ").title(),
+                            decision.impact_summary or decision.summary,
+                        )
+                        if part
+                    )
+                    or "Decision remains open.",
+                    "tag": "Decision",
+                    "href": f"/app/decisions/{decision.id}",
+                    "action_href": f"/app/decisions/{decision.id}",
+                    "action_label": "Open decision",
+                    "action_method": "get",
+                }
+            )
+        return {
+            "headline": "Inline loop",
+            "summary": "Use a compact, mobile-safe surface for the memo, approvals, commitments, handoffs, and the next decision that still matters.",
+            "items": items,
+            "stats": {
+                "memo_items": int(snapshot.stats_json.get("brief_items", 0) or 0),
+                "pending_drafts": len(snapshot.drafts),
+                "open_commitments": len(snapshot.commitments),
+                "open_handoffs": len(snapshot.handoffs),
+                "open_decisions": len(snapshot.decisions),
+            },
+        }
+
     def record_surface_event(
         self,
         *,

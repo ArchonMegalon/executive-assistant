@@ -1400,9 +1400,53 @@ def app_shell(
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
     allowed = {row["key"] for group in APP_NAV_GROUPS for row in group["items"]}
+    allowed.add("channel-loop")
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     status = container.onboarding.status(principal_id=context.principal_id)
+    if section == "channel-loop":
+        workspace = dict(status.get("workspace") or {})
+        product = build_product_service(container)
+        pack = product.channel_loop_pack(
+            principal_id=context.principal_id,
+            operator_id=str(context.operator_id or "").strip(),
+        )
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="channel_loop_opened",
+            surface="channel_loop",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+        stats = [
+            {"label": "Memo items", "value": str(int(dict(pack.get("stats") or {}).get("memo_items") or 0))},
+            {"label": "Pending drafts", "value": str(int(dict(pack.get("stats") or {}).get("pending_drafts") or 0))},
+            {"label": "Commitments", "value": str(int(dict(pack.get("stats") or {}).get("open_commitments") or 0))},
+            {"label": "Handoffs", "value": str(int(dict(pack.get("stats") or {}).get("open_handoffs") or 0))},
+            {"label": "Decisions", "value": str(int(dict(pack.get("stats") or {}).get("open_decisions") or 0))},
+        ]
+        return _render_public_template(
+            request,
+            "console_shell.html",
+            **_console_shell_context(
+                request=request,
+                page_title="Executive Assistant Inline Loop",
+                current_nav="today",
+                context=context,
+                console_title=str(pack.get("headline") or "Inline loop"),
+                console_summary=str(pack.get("summary") or "Clear the compact office loop."),
+                nav_groups=APP_NAV_GROUPS,
+                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                cards=[
+                    {
+                        "eyebrow": "Inline loop",
+                        "title": str(pack.get("headline") or "Inline loop"),
+                        "body": str(pack.get("summary") or "Clear the compact office loop."),
+                        "items": list(pack.get("items") or []),
+                    }
+                ],
+                stats=stats,
+            ),
+        )
     core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "settings"}
     if section in core_sections:
         product = build_product_service(container)
@@ -1456,6 +1500,102 @@ def app_shell(
             stats=list(payload["stats"]),
         ),
     )
+
+
+@router.get("/app/channel/drafts/{draft_ref}/approve")
+def app_channel_approve_draft(
+    draft_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/channel-loop").strip() or "/app/channel-loop"
+    reason = str(request.query_params.get("reason") or "Approved from inline loop.").strip() or "Approved from inline loop."
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    approved = product.approve_draft(
+        principal_id=context.principal_id,
+        draft_ref=draft_ref,
+        decided_by=actor,
+        reason=reason,
+    )
+    if approved is None:
+        raise HTTPException(status_code=404, detail="draft_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.get("/app/channel/queue/{item_ref:path}/resolve")
+def app_channel_resolve_queue_item(
+    item_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/channel-loop").strip() or "/app/channel-loop"
+    action = str(request.query_params.get("action") or "resolve").strip() or "resolve"
+    reason = str(request.query_params.get("reason") or "Resolved from inline loop.").strip() or "Resolved from inline loop."
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    updated = product.resolve_queue_item(
+        principal_id=context.principal_id,
+        item_ref=item_ref,
+        action=action,
+        actor=actor,
+        reason=reason,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="queue_item_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.get("/app/channel/handoffs/{handoff_ref:path}/assign")
+def app_channel_assign_handoff(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/channel-loop").strip() or "/app/channel-loop"
+    operator_id = str(request.query_params.get("operator_id") or "").strip() or str(context.operator_id or "").strip() or _default_operator_id_for_browser(container, principal_id=context.principal_id)
+    if not operator_id:
+        raise HTTPException(status_code=409, detail="operator_required")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
+    assigned = product.assign_handoff(
+        principal_id=context.principal_id,
+        handoff_ref=handoff_ref,
+        operator_id=operator_id,
+        actor=actor,
+    )
+    if assigned is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.get("/app/channel/handoffs/{handoff_ref:path}/complete")
+def app_channel_complete_handoff(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/channel-loop").strip() or "/app/channel-loop"
+    resolution = str(request.query_params.get("action") or "completed").strip() or "completed"
+    operator_id = str(request.query_params.get("operator_id") or "").strip() or str(context.operator_id or "").strip() or _default_operator_id_for_browser(container, principal_id=context.principal_id)
+    if not operator_id:
+        raise HTTPException(status_code=409, detail="operator_required")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
+    completed = product.complete_handoff(
+        principal_id=context.principal_id,
+        handoff_ref=handoff_ref,
+        operator_id=operator_id,
+        actor=actor,
+        resolution=resolution,
+    )
+    if completed is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return RedirectResponse(return_to, status_code=303)
 
 
 @router.post("/app/actions/drafts/{draft_ref}")
