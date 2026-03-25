@@ -39,6 +39,7 @@ from app.api.routes.landing_view_models import (
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
+from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
@@ -230,6 +231,12 @@ def _public_context(
     return context
 
 
+def _workspace_plan(container: AppContainer, *, principal_id: str):
+    status = container.onboarding.status(principal_id=principal_id)
+    workspace = dict(status.get("workspace") or {})
+    return workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+
+
 
 def _console_shell_context(
     *,
@@ -263,6 +270,13 @@ def _console_shell_context(
 def _render_public_template(request: Request, template_name: str, **context: Any) -> HTMLResponse:
     context.setdefault("request", request)
     return templates.TemplateResponse(request, template_name, context)
+
+
+def _default_operator_id_for_browser(container: AppContainer, *, principal_id: str) -> str:
+    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
+    if not operators:
+        return ""
+    return str(operators[0].operator_id or "").strip()
 
 
 def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, object]:
@@ -534,13 +548,48 @@ def get_started(
     privacy = dict(status.get("privacy") or {})
     selected_channels = {str(value) for value in (status.get("selected_channels") or []) if str(value).strip()}
     google = dict(channels.get("google") or {})
+    activation_plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+    activation_diagnostics: dict[str, object] = {
+        "plan": {
+            "display_name": activation_plan.display_name,
+            "unit_of_sale": activation_plan.unit_of_sale,
+        },
+        "billing": {
+            "billing_state": activation_plan.billing_state,
+            "support_tier": activation_plan.support_tier,
+            "renewal_owner_role": activation_plan.renewal_owner_role,
+            "contract_note": activation_plan.contract_note,
+        },
+        "entitlements": {
+            "principal_seats": activation_plan.entitlements.principal_seats,
+            "operator_seats": activation_plan.entitlements.operator_seats,
+            "messaging_channels_enabled": activation_plan.entitlements.messaging_channels_enabled,
+            "audit_retention": activation_plan.entitlements.audit_retention,
+            "feature_flags": list(activation_plan.entitlements.feature_flags),
+        },
+        "operators": {
+            "active_count": 0,
+            "seats_used": 0,
+            "seats_remaining": activation_plan.entitlements.operator_seats,
+        },
+        "analytics": {
+            "counts": {},
+        },
+    }
     activation_preview = {
         "brief": (),
         "queue": (),
         "commitments": (),
     }
     if principal_id:
-        snapshot = build_product_service(container).workspace_snapshot(principal_id=principal_id)
+        product = build_product_service(container)
+        snapshot = product.workspace_snapshot(principal_id=principal_id)
+        activation_diagnostics = product.workspace_diagnostics(principal_id=principal_id)
+        product.record_surface_event(
+            principal_id=principal_id,
+            event_type="activation_opened",
+            surface="get_started",
+        )
         activation_preview = {
             "brief": tuple(item.title for item in snapshot.brief_items[:3]),
             "queue": tuple(item.title for item in snapshot.queue_items[:3]),
@@ -563,6 +612,10 @@ def get_started(
                 "selected_channels": selected_channels,
                 "google": google,
                 "activation_preview": activation_preview,
+                "activation_diagnostics": activation_diagnostics,
+                "activation_plan": dict(activation_diagnostics.get("plan") or {}),
+                "activation_billing": dict(activation_diagnostics.get("billing") or {}),
+                "activation_entitlements": dict(activation_diagnostics.get("entitlements") or {}),
                 "shared_browser_fields": _shared_browser_fields(
                     principal_id=principal_id,
                     access_identity=access_identity,
@@ -593,9 +646,19 @@ def person_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    detail = product.get_person_detail(principal_id=context.principal_id, person_id=person_id)
+    detail = product.get_person_detail(
+        principal_id=context.principal_id,
+        person_id=person_id,
+        operator_id=str(context.operator_id or "").strip(),
+    )
     if detail is None:
         raise HTTPException(status_code=404, detail="person_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="people_opened",
+        surface=f"people:{person_id}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
     return _render_public_template(
         request,
         "app/people_detail.html",
@@ -634,12 +697,35 @@ def app_shell(
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     status = container.onboarding.status(principal_id=context.principal_id)
-    core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts"}
+    core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "settings"}
     if section in core_sections:
         product = build_product_service(container)
+        surface_event = {
+            "today": "memo_opened",
+            "briefing": "memo_opened",
+            "inbox": "queue_opened",
+            "follow-ups": "queue_opened",
+            "memory": "people_graph_opened",
+            "contacts": "evidence_opened",
+            "activity": "operator_queue_opened",
+            "settings": "rules_opened",
+        }.get(section)
+        if surface_event:
+            product.record_surface_event(
+                principal_id=context.principal_id,
+                event_type=surface_event,
+                surface=section,
+                actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            )
+        diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
         payload = _workspace_section_payload(
             section,
-            product.workspace_snapshot(principal_id=context.principal_id),
+            product.workspace_snapshot(
+                principal_id=context.principal_id,
+                operator_id=str(context.operator_id or "").strip(),
+            ),
+            diagnostics,
+            operator_id=str(context.operator_id or "").strip(),
         )
     else:
         payload = _app_section_payload(
@@ -664,6 +750,250 @@ def app_shell(
             stats=list(payload["stats"]),
         ),
     )
+
+
+@router.post("/app/actions/drafts/{draft_ref}")
+@router.post("/app/actions/drafts/{draft_ref}/approve")
+async def app_approve_draft(
+    draft_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/inbox")
+    reason = _form_value(body, "reason", "Approved from browser workflow.")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    approved = product.approve_draft(
+        principal_id=context.principal_id,
+        draft_ref=draft_ref,
+        decided_by=actor,
+        reason=reason,
+    )
+    if approved is None:
+        raise HTTPException(status_code=404, detail="draft_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/drafts/{draft_ref}/reject")
+async def app_reject_draft(
+    draft_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/inbox")
+    reason = _form_value(body, "reason", "Rejected from browser workflow.")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    rejected = product.reject_draft(
+        principal_id=context.principal_id,
+        draft_ref=draft_ref,
+        decided_by=actor,
+        reason=reason,
+    )
+    if rejected is None:
+        raise HTTPException(status_code=404, detail="draft_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/queue/{item_ref}")
+@router.post("/app/actions/queue/{item_ref}/resolve")
+async def app_resolve_queue_item(
+    item_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/briefing")
+    action = _form_value(body, "action", "resolve")
+    reason = _form_value(body, "reason", "Resolved from browser workflow.")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    updated = product.resolve_queue_item(
+        principal_id=context.principal_id,
+        item_ref=item_ref,
+        action=action,
+        actor=actor,
+        reason=reason,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="queue_item_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/commitments/create")
+async def app_create_commitment(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    title = _form_value(body, "title", "")
+    if title:
+        product = build_product_service(container)
+        product.create_commitment(
+            principal_id=context.principal_id,
+            title=title,
+            details=_form_value(body, "details", ""),
+            due_at=_form_value(body, "due_at", "") or None,
+            counterparty=_form_value(body, "counterparty", ""),
+            owner="office",
+            kind=_form_value(body, "kind", "follow_up"),
+            stakeholder_id=_form_value(body, "stakeholder_id", ""),
+            channel_hint=_form_value(body, "channel_hint", "email"),
+        )
+    return RedirectResponse(_form_value(body, "return_to", "/app/follow-ups"), status_code=303)
+
+
+@router.post("/app/actions/commitments/extract")
+async def app_extract_commitment(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    source_text = _form_value(body, "source_text", "")
+    if source_text:
+        product = build_product_service(container)
+        product.stage_extracted_commitments(
+            principal_id=context.principal_id,
+            text=source_text,
+            counterparty=_form_value(body, "counterparty", ""),
+            due_at=_form_value(body, "due_at", "") or None,
+            kind=_form_value(body, "kind", "commitment"),
+            stakeholder_id=_form_value(body, "stakeholder_id", ""),
+        )
+    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+
+
+@router.post("/app/actions/commitments/candidates/{candidate_id}/accept")
+async def app_accept_commitment_candidate(
+    candidate_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    product = build_product_service(container)
+    reviewer = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    created = product.accept_commitment_candidate(
+        principal_id=context.principal_id,
+        candidate_id=candidate_id,
+        reviewer=reviewer,
+        title=_form_value(body, "title", ""),
+        details=_form_value(body, "details", ""),
+        due_at=_form_value(body, "due_at", "") or None,
+        counterparty=_form_value(body, "counterparty", ""),
+        kind=_form_value(body, "kind", ""),
+        stakeholder_id=_form_value(body, "stakeholder_id", ""),
+    )
+    if created is None:
+        raise HTTPException(status_code=404, detail="commitment_candidate_not_found")
+    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+
+
+@router.post("/app/actions/commitments/candidates/{candidate_id}/reject")
+async def app_reject_commitment_candidate(
+    candidate_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    product = build_product_service(container)
+    reviewer = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    rejected = product.reject_commitment_candidate(principal_id=context.principal_id, candidate_id=candidate_id, reviewer=reviewer)
+    if rejected is None:
+        raise HTTPException(status_code=404, detail="commitment_candidate_not_found")
+    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+
+
+@router.post("/app/actions/handoffs/{handoff_ref:path}/assign")
+async def app_assign_handoff(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/follow-ups")
+    operator_id = (
+        _form_value(body, "operator_id", "")
+        or str(context.operator_id or "").strip()
+        or _default_operator_id_for_browser(container, principal_id=context.principal_id)
+    )
+    if not operator_id:
+        raise HTTPException(status_code=409, detail="operator_required")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
+    assigned = product.assign_handoff(
+        principal_id=context.principal_id,
+        handoff_ref=handoff_ref,
+        operator_id=operator_id,
+        actor=actor,
+    )
+    if assigned is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/handoffs/{handoff_ref:path}/complete")
+async def app_complete_handoff(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/follow-ups")
+    resolution = _form_value(body, "action", "completed")
+    operator_id = (
+        _form_value(body, "operator_id", "")
+        or str(context.operator_id or "").strip()
+        or _default_operator_id_for_browser(container, principal_id=context.principal_id)
+    )
+    if not operator_id:
+        raise HTTPException(status_code=409, detail="operator_required")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
+    completed = product.complete_handoff(
+        principal_id=context.principal_id,
+        handoff_ref=handoff_ref,
+        operator_id=operator_id,
+        actor=actor,
+        resolution=resolution,
+    )
+    if completed is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/people/{person_id}/correct")
+async def app_correct_person(
+    person_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", f"/app/people/{person_id}")
+    product = build_product_service(container)
+    corrected = product.correct_person_profile(
+        principal_id=context.principal_id,
+        person_id=person_id,
+        preferred_tone=_form_value(body, "preferred_tone", ""),
+        add_theme=_form_value(body, "add_theme", ""),
+        remove_theme=_form_value(body, "remove_theme", ""),
+        add_risk=_form_value(body, "add_risk", ""),
+        remove_risk=_form_value(body, "remove_risk", ""),
+    )
+    if corrected is None:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return RedirectResponse(return_to, status_code=303)
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -759,6 +1089,8 @@ async def setup_telegram(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
+    if not _workspace_plan(container, principal_id=principal_id).entitlements.messaging_channels_enabled:
+        return RedirectResponse("/pricing", status_code=303)
     container.onboarding.start_telegram(
         principal_id=principal_id,
         telegram_ref=_form_value(form_data, "telegram_ref", ""),
@@ -777,6 +1109,8 @@ async def setup_telegram_link_bot(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
+    if not _workspace_plan(container, principal_id=principal_id).entitlements.messaging_channels_enabled:
+        return RedirectResponse("/pricing", status_code=303)
     container.onboarding.link_telegram_bot(
         principal_id=principal_id,
         bot_handle=_form_value(form_data, "bot_handle", ""),
@@ -794,6 +1128,8 @@ async def setup_whatsapp_business(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
+    if not _workspace_plan(container, principal_id=principal_id).entitlements.messaging_channels_enabled:
+        return RedirectResponse("/pricing", status_code=303)
     container.onboarding.start_whatsapp_business(
         principal_id=principal_id,
         phone_number=_form_value(form_data, "phone_number", ""),
@@ -811,6 +1147,8 @@ async def setup_whatsapp_export(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
+    if not _workspace_plan(container, principal_id=principal_id).entitlements.messaging_channels_enabled:
+        return RedirectResponse("/pricing", status_code=303)
     chats = tuple(chunk.strip() for chunk in _form_value(form_data, "selected_chat_labels_csv", "").split(",") if chunk.strip())
     container.onboarding.import_whatsapp_export(
         principal_id=principal_id,
@@ -904,4 +1242,49 @@ def google_oauth_browser_callback(
         principal_id=account.binding.principal_id,
         account=account,
         scopes=list(account.granted_scopes),
+    )
+
+
+@router.get("/app/commitments/candidates/{candidate_id}", response_class=HTMLResponse)
+def commitment_candidate_review(
+    candidate_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    candidate = product.get_commitment_candidate(principal_id=context.principal_id, candidate_id=candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="commitment_candidate_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="commitment_candidate_opened",
+        surface=f"candidate:{candidate_id}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_public_template(
+        request,
+        "app/commitment_candidate_review.html",
+        **{
+            **_console_shell_context(
+                request=request,
+                page_title=f"Executive Assistant Review {candidate.title}",
+                current_nav="inbox",
+                context=context,
+                console_title="Review extracted commitment",
+                console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",
+                nav_groups=APP_NAV_GROUPS,
+                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                cards=[],
+                stats=[
+                    {"label": "Confidence", "value": f"{int(candidate.confidence * 100)}%"},
+                    {"label": "Counterparty", "value": candidate.counterparty or "None"},
+                    {"label": "Suggested due", "value": candidate.suggested_due_at[:10] if candidate.suggested_due_at else "Open"},
+                    {"label": "Status", "value": candidate.status.title()},
+                ],
+            ),
+            "candidate": candidate,
+        },
     )

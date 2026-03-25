@@ -33,6 +33,41 @@
   .detail-meta {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
+  .detail-form {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .detail-form-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .detail-form label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .detail-form input {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .detail-form button {
+    width: fit-content;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font: inherit;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
   .detail-meta-card span {
     display: block;
     color: var(--text-dim);
@@ -163,6 +198,32 @@
         <div class="detail-tag">Proof</div>
       </div>
     </div>
+    <form class="detail-form" method="post" action="/app/actions/people/{{ person.id }}/correct">
+      <input type="hidden" name="return_to" value="/app/people/{{ person.id }}">
+      <div>
+        <label for="preferred_tone">Preferred tone</label>
+        <input id="preferred_tone" name="preferred_tone" value="{{ person.preferred_tone or '' }}" placeholder="direct">
+      </div>
+      <div class="detail-form-grid">
+        <div>
+          <label for="add_theme">Add theme</label>
+          <input id="add_theme" name="add_theme" placeholder="board packet">
+        </div>
+        <div>
+          <label for="remove_theme">Remove theme</label>
+          <input id="remove_theme" name="remove_theme" placeholder="old theme">
+        </div>
+        <div>
+          <label for="add_risk">Add risk</label>
+          <input id="add_risk" name="add_risk" placeholder="travel coordination">
+        </div>
+        <div>
+          <label for="remove_risk">Remove risk</label>
+          <input id="remove_risk" name="remove_risk" placeholder="old risk">
+        </div>
+      </div>
+      <button type="submit">Update relationship memory</button>
+    </form>
   </aside>
 </section>
 
@@ -246,6 +307,32 @@
   </section>
 
   <section class="detail-section">
+    <div class="detail-kicker">Handoffs</div>
+    <h2>Open handoffs</h2>
+    <div class="detail-list">
+      {% if detail.handoffs %}
+        {% for item in detail.handoffs %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ item.summary }}</strong>
+            <small>{{ item.owner }}{% if item.due_time %} · due {{ item.due_time[:10] }}{% endif %}{% if item.evidence_refs %} · {{ item.evidence_refs[0].note }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">{{ item.escalation_status|title }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No active handoffs</strong>
+            <small>No current human tasks are attached to this relationship.</small>
+          </div>
+          <div class="detail-tag">Clear</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
     <div class="detail-kicker">Evidence</div>
     <h2>Why the product surfaced this person</h2>
     <div class="detail-list">
@@ -264,6 +351,32 @@
           <div>
             <strong>No evidence refs yet</strong>
             <small>This relationship is present, but no explicit evidence refs have been projected yet.</small>
+          </div>
+          <div class="detail-tag">Empty</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <div class="detail-kicker">History</div>
+    <h2>Recent relationship history</h2>
+    <div class="detail-list">
+      {% if detail.history %}
+        {% for item in detail.history %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ item.event_type|replace('_', ' ')|title }}</strong>
+            <small>{{ item.created_at[:19] if item.created_at else 'Unknown time' }}{% if item.actor %} · {{ item.actor }}{% endif %}{% if item.detail %} · {{ item.detail }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">Event</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No recent relationship history</strong>
+            <small>The product has not recorded relationship-specific events for this person yet.</small>
           </div>
           <div class="detail-tag">Empty</div>
         </div>

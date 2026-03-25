@@ -1,0 +1,209 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .review-grid,
+  .review-meta,
+  .review-list {
+    display: grid;
+    gap: 14px;
+  }
+  .review-grid {
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  }
+  .review-panel,
+  .review-meta-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+    padding: 18px;
+  }
+  .review-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .review-copy {
+    color: var(--text-soft);
+  }
+  .review-meta {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    margin-top: 14px;
+  }
+  .review-meta-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .review-meta-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.1rem;
+  }
+  .review-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .review-field-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .review-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .review-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .review-form input,
+  .review-form textarea,
+  .review-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .review-form textarea {
+    min-height: 140px;
+    resize: vertical;
+  }
+  .review-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .review-button,
+  .review-link {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    padding: 9px 14px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .review-list {
+    margin-top: 14px;
+  }
+  .review-row {
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+    padding-bottom: 10px;
+  }
+  .review-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .review-row strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .review-row small {
+    color: var(--text-dim);
+  }
+  @media (max-width: 1080px) {
+    .review-grid,
+    .review-field-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="review-grid">
+  <section class="review-panel">
+    <div class="review-kicker">Commitment review</div>
+    <h1>{{ candidate.title }}</h1>
+    <p class="review-copy">Edit this extracted item before it becomes part of the commitment ledger. The goal is to keep the office loop precise, not to preserve raw capture text.</p>
+
+    <div class="review-meta">
+      <div class="review-meta-card">
+        <span>Confidence</span>
+        <strong>{{ (candidate.confidence * 100)|round(0)|int }}%</strong>
+      </div>
+      <div class="review-meta-card">
+        <span>Counterparty</span>
+        <strong>{{ candidate.counterparty or "None" }}</strong>
+      </div>
+      <div class="review-meta-card">
+        <span>Suggested due</span>
+        <strong>{{ candidate.suggested_due_at[:10] if candidate.suggested_due_at else "Open" }}</strong>
+      </div>
+      <div class="review-meta-card">
+        <span>Status</span>
+        <strong>{{ candidate.status|title }}</strong>
+      </div>
+    </div>
+
+    <form class="review-form" method="post" action="/app/actions/commitments/candidates/{{ candidate.candidate_id }}/accept">
+      <input type="hidden" name="return_to" value="/app/follow-ups">
+      <label class="review-field">
+        <span>Title</span>
+        <input id="candidate_title" name="title" value="{{ candidate.title }}" required>
+      </label>
+      <label class="review-field">
+        <span>Details</span>
+        <textarea id="candidate_details" name="details">{{ candidate.details }}</textarea>
+      </label>
+      <div class="review-field-grid">
+        <label class="review-field">
+          <span>Counterparty</span>
+          <input id="candidate_counterparty" name="counterparty" value="{{ candidate.counterparty }}" placeholder="Sofia N.">
+        </label>
+        <label class="review-field">
+          <span>Due at</span>
+          <input id="candidate_due_at" name="due_at" value="{{ candidate.suggested_due_at or '' }}" placeholder="2026-03-26T09:00:00+00:00">
+        </label>
+        <label class="review-field">
+          <span>Kind</span>
+          <select id="candidate_kind" name="kind">
+            <option value="">Use staged kind</option>
+            <option value="commitment">Commitment</option>
+            <option value="follow_up">Follow-up</option>
+          </select>
+        </label>
+      </div>
+      <div class="review-actions">
+        <button class="review-button" type="submit">Accept into commitment ledger</button>
+        <a class="review-link" href="/app/inbox">Back to inbox</a>
+      </div>
+    </form>
+  </section>
+
+  <aside class="review-panel">
+    <div class="review-kicker">Source note</div>
+    <h2>Why the product extracted this item</h2>
+    <p class="review-copy">Use the source text to correct names, due dates, or ownership before this becomes real office work.</p>
+    <div class="review-list">
+      <div class="review-row">
+        <strong>Source text</strong>
+        <small>{{ candidate.source_text or "No source text stored." }}</small>
+      </div>
+      <div class="review-row">
+        <strong>Drafted commitment</strong>
+        <small>{{ candidate.details or candidate.title }}</small>
+      </div>
+      <div class="review-row">
+        <strong>Review standard</strong>
+        <small>Only promote this if the wording, owner, and timing are clear enough to survive the day without more interpretation.</small>
+      </div>
+      <div class="review-row">
+        <strong>Alternative path</strong>
+        <small>If the candidate is weak, go back to the inbox and reject it instead of carrying vague work into the ledger.</small>
+      </div>
+    </div>
+  </aside>
+</section>
+{% endblock %}

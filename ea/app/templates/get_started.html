@@ -272,11 +272,12 @@
         <div class="label">Step 2</div>
         <strong>Connect Google</strong>
       </div>
-      <div class="summary">
-        <div class="label">Step 3</div>
-        <strong>Prove one real loop</strong>
-      </div>
+    <div class="summary">
+      <div class="label">Step 3</div>
+      <strong>Review rules and open the memo</strong>
     </div>
+  </div>
+  <p class="copy">Add channels later. The first activation goal is a useful memo, a visible queue, and one real follow-up.</p>
   </div>
 
   <aside class="panel onboarding-side">
@@ -296,6 +297,17 @@
     <div class="callout">
       <strong>Executive support</strong>
       Heavier stakeholder traffic, more approvals, and more follow-up pressure around one executive.
+    </div>
+    <div class="callout">
+      <strong>Current plan posture</strong>
+      <div class="copy">{{ activation_plan.display_name or 'Pilot' }} · {{ activation_billing.billing_state or 'trial' }} · {{ activation_billing.support_tier or 'guided' }} support</div>
+      <div class="copy">
+        {% if activation_entitlements.messaging_channels_enabled %}
+        Messaging can be added later, but it is already included in this plan.
+        {% else %}
+        Messaging is not included in this plan yet. Prove the Google loop first, then widen scope only if needed.
+        {% endif %}
+      </div>
     </div>
     <div class="callout">
       <strong>What the first useful loop should reveal</strong>
@@ -329,12 +341,8 @@
       <span>Get to the first useful memo as quickly as possible.</span>
     </button>
     <button class="wizard-step-button" type="button" data-step-trigger="3">
-      <strong>3. Add channels later</strong>
-      <span>Only add Telegram or WhatsApp after the first proof loop works.</span>
-    </button>
-    <button class="wizard-step-button" type="button" data-step-trigger="4">
-      <strong>4. Rules after first value</strong>
-      <span>Only then tune drafts, recommendations, retention, and stored context.</span>
+      <strong>3. Rules after first value</strong>
+      <span>Confirm the first loop, add channels later, and only then tune drafts, retention, and automation.</span>
     </button>
   </aside>
 
@@ -496,15 +504,41 @@
       <div class="wizard-panel-header">
         <div>
           <div class="eyebrow">Step 3</div>
-          <h2>Add channels later, not before value exists.</h2>
+          <h2>Review rules after first value, and add channels later.</h2>
         </div>
-        <p class="step-context">This is no longer part of first-run activation. Add channels only after the memo, draft queue, and commitment loop are already useful with Google.</p>
+        <p class="step-context">This final step should confirm the first loop: memo, queue, commitments, and review posture. Keep channels narrow until the Google-backed office loop is already useful.</p>
+      </div>
+
+      <div class="finish-grid">
+        <div class="finish-card">
+          <strong>What the first useful loop should reveal</strong>
+          {% if activation_preview.brief %}
+          <p class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</p>
+          {% else %}
+          <p class="copy">Memo: connect Google, surface the first three items, and keep the scope narrow.</p>
+          {% endif %}
+          {% if activation_preview.queue %}
+          <p class="copy">Queue: {{ activation_preview.queue|join(' · ') }}</p>
+          {% else %}
+          <p class="copy">Queue: get to one approval or decision that feels real.</p>
+          {% endif %}
+        </div>
+        <div class="finish-card">
+          <strong>Rules after first value</strong>
+          <p class="copy">Start with reviewable drafts and suggestions. Change retention or automation depth only after the first memo and handoff loop feel credible.</p>
+        </div>
       </div>
 
       <div class="path-grid">
         <section class="path-card">
           <strong>Telegram later</strong>
-          <p class="copy">Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.</p>
+          <p class="copy">
+            {% if activation_entitlements.messaging_channels_enabled %}
+            Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.
+            {% else %}
+            Telegram is intentionally out of scope on the current plan. Prove the Google loop first before widening channels.
+            {% endif %}
+          </p>
           <div class="wizard-actions">
             <div class="right">
               <a class="btn" href="/integrations/telegram">Review Telegram options</a>
@@ -514,7 +548,13 @@
 
         <section class="path-card">
           <strong>WhatsApp later</strong>
-          <p class="copy">Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.</p>
+          <p class="copy">
+            {% if activation_entitlements.messaging_channels_enabled %}
+            Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.
+            {% else %}
+            WhatsApp is not part of the current plan. Keep the first proof loop inside Gmail and Calendar.
+            {% endif %}
+          </p>
           <div class="wizard-actions">
             <div class="right">
               <a class="btn" href="/integrations/whatsapp">Review WhatsApp options</a>
@@ -537,41 +577,22 @@
           <p class="copy">If the first memo does not feel useful, use workspace diagnostics before adding more channels.</p>
           <div class="wizard-actions">
             <div class="right">
-              <a class="btn" href="/api/docs">Inspect product diagnostics</a>
+              <a class="btn" href="/app/settings">Open workspace diagnostics</a>
             </div>
           </div>
         </section>
-      </div>
-
-      <div class="wizard-actions">
-        <button class="btn ghost" type="button" data-step-back="2">Back</button>
-        <div class="right">
-          <button class="btn primary" type="button" data-step-next="4">Continue</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel wizard-panel" data-step-panel="4">
-      <div class="wizard-panel-header">
-        <div>
-          <div class="eyebrow">Step 4</div>
-          <h2>Choose simple rules and start.</h2>
-        </div>
-        <p class="step-context">Most customers should allow drafts and action suggestions first. Deeper retention and metadata choices can be configured once the first memo and handoff loop are already useful.</p>
-      </div>
-
-      <div class="finish-grid">
-        <div class="finish-card">
+        <section class="path-card">
           <strong>Recommended starting point</strong>
-          Allow drafts and suggestions, keep sensitive actions reviewable, and avoid over-configuring the workspace before the first memo is visible.
-        </div>
-        <div class="finish-card">
-          <strong>Refine later</strong>
-          Once the assistant is already useful, adjust retention, metadata-only channels, and automation depth based on actual use instead of guesswork.
-        </div>
+          <p class="copy">Allow drafts and suggestions, keep sensitive actions reviewable, and avoid over-configuring the workspace before the first memo is visible.</p>
+        </section>
+
+        <section class="path-card">
+          <strong>Commercial boundary</strong>
+          <p class="copy">{{ activation_plan.display_name or 'Pilot' }} includes {{ activation_entitlements.operator_seats or 0 }} operator seat{% if (activation_entitlements.operator_seats or 0) != 1 %}s{% endif %}, {{ activation_entitlements.audit_retention or 'standard' }} audit retention, and {{ activation_billing.support_tier or 'guided' }} support.</p>
+        </section>
       </div>
 
-      <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="4">
+      <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="3">
         {{ shared_browser_fields|safe }}
         <div class="check-grid">
           <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare replies for review before anything is sent.</span></label>
@@ -598,7 +619,7 @@
         </details>
 
         <div class="wizard-actions">
-          <button class="btn ghost" type="button" data-step-back="3">Back</button>
+          <button class="btn ghost" type="button" data-step-back="2">Back</button>
           <div class="right">
             <button class="btn primary" type="submit">Finish setup and open the morning memo</button>
           </div>

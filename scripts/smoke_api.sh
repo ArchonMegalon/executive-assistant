@@ -131,6 +131,10 @@ operator_post_json() {
   operator_curl -X POST "$@"
 }
 
+curl -fsS -X POST "${BASE}/v1/onboarding/start" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" \
+  -H 'content-type: application/json' \
+  -d '{"workspace_name":"Smoke Workspace","workspace_mode":"executive_ops","region":"AT","language":"en","timezone":"Europe/Vienna","selected_channels":["google"]}' >/dev/null
+
 ensure_operator_profile() {
   local operator_id="$1"
   local role="$2"
@@ -2090,8 +2094,24 @@ if [[ "${DISPATCH_MEMORY_PLAN_FIELDS}" != "5|step_input_prepare,step_artifact_sa
   echo "${DISPATCH_MEMORY_PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"task_key\":\"stakeholder_dispatch_memory_candidate\",\"goal\":\"prepare, send, and stage stakeholder follow-up memory\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_MEMORY_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"${DISPATCH_MEMORY_RECIPIENT}\"}}")"
+dispatch_memory_execute_json() {
+  local body=""
+  local fields=""
+  local i
+  for i in $(seq 1 4); do
+    body="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+      -d "{\"task_key\":\"stakeholder_dispatch_memory_candidate\",\"goal\":\"prepare, send, and stage stakeholder follow-up memory\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_MEMORY_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"${DISPATCH_MEMORY_RECIPIENT}\"}}")"
+    fields="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${body}")"
+    if [[ "${fields}" == "stakeholder_dispatch_memory_candidate|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+      printf '%s' "${body}"
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf '%s' "${body}"
+  return 1
+}
+DISPATCH_MEMORY_EXECUTE_JSON="$(dispatch_memory_execute_json)" || true
 DISPATCH_MEMORY_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${DISPATCH_MEMORY_EXECUTE_JSON}")"
 if [[ "${DISPATCH_MEMORY_EXECUTE_FIELDS}" != "stakeholder_dispatch_memory_candidate|awaiting_approval|poll_or_subscribe|True|True" ]]; then
   echo "expected dispatch-memory workflow to pause behind approval; got ${DISPATCH_MEMORY_EXECUTE_FIELDS}" >&2
@@ -2152,8 +2172,24 @@ if [[ "${DISPATCH_MEMORY_REVIEW_PLAN_FIELDS}" != "6|step_input_prepare,step_huma
   echo "${DISPATCH_MEMORY_REVIEW_PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_REVIEW_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d "{\"task_key\":\"stakeholder_review_dispatch_memory_candidate\",\"goal\":\"review, send, and stage stakeholder follow-up memory\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_MEMORY_REVIEW_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"${DISPATCH_MEMORY_REVIEW_RECIPIENT}\"}}")"
+dispatch_memory_review_execute_json() {
+  local body=""
+  local fields=""
+  local i
+  for i in $(seq 1 4); do
+    body="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+      -d "{\"task_key\":\"stakeholder_review_dispatch_memory_candidate\",\"goal\":\"review, send, and stage stakeholder follow-up memory\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${DISPATCH_MEMORY_REVIEW_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"${DISPATCH_MEMORY_REVIEW_RECIPIENT}\"}}")"
+    fields="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('human_task_id','')), bool(body.get('session_id','')), bool(body.get('approval_id',''))))" <<<"${body}")"
+    if [[ "${fields}" == "stakeholder_review_dispatch_memory_candidate|awaiting_human|poll_or_subscribe|True|True|False" ]]; then
+      printf '%s' "${body}"
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf '%s' "${body}"
+  return 1
+}
+DISPATCH_MEMORY_REVIEW_EXECUTE_JSON="$(dispatch_memory_review_execute_json)" || true
 DISPATCH_MEMORY_REVIEW_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('human_task_id','')), bool(body.get('session_id','')), bool(body.get('approval_id',''))))" <<<"${DISPATCH_MEMORY_REVIEW_EXECUTE_JSON}")"
 if [[ "${DISPATCH_MEMORY_REVIEW_EXECUTE_FIELDS}" != "stakeholder_review_dispatch_memory_candidate|awaiting_human|poll_or_subscribe|True|True|False" ]]; then
   echo "expected review-dispatch-memory workflow to pause behind human review first; got ${DISPATCH_MEMORY_REVIEW_EXECUTE_FIELDS}" >&2

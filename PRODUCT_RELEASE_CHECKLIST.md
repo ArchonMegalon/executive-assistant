@@ -1,51 +1,51 @@
 # Executive Assistant Product Release Checklist
 
-Use this in addition to the runtime release checklist.
-
 ## Activation
 
-- `/get-started` reaches Google-first activation without forcing messaging setup
-- the first memo preview is visible before advanced channel setup
-- sign-in and callback flows land on the correct product domain
+- `/` renders the current product promise without legacy or side-brand drift.
+- `/get-started` leads with Google-first activation.
+- a new workspace can reach first value without configuring messaging channels.
+- the first useful loop is visible:
+  - memo
+  - one draft
+  - one follow-up
+  - one trust receipt
 
-## Core daily loop
+## Core workspace
 
-- `/app/today` renders real memo items
-- `/app/briefing` renders real queue items
-- `/app/inbox` renders commitments and draft approvals
-- `/app/follow-ups` renders handoffs and open follow-up work
+- `/app/today` renders real memo, queue, commitment, and people objects.
+- `/app/briefing` renders the decision queue and memo context from product objects.
+- `/app/inbox` renders reviewable drafts and open commitments, not placeholder cards.
+- `/app/follow-ups` renders open handoffs and unresolved commitments.
+- `/app/people/{id}` renders relationship context, open loops, drafts, and evidence.
 
-## Product APIs
+## Workflows
 
-- `/app/api/brief`
-- `/app/api/queue`
-- `/app/api/commitments`
-- `/app/api/drafts`
-- `/app/api/people`
-- `/app/api/handoffs`
-- `/app/api/diagnostics`
+- one draft can be approved from the browser.
+- one commitment can be closed from the browser.
+- one handoff can be assigned and completed through product routes.
+- one commitment candidate can be extracted from raw text and converted into a saved item.
+- one people-graph correction can be applied and reflected on reload.
 
-All return contract-valid payloads for seeded fixture workspaces.
+## Trust and operations
 
-## Approvals and commitments
+- approvals remain explainable through evidence and rule posture.
+- admin audit surface renders without leaking internal implementation vocabulary.
+- operator-only admin surfaces remain unavailable outside operator context.
+- diagnostics and entitlements return stable product contracts.
 
-- one approval can be completed through the product API
-- one commitment can be closed through the product API
-- the browser pages re-render the changed state
+## Boundary
 
-## Admin
+- public tours are off in product mode.
+- public results are off in product mode.
+- no public nav item links to experimental or legacy surfaces.
+- browser contract tests fail if `chummer`, `gm_creator_ops`, `principal_id`, or `operator_id` leak into rendered product pages.
 
-- `/admin/providers` shows live provider registry state
-- `/admin/audit-trail` shows approval/delivery posture
-- `/admin/operators` shows operator and task pressure
+## Automated gates
 
-## Browser QA
+- browser surface contracts pass.
+- product API contracts pass.
+- product entitlement contracts pass.
+- real browser E2E passes.
+- runtime smoke passes.
 
-- browser contract tests pass
-- product browser journey tests pass
-- public routes and app routes return `200`
-
-## Runtime
-
-- `bash scripts/smoke_api.sh` returns `smoke complete`
-- deployment health and OpenAPI checks are green

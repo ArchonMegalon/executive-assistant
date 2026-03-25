@@ -3,10 +3,47 @@ from __future__ import annotations
 from typing import Any
 
 from app.container import AppContainer
+from app.product.service import build_product_service
 
 
-def _row(title: str, detail: str, tag: str) -> dict[str, str]:
-    return {"title": title, "detail": detail, "tag": tag}
+def _row(
+    title: str,
+    detail: str,
+    tag: str,
+    *,
+    action_href: str = "",
+    action_label: str = "",
+    action_value: str = "",
+    action_method: str = "",
+    return_to: str = "",
+    secondary_action_href: str = "",
+    secondary_action_label: str = "",
+    secondary_action_value: str = "",
+    secondary_action_method: str = "",
+    secondary_return_to: str = "",
+) -> dict[str, str]:
+    row = {"title": title, "detail": detail, "tag": tag}
+    if action_href:
+        row["action_href"] = action_href
+    if action_label:
+        row["action_label"] = action_label
+    if action_value:
+        row["action_value"] = action_value
+    if action_method:
+        row["action_method"] = action_method
+    if return_to:
+        row["return_to"] = return_to
+    if secondary_action_href:
+        row["secondary_action_href"] = secondary_action_href
+    if secondary_action_label:
+        row["secondary_action_label"] = secondary_action_label
+    if secondary_action_value:
+        row["secondary_action_value"] = secondary_action_value
+    if secondary_action_method:
+        row["secondary_action_method"] = secondary_action_method
+    if secondary_return_to:
+        row["secondary_return_to"] = secondary_return_to
+    return row
 
 
 def _humanize(value: str) -> str:
@@ -34,9 +71,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     readiness_state = "ready" if readiness_ok else "attention"
     status = container.onboarding.status(principal_id=principal_id)
     privacy = dict(status.get("privacy") or {})
+    diagnostics = build_product_service(container).workspace_diagnostics(principal_id=principal_id)
     approvals = container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=8)
     approval_history = container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=8)
     human_tasks = container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=8)
+    returned_human_tasks = container.orchestrator.list_human_tasks(principal_id=principal_id, status="returned", limit=8)
     task_summary = container.orchestrator.summarize_human_task_priorities(principal_id=principal_id, status="pending")
     operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=8)
     pending_delivery = container.channel_runtime.list_pending_delivery(limit=8, principal_id=principal_id)
@@ -124,8 +163,33 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             )
             or "Human task remains open.",
             "Task",
+            action_href=f"/app/actions/handoffs/human_task:{getattr(row, 'human_task_id', '')}/assign",
+            action_label="Claim",
+            action_value="assign",
+            return_to="/admin/operators",
+            secondary_action_href=f"/app/actions/handoffs/human_task:{getattr(row, 'human_task_id', '')}/complete",
+            secondary_action_label="Complete",
+            secondary_action_value="completed",
+            secondary_return_to="/admin/operators",
         )
         for row in human_tasks
+    ]
+    returned_task_rows = [
+        _row(
+            str(getattr(row, "brief", "") or "Returned handoff"),
+            " · ".join(
+                part
+                for part in (
+                    getattr(row, "assigned_operator_id", "") or getattr(row, "role_required", ""),
+                    getattr(row, "resolution", ""),
+                    getattr(row, "updated_at", "")[:10] if getattr(row, "updated_at", None) else "",
+                )
+                if str(part or "").strip()
+            )
+            or "Returned handoff is recorded.",
+            "Returned",
+        )
+        for row in returned_human_tasks
     ]
     delivery_rows = [
         _row(
@@ -151,6 +215,103 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Retention", _humanize(str(privacy.get("retention_mode") or "not set")).title(), "Policy"),
     ]
     operator_rows = _operator_rows(operators)
+    diagnostics_workspace = dict(diagnostics.get("workspace") or {})
+    diagnostics_plan = dict(diagnostics.get("plan") or {})
+    diagnostics_billing = dict(diagnostics.get("billing") or {})
+    diagnostics_commercial = dict(diagnostics.get("commercial") or {})
+    diagnostics_entitlements = dict(diagnostics.get("entitlements") or {})
+    diagnostics_usage = dict(diagnostics.get("usage") or {})
+    diagnostics_readiness = dict(diagnostics.get("readiness") or {})
+    diagnostics_provider = dict(diagnostics.get("providers") or {})
+    diagnostics_operator = dict(diagnostics.get("operators") or {})
+    diagnostics_analytics = dict(diagnostics.get("analytics") or {})
+    analytics_counts = dict(diagnostics_analytics.get("counts") or {})
+    diagnostics_channels = list(diagnostics.get("selected_channels") or [])
+    workspace_rows = [
+        _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
+        _row("Mode", _humanize(str(diagnostics_workspace.get("mode") or "personal")).title(), "Workspace"),
+        _row("Region", str(diagnostics_workspace.get("region") or "Not set"), "Workspace"),
+        _row("Timezone", str(diagnostics_workspace.get("timezone") or "Not set"), "Workspace"),
+        _row(
+            "Channels",
+            ", ".join(str(value) for value in diagnostics_channels) if diagnostics_channels else "Google-first path not connected yet.",
+            "Workspace",
+        ),
+    ]
+    entitlement_rows = [
+        _row("Workspace plan", str(diagnostics_plan.get("display_name") or "Pilot"), "Plan"),
+        _row("Unit of sale", str(diagnostics_plan.get("unit_of_sale") or "workspace"), "Plan"),
+        _row("Principal seats", str(diagnostics_entitlements.get("principal_seats") or 0), "Entitlement"),
+        _row("Operator seats", str(diagnostics_entitlements.get("operator_seats") or 0), "Entitlement"),
+        _row("Seats used", str(diagnostics_operator.get("seats_used") or 0), "Entitlement"),
+        _row("Seats remaining", str(diagnostics_operator.get("seats_remaining") or 0), "Entitlement"),
+        _row(
+            "Messaging channels",
+            "enabled" if diagnostics_entitlements.get("messaging_channels_enabled") else "not included",
+            "Entitlement",
+        ),
+        _row("Audit retention", str(diagnostics_entitlements.get("audit_retention") or "standard"), "Entitlement"),
+        _row(
+            "Feature flags",
+            ", ".join(str(value).replace("_", " ") for value in (diagnostics_entitlements.get("feature_flags") or [])[:8]) or "No enabled feature flags",
+            "Entitlement",
+        ),
+    ]
+    billing_rows = [
+        _row("Billing state", str(diagnostics_billing.get("billing_state") or "unknown"), "Billing"),
+        _row("Support tier", str(diagnostics_billing.get("support_tier") or "standard"), "Billing"),
+        _row("Renewal owner", _humanize(str(diagnostics_billing.get("renewal_owner_role") or "principal")).title(), "Billing"),
+        _row("Contract note", str(diagnostics_billing.get("contract_note") or "Workspace contract posture is not set."), "Billing"),
+    ]
+    support_rows = [
+        _row("Workspace readiness", str(diagnostics_readiness.get("detail") or readiness_label), readiness_state.title()),
+        _row("Active operators", str(diagnostics_operator.get("active_count") or 0), "Support"),
+        _row("Configured providers", str(diagnostics_provider.get("provider_count") or 0), "Support"),
+        _row("Routing lanes", str(diagnostics_provider.get("lane_count") or 0), "Support"),
+        _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
+        _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
+        _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),
+        _row("People", str(diagnostics_usage.get("people") or 0), "Usage"),
+        _row(
+            "Workspace diagnostics bundle",
+            "Export support-ready workspace bundle",
+            "Bundle",
+            action_href="/app/api/diagnostics/export",
+            action_label="Open bundle",
+            action_method="get",
+        ),
+    ]
+    analytics_rows = [
+        _row("Draft approvals", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
+        _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
+        _row("Commitments created", str(analytics_counts.get("commitment_created") or 0), "Analytics"),
+        _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics"),
+        _row("Handoffs completed", str(analytics_counts.get("handoff_completed") or 0), "Analytics"),
+        _row("Memory corrections", str(analytics_counts.get("memory_corrected") or 0), "Analytics"),
+        _row("First value event", _humanize(str(diagnostics_analytics.get("first_value_event") or "not_reached")).title(), "Analytics"),
+        _row("Time to first value", str(diagnostics_analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
+    ]
+    warning_rows = [
+        _row(str(value), "Commercial or support warning from the current workspace posture.", "Warning")
+        for value in list(diagnostics_commercial.get("warnings") or [])[:8]
+        if str(value).strip()
+    ]
+    recent_event_rows = [
+        _row(
+            _humanize(str(event.get("event_type") or "event")).title(),
+            " · ".join(
+                part
+                for part in (
+                    str(event.get("created_at") or "")[:19],
+                    str(event.get("source_id") or "").strip(),
+                )
+                if str(part or "").strip()
+            )
+            or "Recent product event.",
+            "Event",
+        )
+        for event in list(diagnostics_analytics.get("recent_events") or [])[:8]
+    ]
 
     mapping: dict[str, dict[str, object]] = {
         "policies": {
@@ -191,6 +352,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 {"eyebrow": "Operator roster", "title": "Active operators", "items": operator_rows or [_row("No active operators", "No active operator profiles are configured for this principal.", "Empty")]},
                 {"eyebrow": "Queue load", "title": "Pending human work", "items": task_rows or [_row("No pending human tasks", "The operator queue is clear.", "Clear")]},
                 {
+                    "eyebrow": "Recently completed",
+                    "title": "Returned handoffs",
+                    "items": returned_task_rows or [_row("No returned handoffs", "No completed operator handoffs have been recorded yet.", "Clear")],
+                },
+                {
                     "eyebrow": "Work summary",
                     "title": "Priority counts",
                     "items": [
@@ -202,12 +368,14 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "api": {
-            "title": "API",
-            "summary": "Product-facing and runtime-facing endpoints that are active in this deployment.",
+            "title": "Diagnostics",
+            "summary": "Plan, readiness, usage, and support posture for the current workspace deployment.",
             "cards": [
-                {"eyebrow": "Product API", "title": "Workspace objects", "items": [_row("/app/api/brief", "Morning memo projection", "Route"), _row("/app/api/queue", "Decision queue projection", "Route"), _row("/app/api/commitments", "Commitment ledger projection", "Route")]},
-                {"eyebrow": "Runtime API", "title": "Control plane", "items": [_row("/v1/providers/states", "Provider health and bindings", "Route"), _row("/v1/human/tasks", "Human task runtime", "Route"), _row("/v1/delivery/outbox/pending", "Pending delivery queue", "Route")]},
-                {"eyebrow": "Readiness", "title": "Deployment state", "items": [_row("Runtime readiness", readiness_label, readiness_state.title())]},
+                {"eyebrow": "Workspace", "title": "Workspace posture", "items": workspace_rows},
+                {"eyebrow": "Plan and entitlements", "title": "Commercial boundary", "items": entitlement_rows + billing_rows},
+                {"eyebrow": "Support view", "title": "What support can inspect quickly", "items": support_rows + analytics_rows},
+                {"eyebrow": "Warnings", "title": "What needs attention before support is surprised", "items": warning_rows or [_row("No current warnings", "Commercial and support posture are aligned with the current workspace.", "Clear")]},
+                {"eyebrow": "Recent product events", "title": "What the office loop is actually doing", "items": recent_event_rows or [_row("No recent product events", "The product event stream is still empty.", "Empty")]},
             ],
         },
     }
