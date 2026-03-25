@@ -104,6 +104,15 @@ def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, st
         closes_at="2026-03-25T11:00:00+00:00",
         urgency="high",
         authority_required="principal",
+        source_json={
+            "decision_type": "owner_assignment",
+            "options": ["operator-office", "principal"],
+            "recommended_option": "operator-office",
+            "next_action": "Escalate the current recommendation to the principal and confirm the board packet owner.",
+            "commitment_refs": [f"commitment:{commitment.commitment_id}", f"follow_up:{follow_up.follow_up_id}"],
+            "people": ["Sofia N."],
+            "thread_refs": [session.session_id],
+        },
     )
     deadline = container.memory_runtime.upsert_deadline_window(
         principal_id=principal_id,

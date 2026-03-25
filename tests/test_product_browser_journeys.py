@@ -205,6 +205,9 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Decision queue" in decision_page.text
     assert "Impact" in decision_page.text
     assert "SLA" in decision_page.text
+    assert "Next action" in decision_page.text
+    assert "Recent decision history" in decision_page.text
+    assert "Related threads" in decision_page.text
 
     threads = client.get("/app/api/threads")
     assert threads.status_code == 200

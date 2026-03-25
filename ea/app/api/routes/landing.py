@@ -834,6 +834,7 @@ def decision_detail(
     decision = product.get_decision(principal_id=context.principal_id, decision_ref=decision_ref)
     if decision is None:
         raise HTTPException(status_code=404, detail="decision_not_found")
+    history = product.get_decision_history(principal_id=context.principal_id, decision_ref=decision_ref, limit=8)
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="decision_opened",
@@ -853,6 +854,7 @@ def decision_detail(
         object_summary=decision.summary or "This decision is open in the office loop.",
         object_meta=[
             {"label": "Priority", "value": str(decision.priority or "normal").title()},
+            {"label": "Type", "value": str(decision.decision_type or "office_decision").replace("_", " ").title()},
             {"label": "Owner", "value": str(decision.owner_role or "office").replace("_", " ").title()},
             {"label": "Deadline", "value": str(decision.due_at or "")[:10] or "No due date"},
             {"label": "Status", "value": str(decision.status or "open").replace("_", " ").title()},
@@ -862,6 +864,7 @@ def decision_detail(
         object_sidebar_copy="A decision should stay tied to ownership, time pressure, and evidence instead of living as a generic card in a queue.",
         object_sidebar_rows=[
             _object_detail_row("Recommendation", decision.recommendation or "No recommendation projected yet.", "Recommend"),
+            _object_detail_row("Next action", decision.next_action or "No next action projected yet.", "Next"),
             _object_detail_row("Impact", decision.impact_summary or "Impact has not been projected yet.", "Impact"),
             _object_detail_row("Rationale", decision.rationale or "No rationale projected yet.", "Why"),
             _object_detail_row("Evidence attached", f"{len(decision.evidence_refs or [])} supporting refs attached to this decision.", "Evidence"),
@@ -879,8 +882,10 @@ def decision_detail(
                         str(decision.priority or "normal").title(),
                     ),
                     _object_detail_row("Options", ", ".join(decision.options or ()) or "No explicit options projected.", "Options"),
+                    _object_detail_row("Next action", decision.next_action or "No next action projected yet.", "Next"),
                     _object_detail_row("Impact", decision.impact_summary or "No projected downstream impact yet.", "Impact"),
                     _object_detail_row("Related commitments", ", ".join(decision.related_commitment_ids or ()) or "No linked commitments.", "Commitment"),
+                    _object_detail_row("Related threads", ", ".join(decision.linked_thread_ids or ()) or "No linked threads.", "Thread"),
                     _object_detail_row("Related people", ", ".join(decision.related_people or ()) or "No linked people.", "People"),
                     _object_detail_row("Resolution note", decision.resolution_reason or "No explicit resolution note yet.", "Resolution"),
                 ],
@@ -889,6 +894,26 @@ def decision_detail(
                 "eyebrow": "Evidence",
                 "title": "Supporting evidence",
                 "items": _evidence_detail_rows(decision.evidence_refs),
+            },
+            {
+                "eyebrow": "Decision history",
+                "title": "Recent decision history",
+                "items": [
+                    _object_detail_row(
+                        str(item.event_type or "history").replace("_", " ").title(),
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.actor or "").strip(),
+                                str(item.detail or "").strip(),
+                            )
+                            if part
+                        )
+                        or "Decision event recorded.",
+                        str(item.created_at or "")[:10] or "History",
+                    )
+                    for item in history
+                ] or [_object_detail_row("No decision history yet", "No decision events were recorded yet.", "History")],
             },
         ],
     )

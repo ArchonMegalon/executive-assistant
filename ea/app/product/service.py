@@ -1112,6 +1112,10 @@ class ProductService:
             return None
         return self._decision_item_from_window(found)
 
+    def get_decision_history(self, *, principal_id: str, decision_ref: str, limit: int = 20) -> tuple[HistoryEntry, ...]:
+        source_id = decision_ref.split(":", 1)[1] if ":" in decision_ref else decision_ref
+        return self._history_entries(principal_id=principal_id, source_ids=(source_id,), limit=limit)
+
     def resolve_decision(
         self,
         *,

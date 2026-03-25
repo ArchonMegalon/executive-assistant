@@ -54,11 +54,14 @@ class DecisionItemOut(BaseModel):
     owner_role: str
     due_at: str | None = None
     status: str
+    decision_type: str = ""
     recommendation: str = ""
+    next_action: str = ""
     rationale: str = ""
     options: list[str]
     evidence_refs: list[EvidenceRefOut]
     related_commitment_ids: list[str]
+    linked_thread_ids: list[str]
     related_people: list[str]
     impact_summary: str = ""
     sla_status: str = ""
@@ -419,11 +422,14 @@ def decision_out(value: DecisionItem) -> DecisionItemOut:
         owner_role=value.owner_role,
         due_at=value.due_at,
         status=value.status,
+        decision_type=value.decision_type,
         recommendation=value.recommendation,
+        next_action=value.next_action,
         rationale=value.rationale,
         options=list(value.options),
         evidence_refs=evidence_out(value.evidence_refs),
         related_commitment_ids=list(value.related_commitment_ids),
+        linked_thread_ids=list(value.linked_thread_ids),
         related_people=list(value.related_people),
         impact_summary=value.impact_summary,
         sla_status=value.sla_status,

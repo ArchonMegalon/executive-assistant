@@ -112,9 +112,10 @@ def _decision_rows(values: tuple[DecisionItem, ...], *, return_to: str) -> list[
         detail = " · ".join(
             part
             for part in (
+                value.decision_type.replace("_", " ").title() if value.decision_type else "",
                 f"Recommend {value.recommendation}" if value.recommendation else "",
                 f"Due {value.due_at[:10]}" if value.due_at else "",
-                value.rationale or value.summary,
+                value.next_action or value.rationale or value.summary,
             )
             if part
         )
