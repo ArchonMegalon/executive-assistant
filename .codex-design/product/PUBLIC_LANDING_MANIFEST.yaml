@@ -147,15 +147,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public explainer only
-  - path: /status
-    title: Public status
-    audience: public
-    purpose: status_summary
-    requires_auth: false
-    guest_fallback: /status
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public status only
   - path: /artifacts
     title: Featured artifacts
     audience: public
@@ -165,6 +156,141 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: teaser gallery only
+  - path: /artifacts/current-preview-build
+    title: Current preview build detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/current-preview-build
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/explanation-receipt-trail
+    title: Explanation receipt trail detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/explanation-receipt-trail
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/runsite-pack
+    title: Runsite pack detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/runsite-pack
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/dossier-brief
+    title: Dossier brief detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/dossier-brief
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/campaign-primer
+    title: Campaign primer detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/campaign-primer
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/replay-after-action
+    title: Replay and after-action detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/replay-after-action
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /roadmap/nexus-pan
+    title: NEXUS-PAN detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/nexus-pan
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/alice
+    title: ALICE detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/alice
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/knowledge-fabric
+    title: KNOWLEDGE FABRIC detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/knowledge-fabric
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/karma-forge
+    title: KARMA FORGE detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/karma-forge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/jackpoint
+    title: JACKPOINT detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/jackpoint
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/runsite
+    title: RUNSITE detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/runsite
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/runbook-press
+    title: RUNBOOK PRESS detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/runbook-press
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/ghostwire
+    title: GHOSTWIRE detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/ghostwire
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/local-co-processor
+    title: LOCAL CO-PROCESSOR detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/local-co-processor
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
 auth_routes:
   - path: /login
     title: Sign in
@@ -250,39 +376,57 @@ registered_routes:
     placeholder_requirements: profile and linked-identity shell
 sections:
   - id: hero
+    eyebrow: Explainable Shadowrun
     title: Shadowrun rules truth, with receipts.
+    intro: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
     audience: public
     route: /
   - id: product_proof
+    eyebrow: Real product proof
     title: One concrete result, one visible trail, one current build
+    intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here
+    eyebrow: How Chummer helps at the table
     title: How Chummer helps at the table
+    intro: "See the product behavior first: build a runner, inspect the ruling, and keep a session moving without losing trust."
     audience: public
     route: /
   - id: why_trust_it
-    title: Why trust it
+    eyebrow: Why trust Chummer
+    title: Product claims backed by evidence
+    intro: "The trust model is simple: deterministic rules truth, visible receipts, and local-first continuity."
     audience: public
     route: /
   - id: choose_your_lane
+    eyebrow: Who this is for
     title: Who this is for
+    intro: Choose the lane that matches how you come to the table.
     audience: public
     route: /
   - id: closing_cta
-    title: Early access
+    eyebrow: Get on the list that matches your interest
+    title: Create the account that keeps your place
+    intro: Tell Chummer what you care about and get invited into the right lane as it opens.
     audience: public
     route: /
   - id: whats_real_now
+    eyebrow: What is real today, what is preview, what is next
     title: What works today
+    intro: See what is available now, what you can preview, and what is opening next.
     audience: public
     route: /now
   - id: coming_next
+    eyebrow: Coming next
     title: Coming next
+    intro: Each horizon names the pain, the payoff, and the next place to read deeper.
     audience: public
     route: /horizons
   - id: featured_artifacts
-    title: Featured artifacts
+    eyebrow: Proof, not promises
+    title: Artifacts that make the product tangible
+    intro: The gallery starts with live proof, then shows which artifacts are preview-only and which ones are still opening next.
     audience: public
     route: /artifacts
 registered_overlays:

@@ -20,12 +20,14 @@ render_rules:
   no_ui_labels: true
   semantic_anchor_count_minimum: 3
 shared_prompt_scaffold:
+  applies_to: secondary_guide_art_only
   style_anchor: |
-    premium cyberpunk campaign scene art, grounded Shadowrun-inspired cyberpunk fantasy, tactile realism with illustrated or poster energy allowed when the scene stays lived-in, original composition, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
+    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, lived-in materials, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
   negative_prompt: |
     readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 critical_asset_style_epoch:
   mode: flagship_poster
+  overrides_shared_prompt_scaffold: true
   style_anchor: |
     illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, neon and sodium-vapor contrast, metahuman street-life specificity, dense practical props, diegetic overlays added in post, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
   negative_prompt: |
@@ -50,6 +52,7 @@ rules:
   - A premium flagship poster or still hero is preferred over a mediocre teaser loop.
   - First-contact assets must feel information-rich, layered, and unmistakably product-specific rather than like quiet generic cyberpunk mood art.
   - Hero, index, and flagship horizon art must carry visible semantic anchors for what the product does; style alone is not enough.
+  - The shared prompt scaffold is for secondary guide stills only; hero, horizons index, and flagship horizons should let the flagship poster epoch override it.
   - Poster energy is welcome on flagship assets when it still reads as a lived product scene instead of a title card or fashion pose.
   - Critical public assets must choose one overlay posture before compositing: none, ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
@@ -68,6 +71,21 @@ visual_contract:
   first_contact_hero:
     density_target: high
     overlay_density: medium
+    required_overlay_mode: medscan_diagnostic
+    allowed_overlay_modes:
+      - medscan_diagnostic
+    overlay_geometry:
+      - slim attribute rails
+      - capsule chips
+      - bracket fragments
+      - curved callout splines
+      - seam-following anchors
+    overlay_priority_order:
+      - attribute rail
+      - subsystem status chips
+      - cyberware calibration
+      - wound stability
+    overlay_actionability_rule: Only show medscan information a streetdoc or teammate would use during active patch-up; reject vague trust/meta labels.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_or_team
@@ -120,6 +138,20 @@ visual_contract:
   page_index:
     density_target: high
     overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - lane arcs
+      - district markers
+      - path traces
+      - light seam anchors
+    overlay_priority_order:
+      - lane differentiation
+      - district markers
+      - path arcs
+    overlay_actionability_rule: Only show wayfinding or lane-selection cues that help the viewer parse branching futures; avoid full-scene diagnostic HUD slabs.
     negative_space_cap: low
     flash_level: bold
     person_count_target: plurality_optional
@@ -147,6 +179,22 @@ visual_contract:
   flagship_horizon:
     density_target: high
     overlay_density: high
+    required_overlay_mode: forge_review_ar
+    allowed_overlay_modes:
+      - forge_review_ar
+    overlay_geometry:
+      - edge-following approval rails
+      - provenance seals
+      - rollback vectors
+      - compact witness chips
+      - compatibility arcs
+    overlay_priority_order:
+      - approval state
+      - provenance
+      - rollback
+      - witness lock
+      - revert cost
+    overlay_actionability_rule: Only show review instrumentation that a rulesmith or witness would actually use while governing a live rules change.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_preferred

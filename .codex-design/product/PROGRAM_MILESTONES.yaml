@@ -204,7 +204,7 @@ program_phases:
     - Legacy consumers no longer depend on ambient monorepo-relative project references as the implied default.
 - id: J
   title: Public landing and discovery surface
-  status: in_progress
+  status: complete
   release_blocking: false
   goal: Make `chummer.run` a canon-backed product front door with a proof shelf, invitation flow, and thin signed-in overlays.
   milestones:
@@ -222,7 +222,7 @@ program_phases:
     owners:
     - chummer6-hub
     - chummer6-design
-    status: in_progress
+    status: complete
     exit:
     - "`chummer.run` exposes `/`, `/what-is-chummer`, `/now`, `/horizons`, `/downloads`, `/participate`, `/status`, and `/artifacts` from design-owned landing truth."
     - Public CTA routing does not depend on repo-local improvised feature maps.
@@ -231,7 +231,7 @@ program_phases:
     title: Signed-in overlays become boring
     owners:
     - chummer6-hub
-    status: in_progress
+    status: complete
     exit:
     - "`/home` and `/account` give registered users a thin but real overlay above the public landing."
     - Follow, beta, and participation overlays exist as product surfaces even if deeper workflows remain preview-bound.
@@ -241,14 +241,14 @@ program_phases:
     owners:
     - chummer6-design
     - chummer6-hub
-    status: in_progress
+    status: complete
     exit:
     - "`IDENTITY_AND_CHANNEL_LINKING_MODEL.md` defines email hygiene, provider bootstrap priority, linked identities, linked channels, and official-versus-user-provided Telegram posture."
     - Hub exposes a first real linked-identity and channel-link surface without inventing a second orchestration brain.
     - EA remains the canonical companion/runtime brain behind official channel adapters.
 - id: K
   title: Desktop auto-update
-  status: in_progress
+  status: complete
   release_blocking: false
   goal: Make Windows, macOS, and Linux desktop heads installer-aware and self-updating through registry-owned channel truth and UI-owned apply helpers without turning Hub or Fleet into the runtime source of truth.
   milestones:
@@ -270,7 +270,7 @@ program_phases:
     owners:
     - chummer6-hub-registry
     - chummer6-design
-    status: in_progress
+    status: complete
     exit:
     - "`Chummer.Hub.Registry.Contracts` includes desktop release-head and update-feed DTOs."
     - Promoted desktop heads reference install media, machine update payloads, embedded runtime-bundle heads, and release-note references.
@@ -280,7 +280,7 @@ program_phases:
     owners:
     - chummer6-ui
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - The release lane builds Windows `.exe`, macOS `.dmg`, and Linux `.deb` artifacts from one release candidate.
     - Each built desktop head is launched on a platform-appropriate verification host before promotion.
@@ -292,7 +292,7 @@ program_phases:
     - chummer6-ui
     - chummer6-hub-registry
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - The Windows desktop client records pinned channel and installed version locally.
     - The desktop head can check, stage, apply, and relaunch into a newer version through a UI-owned apply helper.
@@ -303,7 +303,7 @@ program_phases:
     - chummer6-ui
     - chummer6-hub-registry
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - The macOS desktop head ships as a `.dmg` install surface rather than archive cargo.
     - The desktop head can check, stage, apply or hand off, relaunch, and recover without making the `.dmg` the runtime source of truth.
@@ -314,7 +314,7 @@ program_phases:
     - chummer6-ui
     - chummer6-hub-registry
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - The Linux desktop client ships as a `.deb` installer rather than a public portable archive.
     - The updater can either apply an in-place payload or hand off the `.deb` installer when the lane is installer-only.
@@ -325,7 +325,7 @@ program_phases:
     - chummer6-hub-registry
     - chummer6-ui
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - Registry can pause or revoke a bad desktop head.
     - Clients do not auto-apply revoked or downgraded heads.
@@ -334,7 +334,7 @@ program_phases:
   title: Feedback and crash reporting
   status: in_progress
   release_blocking: false
-  goal: Ship a real support plane with crash reporting, structured bug reporting, and lightweight feedback before any support assistant becomes user-facing.
+  goal: Ship the first real support plane with crash reporting, structured bug reporting, lightweight feedback, and honest closure before any support assistant becomes user-facing.
   milestones:
   - id: L0
     title: Support and crash canon established
@@ -342,7 +342,7 @@ program_phases:
     - chummer6-design
     - chummer6-ui
     - chummer6-hub
-    status: in_progress
+    status: complete
     exit:
     - "`FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` exists and agrees with `OWNERSHIP_MATRIX.md`, `PUBLIC_HELP_COPY.md`, and `EXTERNAL_TOOLS_PLANE.md`."
     - Crash reports, bug reports, and feedback are explicitly different intake lanes.
@@ -354,7 +354,7 @@ program_phases:
     - chummer6-hub
     - chummer6-hub-registry
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - Desktop clients can create a redacted diagnostics bundle and offer a next-launch crash recovery dialog.
     - Private crash submission does not depend on chat, sign-in, or a new AppSumo LTD.
@@ -366,7 +366,7 @@ program_phases:
     owners:
     - chummer6-ui
     - chummer6-hub
-    status: in_progress
+    status: complete
     exit:
     - Users can submit expected-versus-actual behavior, repro steps, optional screenshots, and optional diagnostics.
     - Public-safe reproducible bugs can link or promote into the public issue lane.
@@ -376,7 +376,7 @@ program_phases:
     owners:
     - chummer6-ui
     - chummer6-hub
-    status: in_progress
+    status: complete
     exit:
     - Users can send low-friction product feedback without opening a full bug ticket.
     - Structured feedback bridges remain adapter-bound and do not become support truth.
@@ -386,7 +386,7 @@ program_phases:
     owners:
     - chummer6-hub
     - chummer6-design
-    status: in_progress
+    status: complete
     exit:
     - Help and known-issue surfaces are version-aware and linked to support cases where needed.
     - Human escalation exists for private crash and bug cases.
@@ -403,7 +403,7 @@ program_phases:
     - "`Karma Forge` is not reused as the support-assistant name."
 - id: M
   title: Product governor and autopilot loop
-  status: in_progress
+  status: complete
   release_blocking: false
   goal: Turn support truth, release truth, and scope pressure into one governed whole-product course-correction loop.
   milestones:
@@ -412,7 +412,7 @@ program_phases:
     owners:
     - chummer6-design
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - "`PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` exists and agrees with `OWNERSHIP_MATRIX.md` and Fleet scope canon."
     - Whole-product freeze, reroute, and escalation rules are explicit.
@@ -423,7 +423,7 @@ program_phases:
     - chummer6-design
     - chummer6-hub
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - "`FEEDBACK_AND_SIGNAL_OODA_LOOP.md` defines intake classes, packet synthesis, routing, and closure rules."
     - Hub, Fleet, designer, and product-governor roles are explicit.
@@ -433,7 +433,7 @@ program_phases:
     owners:
     - chummer6-design
     - fleet
-    status: in_progress
+    status: complete
     exit:
     - "`PRODUCT_HEALTH_SCORECARD.yaml` exists and defines weekly pulse metrics."
     - Release health, feedback closure, blocker age, design drift, and public-promise drift all have named owners.
@@ -443,7 +443,7 @@ program_phases:
     owners:
     - fleet
     - chummer6-design
-    status: in_progress
+    status: complete
     exit:
     - Fleet mirrors the governor and feedback-loop canon downstream.
     - Fleet Studio exposes a `product_governor` role alongside the designer role.

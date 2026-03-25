@@ -20,6 +20,7 @@ Goal: create or refine a runner without mystery math.
 Canonical detail:
 
 * `journeys/build-and-inspect-a-character.md`
+* `BUILD_LAB_PRODUCT_MODEL.md`
 
 ## Explain
 
@@ -28,6 +29,7 @@ Goal: understand why a number, legality result, or tradeoff changed.
 Canonical detail:
 
 * `journeys/build-and-inspect-a-character.md`
+* `BUILD_LAB_PRODUCT_MODEL.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 
 ## Run
@@ -38,6 +40,7 @@ Canonical detail:
 
 * `journeys/rejoin-after-disconnect.md`
 * `journeys/recover-from-sync-conflict.md`
+* `journeys/run-a-campaign-and-return.md`
 * `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 
 ## Publish
@@ -56,6 +59,8 @@ Goal: report pain, follow closure, and trust whether the product actually got be
 Canonical detail:
 
 * `journeys/install-and-update.md`
+* `journeys/claim-install-and-close-a-support-case.md`
+* `journeys/organize-a-community-and-close-the-loop.md`
 * `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
 * `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
 
