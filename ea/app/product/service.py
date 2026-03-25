@@ -2048,9 +2048,12 @@ class ProductService:
                     or "Decision remains open.",
                     "tag": "Decision",
                     "href": f"/app/decisions/{decision.id}",
-                    "action_href": f"/app/decisions/{decision.id}",
-                    "action_label": "Open decision",
+                    "action_href": f"/app/channel/decisions/{decision.id}/resolve?action=resolve&return_to=%2Fapp%2Fchannel-loop",
+                    "action_label": "Resolve now",
                     "action_method": "get",
+                    "secondary_action_href": f"/app/decisions/{decision.id}",
+                    "secondary_action_label": "Review",
+                    "secondary_action_method": "get",
                 }
             )
         return {
