@@ -47,6 +47,12 @@ scorecards:
       - name: entitlement_grant_honesty
         target: 100%
         measurement: Premium, preview, GM, or creator access on a claimed install must derive from Hub-truth capability grants and eligible channel posture rather than synced install-local flags.
+      - name: next_safe_action_clarity
+        target: 100%
+        measurement: Home and campaign workspace surfaces must tell the user what changed for them, what is blocked, and the next safe action instead of only projecting raw version or status noise.
+      - name: device_role_posture_visibility
+        target: 100%
+        measurement: A claimed install with a device role or distinct channel posture must expose that posture clearly without implying it silently affects other installs.
 
   - id: hosted_identity_and_participation
     owner_repo: chummer6-hub
@@ -128,6 +134,7 @@ release_gates:
       - Claimed-device restore keeps person, campaign, group, and install scopes explicit instead of flattening them into one sync blob.
       - Dossier or rule-environment conflicts surface compare, branch, or repair choices rather than silent last-write-wins.
       - Secrets, logs, crash dumps, and per-install channel posture remain local-only.
+      - Home or campaign workspace surfaces explain what changed for this user and what is safe to do next.
 
 rules:
   - These metrics are release gates, not dashboard decoration.

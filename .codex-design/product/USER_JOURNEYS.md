@@ -38,6 +38,7 @@ Goal: keep the same runner, crew, campaign, and recent workspace alive across li
 
 Canonical detail:
 
+* `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
 * `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * `journeys/continue-on-a-second-claimed-device.md`
 * `journeys/rejoin-after-disconnect.md`

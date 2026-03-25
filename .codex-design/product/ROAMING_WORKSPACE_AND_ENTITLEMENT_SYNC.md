@@ -55,6 +55,7 @@ Includes:
 * rollback window
 * hardware-specific tuning
 * local secrets and key material
+* explicit device role posture such as `workstation`, `play_tablet`, `observer_screen`, `travel_cache`, or `preview_scout`
 * device-local channel posture such as "this machine is Preview, that one stays Stable"
 
 ### Entitlement scope
@@ -237,6 +238,21 @@ The home surface should be able to project:
 * unresolved restore conflict
 * missing rule pack on this device
 * feature unlocked through entitlement truth
+
+## Campaign workspace and device-role handoff
+
+Roaming workspace makes cross-device continuity possible, but the lived product surface is the campaign workspace and the install's device role.
+
+That next layer is defined in:
+
+* `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+
+Roaming workspace therefore must preserve enough truth for the home cockpit or campaign workspace to answer:
+
+* what changed for me
+* which campaign needs attention
+* whether this device is acting as a workstation, play tablet, observer screen, travel cache, or preview scout
+* what the next safe action is
 
 ## Horizon handoff
 

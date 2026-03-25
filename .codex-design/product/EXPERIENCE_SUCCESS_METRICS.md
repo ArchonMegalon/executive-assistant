@@ -40,6 +40,7 @@ User promise:
 
 Primary canon:
 
+* `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
 * `METRICS_AND_SLOS.yaml` -> `session_continuity`
 * `METRICS_AND_SLOS.yaml` -> `campaign_and_dossier_continuity`
 * `METRICS_AND_SLOS.yaml` -> `roaming_workspace_trust`
