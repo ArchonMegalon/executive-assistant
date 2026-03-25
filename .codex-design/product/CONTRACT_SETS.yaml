@@ -239,6 +239,21 @@ contract_sets:
       - workspace conflict summaries
     rule: "Hub owns person, campaign, and group-scoped roaming workspace truth; Registry owns immutable install, compatibility, channel, and artifact records; clients may cache grants or restore hints locally but may not sync secrets or silently last-write-wins."
 
+  - id: interop_portability_vnext
+    canonical_package: Chummer.Play.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Campaign.Contracts
+      - Chummer.Hub.Registry.Contracts
+    status: complete
+    includes:
+      - portable export package manifest
+      - interop asset documents
+      - round-trip provenance
+      - import mode and import result
+      - compatibility annotations for dossier and campaign package handoff
+    rule: "Interop package semantics are first-class product truth. `Chummer.Play.Contracts.Interop` owns the active round-trip package family, `Chummer.Campaign.Contracts` owns long-lived dossier and campaign meaning, and registry/media metadata may annotate the package without redefining the semantic object being moved."
+
   - id: support_intake_vnext
     canonical_package: Chummer.Control.Contracts
     semantic_owner: chummer6-hub

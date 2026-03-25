@@ -41,6 +41,14 @@ semantic_anchors:
   - integrity seal or evidence clip
   - commlink or data chip
   - reviewer, witness, or operator relationship
+world_marker_minimum: 2
+world_marker_bucket:
+  - metahuman presence or metahuman-adjacent physiology
+  - patched cyberware, datajack, trodes, smartgun, or rig components
+  - magical focus, fetish, talisman, or awakened-world hint
+  - rain-soaked streets, sodium-vapor plus neon mix, or grimy utilitarian spaces
+  - cables, duct tape, jury-rigged hardware, or off-brand med or corp gear
+  - runner-life or shadow-community setting such as clinic, safehouse, van, alley, rooftop, market, back room, industrial rail, or matrix nook
 rules:
   - No provider names appear in public landing assets.
   - No LTD names appear in public landing assets.
@@ -99,8 +107,18 @@ visual_contract:
       - wet concrete, tarp, or extension-cord grime required
     required_cast_markers:
       - metahuman clinician required
-      - wounded runner required
+      - troll patient required
       - assistant or teammate encouraged
+    required_troll_markers:
+      - heavy body mass
+      - coarse visible body hair
+      - tusks
+      - rough or scarred skin
+      - dermal texture
+    required_render_detail:
+      - visible individual hair strands
+      - visible wet or matted hair clumping
+      - crisp skin and fur microtexture
     required_overlay_schema:
       - BOD
       - AGI
@@ -122,6 +140,9 @@ visual_contract:
     forbidden_cast_defaults:
       - lone clean human doctor in white coat
       - ambiguous hooded figure with no clinical role readability
+      - human patient
+      - clean shaved patient
+      - generic handsome cyberpunk model
     cyberpunk_intensity: high
     shadowrun_lore_weight: high
     must_show_semantic_anchors:
@@ -235,6 +256,7 @@ visual_contract:
       - semantically empty glow props
 asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
+    style_epoch_force_only: true
     required_overlay_mode: medscan_diagnostic
     allowed_overlay_modes:
       - medscan_diagnostic
@@ -281,6 +303,7 @@ asset_overlay_contracts:
       Keep overlays edge-biased and route-anchored; never cover the central
       path or imply city-wide scanning.
   assets/horizons/karma-forge.png:
+    style_epoch_force_only: true
     required_overlay_mode: forge_review_ar
     allowed_overlay_modes:
       - forge_review_ar

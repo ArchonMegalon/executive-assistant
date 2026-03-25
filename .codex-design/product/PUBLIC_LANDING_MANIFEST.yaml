@@ -126,15 +126,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: current public support/contact path only
-  - path: /progress
-    title: Progress report
-    audience: public
-    purpose: program_progress
-    requires_auth: false
-    guest_fallback: /progress
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: generated public progress report only
   - path: /participate
     title: Participate
     audience: public
@@ -386,8 +377,8 @@ sections:
     route: /
   - id: start_here
     eyebrow: How Chummer helps at the table
-    title: How Chummer helps at the table
-    intro: "See the product behavior first: build a runner, inspect the ruling, and keep a session moving without losing trust."
+    title: What comes after the core proof
+    intro: "Once the build, explanation trail, and continuity path feel trustworthy, the next product jobs are publication and improvement."
     audience: public
     route: /
   - id: why_trust_it

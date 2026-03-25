@@ -173,12 +173,14 @@ cards:
     title: NEXUS-PAN
     summary: Shared state survives device churn without the table losing trust.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
-    badge: Horizon
+    badge: Preparing
     audience: public
     image_family: streetfront
     detail_route: /roadmap/nexus-pan
     render_mode: external_explainer
-    action_label: Read the NEXUS-PAN brief
+    action_label: Compare with current continuity proof
+    detail_primary_href: /now#real-mobile-prep
+    detail_primary_label: Compare with current continuity proof
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -189,12 +191,14 @@ cards:
     title: ALICE
     summary: Builders get grounded what-if analysis without trusting fuzzy assistants.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
-    badge: Horizon
+    badge: Research
     audience: public
     image_family: simulation_bench
     detail_route: /roadmap/alice
     render_mode: external_explainer
-    action_label: Read the ALICE brief
+    action_label: Compare with the live proof trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Compare with the live proof trail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -205,12 +209,14 @@ cards:
     title: KNOWLEDGE FABRIC
     summary: Ask a rules question and get a grounded answer with citations and receipts.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Horizon
+    badge: Research
     audience: public
     image_family: archive_stair
     detail_route: /roadmap/knowledge-fabric
     render_mode: external_explainer
-    action_label: Read the KNOWLEDGE FABRIC brief
+    action_label: Compare with the live proof trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Compare with the live proof trail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -221,12 +227,14 @@ cards:
     title: KARMA FORGE
     summary: Governed rules evolution without unreadable fork chaos.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
-    badge: Booster first
+    badge: Research
     audience: public
     image_family: boulevard_of_futures
     detail_route: /roadmap/karma-forge
     render_mode: external_explainer
-    action_label: Read the KARMA FORGE brief
+    action_label: Suggest this product direction
+    detail_primary_href: /participate#participate-future
+    detail_primary_label: Suggest this product direction
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -237,12 +245,14 @@ cards:
     title: JACKPOINT
     summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
-    badge: Horizon
+    badge: Designing
     audience: public
     image_family: dossier_desk
     detail_route: /roadmap/jackpoint
     render_mode: external_explainer
-    action_label: Read the JACKPOINT brief
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/dossier-brief
+    detail_primary_label: See the related artifact preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -253,12 +263,14 @@ cards:
     title: RUNSITE
     summary: Walk the job before the team walks into it.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
-    badge: Horizon
+    badge: Preparing
     audience: public
     image_family: facility_exterior
     detail_route: /roadmap/runsite
     render_mode: external_explainer
-    action_label: Read the RUNSITE brief
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/runsite-pack
+    detail_primary_label: See the related artifact preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -271,12 +283,14 @@ cards:
     title: RUNBOOK PRESS
     summary: Bring new players in without the two-hour lecture.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
-    badge: Horizon
+    badge: Designing
     audience: public
     image_family: prop_cluster
     detail_route: /roadmap/runbook-press
     render_mode: external_explainer
-    action_label: Read the RUNBOOK PRESS brief
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/campaign-primer
+    detail_primary_label: See the related artifact preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -287,12 +301,14 @@ cards:
     title: GHOSTWIRE
     summary: Replay and after-action truth that survives memory drift.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Horizon
+    badge: Research
     audience: public
     image_family: boulevard_of_futures
     detail_route: /roadmap/ghostwire
     render_mode: external_explainer
-    action_label: Read the GHOSTWIRE brief
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/replay-after-action
+    detail_primary_label: See the related artifact preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -303,12 +319,14 @@ cards:
     title: LOCAL CO-PROCESSOR
     summary: Optional local acceleration without turning the product into a black box.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Horizon
+    badge: Research
     audience: public
     image_family: solo_operator
     detail_route: /roadmap/local-co-processor
     render_mode: external_explainer
-    action_label: Read the LOCAL CO-PROCESSOR brief
+    action_label: Install the current preview
+    detail_primary_href: /downloads
+    detail_primary_label: Install the current preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -325,6 +343,8 @@ cards:
     asset_slot: release_current_build
     detail_route: /artifacts/current-preview-build
     action_label: Inspect the preview build
+    detail_primary_href: /downloads
+    detail_primary_label: Open downloads
     pain: Early-access products stop feeling real when the current build is vague or hard to verify.
     payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
     proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
@@ -340,6 +360,8 @@ cards:
     asset_slot: capability_check_rules
     detail_route: /artifacts/explanation-receipt-trail
     action_label: Inspect the receipt trail
+    detail_primary_href: /now#real-rules-truth
+    detail_primary_label: Inspect the proof trail
   - id: artifact_runsite_pack
     bucket: featured_artifacts
     title: Runsite pack
@@ -350,6 +372,8 @@ cards:
     image_family: facility_exterior
     detail_route: /artifacts/runsite-pack
     action_label: Inspect the runsite pack
+    detail_primary_href: /roadmap/runsite
+    detail_primary_label: See related roadmap item
   - id: artifact_dossier_brief
     bucket: featured_artifacts
     title: Dossier brief
@@ -360,6 +384,8 @@ cards:
     image_family: dossier_desk
     detail_route: /artifacts/dossier-brief
     action_label: Inspect the dossier brief
+    detail_primary_href: /roadmap/jackpoint
+    detail_primary_label: See related roadmap item
   - id: artifact_campaign_primer
     bucket: featured_artifacts
     title: Campaign primer
@@ -370,6 +396,8 @@ cards:
     image_family: prop_cluster
     detail_route: /artifacts/campaign-primer
     action_label: Inspect the campaign primer
+    detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
   - id: artifact_after_action
     bucket: featured_artifacts
     title: Replay and after-action
@@ -380,6 +408,8 @@ cards:
     image_family: boulevard_of_futures
     detail_route: /artifacts/replay-after-action
     action_label: Inspect the after-action preview
+    detail_primary_href: /roadmap/ghostwire
+    detail_primary_label: See related roadmap item
   - id: participate_feedback
     bucket: participate
     title: Report a problem
@@ -399,7 +429,7 @@ cards:
     image_family: boulevard_of_futures
     guest_href: /signup?next=/home
     registered_href: /home
-    action_label: Create account to signal interest
+    action_label: Create account to suggest a future
   - id: participate_booster
     bucket: participate
     title: Guided contribution
