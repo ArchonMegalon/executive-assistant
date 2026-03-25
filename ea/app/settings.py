@@ -71,7 +71,9 @@ class ChannelSettings:
 
 @dataclass(frozen=True)
 class FeatureSettings:
-    public_side_surfaces_enabled: bool = True
+    public_side_surfaces_enabled: bool = False
+    public_results_enabled: bool = False
+    public_tours_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,14 @@ class Settings:
     @property
     def public_side_surfaces_enabled(self) -> bool:
         return self.features.public_side_surfaces_enabled
+
+    @property
+    def public_results_enabled(self) -> bool:
+        return self.features.public_results_enabled
+
+    @property
+    def public_tours_enabled(self) -> bool:
+        return self.features.public_tours_enabled
 
 
 def _runtime_mode(raw: str) -> str:
@@ -329,8 +339,18 @@ def get_settings() -> Settings:
     approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
     default_list_limit = max(1, min(500, _to_int(os.environ.get("EA_CHANNEL_DEFAULT_LIMIT") or "50", 50)))
     raw_public_side_surfaces_enabled = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
-    public_side_surfaces_enabled = (
-        True if raw_public_side_surfaces_enabled is None else _env_truthy(raw_public_side_surfaces_enabled)
+    raw_public_results_enabled = os.environ.get("EA_ENABLE_PUBLIC_RESULTS")
+    raw_public_tours_enabled = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
+    public_side_surfaces_enabled = _env_truthy(raw_public_side_surfaces_enabled)
+    public_results_enabled = (
+        public_side_surfaces_enabled
+        if raw_public_results_enabled is None
+        else _env_truthy(raw_public_results_enabled)
+    )
+    public_tours_enabled = (
+        public_side_surfaces_enabled
+        if raw_public_tours_enabled is None
+        else _env_truthy(raw_public_tours_enabled)
     )
 
     settings = Settings(
@@ -363,7 +383,11 @@ def get_settings() -> Settings:
             approval_ttl_minutes=approval_ttl_minutes,
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
-        features=FeatureSettings(public_side_surfaces_enabled=public_side_surfaces_enabled),
+        features=FeatureSettings(
+            public_side_surfaces_enabled=public_side_surfaces_enabled or public_results_enabled or public_tours_enabled,
+            public_results_enabled=public_results_enabled,
+            public_tours_enabled=public_tours_enabled,
+        ),
     )
     ensure_prod_api_token_configured(settings)
     return settings

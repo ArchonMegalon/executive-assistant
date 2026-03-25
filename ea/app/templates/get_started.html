@@ -297,6 +297,24 @@
       <strong>Executive support</strong>
       Heavier stakeholder traffic, more approvals, and more follow-up pressure around one executive.
     </div>
+    <div class="callout">
+      <strong>What the first useful loop should reveal</strong>
+      {% if activation_preview.brief %}
+      <div class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Memo: connect Google, surface the first three items, and keep the scope narrow.</div>
+      {% endif %}
+      {% if activation_preview.queue %}
+      <div class="copy">Queue: {{ activation_preview.queue|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Queue: get to one approval or decision that feels real.</div>
+      {% endif %}
+      {% if activation_preview.commitments %}
+      <div class="copy">Commitments: {{ activation_preview.commitments|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Commitments: make one promise or follow-up visible before widening setup.</div>
+      {% endif %}
+    </div>
   </aside>
 </section>
 
@@ -315,8 +333,8 @@
       <span>Only add Telegram or WhatsApp after the first proof loop works.</span>
     </button>
     <button class="wizard-step-button" type="button" data-step-trigger="4">
-      <strong>4. Rules</strong>
-      <span>Choose how drafts, recommendations, and stored context should behave.</span>
+      <strong>4. Rules after first value</strong>
+      <span>Only then tune drafts, recommendations, retention, and stored context.</span>
     </button>
   </aside>
 
@@ -381,14 +399,20 @@
             <input id="language" name="language" value="{{ workspace.language or '' }}" placeholder="en">
           </div>
           <div>
-            <label>Channels to prepare</label>
-            <div class="field-help">Google is recommended. Messaging channels can wait until the first memo is already useful.</div>
+            <label>Activation path</label>
+            <div class="field-help">Keep the first loop narrow: workspace, Google, first memo, first review. Messaging can wait until value is obvious.</div>
           </div>
         </div>
-        <div class="check-grid">
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}><span><strong>Google</strong>Best first connection for memos, drafts, contacts, and calendar context.</span></label>
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}><span><strong>Telegram</strong>Useful if important conversations happen there and need to shape the day.</span></label>
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}><span><strong>WhatsApp</strong>Useful when business or export-based WhatsApp context really belongs in the workspace.</span></label>
+        <input type="hidden" name="selected_channels" value="google">
+        <div class="finish-grid">
+          <div class="finish-card">
+            <strong>Google is the default first connection</strong>
+            Email, calendar, and contacts are enough to prove whether the memo, draft queue, and commitment loop are useful.
+          </div>
+          <div class="finish-card">
+            <strong>Messaging comes later</strong>
+            Telegram and WhatsApp are post-activation decisions, not required setup before the product has earned trust.
+          </div>
         </div>
         <div class="wizard-actions">
           <div class="callout">If you are unsure, choose personal, keep Google checked, and move on. The first useful memo matters more than perfect setup.</div>
@@ -472,103 +496,50 @@
       <div class="wizard-panel-header">
         <div>
           <div class="eyebrow">Step 3</div>
-          <h2>Add messaging only after the first loop works.</h2>
+          <h2>Add channels later, not before value exists.</h2>
         </div>
-        <p class="step-context">Messaging is useful when those conversations genuinely shape the day. Keep the product honest: personal identity, bot installation, business onboarding, and export intake are different paths.</p>
+        <p class="step-context">This is no longer part of first-run activation. Add channels only after the memo, draft queue, and commitment loop are already useful with Google.</p>
       </div>
 
       <div class="path-grid">
         <section class="path-card">
-          <strong>Telegram personal path</strong>
-          <p class="copy">Use this when Telegram should influence the memo or commitment list for one person.</p>
-          <form class="wizard-form" method="post" action="/setup/telegram" data-next-step="3">
-            {{ shared_browser_fields|safe }}
-            <div>
-              <label for="telegram_ref">Telegram handle or account ref</label>
-              <input id="telegram_ref" name="telegram_ref" placeholder="@username">
+          <strong>Telegram later</strong>
+          <p class="copy">Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.</p>
+          <div class="wizard-actions">
+            <div class="right">
+              <a class="btn" href="/integrations/telegram">Review Telegram options</a>
             </div>
-            <div class="field-grid two">
-              <div>
-                <label for="identity_mode">Sign-in path</label>
-                <select id="identity_mode" name="identity_mode">
-                  <option value="login_widget">Sign in with Telegram</option>
-                  <option value="oidc">Telegram OIDC</option>
-                </select>
-              </div>
-              <div>
-                <label for="history_mode">History posture</label>
-                <select id="history_mode" name="history_mode">
-                  <option value="future_only">Future messages only</option>
-                  <option value="import_later">Import later</option>
-                  <option value="manual_forward">Manual forward or export later</option>
-                </select>
-              </div>
-            </div>
-            <div class="check-grid">
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="dm"><span><strong>Direct messages</strong>Use the assistant in one-to-one Telegram conversations.</span></label>
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="group"><span><strong>Groups</strong>Include Telegram groups only when they regularly affect the workday.</span></label>
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="channel"><span><strong>Channels</strong>Use this only when channel publishing or monitoring is actually needed.</span></label>
-            </div>
-            <button class="btn" type="submit">Save Telegram path</button>
-          </form>
+          </div>
         </section>
 
         <section class="path-card">
-          <strong>Telegram bot rollout</strong>
-          <p class="copy">Treat bot installation as its own decision so the product stays explicit about where the assistant belongs.</p>
-          <form class="wizard-form" method="post" action="/setup/telegram/link-bot" data-next-step="3">
-            {{ shared_browser_fields|safe }}
-            <div>
-              <label for="bot_handle">Official bot handle</label>
-              <input id="bot_handle" name="bot_handle" placeholder="@assistant_bot">
+          <strong>WhatsApp later</strong>
+          <p class="copy">Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.</p>
+          <div class="wizard-actions">
+            <div class="right">
+              <a class="btn" href="/integrations/whatsapp">Review WhatsApp options</a>
             </div>
-            <div>
-              <label for="default_chat_ref">Default chat ref</label>
-              <input id="default_chat_ref" name="default_chat_ref" placeholder="chat id or handle">
-            </div>
-            <div class="check-grid">
-              <label class="check-item"><input type="checkbox" name="install_surfaces" value="dm"><span><strong>Install in DM</strong>Private conversations first.</span></label>
-              <label class="check-item"><input type="checkbox" name="install_surfaces" value="group"><span><strong>Install in group</strong>Shared room with explicit rollout.</span></label>
-              <label class="check-item"><input type="checkbox" name="install_surfaces" value="channel"><span><strong>Install in channel</strong>Only where publishing is truly needed.</span></label>
-            </div>
-            <button class="btn" type="submit">Save bot plan</button>
-          </form>
+          </div>
         </section>
 
         <section class="path-card">
-          <strong>WhatsApp Business path</strong>
-          <p class="copy">Use this when the assistant needs a formal business-facing WhatsApp setup, not just imported history.</p>
-          <form class="wizard-form" method="post" action="/setup/whatsapp/business" data-next-step="3">
-            {{ shared_browser_fields|safe }}
-            <div>
-              <label for="phone_number">Business phone number</label>
-              <input id="phone_number" name="phone_number" placeholder="+43...">
+          <strong>Policy tuning after proof</strong>
+          <p class="copy">Use the rules surface after first value to change approvals, retention, or automation depth based on real use.</p>
+          <div class="wizard-actions">
+            <div class="right">
+              <a class="btn" href="/app/settings">Open rules</a>
             </div>
-            <div>
-              <label for="business_name">Business name</label>
-              <input id="business_name" name="business_name" placeholder="Acme GmbH">
-            </div>
-            <label class="check-item"><input type="checkbox" name="import_history_now" value="true"><span><strong>Import history when supported</strong>Do not assume business setup automatically means a complete live history.</span></label>
-            <button class="btn" type="submit">Save WhatsApp Business path</button>
-          </form>
+          </div>
         </section>
 
         <section class="path-card">
-          <strong>WhatsApp export intake</strong>
-          <p class="copy">Use this when imported chat context is the real need and live sync is not the product claim.</p>
-          <form class="wizard-form" method="post" action="/setup/whatsapp/export" data-next-step="3">
-            {{ shared_browser_fields|safe }}
-            <div>
-              <label for="export_label">Export intake label</label>
-              <input id="export_label" name="export_label" placeholder="March personal export">
+          <strong>Diagnostics for support</strong>
+          <p class="copy">If the first memo does not feel useful, use workspace diagnostics before adding more channels.</p>
+          <div class="wizard-actions">
+            <div class="right">
+              <a class="btn" href="/api/docs">Inspect product diagnostics</a>
             </div>
-            <div>
-              <label for="selected_chat_labels_csv">Planned chat labels</label>
-              <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
-            </div>
-            <label class="check-item"><input type="checkbox" name="include_media" value="true"><span><strong>Include media references</strong>Keep media references in the imported context when they matter.</span></label>
-            <button class="btn" type="submit">Save export plan</button>
-          </form>
+          </div>
         </section>
       </div>
 

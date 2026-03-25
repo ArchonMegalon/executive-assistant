@@ -1096,7 +1096,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
     slug = "kahlenberg-layout-first"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -1165,7 +1165,8 @@ def test_public_results_no_longer_shadow_tour_routes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
     result_dir = tmp_path / "results"
     result_bundle = result_dir / "movie-demo"
     result_bundle.mkdir(parents=True)
@@ -1202,6 +1203,8 @@ def test_public_results_no_longer_shadow_tour_routes(
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "0")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "0")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "0")
     client = _client(principal_id="exec-public-disabled")
 
     tour = client.get("/tours/example-tour")
@@ -1211,6 +1214,40 @@ def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -
     result_page = client.get("/results/example-result")
     assert result_page.status_code == 404
     assert result_page.json() == {"detail": "Not Found"}
+
+
+def test_public_results_and_tours_can_be_enabled_independently(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    result_dir = tmp_path / "results"
+    result_bundle = result_dir / "movie-demo"
+    result_bundle.mkdir(parents=True)
+    (result_bundle / "asset.html").write_text("<html><body>movie</body></html>", encoding="utf-8")
+    (result_bundle / "result.json").write_text(
+        json.dumps(
+            {
+                "slug": "movie-demo",
+                "title": "Movie Demo",
+                "service_key": "mootion_movie",
+                "summary": "Demo movie",
+                "body_text": "Demo movie",
+                "mime_type": "text/html",
+                "viewer_kind": "html",
+                "asset_relpath": "asset.html",
+                "hosted_url": "https://ea.example/results/movie-demo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "0")
+    monkeypatch.setenv("EA_PUBLIC_RESULT_DIR", str(result_dir))
+
+    client = _client(principal_id="exec-public-result-only")
+
+    assert client.get("/results/movie-demo").status_code == 200
+    assert client.get("/tours/movie-demo").status_code == 404
 
 
 def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> None:

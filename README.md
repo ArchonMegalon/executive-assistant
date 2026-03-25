@@ -10,6 +10,20 @@ Executive Assistant is an operating system for one executive office: morning mem
 - Context plane: memory, stakeholders, commitments, follow-ups, evidence, skills, and task contracts
 - Durable source of truth: Postgres for sessions, steps, queue rows, approvals, outbox, and memory
 
+## Core Product Boundary
+
+The paying-customer product is intentionally narrow:
+
+- one executive
+- one operator
+- Gmail + Calendar first
+- one morning memo
+- one decision queue
+- one commitment system
+- approvals and auditability
+
+Default product mode does not mount experimental public utility routes such as `/results/*` or `/tours/*`. Those surfaces must be explicitly enabled and are not part of the core product story.
+
 ## Run It
 
 ```bash
@@ -45,6 +59,7 @@ Then open `http://localhost:8090/health`.
 - Operator runbook: [RUNBOOK.md](/docker/EA/RUNBOOK.md)
 - Architecture map: [ARCHITECTURE_MAP.md](/docker/EA/ARCHITECTURE_MAP.md)
 - Product brief v2: [PRODUCT_BRIEF_V2.md](/docker/EA/PRODUCT_BRIEF_V2.md)
+- Product boundary: [PRODUCT_BOUNDARY.md](/docker/EA/PRODUCT_BOUNDARY.md)
 - HTTP examples: [HTTP_EXAMPLES.http](/docker/EA/HTTP_EXAMPLES.http)
 - Environment/profile guidance: [ENVIRONMENT_MATRIX.md](/docker/EA/ENVIRONMENT_MATRIX.md)
 - Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)

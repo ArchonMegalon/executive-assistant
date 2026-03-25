@@ -132,14 +132,20 @@
   {% set title = item.get('title') or item.get('label') or 'Open item' %}
   {% set detail = item.get('detail') or helper %}
   {% set row_tag = item.get('tag') or tag %}
+  {% set href = item.get('href') or '' %}
   {% else %}
   {% set title = item %}
   {% set detail = helper %}
   {% set row_tag = tag %}
+  {% set href = '' %}
   {% endif %}
   <div class="console-row">
     <div>
+      {% if href %}
+      <strong><a href="{{ href }}" style="color: inherit; text-decoration: none;">{{ title }}</a></strong>
+      {% else %}
       <strong>{{ title }}</strong>
+      {% endif %}
       <small>{{ detail }}</small>
     </div>
     <div class="console-tag">{{ row_tag }}</div>
@@ -255,26 +261,26 @@
     {% endif %}
   </section>
   <section class="console-panel">
-    <div class="console-kicker">Retention and boundaries</div>
-    <h2>{{ c2.title if c2 else 'What the workspace keeps' }}</h2>
-    <p class="console-copy">{{ c2.body if c2 and c2.body else 'Retention and storage choices belong here, where they are visible but not in the way.' }}</p>
-    {% if c2 and c2['items'] %}
-      {{ rows(c2['items'], 'Saved', 'These are the current memory and retention defaults.') }}
+    <div class="console-kicker">Relationship detail</div>
+    <h2>{{ c1.title if c1 else 'Open loops around those people' }}</h2>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'A useful people graph should lead into open loops, current drafts, and the next decision waiting on that relationship.' }}</p>
+    {% if c1 and c1['items'] %}
+      {{ rows(c1['items'], 'Loop', 'These are the commitments, decisions, and drafts shaping the relationship.') }}
     {% endif %}
   </section>
 </section>
 {% elif current_nav == 'contacts' %}
 <section class="console-support-grid">
   <section class="console-panel">
-    <div class="console-kicker">Contacts</div>
+    <div class="console-kicker">Evidence</div>
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Person', 'These are the people currently shaping the workspace.') }}
+      {{ rows(c0['items'], 'Evidence', 'These are the refs and signals currently shaping the workspace view.') }}
     {% endif %}
   </section>
   <section class="console-panel">
-    <div class="console-kicker">Relationship context</div>
+    <div class="console-kicker">Evidence trail</div>
     <h2>{{ c1.title if c1 else 'Topics around those people' }}</h2>
     <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics should stay connected so follow-up work makes sense on sight.' }}</p>
     {% if c1 and c1['items'] %}

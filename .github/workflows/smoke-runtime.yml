@@ -24,7 +24,7 @@ jobs:
 
       - name: Run Browser Surface Contracts
         run: |
-          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py tests/test_browser_surface_contracts.py
+          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py tests/test_browser_surface_contracts.py tests/test_product_api_contracts.py tests/test_product_browser_journeys.py tests/test_admin_surface_runtime_contracts.py
 
   smoke-runtime-api:
     runs-on: ubuntu-latest
