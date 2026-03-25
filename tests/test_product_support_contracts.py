@@ -35,6 +35,8 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert "blocked_action_message" in payload["commercial"]
     assert "load_score" in payload["queue_health"]
     assert "retrying_delivery" in payload["queue_health"]
+    assert "churn_risk" in payload["analytics"]
+    assert "success_summary" in payload["analytics"]
 
 
 def test_support_bundle_export_includes_commercial_state_and_records_event() -> None:
@@ -58,6 +60,7 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert "blocked_action_message" in body["commercial"]
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
+    assert "success_summary" in body["analytics"]
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200

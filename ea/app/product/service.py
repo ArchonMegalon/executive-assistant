@@ -1763,6 +1763,7 @@ class ProductService:
                 first_value_seconds = max(int((reached - started).total_seconds()), 0)
             except Exception:
                 first_value_seconds = None
+        usage_stats = dict(snapshot.stats_json or {})
         seats_used = len(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
         seats_remaining = max(seat_limit - seats_used, 0)
@@ -1793,6 +1794,34 @@ class ProductService:
         elif queue_state == "critical":
             health_score -= 30
         health_score = max(health_score - min(int(queue_health.get("delivery_errors") or 0) * 3, 15), 0)
+        memo_opened_count = int(analytics_counts.get("memo_opened") or 0)
+        approval_requested_count = int(analytics_counts.get("approval_requested") or 0)
+        draft_approved_count = int(analytics_counts.get("draft_approved") or 0)
+        commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
+        memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
+        support_bundle_opened_count = int(analytics_counts.get("support_bundle_opened") or 0)
+        current_commitments = int(usage_stats.get("commitments") or 0)
+        current_queue_items = int(usage_stats.get("queue_items") or 0)
+        memo_open_rate = 1.0 if memo_opened_count else 0.0
+        approval_action_rate = (
+            round(draft_approved_count / approval_requested_count, 2)
+            if approval_requested_count
+            else (1.0 if draft_approved_count else 0.0)
+        )
+        commitment_close_rate = round(commitment_closed_count / max(commitment_closed_count + current_commitments, 1), 2)
+        correction_rate = round(memory_corrected_count / max(memo_opened_count, 1), 2)
+        churn_risk = "low"
+        if (first_value_seconds is None and current_queue_items >= 3) or memo_opened_count == 0:
+            churn_risk = "watch"
+        if (first_value_seconds is None and current_queue_items >= 5) or support_bundle_opened_count > memo_opened_count:
+            churn_risk = "high"
+        success_summary = (
+            "Office loop is active."
+            if churn_risk == "low"
+            else "Activation needs help."
+            if churn_risk == "high"
+            else "Adoption needs attention."
+        )
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -1854,13 +1883,19 @@ class ProductService:
                     for row in assignment_suggestions
                 ],
             },
-            "usage": dict(snapshot.stats_json or {}),
+            "usage": usage_stats,
             "analytics": {
                 "counts": analytics_counts,
                 "activation_started_at": activation_started_at,
                 "first_value_at": first_value_at,
                 "first_value_event": first_value_event,
                 "time_to_first_value_seconds": first_value_seconds,
+                "memo_open_rate": memo_open_rate,
+                "approval_action_rate": approval_action_rate,
+                "commitment_close_rate": commitment_close_rate,
+                "correction_rate": correction_rate,
+                "churn_risk": churn_risk,
+                "success_summary": success_summary,
                 "recent_events": [
                     {
                         "event_type": row.event_type,
