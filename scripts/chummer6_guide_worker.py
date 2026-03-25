@@ -1073,6 +1073,8 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     negative_space = str(contract.get("negative_space_cap") or "").strip().lower()
     person_count = str(contract.get("person_count_target") or "").strip().lower()
     overlay_mode = overlay_mode_for_target(target)
+    if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
+        rules.append("For this flagship asset, let the poster epoch override the softer shared guide-still scaffold.")
     if str(contract.get("critical_style_anchor") or "").strip():
         rules.append("Use the flagship poster style epoch here: illustrated cover-grade promo energy, Shadowrun street-life specificity, and lived-in grime instead of a tasteful editorial still.")
     if density == "high":
@@ -1091,6 +1093,15 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
         rules.append("Overlay OODA mode: ambient_diegetic. Use lane arcs, district markers, and path traces only; avoid city-wide diagnostic slabs or big floating boxes.")
     elif overlay_mode == "forge_review_ar":
         rules.append("Overlay OODA mode: forge_review_ar. Use edge-following approval rails, provenance seals, rollback vectors, and compact witness chips instead of generic workshop HUD rectangles.")
+    overlay_priority = _string_list(contract.get("overlay_priority_order"))
+    if overlay_priority:
+        rules.append("Overlay priority order: " + "; ".join(overlay_priority) + ".")
+    overlay_geometry = _string_list(contract.get("overlay_geometry"))
+    if overlay_geometry:
+        rules.append("Overlay geometry should prefer " + "; ".join(overlay_geometry) + ".")
+    overlay_actionability_rule = str(contract.get("overlay_actionability_rule") or "").strip()
+    if overlay_actionability_rule:
+        rules.append(overlay_actionability_rule.rstrip(".") + ".")
     anchors = _string_list(contract.get("must_show_semantic_anchors"))
     if anchors:
         rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
@@ -5282,7 +5293,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             return "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
         lowered_asset_key = str(asset_key or "").strip().lower()
         if lowered_asset_key == "hero":
-            return "build-state provenance traces and trust markers"
+            return "medscan diagnostic rail with cyberware calibration, wound stabilization, and upgrade-state chips"
         if lowered_asset_key == "design":
             return "route strings and scope brackets"
         if lowered_asset_key == "core":
@@ -5325,8 +5336,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 " ".join(str(entry).strip() for entry in (scene_contract.get("overlays") or []) if str(entry).strip()),
             ]
         ).lower()
-        if any(token in tokens for token in ("hero", "intake tray", "trust marker", "build-state", "clinic intake")):
-            return "build-state provenance traces and trust markers"
+        if any(token in tokens for token in ("hero", "intake tray", "trust marker", "build-state", "clinic intake", "streetdoc")):
+            return "medscan diagnostic rail with cyberware calibration, wound stabilization, and upgrade-state chips"
         if any(token in tokens for token in ("design", "route string", "scope bracket", "planning corner", "surface callout")):
             return "route strings and scope brackets"
         if any(token in tokens for token in ("core", "review bench", "cross-examining", "dice tray", "rule chip")):
@@ -5422,7 +5433,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, str]] = {
             "hero": {
-                "badge": "Trust Check",
+                "badge": "Streetdoc Scan",
                 "kicker": "concept, not contract",
                 "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
             },
@@ -5514,15 +5525,15 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, object]] = {
             "hero": {
-                "subject": "a streetdoc and runner locked in a triage trust check while a support figure hangs just behind the rail",
-                "environment": "a clinic triage bay packed with hanging gear rails, clipped med tags, intake trays, med drawers, and one lit slate",
-                "action": "checking whether the build trail survives triage and deserves trust before the next job leaves the room",
-                "metaphor": "triage truth check",
-                "props": ["hanging gear rail", "clipped med tags", "intake tray", "lit slate"],
-                "overlays": ["build-state provenance traces", "target posture brackets", "trust markers", "upgrade-state chips"],
+                "subject": "an ork streetdoc stabilizing a wounded runner on a hacked recliner while a teammate holds light at the rail",
+                "environment": "an improvised garage clinic packed with tool chest grime, tarp dividers, hanging work lamps, extension cords, hacked med gear, and wet concrete",
+                "action": "stabilizing the wound while calibrating a patched cyberlimb and checking whether the AGI and ESS upgrade survives triage",
+                "metaphor": "streetdoc medscan under pressure",
+                "props": ["tool chest", "med-gel", "cyberware part", "work lamp", "extension cord"],
+                "overlays": ["AGI upgrading rail", "ESS upgrading rail", "cyberlimb calibration", "wound stabilized", "neural link resync"],
                 "composition": "clinic_intake",
-                "palette": "clinic white, bruise blue, arterial amber",
-                "mood": "wary, tactical, and first-contact honest",
+                "palette": "wet concrete graphite, surgical cyan, sodium amber",
+                "mood": "wary, improvised, and first-contact honest",
                 "humor_policy": "forbid",
             },
             "core": {
