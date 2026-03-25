@@ -38,3 +38,18 @@ TASKS_ARCHIVE.md
 feedback/*audit-task-*.md
 feedback/*github-checks-pr.md
 feedback/*github-review-pr.md
+
+# Local smoke/test scratch
+.smoke_tmp/
+api_rewrite_artifact_details.json
+combined_sort_seed.json
+multi_priority_filter_seed.json
+output.json
+priority_summary.json
+priority_summary_seed.json
+priority_summary_seed_references.json
+task_complete.json
+work_summary.json
+
+# Local design/archive drops
+executive_assistant_quiet_dark_pack.zip
