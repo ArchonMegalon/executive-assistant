@@ -585,9 +585,16 @@ def visual_density_profile_name_for_target(target: str) -> str:
 
 def target_visual_contract(target: str) -> dict[str, object]:
     normalized = str(target or "").replace("\\", "/").strip()
-    contracts = _media_briefs().get("visual_contract") if isinstance(_media_briefs().get("visual_contract"), dict) else {}
+    briefs = _media_briefs()
+    contracts = briefs.get("visual_contract") if isinstance(briefs.get("visual_contract"), dict) else {}
     profile_name = visual_density_profile_name_for_target(normalized)
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
+    if normalized in FIRST_CONTACT_TARGETS:
+        critical_style = briefs.get("critical_asset_style_epoch")
+        if isinstance(critical_style, dict):
+            contract.setdefault("critical_style_mode", str(critical_style.get("mode") or "").strip())
+            contract.setdefault("critical_style_anchor", str(critical_style.get("style_anchor") or "").strip())
+            contract.setdefault("critical_negative_prompt", str(critical_style.get("negative_prompt") or "").strip())
     page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
     if normalized == "assets/pages/horizons-index.png":
         horizon_index = page_types.get("horizon_index") if isinstance(page_types.get("horizon_index"), dict) else {}
@@ -784,7 +791,7 @@ def style_epoch_for_overrides(loaded: dict[str, object]) -> dict[str, object]:
     return {}
 
 
-def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, object]) -> str:
+def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, object], allow_repeat: bool = False) -> str:
     recent = recent_scene_rows(ledger)
     lowered = composition.strip().lower()
     normalized_target = str(target or "").replace("\\", "/").strip().lower()
@@ -796,7 +803,7 @@ def repetition_block_reason(*, target: str, composition: str, ledger: dict[str, 
             normalized_target.endswith("assets/pages/horizons-index.png")
             and lowered == "horizon_boulevard"
         )
-        if last and last == lowered and not allow_same_family_rerender:
+        if last and last == lowered and not allow_same_family_rerender and not allow_repeat:
             return f"composition_repeat:last={last}"
     tableish = SURFACE_HEAVY_COMPOSITIONS
     safehouse_like_count = sum(1 for row in recent if str(row.get("composition") or "").strip().lower() in tableish)
@@ -3421,7 +3428,28 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     ]
     cyberpunk_intensity = str(contract.get("cyberpunk_intensity") or "").strip().lower().replace("_", " ")
     lore_weight = str(contract.get("shadowrun_lore_weight") or "").strip().lower().replace("_", " ")
+    critical_style_mode = str(contract.get("critical_style_mode") or "").strip().lower().replace("_", " ")
+    critical_style_anchor = compact_text(contract.get("critical_style_anchor") or "", limit=180 if compact else 420)
+    critical_negative_prompt = compact_text(contract.get("critical_negative_prompt") or "", limit=160 if compact else 320)
     parts: list[str] = []
+    if critical_style_mode:
+        parts.append(
+            f"For this flagship asset, favor {critical_style_mode} energy over restrained editorial still-photography."
+            if not compact
+            else f"{critical_style_mode} energy"
+        )
+    if critical_style_anchor:
+        parts.append(
+            f"Target this render finish: {critical_style_anchor}."
+            if not compact
+            else f"render finish {critical_style_anchor}"
+        )
+    if critical_negative_prompt:
+        parts.append(
+            f"Avoid this finish drift: {critical_negative_prompt}."
+            if not compact
+            else f"avoid finish drift {critical_negative_prompt}"
+        )
     if density == "high":
         parts.append(
             "Keep the frame packed and layered with grounded clues across foreground, midground, and background."
@@ -4014,10 +4042,15 @@ def asset_specs() -> list[dict[str, object]]:
         )
         normalized_target = target.replace("\\", "/")
         is_detail_still = "/details/" in normalized_target or normalized_target.endswith("-scene.png")
+        is_flagship_asset = first_contact_target(normalized_target)
         intro_line = (
-            "Close, prop-led grounded Shadowrun scene still for a guide scene detail."
+            "Close, prop-led illustrated Shadowrun scene poster for a guide detail."
             if is_detail_still
-            else "Wide grounded Shadowrun scene still for a public guide banner."
+            else (
+                "Wide illustrated Shadowrun cover-poster scene for a flagship public guide banner."
+                if is_flagship_asset
+                else "Wide grounded Shadowrun scene still for a public guide banner."
+            )
         )
         smartlink_clause = smartlink_overlay_clause(contract)
         lore_clause = lore_background_clause(contract)
@@ -4041,7 +4074,11 @@ def asset_specs() -> list[dict[str, object]]:
             lore_clause,
             f"Keep the overall look consistent with: {style_bits}." if style_bits else "",
             easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
-            "Make it feel like a lived-in Shadowrun world scene with cover-grade energy, not a glossy brochure cover or tabletop glamour shot.",
+            (
+                "Make it feel like a lived-in Shadowrun world scene with illustrated cover-grade energy, not a tasteful editorial still, glossy brochure cover, or tabletop glamour shot."
+                if is_flagship_asset
+                else "Make it feel like a lived-in Shadowrun world scene with cover-grade energy, not a glossy brochure cover or tabletop glamour shot."
+            ),
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
             "No readable words or numbers on screens, papers, props, or overlays; use abstract bars, chips, glyphs, or traces instead.",
@@ -4121,7 +4158,7 @@ def asset_specs() -> list[dict[str, object]]:
             "subject": "an obvious ork or other metahuman streetdoc actively stabilizing a half-reclined post-run runner at the prep rail while a teammate crowds the opposite side with tools, telemetry, or light",
             "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the runner braces in the chair and the support figure reaches into frame with tool handoff, trust traces, attribute checks, and proof anchors spread through the improvised garage clinic",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "16:9 promo-poster still, grounded cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating a post-run human runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or telemetry. Layer physical props everywhere: tool chest, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue diagnostics against warm amber work light. The frame must feel dense, grimy, and specific enough that a new viewer immediately reads Shadowrun runner-life recovery pressure, character-build trust, and cyberware calibration culture instead of generic sci-fi medicine. Push harder toward packed flashy cover energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and obvious left-side attribute-rail support. Show at least two active people clearly in frame with visible hands doing work. No back-facing idle pair, no hallway symmetry, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, no giant monitor, and no lone gadget hero prop.",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating a post-run runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or telemetry. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue diagnostics against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and obvious left-side attribute-rail support. Show at least two active people clearly in frame with visible hands doing work. No back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, and no lone gadget hero prop.",
             "framing": "wide cover-energy garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, and deep background tool storage visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
             "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, or a clean suburban clinic",
             "overlay_hint": "full attribute rail, trust checks, cyberlimb calibration cues, wound stabilization, provenance traces, and fit-check brackets",
@@ -4129,7 +4166,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["BOD rail", "AGI rail", "REA rail", "STR rail", "ESS state", "EDGE readout", "cyberlimb calibration", "wound stabilized"],
             "visual_motifs": ["garage clinic grime", "streetdoc assist", "trust check", "attribute rail", "triage action", "runner life", "cyberware surgery"],
             "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED"],
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -4142,7 +4179,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A sealed concept warning case or barricade block abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable. The object may carry one torn triangle glyph, stripe bands, or abstract hazard pictograms, but never a label plate, poster, engraved plate, stencil word, or readable warning text. Do not print the word warning anywhere. Keep the object scarred and lived-in, not a clean product-shot cube. No desk still life.",
             "avoid": "readable warning labels, the word warning, crate nameplates, poster text, pseudo-branding, stencil words, engraved plates, desk still life, or a clean product-shot cube",
             "overlay_hint": "subtle hazard glyphs and provenance traces",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
         },
         "assets/pages/what-chummer6-is.png": {
             "required": "review_bay",
@@ -4154,7 +4191,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "One runner at a cramped standing review bay, upper torso and both hands visible while translucent markers, stamped chips, gear tokens, and cause bands are pegged onto a vertical trace rail under hard practical light. Trust is assembled from physical traces in the open, not from paper receipts or a glowing device. Use translucent plastic markers, chips, bands, and rail clips instead of notes, paper, or monitor screens. No readable text, no handwritten cards, and no loose printed sheets.",
             "avoid": "paper receipts with printed lines, handheld paper cards, loose slips, readable forms, pinned handwritten notes, glowing room numbers, glowing handhelds, wall monitors, or a desk spread",
             "overlay_hint": "rule-source provenance tags, trust arrows, and receipt traces",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
         },
         "assets/pages/where-to-go-deeper.png": {
             "required": "archive_room",
@@ -4330,7 +4367,7 @@ def asset_specs() -> list[dict[str, object]]:
             "environment": "an improvised industrial rules lab built around an approval rail, rollback rig, provenance seals, rule cassettes, consequence chutes, diff strips, compatibility halos, and heat-scored control hardware under hard sodium spill",
             "action": "the rulesmith drives diff controls and cassette clamps while a reviewer leans into the approval rail and rollback rig under visible pressure, witness locks, consequence markers, and compatibility arcs",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "16:9 flagship horizon poster inside an improvised industrial rules lab. A standing rulesmith and skeptical reviewer work at an approval rail and rollback rig while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, and not generic glowing-card tinkering. No readable labels.",
+            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab. A standing rulesmith and skeptical reviewer work at an approval rail and rollback rig while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together with stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, not a calm workshop, and not generic glowing-card tinkering. No readable labels.",
             "framing": "medium-wide two-person standing shot with both torsos, active hands on hardware, approval rails, diff strips, rollback rig hardware, witness locks, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
             "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, two people sitting at a table, generic paperwork workshop, or any scene without publication-control cues",
             "overlay_hint": "compatibility arcs, diff markers, approval seals, rollback arcs, provenance rails, consequence markers, witness locks, and control-state brackets",
@@ -4725,7 +4762,12 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
         composition = str(contract.get("composition") or "").strip()
-        block_reason = repetition_block_reason(target=target, composition=composition, ledger={"assets": accepted_rows})
+        block_reason = repetition_block_reason(
+            target=target,
+            composition=composition,
+            ledger={"assets": accepted_rows},
+            allow_repeat=bool(spec.get("allow_repeat")),
+        )
         if block_reason:
             egg_payload = easter_egg_payload(contract)
             return {
@@ -4970,6 +5012,7 @@ def render_targets(*, targets: list[str], output_dir: Path, build_release: bool 
         for spec in available
         if str(spec.get("target")) in wanted or Path(str(spec.get("target"))).name in wanted
     ]
+    selected = [{**spec, "allow_repeat": True} for spec in selected]
     missing = sorted(
         target
         for target in wanted

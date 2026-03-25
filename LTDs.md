@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-19
+Updated: 2026-03-25
 
 ## Workspace Integration Tier Guide
 
@@ -16,7 +16,7 @@ Updated: 2026-03-19
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. |
-| `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Chummer6 guide prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for the Chummer6 guide pipeline; still not a general runtime planner dependency. |
+| `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
 | `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 4` | Local `.env` API key only | API key is stored locally for transactional email delivery wiring; runtime integration and sender-domain verification are still pending. |
@@ -30,22 +30,22 @@ Updated: 2026-03-19
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for approval-queue reading plus skill-catalog references in external-send flows | Ready for BrowserAct-backed queue reading and approval-lane observation without treating ApproveThis as the internal policy engine. |
-| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, but the workflow-spec skill now emits real renderer scaffolds. |
+| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, not a verified end-to-end production lane. |
 | `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
-| `Crezlo Tours` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Added from the AppSumo deal page plus local operator confirmation that credentials are stored in BrowserAct. |
-| `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Added from the AppSumo deal page plus local operator confirmation that credentials are stored in BrowserAct. |
+| `Crezlo Tours` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 1` | BrowserAct-backed property-tour pipeline, public publishing path, and email delivery scripts | Property ingestion, tour generation, publishing, and delivery are wired in this repo. |
+| `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
+| `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane is verified in this repo yet | Activation is confirmed; browser-driven account access exists, but a production runtime lane is not yet pinned here. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
-| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection now has a staged BrowserAct extraction template instead of only a wishlist note. |
+| `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection has staged extraction support, not a verified end-to-end lane. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. |
-| `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and the account credentials are stored in BrowserAct for later structured verification. |
-| `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. |
+| `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
-| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
+| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
@@ -61,11 +61,11 @@ Use this section to track missing tier/email/account facts discovered through th
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
 | `1min.AI` |  | `manual_seeded` | `local_env` |  | API-key rotation slots exist locally; account emails are still not documented here. |
-| `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local Chummer6 prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
+| `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
 | `Emailit` |  | `manual_seeded` | `local_env` |  | Tier 5 is noted manually and the API key is stored locally; account-level verification and sender-domain setup are still pending. |
-| `AI Magicx` |  | `missing` | `manual_inventory` |  | Local Chummer6 render wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
+| `AI Magicx` |  | `missing` | `manual_inventory` |  | Local overflow-response wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |

@@ -642,6 +642,16 @@ def test_render_targets_keep_release_build_opt_in(monkeypatch: pytest.MonkeyPatc
     media.render_targets(targets=["assets/hero/chummer6-hero.png"], output_dir=tmp_path)
 
     assert seen["build_release"] is False
+    assert seen["specs"] == [
+        {
+            "target": "assets/hero/chummer6-hero.png",
+            "prompt": "",
+            "width": 1280,
+            "height": 720,
+            "media_row": {},
+            "allow_repeat": True,
+        }
+    ]
 
 
 def test_reserve_onemin_image_slot_allows_reserve_pool_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1276,7 +1286,7 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     contract = media.target_visual_contract("assets/horizons/karma-forge.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
-    assert "improvised garage clinic" in hero_contract["required_setting_markers"]
+    assert any("improvised garage clinic" in marker for marker in hero_contract["required_setting_markers"])
     assert "BOD" in hero_contract["required_overlay_schema"]
     assert contract["density_target"] == "high"
     assert contract["overlay_density"] == "high"
@@ -1295,8 +1305,10 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("two to four people" in part.lower() for part in hero_parts)
     assert any("metahuman clinician" in part.lower() for part in hero_parts)
     assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
+    assert any("flagship_poster" in part.lower() or "illustrated promo-poster" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
+    assert any("illustrated promo-poster" in part.lower() or "flagship_poster" in part.lower() for part in forge_parts)
 
 
 def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:
