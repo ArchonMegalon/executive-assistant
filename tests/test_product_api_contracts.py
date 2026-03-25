@@ -128,10 +128,11 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     detail = client.get(f"/app/api/commitments/{commitment_ref}")
     assert detail.status_code == 200
     assert detail.json()["statement"] == "Send board materials"
+    assert detail.json()["channel_hint"] == "email"
 
     resolved = client.post(
         f"/app/api/queue/{commitment_ref}/resolve",
-        json={"action": "close", "reason": "Materials sent"},
+        json={"action": "close", "reason": "Materials sent", "reason_code": "sent"},
     )
     assert resolved.status_code == 200
     assert resolved.json()["resolution_state"] == "completed"
@@ -139,9 +140,19 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     updated = client.get(f"/app/api/commitments/{commitment_ref}")
     assert updated.status_code == 200
     assert updated.json()["status"] == "completed"
+    assert updated.json()["resolution_code"] == "sent"
+    assert updated.json()["resolution_reason"] == "Materials sent"
     history = client.get(f"/app/api/commitments/{commitment_ref}/history")
     assert history.status_code == 200
     assert any(row["event_type"] == "commitment_closed" for row in history.json())
+
+    reopened = client.post(
+        f"/app/api/commitments/{commitment_ref}/resolve",
+        json={"action": "reopen", "reason": "Board asked for another revision"},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "open"
+    assert reopened.json()["resolution_code"] == ""
 
     created = client.post(
         "/app/api/commitments",
@@ -203,6 +214,7 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     listed = client.get("/app/api/commitments/candidates")
     assert listed.status_code == 200
     assert any(row["candidate_id"] == candidate_id for row in listed.json())
+    assert all(row["status"] in {"pending", "duplicate"} for row in listed.json())
 
     accepted = client.post(
         f"/app/api/commitments/candidates/{candidate_id}/accept",
@@ -232,6 +244,77 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     )
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
+
+
+def test_commitment_duplicate_detection_and_merge_acceptance() -> None:
+    principal_id = "exec-product-commitment-duplicates"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+
+    staged = client.post(
+        "/app/api/commitments/candidates/stage",
+        json={
+            "text": "Please send board materials to Sofia tomorrow.",
+            "counterparty": "Sofia N.",
+        },
+    )
+    assert staged.status_code == 200
+    staged_body = staged.json()
+    assert staged_body
+    duplicate = next(row for row in staged_body if row["duplicate_of_ref"] == commitment_ref)
+    assert duplicate["status"] == "duplicate"
+    assert duplicate["duplicate_of_ref"] == commitment_ref
+    assert duplicate["merge_strategy"] == "merge"
+
+    duplicate_list = client.get("/app/api/commitments/candidates", params={"status": "duplicate"})
+    assert duplicate_list.status_code == 200
+    assert any(row["candidate_id"] == duplicate["candidate_id"] for row in duplicate_list.json())
+
+    merged = client.post(
+        f"/app/api/commitments/candidates/{duplicate['candidate_id']}/accept",
+        json={"reviewer": "operator-office"},
+    )
+    assert merged.status_code == 200
+    merged_body = merged.json()
+    assert merged_body["id"] == commitment_ref
+    assert duplicate["candidate_id"] in merged_body["merged_from_refs"]
+
+
+def test_commitment_defer_and_follow_up_reopen_preserve_reason_codes() -> None:
+    principal_id = "exec-product-commitment-lifecycle"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    deferred = client.post(
+        f"/app/api/commitments/commitment:{seeded['commitment_id']}/resolve",
+        json={
+            "action": "defer",
+            "reason": "Waiting for final finance inputs",
+            "reason_code": "waiting_on_dependency",
+            "due_at": "2026-03-27T09:30:00+00:00",
+        },
+    )
+    assert deferred.status_code == 200
+    assert deferred.json()["status"] == "open"
+    assert deferred.json()["resolution_code"] == "waiting_on_dependency"
+    assert deferred.json()["due_at"] == "2026-03-27T09:30:00+00:00"
+
+    dropped = client.post(
+        f"/app/api/commitments/follow_up:{seeded['follow_up_id']}/resolve",
+        json={"action": "drop", "reason": "Meeting cancelled", "reason_code": "cancelled_event"},
+    )
+    assert dropped.status_code == 200
+    assert dropped.json()["status"] == "dropped"
+    assert dropped.json()["resolution_code"] == "cancelled_event"
+
+    reopened = client.post(
+        f"/app/api/commitments/follow_up:{seeded['follow_up_id']}/resolve",
+        json={"action": "reopen", "reason": "Investor asked to reschedule"},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "open"
+    assert reopened.json()["resolution_code"] == ""
 
 
 def test_product_draft_approval_uses_real_approval_runtime() -> None:

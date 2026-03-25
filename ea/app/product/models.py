@@ -72,6 +72,13 @@ class CommitmentItem:
     last_activity_at: str | None
     risk_level: str
     proof_refs: tuple[EvidenceRef, ...] = ()
+    confidence: float = 0.5
+    channel_hint: str = ""
+    resolution_code: str = ""
+    resolution_reason: str = ""
+    duplicate_of_ref: str = ""
+    merged_into_ref: str = ""
+    merged_from_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,10 @@ class CommitmentCandidate:
     counterparty: str = ""
     status: str = "pending"
     candidate_id: str = ""
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+    duplicate_of_ref: str = ""
+    merge_strategy: str = "create"
 
 
 @dataclass(frozen=True)

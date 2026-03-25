@@ -148,6 +148,7 @@ def resolve_queue_item(
         action=body.action,
         actor=actor,
         reason=body.reason,
+        reason_code=body.reason_code,
         due_at=body.due_at,
     )
     if updated is None:
@@ -229,11 +230,15 @@ def extract_commitments(
 @router.get("/commitments/candidates", response_model=list[CommitmentCandidateOut])
 def list_commitment_candidates(
     limit: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> list[CommitmentCandidateOut]:
     service = build_product_service(container)
-    return [commitment_candidate_out(row) for row in service.list_commitment_candidates(principal_id=context.principal_id, limit=limit)]
+    return [
+        commitment_candidate_out(row)
+        for row in service.list_commitment_candidates(principal_id=context.principal_id, limit=limit, status=status)
+    ]
 
 
 @router.post("/commitments/candidates/stage", response_model=list[CommitmentCandidateOut])
@@ -304,6 +309,29 @@ def get_commitment_history(
     if found is None:
         raise HTTPException(status_code=404, detail="commitment_not_found")
     return [history_out(item) for item in service.get_commitment_history(principal_id=context.principal_id, commitment_ref=commitment_ref, limit=limit)]
+
+
+@router.post("/commitments/{commitment_ref:path}/resolve", response_model=CommitmentOut)
+def resolve_commitment(
+    commitment_ref: str,
+    body: QueueResolveIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> CommitmentOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    updated = service.resolve_commitment(
+        principal_id=context.principal_id,
+        commitment_ref=commitment_ref,
+        action=body.action,
+        actor=actor,
+        reason=body.reason,
+        reason_code=body.reason_code,
+        due_at=body.due_at,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="commitment_not_found")
+    return commitment_out(updated)
 
 
 @router.get("/commitments/{commitment_ref:path}", response_model=CommitmentOut)
