@@ -706,6 +706,15 @@ def _onemin_direct_api_batch_backoff_seconds() -> float:
     return max(0.0, value)
 
 
+def _onemin_browseract_max_accounts_per_refresh() -> int:
+    raw = str(upstream._env("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 3
+    except Exception:
+        value = 3
+    return max(1, min(50, value))
+
+
 def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
     remaining = max(0.0, _ONEMIN_DIRECT_API_QUARANTINED_UNTIL - time.time())
     return remaining, str(_ONEMIN_DIRECT_API_QUARANTINE_REASON or "").strip()
@@ -726,6 +735,30 @@ def _onemin_password() -> str:
         or upstream._env("BROWSERACT_PASSWORD")  # type: ignore[attr-defined]
         or ""
     ).strip()
+
+
+def _onemin_owner_email_for_account(*, account_label: str) -> str:
+    normalized = str(account_label or "").strip()
+    if not normalized:
+        return ""
+    for row in upstream.onemin_owner_rows():
+        if normalized in {
+            str(row.get("account_name") or "").strip(),
+            str(row.get("slot") or "").strip(),
+            str(row.get("owner_label") or "").strip(),
+        }:
+            return str(row.get("owner_email") or "").strip()
+    return ""
+
+
+def _browseract_onemin_login_ready(*, account_label: str, binding_metadata: dict[str, object] | None = None) -> bool:
+    credentials = upstream.onemin_account_login_credentials(
+        account_name=account_label,
+        binding_metadata=dict(binding_metadata or {}),
+    )
+    login_email = str(credentials.get("login_email") or _onemin_owner_email_for_account(account_label=account_label)).strip()
+    login_password = str(credentials.get("login_password") or _onemin_password()).strip()
+    return bool(login_email and login_password)
 
 
 def _onemin_parse_iso(value: object) -> datetime | None:
@@ -1183,6 +1216,10 @@ def refresh_onemin_billing(
     skipped: list[dict[str, object]] = []
     bound_account_labels: set[str] = set()
     bound_account_login_credentials: dict[str, dict[str, str]] = {}
+    browseract_billing_attempted_labels: set[str] = set()
+    browseract_billing_result_labels: set[str] = set()
+    browseract_billing_error_labels: set[str] = set()
+    browseract_max_accounts = _onemin_browseract_max_accounts_per_refresh()
     refresh_allowed, throttle_seconds_remaining, throttle_reason = container.onemin_manager.begin_billing_refresh()
 
     try:
@@ -1232,8 +1269,22 @@ def refresh_onemin_billing(
                 continue
             if refresh_allowed:
                 for account_label in account_labels:
-                    if not billing_run_url and not billing_workflow_id:
+                    if not billing_run_url and not billing_workflow_id and not _browseract_onemin_login_ready(
+                        account_label=account_label,
+                        binding_metadata=binding_metadata,
+                    ):
                         continue
+                    if len(browseract_billing_attempted_labels) >= browseract_max_accounts:
+                        skipped.append(
+                            {
+                                "binding_id": binding.binding_id,
+                                "external_account_ref": binding.external_account_ref,
+                                "account_label": account_label,
+                                "reason": "browseract_refresh_capped",
+                            }
+                        )
+                        continue
+                    browseract_billing_attempted_labels.add(account_label)
                     try:
                         output = _invoke_browseract_tool(
                             container=container,
@@ -1257,7 +1308,9 @@ def refresh_onemin_billing(
                                 **output,
                             }
                         )
+                        browseract_billing_result_labels.add(account_label)
                     except ToolExecutionError as exc:
+                        browseract_billing_error_labels.add(account_label)
                         errors.append(
                             {
                                 "binding_id": binding.binding_id,
@@ -1271,7 +1324,12 @@ def refresh_onemin_billing(
                 if not payload.include_members:
                     continue
                 for account_label in account_labels:
-                    if not members_run_url and not members_workflow_id:
+                    if account_label not in browseract_billing_attempted_labels:
+                        continue
+                    if not members_run_url and not members_workflow_id and not _browseract_onemin_login_ready(
+                        account_label=account_label,
+                        binding_metadata=binding_metadata,
+                    ):
                         continue
                     try:
                         output = _invoke_browseract_tool(
@@ -1314,11 +1372,21 @@ def refresh_onemin_billing(
         api_rate_limited = False
         allow_global_provider_api = bool(payload.provider_api_all_accounts) and operator_allowed
         effective_include_provider_api = bool(payload.include_provider_api)
+        provider_api_skip_reason = ""
         all_api_account_rows = [
             row for row in upstream.onemin_owner_rows() if row.get("account_name") and row.get("owner_email")
         ]
         if effective_include_provider_api and not allow_global_provider_api and not bound_account_labels:
             effective_include_provider_api = False
+        if (
+            effective_include_provider_api
+            and not allow_global_provider_api
+            and browseract_billing_attempted_labels
+            and not browseract_billing_error_labels
+        ):
+            effective_include_provider_api = False
+            provider_api_skip_reason = "browseract_login_refresh"
+            api_skipped_count = len(bound_account_labels)
         if refresh_allowed and effective_include_provider_api:
             (
                 api_billing_results,
@@ -1348,6 +1416,15 @@ def refresh_onemin_billing(
                 note = f"Live 1min billing refresh is already in progress; retry in about {throttle_window}s."
             else:
                 note = f"Live 1min billing refresh is throttled to one run per minute; retry in about {throttle_window}s."
+        elif provider_api_skip_reason == "browseract_login_refresh":
+            if len(browseract_billing_attempted_labels) < len(bound_account_labels):
+                note = (
+                    "Bound 1min account telemetry refreshed through BrowserAct login-backed billing pages "
+                    f"for {len(browseract_billing_attempted_labels)} of {len(bound_account_labels)} bound accounts this cycle; "
+                    "direct 1min API refresh was skipped to avoid provider rate limiting."
+                )
+            else:
+                note = "Bound 1min account telemetry refreshed through BrowserAct login-backed billing pages; direct 1min API refresh was skipped to avoid provider rate limiting."
         elif bool(payload.include_provider_api) and not effective_include_provider_api:
             note = "Direct 1min API refresh is disabled without operator scope or a bound account selection."
         elif not bindings and api_billing_results:

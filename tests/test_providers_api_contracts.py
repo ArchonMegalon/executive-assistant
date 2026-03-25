@@ -875,6 +875,10 @@ def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
         observed.update(kwargs)
         return ([], [], [], 1, 0, False)
 
+    def fake_invoke_browseract_tool(**_kwargs):
+        raise providers_route.ToolExecutionError("browseract_unavailable")
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
     monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
 
     response = owner.post(
@@ -891,7 +895,7 @@ def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
     }
 
 
-def test_onemin_billing_refresh_skips_unconfigured_browseract_template_fallback(
+def test_onemin_billing_refresh_uses_browseract_login_fallback_and_skips_direct_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = _client(principal_id="exec-1", operator=True)
@@ -908,6 +912,7 @@ def test_onemin_billing_refresh_skips_unconfigured_browseract_template_fallback(
             }
         ),
     )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
 
     created = owner.post(
         "/v1/connectors/bindings",
@@ -930,7 +935,19 @@ def test_onemin_billing_refresh_skips_unconfigured_browseract_template_fallback(
 
     def fake_invoke_browseract_tool(**kwargs):
         invoked.append(str(kwargs.get("tool_name") or ""))
-        return {}
+        tool_name = str(kwargs.get("tool_name") or "")
+        if tool_name == "browseract.onemin_billing_usage":
+            return {
+                "refresh_backend": "browseract",
+                "remaining_credits": "12345",
+                "max_credits": "20000",
+                "next_topup_at": "2026-03-31T00:00:00Z",
+                "topup_amount": "20000",
+            }
+        return {
+            "refresh_backend": "browseract",
+            "matched_owner_slots": 1,
+        }
 
     def fake_refresh(**kwargs):
         observed.update(kwargs)
@@ -951,12 +968,94 @@ def test_onemin_billing_refresh_skips_unconfigured_browseract_template_fallback(
         json={"include_members": True},
     )
     assert response.status_code == 200
-    assert invoked == []
-    assert observed["account_labels"] == {"ONEMIN_AI_API_KEY"}
-    assert observed["account_login_credentials"] == {}
     body = response.json()
-    assert body["billing_results"][0]["refresh_backend"] == "onemin_api"
-    assert body["member_results"][0]["refresh_backend"] == "onemin_api"
+    assert invoked == [
+        "browseract.onemin_billing_usage",
+        "browseract.onemin_member_reconciliation",
+    ]
+    assert observed == {}
+    assert body["billing_refresh_count"] == 1
+    assert body["member_reconciliation_count"] == 1
+    assert body["api_account_attempted"] == 0
+    assert body["api_account_skipped"] == 1
+    assert "BrowserAct login-backed billing pages" in body["note"]
+
+
+def test_onemin_billing_refresh_caps_browseract_login_pass_per_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner-3@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "owner_email": "owner-4@example.com"},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+    monkeypatch.setenv("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH", "2")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "ONEMIN_AI_API_KEY_FALLBACK_3",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    invoked: list[tuple[str, str]] = []
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append((tool_name, account_label))
+        if tool_name == "browseract.onemin_billing_usage":
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return ([], [], [], 0, 0, False)
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": True})
+    assert response.status_code == 200
+    body = response.json()
+    assert observed == {}
+    assert invoked == [
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+        ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+    ]
+    assert body["billing_refresh_count"] == 2
+    assert body["member_reconciliation_count"] == 2
+    assert body["api_account_attempted"] == 0
+    assert body["api_account_skipped"] == 4
+    assert "for 2 of 4 bound accounts this cycle" in body["note"]
 
 
 def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
