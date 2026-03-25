@@ -3592,7 +3592,7 @@ def test_planner_dependency_graph_projection_is_documented_and_smoked() -> None:
     assert "`POST /v1/plans/compile` exposes `depends_on`, `input_keys`, and `output_keys`" in runbook
     assert "The queue runtime now only merges declared dependency inputs and fails missing declared outputs before a step can complete" in runbook
     assert "Promoted the dependency-aware planner graph projection into a released milestone capability" in changelog
-    assert "expected three-step plan compile response with explicit step semantics" in smoke_api
+    assert "expected direct three-step plan compile response with explicit artifact-save semantics" in smoke_api
     assert 'compiled.json()["plan"]["steps"][1]["depends_on"] == ["step_input_prepare"]' in smoke_runtime
     assert 'compiled.json()["plan"]["steps"][1]["output_keys"] == [' in smoke_runtime
     assert 'plan.steps[1].depends_on == ("step_input_prepare",)' in planner_test
@@ -3616,7 +3616,7 @@ def test_plan_step_operational_semantics_are_documented_and_smoked() -> None:
     assert "owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`" in readme
     assert "`owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`" in runbook
     assert "Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics" in changelog
-    assert "expected three-step plan compile response with explicit step semantics" in smoke_api
+    assert "expected direct three-step plan compile response with explicit artifact-save semantics" in smoke_api
     assert 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' in smoke_runtime
     assert 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' in smoke_runtime
     assert 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' in smoke_runtime

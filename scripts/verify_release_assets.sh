@@ -1786,7 +1786,7 @@ then
   if grep -Fq 'owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`' "README.md" && \
      grep -Fq '`owner`, `authority_class`, `review_class`, `failure_strategy`, `timeout_budget_seconds`, `max_attempts`, and `retry_backoff_seconds`' "RUNBOOK.md" && \
      grep -Fq 'Compiled plan steps now project explicit owner, authority_class, review_class, failure_strategy, timeout_budget_seconds, max_attempts, and retry_backoff_seconds semantics' "CHANGELOG.md" && \
-     grep -Fq 'expected three-step plan compile response with explicit step semantics' "scripts/smoke_api.sh" && \
+     grep -Fq 'expected direct three-step plan compile response with explicit artifact-save semantics' "scripts/smoke_api.sh" && \
      grep -Fq 'compiled.json()["plan"]["steps"][0]["owner"] == "system"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'compiled.json()["plan"]["steps"][0]["timeout_budget_seconds"] == 30' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'compiled_review.json()["plan"]["steps"][2]["review_class"] == "operator"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
