@@ -115,6 +115,8 @@ Allowed proof surfaces include:
 The release shelf should feel like an install-and-update shelf first and an archive list second.
 It must present one obvious recommended default per platform before exposing advanced alternatives.
 
+The release shelf should feel like an install-and-update shelf first and an archive list second.
+
 ## Participation wording
 
 Use public language such as:
