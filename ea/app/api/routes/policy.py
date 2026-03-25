@@ -104,10 +104,9 @@ def _session_task_identity(
 ) -> tuple[str, str]:
     if cache is not None and session_id in cache:
         return cache[session_id]
+    snapshot = None
     if principal_id:
         snapshot = container.orchestrator.fetch_session_for_principal(session_id, principal_id=principal_id)
-    else:
-        snapshot = container.orchestrator.fetch_session(session_id)
     if snapshot is None:
         identity = ("", "")
     else:

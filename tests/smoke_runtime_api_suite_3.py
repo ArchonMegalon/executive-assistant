@@ -5,7 +5,7 @@ from tests.smoke_runtime_api_support import build_headers as _headers
 
 
 def test_generic_task_execution_supports_async_approval_and_human_contracts() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     approval_contract = client.post(
         "/v1/tasks/contracts",
@@ -204,7 +204,7 @@ def test_generic_task_execution_supports_async_approval_and_human_contracts() ->
 
 
 def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -332,7 +332,7 @@ def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch(
 
 
 def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -436,7 +436,7 @@ def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_
 
 
 def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -576,7 +576,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
 
 
 def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_human_and_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -724,7 +724,7 @@ def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_can
 
 
 def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -844,7 +844,7 @@ def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_o
 
 
 def test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -937,7 +937,7 @@ def test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval() -
 
 
 def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     contract = client.post(
         "/v1/tasks/contracts",
         json={
@@ -1117,7 +1117,7 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
 
 
 def test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",

@@ -186,19 +186,78 @@ def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: 
         _ = "".join(stream_iter)
 
 
-def test_responses_stream_rejects_unsupported_tools_field(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_responses_stream_accepts_codex_compat_fields_and_skips_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
+    read_client = _client(principal_id="codex-test")
     from app.api.routes import responses
 
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "seed response"
+        assert messages == [{"role": "user", "content": "seed response"}]
+        assert requested_model == "ea-coder-fast"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="stored seed",
+            provider_key="magixai",
+            model="openai/gpt-5.1-codex-mini",
+            tokens_in=2,
+            tokens_out=1,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    seed = client.post("/v1/responses", json={"model": "ea-coder-fast", "input": "seed response"})
+    assert seed.status_code == 200
+    seed_id = seed.json()["id"]
+
+    def fake_tool_shim_decision(
+        *,
+        model: str,
+        max_output_tokens: int | None,
+        instructions: str | None,
+        tools: list[dict[str, object]],
+        history_items: list[dict[str, object]],
+        **_: object,
+    ) -> responses._ToolShimDecision:
+        assert model == "ea-coder-fast"
+        assert max_output_tokens is None
+        assert instructions is None
+        assert [tool["name"] for tool in tools] == ["exec_command"]
+        assert history_items[0] == {"type": "input_text", "text": "seed response"}
+        assert history_items[1]["type"] == "message"
+        assert history_items[1]["role"] == "assistant"
+        assert history_items[1]["content"][0]["text"] == "stored seed"
+        assert history_items[2] == {"type": "input_text", "text": "inspect repo"}
+        return responses._ToolShimDecision(
+            kind="final",
+            text="tool-compat-ok",
+            upstream_result=UpstreamResult(
+                text="tool-compat-ok",
+                provider_key="magixai",
+                model="openai/gpt-5.1-codex-mini",
+                tokens_in=5,
+                tokens_out=2,
+            ),
+        )
+
+    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_shim_decision)
     monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
 
     with client.stream(
         "POST",
         "/v1/responses",
         json={
-            "model": "ea-coder-best",
+            "model": "ea-coder-fast",
             "input": "inspect repo",
             "stream": True,
+            "store": False,
+            "previous_response_id": seed_id,
             "tools": [
                 {
                     "type": "function",
@@ -211,12 +270,51 @@ def test_responses_stream_rejects_unsupported_tools_field(monkeypatch: pytest.Mo
                     },
                 }
             ],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
         },
     ) as resp:
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         body = "".join(resp.iter_text())
 
-    assert "unsupported_fields:tools" in body
+    assert "event: response.completed" in body
+    assert "tool-compat-ok" in body
+
+    events: list[tuple[str, object]] = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        event_name = ""
+        event_payload: object | None = None
+        for line in block.splitlines():
+            if line.startswith("event: "):
+                event_name = line[len("event: ") :]
+            elif line.startswith("data: "):
+                raw_payload = line[len("data: ") :]
+                if raw_payload == "[DONE]":
+                    event_payload = raw_payload
+                else:
+                    event_payload = json.loads(raw_payload)
+        if event_name:
+            events.append((event_name, event_payload))
+
+    created = next(payload for event, payload in events if event == "response.created")
+    completed = next(payload for event, payload in events if event == "response.completed")
+    assert isinstance(created, dict)
+    assert isinstance(completed, dict)
+    assert created["response"]["metadata"]["accepted_client_fields"] == [
+        "store",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "previous_response_id",
+    ]
+    assert completed["response"]["metadata"]["tool_shim"] is True
+    assert completed["response"]["metadata"]["tool_shim_tools"] == ["exec_command"]
+    response_id = created["response"]["id"]
+    time.sleep(1.05)
+    retrieved = read_client.get(f"/v1/responses/{response_id}")
+    assert retrieved.status_code == 404
 
 
 def test_models_list_returns_responses_aliases() -> None:
@@ -512,11 +610,6 @@ def test_responses_accepts_text_output_config_field(monkeypatch: pytest.MonkeyPa
     [
         ("conversation", "ignored"),
         ("background", True),
-        ("store", False),
-        ("tools", []),
-        ("tool_choice", "auto"),
-        ("parallel_tool_calls", False),
-        ("previous_response_id", "resp_abc123"),
     ],
 )
 def test_responses_rejects_unsupported_top_level_fields(field: str, value: object) -> None:
@@ -528,13 +621,6 @@ def test_responses_rejects_unsupported_top_level_fields(field: str, value: objec
     )
     assert resp.status_code == 400
     assert "unsupported_fields" in resp.text
-
-
-def test_responses_rejects_store_override() -> None:
-    client = _client(principal_id="codex-test")
-    response = client.post("/v1/responses", json={"input": "ephemeral", "store": False})
-    assert response.status_code == 400
-    assert "unsupported_fields:store" in response.text
 
 
 def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:

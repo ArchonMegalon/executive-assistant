@@ -17,15 +17,25 @@ def _result_dir() -> Path:
     return Path(str(os.getenv("EA_PUBLIC_RESULT_DIR") or "/docker/fleet/state/public_browseract_results")).expanduser()
 
 
-def _slug_path(slug: str) -> Path:
+def _result_base_dir(slug: str) -> Path:
     safe = str(slug or "").strip()
     if not safe or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="result_not_found")
-    return _result_dir() / safe
+    root = _result_dir().resolve()
+    candidate = (root / safe).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise HTTPException(status_code=404, detail="result_not_found")
+    if not candidate.exists() or not candidate.is_dir():
+        raise HTTPException(status_code=404, detail="result_not_found")
+    return candidate
 
 
 def _manifest_path(slug: str) -> Path:
-    return _slug_path(slug) / "result.json"
+    base = _result_base_dir(slug)
+    candidate = (base / "result.json").resolve()
+    if base not in candidate.parents:
+        raise HTTPException(status_code=404, detail="result_not_found")
+    return candidate
 
 
 def _load_manifest(slug: str) -> dict[str, object]:
@@ -42,7 +52,7 @@ def _load_manifest(slug: str) -> dict[str, object]:
 
 
 def _asset_file(slug: str, asset_path: str) -> Path:
-    base = _slug_path(slug).resolve()
+    base = _result_base_dir(slug)
     candidate = (base / str(asset_path or "")).resolve()
     if base not in candidate.parents and candidate != base:
         raise HTTPException(status_code=404, detail="result_file_not_found")

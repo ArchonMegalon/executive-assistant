@@ -137,10 +137,13 @@ def _session_task_identity(
     container: AppContainer,
     session_id: str,
     cache: dict[str, tuple[str, str]] | None = None,
+    principal_id: str | None = None,
 ) -> tuple[str, str]:
     if cache is not None and session_id in cache:
         return cache[session_id]
-    snapshot = container.orchestrator.fetch_session(session_id)
+    snapshot = None
+    if principal_id:
+        snapshot = container.orchestrator.fetch_session_for_principal(session_id, principal_id=principal_id)
     if snapshot is None:
         identity = ("", "")
     else:
@@ -247,8 +250,12 @@ def _validate_operator_actor(
     if not normalized:
         raise HTTPException(status_code=400, detail="operator_id_required")
     actor_operator_id = str(getattr(context, "operator_id", "") or "").strip()
-    if actor_operator_id and normalized != actor_operator_id and not is_operator_context(context):
-        raise HTTPException(status_code=403, detail="operator_identity_mismatch")
+    if actor_operator_id:
+        if normalized != actor_operator_id and not is_operator_context(context):
+            raise HTTPException(status_code=403, detail="operator_identity_mismatch")
+        return normalized
+    if not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_identity_required")
     return normalized
 
 
@@ -296,7 +303,7 @@ def create_human_task(
         code = str(exc.args[0] or "session_not_found")
         status_code = 400 if code == "step_id_required" else 404
         raise HTTPException(status_code=status_code, detail=code) from exc
-    task_key, deliverable_type = _session_task_identity(container, row.session_id)
+    task_key, deliverable_type = _session_task_identity(container, row.session_id, principal_id=principal_id)
     return _to_out(row, task_key=task_key, deliverable_type=deliverable_type)
 
 
@@ -340,8 +347,8 @@ def list_human_tasks(
     return [
         _to_out(
             row,
-            task_key=_session_task_identity(container, row.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, row.session_id, cache)[1],
+            task_key=_session_task_identity(container, row.session_id, cache, resolved_principal)[0],
+            deliverable_type=_session_task_identity(container, row.session_id, cache, resolved_principal)[1],
         )
         for row in rows
     ]
@@ -407,8 +414,8 @@ def list_human_task_backlog(
     return [
         _to_out(
             row,
-            task_key=_session_task_identity(container, row.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, row.session_id, cache)[1],
+            task_key=_session_task_identity(container, row.session_id, cache, context.principal_id)[0],
+            deliverable_type=_session_task_identity(container, row.session_id, cache, context.principal_id)[1],
         )
         for row in rows
     ]
@@ -443,8 +450,8 @@ def list_unassigned_human_tasks(
     return [
         _to_out(
             row,
-            task_key=_session_task_identity(container, row.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, row.session_id, cache)[1],
+            task_key=_session_task_identity(container, row.session_id, cache, context.principal_id)[0],
+            deliverable_type=_session_task_identity(container, row.session_id, cache, context.principal_id)[1],
         )
         for row in rows
     ]
@@ -483,8 +490,8 @@ def list_my_human_tasks(
     return [
         _to_out(
             row,
-            task_key=_session_task_identity(container, row.session_id, cache)[0],
-            deliverable_type=_session_task_identity(container, row.session_id, cache)[1],
+            task_key=_session_task_identity(container, row.session_id, cache, context.principal_id)[0],
+            deliverable_type=_session_task_identity(container, row.session_id, cache, context.principal_id)[1],
         )
         for row in rows
     ]
@@ -496,17 +503,24 @@ def upsert_operator_profile(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> OperatorProfileOut:
+    if not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
     principal_id = resolve_principal_id(payload.principal_id, context)
-    row = container.orchestrator.upsert_operator_profile(
-        principal_id=principal_id,
-        operator_id=payload.operator_id,
-        display_name=payload.display_name,
-        roles=tuple(payload.roles),
-        skill_tags=tuple(payload.skill_tags),
-        trust_tier=payload.trust_tier,
-        status=payload.status,
-        notes=payload.notes,
-    )
+    try:
+        row = container.orchestrator.upsert_operator_profile(
+            principal_id=principal_id,
+            operator_id=payload.operator_id,
+            display_name=payload.display_name,
+            roles=tuple(payload.roles),
+            skill_tags=tuple(payload.skill_tags),
+            trust_tier=payload.trust_tier,
+            status=payload.status,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        if str(exc or "").strip() == "operator_id_bound_to_other_principal":
+            raise HTTPException(status_code=409, detail="operator_id_bound_to_other_principal") from exc
+        raise
     return _to_operator_out(row)
 
 
@@ -518,6 +532,8 @@ def list_operator_profiles(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> list[OperatorProfileOut]:
+    if not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
     resolved_principal = resolve_principal_id(principal_id, context)
     rows = container.orchestrator.list_operator_profiles(
         principal_id=resolved_principal,
@@ -533,6 +549,8 @@ def get_operator_profile(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> OperatorProfileOut:
+    if not is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
     row = container.orchestrator.fetch_operator_profile(operator_id, principal_id=context.principal_id)
     if row is None:
         raise HTTPException(status_code=404, detail="operator_profile_not_found")
@@ -571,7 +589,7 @@ def assign_human_task(
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_assignable")
-    task_key, deliverable_type = _session_task_identity(container, row.session_id)
+    task_key, deliverable_type = _session_task_identity(container, row.session_id, principal_id=context.principal_id)
     return _to_out(row, task_key=task_key, deliverable_type=deliverable_type)
 
 
@@ -589,7 +607,7 @@ def get_human_task_assignment_history(
     found = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if found is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
-    task_key, deliverable_type = _session_task_identity(container, found.session_id)
+    task_key, deliverable_type = _session_task_identity(container, found.session_id, principal_id=context.principal_id)
     rows = container.orchestrator.list_human_task_assignment_history(
         human_task_id,
         principal_id=context.principal_id,
@@ -618,7 +636,7 @@ def get_human_task(
     row = container.orchestrator.fetch_human_task(human_task_id, principal_id=context.principal_id)
     if row is None:
         raise HTTPException(status_code=404, detail="human_task_not_found")
-    task_key, deliverable_type = _session_task_identity(container, row.session_id)
+    task_key, deliverable_type = _session_task_identity(container, row.session_id, principal_id=context.principal_id)
     return _to_out(row, task_key=task_key, deliverable_type=deliverable_type)
 
 
@@ -646,7 +664,7 @@ def claim_human_task(
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_claimable")
-    task_key, deliverable_type = _session_task_identity(container, row.session_id)
+    task_key, deliverable_type = _session_task_identity(container, row.session_id, principal_id=context.principal_id)
     return _to_out(row, task_key=task_key, deliverable_type=deliverable_type)
 
 
@@ -676,5 +694,5 @@ def return_human_task(
     )
     if row is None:
         raise HTTPException(status_code=409, detail="human_task_not_returnable")
-    task_key, deliverable_type = _session_task_identity(container, row.session_id)
+    task_key, deliverable_type = _session_task_identity(container, row.session_id, principal_id=context.principal_id)
     return _to_out(row, task_key=task_key, deliverable_type=deliverable_type)

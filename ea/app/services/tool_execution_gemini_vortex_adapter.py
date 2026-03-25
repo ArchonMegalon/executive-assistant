@@ -215,11 +215,11 @@ class GeminiVortexToolAdapter:
         return _env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash"
 
     def _timeout_seconds(self) -> int:
-        raw = _env_value("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "180"
+        raw = _env_value("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "300"
         try:
             return max(15, int(raw))
         except Exception:
-            return 180
+            return 300
 
     def _auth_slots(self) -> tuple[GeminiAuthSlot, ...]:
         slots = [GeminiAuthSlot(slot="default", account_name=_DEFAULT_GEMINI_AUTH_ACCOUNT)]

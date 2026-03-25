@@ -10,7 +10,7 @@ class ExecutionOperatorProfileService:
         self,
         *,
         upsert_profile: Callable[..., OperatorProfile],
-        get_profile: Callable[[str], OperatorProfile | None],
+        get_profile: Callable[..., OperatorProfile | None],
         list_profiles_for_principal: Callable[..., list[OperatorProfile]],
     ) -> None:
         self._upsert_profile = upsert_profile
@@ -41,10 +41,14 @@ class ExecutionOperatorProfileService:
         )
 
     def fetch_operator_profile(self, operator_id: str, *, principal_id: str) -> OperatorProfile | None:
-        row = self._get_profile(operator_id)
-        if row is None or row.principal_id != str(principal_id or ""):
-            return None
-        return row
+        normalized_principal = str(principal_id or "").strip()
+        try:
+            return self._get_profile(operator_id, principal_id=normalized_principal)
+        except TypeError:
+            row = self._get_profile(operator_id)
+            if row is None or row.principal_id != normalized_principal:
+                return None
+            return row
 
     def list_operator_profiles(
         self,

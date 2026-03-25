@@ -65,10 +65,11 @@ class PostgresObservationEventRepository:
                     ON observation_events(created_at DESC)
                     """
                 )
+                cur.execute("DROP INDEX IF EXISTS idx_observation_events_dedupe_key_unique")
                 cur.execute(
                     """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_events_dedupe_key_unique
-                    ON observation_events(dedupe_key)
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_events_principal_dedupe_unique
+                    ON observation_events(principal_id, dedupe_key)
                     WHERE dedupe_key <> ''
                     """
                 )
@@ -76,6 +77,12 @@ class PostgresObservationEventRepository:
                     """
                     CREATE INDEX IF NOT EXISTS idx_observation_events_source_external
                     ON observation_events(source_id, external_id, created_at DESC)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_observation_events_principal_created
+                    ON observation_events(principal_id, created_at DESC)
                     """
                 )
 
@@ -92,8 +99,9 @@ class PostgresObservationEventRepository:
         auth_context_json: dict[str, object] | None = None,
         raw_payload_uri: str = "",
     ) -> ObservationEvent:
+        principal = str(principal_id or "").strip()
         dedupe = str(dedupe_key or "").strip()
-        if dedupe:
+        if principal and dedupe:
             with self._connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -101,10 +109,10 @@ class PostgresObservationEventRepository:
                         SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
                                source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
                         FROM observation_events
-                        WHERE dedupe_key = %s
+                        WHERE principal_id = %s AND dedupe_key = %s
                         LIMIT 1
                         """,
-                        (dedupe,),
+                        (principal, dedupe),
                     )
                     found = cur.fetchone()
             if found:
@@ -136,7 +144,7 @@ class PostgresObservationEventRepository:
                 )
         row = ObservationEvent(
             observation_id=str(uuid.uuid4()),
-            principal_id=str(principal_id or "").strip(),
+            principal_id=principal,
             channel=str(channel or "unknown").strip(),
             event_type=str(event_type or "unknown").strip(),
             payload=dict(payload or {}),
@@ -172,20 +180,23 @@ class PostgresObservationEventRepository:
                 )
         return row
 
-    def list_recent(self, limit: int = 50) -> list[ObservationEvent]:
+    def list_recent(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
         n = max(1, min(500, int(limit or 50)))
+        normalized_principal = str(principal_id or "").strip()
+        query = """
+            SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
+                   source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
+            FROM observation_events
+        """
+        params: list[Any] = []
+        if normalized_principal:
+            query += " WHERE principal_id = %s"
+            params.append(normalized_principal)
+        query += " ORDER BY created_at DESC, observation_id DESC LIMIT %s"
+        params.append(n)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
-                           source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
-                    FROM observation_events
-                    ORDER BY created_at DESC, observation_id DESC
-                    LIMIT %s
-                    """,
-                    (n,),
-                )
+                cur.execute(query, tuple(params))
                 rows = cur.fetchall()
         return [
             ObservationEvent(
@@ -216,22 +227,25 @@ class PostgresObservationEventRepository:
             ) in rows
         ]
 
-    def get_by_dedupe(self, dedupe_key: str) -> ObservationEvent | None:
+    def get_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         key = str(dedupe_key or "").strip()
         if not key:
             return None
+        normalized_principal = str(principal_id or "").strip()
+        query = """
+            SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
+                   source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
+            FROM observation_events
+            WHERE dedupe_key = %s
+        """
+        params: list[Any] = [key]
+        if normalized_principal:
+            query += " AND principal_id = %s"
+            params.append(normalized_principal)
+        query += " LIMIT 1"
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,
-                           source_id, external_id, dedupe_key, auth_context_json, raw_payload_uri
-                    FROM observation_events
-                    WHERE dedupe_key = %s
-                    LIMIT 1
-                    """,
-                    (key,),
-                )
+                cur.execute(query, tuple(params))
                 row = cur.fetchone()
         if not row:
             return None

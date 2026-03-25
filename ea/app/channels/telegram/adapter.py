@@ -10,7 +10,7 @@ class TelegramObservationAdapter:
         msg = update.get("message") if isinstance(update, dict) else None
         if not isinstance(msg, dict):
             return {
-                "principal_id": "unknown",
+                "chat_id": "",
                 "event_type": "telegram.update",
                 "payload": dict(update if isinstance(update, dict) else {}),
                 "source_id": "telegram",
@@ -24,7 +24,7 @@ class TelegramObservationAdapter:
         text = str(msg.get("text") or "")
         message_id = str(msg.get("message_id") or "").strip()
         return {
-            "principal_id": chat_id or "unknown",
+            "chat_id": chat_id,
             "event_type": "telegram.message",
             "source_id": f"telegram:{chat_id}" if chat_id else "telegram",
             "external_id": message_id,

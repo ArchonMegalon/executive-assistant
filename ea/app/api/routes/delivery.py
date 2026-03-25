@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.container import AppContainer
 
 router = APIRouter(prefix="/v1/delivery/outbox", tags=["delivery"])
@@ -25,8 +25,13 @@ class DeliveryFailedIn(BaseModel):
     dead_letter: bool = Field(default=False)
 
 
+class DeliverySentIn(BaseModel):
+    receipt_json: dict[str, object] = Field(default_factory=dict)
+
+
 class DeliveryOut(BaseModel):
     delivery_id: str
+    principal_id: str
     channel: str
     recipient: str
     content: str
@@ -46,8 +51,10 @@ class DeliveryOut(BaseModel):
 def enqueue_delivery(
     body: DeliveryIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> DeliveryOut:
     row = container.channel_runtime.queue_delivery(
+        principal_id=context.principal_id,
         channel=body.channel,
         recipient=body.recipient,
         content=body.content,
@@ -56,6 +63,7 @@ def enqueue_delivery(
     )
     return DeliveryOut(
         delivery_id=row.delivery_id,
+        principal_id=row.principal_id,
         channel=row.channel,
         recipient=row.recipient,
         content=row.content,
@@ -75,13 +83,20 @@ def enqueue_delivery(
 @router.post("/{delivery_id}/sent")
 def mark_sent(
     delivery_id: str,
+    body: DeliverySentIn | None = None,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> DeliveryOut:
-    row = container.channel_runtime.mark_delivery_sent(delivery_id)
+    row = container.channel_runtime.mark_delivery_sent(
+        delivery_id,
+        principal_id=context.principal_id,
+        receipt_json=dict((body.receipt_json if body is not None else {}) or {}),
+    )
     if not row:
         raise HTTPException(status_code=404, detail="delivery_not_found")
     return DeliveryOut(
         delivery_id=row.delivery_id,
+        principal_id=row.principal_id,
         channel=row.channel,
         recipient=row.recipient,
         content=row.content,
@@ -103,12 +118,14 @@ def mark_failed(
     delivery_id: str,
     body: DeliveryFailedIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> DeliveryOut:
     next_attempt_at = None
     if not body.dead_letter:
         next_attempt_at = (datetime.now(timezone.utc) + timedelta(seconds=max(0, body.retry_in_seconds))).isoformat()
     row = container.channel_runtime.mark_delivery_failed(
         delivery_id,
+        principal_id=context.principal_id,
         error=body.error,
         next_attempt_at=next_attempt_at,
         dead_letter=body.dead_letter,
@@ -117,6 +134,7 @@ def mark_failed(
         raise HTTPException(status_code=404, detail="delivery_not_found")
     return DeliveryOut(
         delivery_id=row.delivery_id,
+        principal_id=row.principal_id,
         channel=row.channel,
         recipient=row.recipient,
         content=row.content,
@@ -137,11 +155,13 @@ def mark_failed(
 def list_pending(
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> list[DeliveryOut]:
-    rows = container.channel_runtime.list_pending_delivery(limit=limit)
+    rows = container.channel_runtime.list_pending_delivery(limit=limit, principal_id=context.principal_id)
     return [
         DeliveryOut(
             delivery_id=r.delivery_id,
+            principal_id=r.principal_id,
             channel=r.channel,
             recipient=r.recipient,
             content=r.content,

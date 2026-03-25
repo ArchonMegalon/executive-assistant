@@ -375,6 +375,11 @@ inject_bootstrap_prompt() {
   local idx=-1
   local prompt_prefix=""
 
+  if [ "$#" -gt 0 ] && ! args_request_interactive_session "$@"; then
+    printf '%s\0' "${args[@]}"
+    return
+  fi
+
   prompt_prefix="$(build_bootstrap_prompt)"
   if [ -z "${prompt_prefix}" ]; then
     printf '%s\0' "${args[@]}"
@@ -951,6 +956,9 @@ case "${1:-}" in
     shift
     if [ -f "${ROUTE_HELPER}" ]; then
       ROUTE_ARGS=(--onemin-aggregate)
+      if [ "${CODEXEA_CREDITS_PROBE_ALL:-1}" != "0" ]; then
+        ROUTE_ARGS+=(--probe-all)
+      fi
       if [ "${CODEXEA_CREDITS_INCLUDE_BILLING}" != "0" ]; then
         ROUTE_ARGS+=(--billing)
       fi
@@ -1138,9 +1146,13 @@ case "${MODE}" in
     ;;
   responses)
     EA_AUTH_TOKEN="${EA_API_TOKEN:-${EA_MCP_API_TOKEN:-}}"
-    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\"}"
+    EA_CODEX_PROFILE="${EFFECTIVE_LANE}"
+    if [ "${EA_CODEX_PROFILE}" = "jury" ]; then
+      EA_CODEX_PROFILE="audit"
+    fi
+    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\"}"
     if [ -n "${EA_AUTH_TOKEN:-}" ]; then
-      EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\"}"
+      EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\",\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\"}"
     fi
     EA_DEFAULT_ARGS+=(
       -c 'model_provider="ea"'
