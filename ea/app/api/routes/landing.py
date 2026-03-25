@@ -1240,13 +1240,13 @@ def settings_usage_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="usage_opened",
         surface="settings_usage",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
     analytics = dict(diagnostics.get("analytics") or {})
     operators = dict(diagnostics.get("operators") or {})

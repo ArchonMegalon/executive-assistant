@@ -557,13 +557,13 @@ def get_workspace_usage_detail(
     context: RequestContext = Depends(get_request_context),
 ) -> WorkspaceUsageDetailOut:
     service = build_product_service(container)
-    diagnostics = service.workspace_diagnostics(principal_id=context.principal_id)
     service.record_surface_event(
         principal_id=context.principal_id,
         event_type="usage_opened",
         surface="usage_api",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    diagnostics = service.workspace_diagnostics(principal_id=context.principal_id)
     return WorkspaceUsageDetailOut(
         workspace=dict(diagnostics.get("workspace") or {}),
         selected_channels=[str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()],

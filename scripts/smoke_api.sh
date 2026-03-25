@@ -1633,11 +1633,14 @@ fi
 echo "skills ok"
 
 echo "== smoke: plans =="
+PLAN_COMPILE_TASK_KEY="rewrite_text_plan_${SMOKE_RUN_TOKEN}"
+operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
+  -d "{\"task_key\":\"${PLAN_COMPILE_TASK_KEY}\",\"deliverable_type\":\"rewrite_note\",\"default_risk_class\":\"low\",\"default_approval_class\":\"none\",\"allowed_tools\":[\"artifact_repository\"],\"evidence_requirements\":[],\"memory_write_policy\":\"reviewed_only\",\"budget_policy_json\":{\"class\":\"low\",\"artifact_failure_strategy\":\"retry\",\"artifact_max_attempts\":2,\"artifact_retry_backoff_seconds\":15}}" >/dev/null
 PLAN_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"task_key":"rewrite_text","goal":"rewrite this text"}')"
-PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; prepare=(steps[0] if steps else {}); policy=(steps[1] if len(steps) > 1 else {}); save=(steps[2] if len(steps) > 2 else {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(len(steps), prepare.get('step_key',''), prepare.get('owner',''), prepare.get('authority_class',''), prepare.get('timeout_budget_seconds',''), prepare.get('max_attempts',''), policy.get('step_key',''), ','.join(policy.get('depends_on') or []), policy.get('owner',''), save.get('tool_name',''), save.get('owner',''), save.get('authority_class',''), save.get('failure_strategy',''), save.get('timeout_budget_seconds','')))" <<<"${PLAN_JSON}")"
-if [[ "${PLAN_FIELDS}" != "3|step_input_prepare|system|observe|30|1|step_policy_evaluate|step_input_prepare|system|artifact_repository|tool|draft|retry|60" ]]; then
-  echo "expected three-step plan compile response with explicit step semantics; got ${PLAN_FIELDS}" >&2
+  -d "{\"task_key\":\"${PLAN_COMPILE_TASK_KEY}\",\"goal\":\"rewrite this text\"}")"
+PLAN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps=body.get('plan',{}).get('steps') or []; prepare=(steps[0] if steps else {}); policy=(steps[1] if len(steps) > 1 else {}); save=(steps[2] if len(steps) > 2 else {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(len(steps), prepare.get('step_key',''), prepare.get('owner',''), prepare.get('authority_class',''), prepare.get('timeout_budget_seconds',''), prepare.get('max_attempts',''), policy.get('step_key',''), ','.join(policy.get('depends_on') or []), policy.get('owner',''), save.get('step_key',''), save.get('tool_name',''), ','.join(save.get('depends_on') or []), save.get('owner',''), save.get('authority_class',''), save.get('failure_strategy',''), save.get('timeout_budget_seconds','')))" <<<"${PLAN_JSON}")"
+if [[ "${PLAN_FIELDS}" != "3|step_input_prepare|system|observe|30|1|step_policy_evaluate|step_input_prepare|system|step_artifact_save|artifact_repository|step_policy_evaluate|tool|draft|retry|60" ]]; then
+  echo "expected direct three-step plan compile response with explicit artifact-save semantics; got ${PLAN_FIELDS}" >&2
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
@@ -1647,7 +1650,7 @@ if [[ "${PLAN_PRINCIPAL_FIELDS}" != "${PRINCIPAL_ID}|${PRINCIPAL_ID}" ]]; then
   echo "${PLAN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-PLAN_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"rewrite_text\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
+PLAN_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json -X POST "${BASE}/v1/plans/compile" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"task_key\":\"${PLAN_COMPILE_TASK_KEY}\",\"principal_id\":\"${MISMATCH_PRINCIPAL_ID}\",\"goal\":\"rewrite this text\"}")"
 if [[ "${PLAN_MISMATCH_CODE}" != "403" ]]; then
   echo "expected plan compile principal mismatch to return 403; got ${PLAN_MISMATCH_CODE}" >&2
   cat /docker/EA/.smoke_tmp/ea_plan_mismatch_resp.json >&2

@@ -109,6 +109,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     usage_body = usage.json()
     assert usage_body["usage"]["queue_items"] >= 1
     assert "counts" in usage_body["analytics"]
+    assert int(dict(usage_body["analytics"]["counts"]).get("usage_opened") or 0) >= 1
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
