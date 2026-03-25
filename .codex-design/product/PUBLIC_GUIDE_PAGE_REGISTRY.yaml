@@ -1,0 +1,243 @@
+product: chummer
+version: 1
+purpose: Machine-readable page-class contract for downstream public-guide generation.
+page_types:
+  root_story_github_readme:
+    audience: public
+    max_technical_depth: low
+    section_order:
+    - pitch
+    - quick_nav
+    - current_posture
+    - hero
+    - table_pain_example
+    - why_watch
+    - participation_entry
+    - try_it_now
+    - deeper_map
+    max_front_page_updates: 0
+    nav_before_updates: true
+    hero_layout: compact_after_scan_band
+    updates_teaser_enabled: false
+    primary_cta_order:
+    - start_here
+    - current_status
+    - what_chummer6_is
+    - participate
+    - download
+    public_participation_entry_route: /participate
+    visual_density_profile: first_contact_hero
+    allowed_sources:
+    - products/chummer/PUBLIC_LANDING_POLICY.md
+    - products/chummer/PUBLIC_LANDING_MANIFEST.yaml
+    - products/chummer/PUBLIC_FEATURE_REGISTRY.yaml
+    - products/chummer/PUBLIC_USER_MODEL.md
+    - products/chummer/PUBLIC_GUIDE_POLICY.md
+    - approved public-status summaries
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    - products/chummer/GROUP_BLOCKERS.md
+    - products/chummer/PROGRAM_MILESTONES.yaml
+    required_topics:
+    - product promise
+    - what is real now
+    - first useful routes
+    forbidden_terms:
+    - repo topology
+    - control plane
+    - blocker truth
+    - petition intake
+    - principal-to-user mapping
+    required_cta_families:
+    - start_here
+    - current_status
+    - participate
+  root_story:
+    audience: public
+    max_technical_depth: low
+    section_order:
+    - hero
+    - pitch
+    - quick_nav
+    - current_posture
+    - table_pain_example
+    - why_watch
+    - updates_teaser
+    - participation_entry
+    - try_it_now
+    - deeper_map
+    max_front_page_updates: 1
+    nav_before_updates: true
+    primary_cta_order:
+    - start_here
+    - current_status
+    - what_chummer6_is
+    - participate
+    - download
+    public_participation_entry_route: /participate
+    visual_density_profile: first_contact_hero
+    allowed_sources:
+    - products/chummer/PUBLIC_LANDING_POLICY.md
+    - products/chummer/PUBLIC_LANDING_MANIFEST.yaml
+    - products/chummer/PUBLIC_FEATURE_REGISTRY.yaml
+    - products/chummer/PUBLIC_USER_MODEL.md
+    - products/chummer/PUBLIC_GUIDE_POLICY.md
+    - approved public-status summaries
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    - products/chummer/GROUP_BLOCKERS.md
+    - products/chummer/PROGRAM_MILESTONES.yaml
+    required_topics:
+    - product promise
+    - what is real now
+    - first useful routes
+    forbidden_terms:
+    - repo topology
+    - control plane
+    - blocker truth
+    - petition intake
+    - principal-to-user mapping
+    required_cta_families:
+    - start_here
+    - current_status
+    - participate
+  status_page:
+    audience: public
+    max_technical_depth: low
+    allowed_sources:
+    - approved public-status summaries
+    - products/chummer/PUBLIC_GUIDE_POLICY.md
+    - products/chummer/PUBLIC_FEATURE_REGISTRY.yaml
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    required_topics:
+    - what is real now
+    - preview honesty
+    - next practical reading lane
+  part_page:
+    audience: deeper_public
+    max_technical_depth: medium
+    allowed_sources:
+    - products/chummer/PUBLIC_PART_REGISTRY.yaml
+    - approved public-status summaries
+    - products/chummer/PUBLIC_GUIDE_POLICY.md
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    - products/chummer/GROUP_BLOCKERS.md
+    required_topics:
+    - when you care
+    - why you care
+    - what you notice
+    - current truth
+    - go deeper
+    forbidden_terms:
+    - principal-to-user mapping
+    - reward journal
+    - entitlement journal
+    - blocker truth
+    - petition intake
+    - generic review context
+  horizon_index:
+    audience: deeper_public
+    max_technical_depth: medium
+    visual_density_profile: page_index
+    must_show_semantic_anchors:
+    - branching futures
+    - differentiated lane identities
+    - multiple grounded clues instead of one sign
+    allowed_sources:
+    - products/chummer/HORIZON_REGISTRY.yaml
+    - products/chummer/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    required_topics:
+    - table pain
+    - future lane posture
+    - public-enabled horizon set only
+  horizon_detail:
+    audience: deeper_public
+    max_technical_depth: medium
+    allowed_sources:
+    - products/chummer/HORIZON_REGISTRY.yaml
+    - products/chummer/horizons/*.md
+    - products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    required_topics:
+    - table pain
+    - bounded product move
+    - why still a horizon
+    forbidden_terms:
+    - shipment promise
+  help_page:
+    audience: public
+    max_technical_depth: low
+    primary_participation_entry_route: /participate
+    allowed_sources:
+    - products/chummer/PUBLIC_HELP_COPY.md
+    - products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
+    - products/chummer/PUBLIC_USER_MODEL.md
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    required_topics:
+    - free baseline help
+    - guided contribution lane
+    - privacy and review safety
+    - free-later explanation
+    forbidden_terms:
+    - participant burst lane
+    - internal control plane
+  faq_page:
+    audience: public
+    max_technical_depth: low
+    allowed_sources:
+    - products/chummer/PUBLIC_FAQ_REGISTRY.yaml
+    - products/chummer/PUBLIC_HELP_COPY.md
+    - products/chummer/PUBLIC_USER_MODEL.md
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    required_topics:
+    - participation
+    - privacy
+    - preview honesty
+    - free-later explanation
+  download_page:
+    audience: public
+    max_technical_depth: low
+    preferred_artifact_kinds:
+    - installer
+    - dmg
+    - pkg
+    - portable
+    archive_only_behavior: secondary_manual_preview_shelf
+    archive_only_primary_cta_allowed: false
+    visual_density_profile: restrained_support_surface
+    allowed_sources:
+    - products/chummer/PUBLIC_FEATURE_REGISTRY.yaml
+    - approved public-status summaries
+    - generated release matrix artifacts
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    required_topics:
+    - current build matrix
+    - honest artifact format
+    - checksums
+    - raw release fallback
+  deep_source_trail:
+    audience: deeper_public
+    max_technical_depth: high
+    allowed_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    - products/chummer/PROGRAM_MILESTONES.yaml
+    - products/chummer/CONTRACT_SETS.yaml
+    - approved public-status summaries
+    required_topics:
+    - where the design truth lives
+    - where the code lives
+    - how to move from friendly tour to deeper source

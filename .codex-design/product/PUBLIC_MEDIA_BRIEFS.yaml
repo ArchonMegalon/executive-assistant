@@ -1,0 +1,264 @@
+product: chummer
+surface: chummer.run
+version: 2
+style_epoch:
+  mode: single_epoch_per_full_build
+  comparison_between_builds: allowed
+  note: A full landing build pass should share one major visual family, while later passes may intentionally compare different epochs.
+render_rules:
+  raster_only: true
+  no_svg: true
+  master_format: png
+  required_derivatives:
+    - avif
+    - webp
+  desktop_composition: 16:9
+  mobile_safety_rule: keep_critical_action_inside_middle_60_percent
+  no_readable_text: true
+  no_logos: true
+  no_provider_names: true
+  no_ui_labels: true
+  semantic_anchor_count_minimum: 3
+shared_prompt_scaffold:
+  style_anchor: |
+    premium cyberpunk campaign scene art, grounded Shadowrun-inspired cyberpunk fantasy, tactile realism with illustrated or poster energy allowed when the scene stays lived-in, original composition, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
+  negative_prompt: |
+    readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
+critical_asset_style_epoch:
+  mode: flagship_poster
+  style_anchor: |
+    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, neon and sodium-vapor contrast, metahuman street-life specificity, dense practical props, diegetic overlays added in post, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
+  negative_prompt: |
+    stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still
+semantic_anchors:
+  - dossier papers or briefing packet
+  - six-sided dice
+  - cyberware part or deck module
+  - magical focus or reagent
+  - route overlay or threat marker
+  - integrity seal or evidence clip
+  - commlink or data chip
+  - reviewer, witness, or operator relationship
+rules:
+  - No provider names appear in public landing assets.
+  - No LTD names appear in public landing assets.
+  - PNG masters with AVIF and WebP derivatives are required for every public still.
+  - No SVG files appear anywhere in the public front-door campaign set.
+  - No empty placeholder frames are allowed.
+  - Every placeholder card must still explain what is coming and why it matters.
+  - Text in rendered images must be post-composited or otherwise verified instead of trusting raw model lettering.
+  - A premium flagship poster or still hero is preferred over a mediocre teaser loop.
+  - First-contact assets must feel information-rich, layered, and unmistakably product-specific rather than like quiet generic cyberpunk mood art.
+  - Hero, index, and flagship horizon art must carry visible semantic anchors for what the product does; style alone is not enough.
+  - Poster energy is welcome on flagship assets when it still reads as a lived product scene instead of a title card or fashion pose.
+  - Critical public assets must choose one overlay posture before compositing: none, ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
+  - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
+  - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
+  - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
+  - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
+contact_sheet_rejection:
+  - giant letterform or centered signboard
+  - empty neon boulevard
+  - lone person at vague wall
+  - sparse desk with one laptop and one mug
+  - generic cyberpunk mood art with no dossier, dice, or proof semantics
+  - text baked into the image
+  - empty title-card posing with no product-scene storytelling
+visual_contract:
+  first_contact_hero:
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    person_count_target: duo_or_team
+    humor_allowed: false
+    pseudo_text_allowed: false
+    required_setting_markers:
+      - improvised garage clinic required
+      - hacked med gear required
+      - tool chest or lift bay residue required
+      - cheap fluorescent strips or work lamps required
+      - wet concrete, tarp, or extension-cord grime required
+    required_cast_markers:
+      - metahuman clinician required
+      - wounded runner required
+      - assistant or teammate encouraged
+    required_overlay_schema:
+      - BOD
+      - AGI
+      - REA
+      - STR
+      - CHA
+      - INT
+      - LOG
+      - WIL
+      - ESS
+      - EDGE
+    required_status_labels:
+      - UPGRADING
+    forbidden_environment_markers:
+      - clean hospital exam room
+      - clean van interior with no garage cues
+      - pristine dental-clinic lighting
+      - white-box medical showroom
+    forbidden_cast_defaults:
+      - lone clean human doctor in white coat
+      - ambiguous hooded figure with no clinical role readability
+    cyberpunk_intensity: high
+    shadowrun_lore_weight: high
+    must_show_semantic_anchors:
+      - runner or table-prep trust pressure
+      - a visible operator relationship instead of a lone isolated figure
+      - layered physical proof props across foreground, midground, and background
+      - visible reasoning cues or diegetic overlay traces
+    must_not_show:
+      - generic brooding profile at a vague wall
+      - single-person dim bay still
+      - lone crate or tabletop glamour
+      - empty alley mood still
+      - central readable signboard
+  page_index:
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    person_count_target: plurality_optional
+    humor_allowed: false
+    pseudo_text_allowed: false
+    required_setting_markers:
+      - multiple future districts or lanes
+      - street-level cyberpunk clues
+      - differentiated faction or domain hints
+    forbidden_environment_markers:
+      - empty road ambience
+      - sparse interchange
+      - one sign carrying the whole image
+    cyberpunk_intensity: medium_high
+    shadowrun_lore_weight: medium
+    must_show_semantic_anchors:
+      - branching plurality
+      - differentiated future or work lanes
+      - multiple grounded clues instead of one central marker
+    must_not_show:
+      - menu-board composition
+      - empty road ambience
+      - billboard centerpiece
+      - sparse corridor with one symbol
+  flagship_horizon:
+    density_target: high
+    overlay_density: high
+    negative_space_cap: low
+    flash_level: bold
+    person_count_target: duo_preferred
+    humor_allowed: false
+    pseudo_text_allowed: false
+    required_setting_markers:
+      - industrial rule-lab required
+      - approval rail required
+      - consequence or rollback machinery required
+      - provenance seals or rule cassettes required
+    required_overlay_schema:
+      - DIFF
+      - APPROVAL
+      - PROVENANCE
+      - ROLLBACK
+    required_action_posture:
+      - standing_or_in_motion required
+    required_cast_markers:
+      - rulesmith required
+      - reviewer or witness required
+    forbidden_environment_markers:
+      - quiet desk still life
+      - two people sitting at table
+      - generic paperwork workshop
+      - tidy modern studio bench
+    cyberpunk_intensity: high
+    shadowrun_lore_weight: high
+    must_show_semantic_anchors:
+      - governed change under pressure
+      - at least one visible witness, reviewer, or approval presence
+      - approval or provenance logic
+      - rollback or consequence cues
+    must_not_show:
+      - generic card tinkering
+      - literal blacksmith cliché
+      - quiet desk still life
+      - single operator in a glow void
+      - semantically empty glow props
+sections:
+  - id: hero
+    brief_family: clinic_intake
+    scene_families: streetdoc_garage_clinic, getaway_van_triage, safehouse_patchup, runner_upgrade_bay, clinic_intake
+    motion_policy: premium_still_or_short_muted_loop
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    person_count_target: duo_or_team
+    must_show_semantic_anchors: runner-prep truth, inspectable pressure, layered proof props, visible support figure or operator relationship
+    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience, single-person dim bay
+  - id: what_you_can_do_today
+    brief_family: archive_stair
+    scene_families: archive_stair, dossier_desk, facility_exterior
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: moderate
+  - id: why_this_feels_different
+    brief_family: simulation_bench
+    scene_families: simulation_bench, prop_cluster, dossier_desk
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: medium
+    negative_space_cap: medium
+    flash_level: moderate
+  - id: choose_your_lane
+    brief_family: transit_checkpoint
+    scene_families: transit_checkpoint, archive_stair, prop_cluster
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: medium
+    negative_space_cap: medium
+    flash_level: moderate
+  - id: whats_real_now
+    brief_family: dossier_desk
+    scene_families: dossier_desk, simulation_bench, facility_exterior
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained
+  - id: coming_next
+    brief_family: boulevard_of_futures
+    scene_families: boulevard_of_futures, streetfront, rooftop_overwatch, fixer_negotiation, matrix_support_corner
+    motion_policy: stills_only
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    must_not_show: menu board, empty road, single signage slab
+  - id: featured_artifacts
+    brief_family: prop_cluster
+    scene_families: prop_cluster, dossier_desk, archive_stair
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained
+  - id: participate
+    brief_family: street_front
+    scene_families: street_front, boulevard_of_futures, dossier_desk
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: moderate
+  - id: release_shelf
+    brief_family: facility_exterior
+    scene_families: facility_exterior, archive_stair
+    motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained

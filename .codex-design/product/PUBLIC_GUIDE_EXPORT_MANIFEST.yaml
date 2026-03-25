@@ -1,0 +1,133 @@
+product: chummer
+version: 1
+target_repo: Chummer6
+purpose: Canonical source mapping for downstream public-guide generation.
+sources:
+  product_entry: products/chummer/README.md
+  page_registry: products/chummer/PUBLIC_GUIDE_PAGE_REGISTRY.yaml
+  part_registry: products/chummer/PUBLIC_PART_REGISTRY.yaml
+  faq_registry: products/chummer/PUBLIC_FAQ_REGISTRY.yaml
+  help_copy: products/chummer/PUBLIC_HELP_COPY.md
+  horizon_registry: products/chummer/HORIZON_REGISTRY.yaml
+  horizon_docs_root: products/chummer/horizons
+  public_guide_policy: products/chummer/PUBLIC_GUIDE_POLICY.md
+  public_feature_registry: products/chummer/PUBLIC_FEATURE_REGISTRY.yaml
+  public_user_model: products/chummer/PUBLIC_USER_MODEL.md
+  participation_workflow: products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
+  public_media_policy: products/chummer/PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md
+rules:
+- Downstream generators must not define or retain a private hardcoded horizon catalog.
+- Downstream generators must source horizon existence, ordering, and enable/disable state from HORIZON_REGISTRY.yaml.
+- Only horizons with public_guide.enabled == true may appear in Chummer6.
+- Retired or disabled horizons must disappear from the guide on the next generation pass.
+- Horizon detail pages may elaborate in human language, but may not invent new horizons, owners, or delivery promises.
+- Downstream generators must source non-horizon page classes from PUBLIC_GUIDE_PAGE_REGISTRY.yaml.
+- Public part pages must source their human-facing explanation from PUBLIC_PART_REGISTRY.yaml rather than raw implementation-scope bullets.
+- FAQ/help pages must source required participation/privacy/free-later language from PUBLIC_FAQ_REGISTRY.yaml and PUBLIC_HELP_COPY.md.
+- Deep-source pages may link to repo scopes and implementation detail, but first-contact pages must not.
+pages:
+  root_story:
+    source: products/chummer/PUBLIC_GUIDE_PAGE_REGISTRY.yaml
+    include:
+      page_type: root_story
+    required_topics:
+    - product promise
+    - what is real now
+    - first useful routes
+    required_ctas:
+    - start_here
+    - current_status
+    - participate
+    forbidden_detail:
+    - implementation ownership bullets
+    - operator state-machine terms
+  part_page:
+    source: products/chummer/PUBLIC_PART_REGISTRY.yaml
+    for_each:
+      from: parts
+    required_fields:
+    - id
+    - title
+    - public_tagline
+    - you_touch_this_when
+    - why_you_care
+    - what_you_notice
+    - current_truth
+    - go_deeper_links
+    forbidden_expansions:
+    - raw owns lists from repo scopes
+    - must-not-own bullets
+    - blocker truth
+    - petition intake
+  faq_page:
+    source: products/chummer/PUBLIC_FAQ_REGISTRY.yaml
+    required_topics:
+    - using_chummer6
+    - participation_and_preview
+    - deeper_sources
+  help_page:
+    source: products/chummer/PUBLIC_HELP_COPY.md
+    required_topics:
+    - free baseline help
+    - guided contribution lane
+    - privacy and review safety
+    - free-later explanation when guided-preview horizons exist
+  download_page:
+    source: registry-backed generated release matrix artifact
+    include:
+      page_type: download_page
+    required_topics:
+    - current build matrix
+    - honest artifact format
+    - checksums
+    - raw release fallback
+  deep_source_trail:
+    source: products/chummer/PUBLIC_GUIDE_PAGE_REGISTRY.yaml
+    include:
+      page_type: deep_source_trail
+    allowed_expansions:
+    - repo scope and design canon links
+    - implementation-truth trailheads
+  horizons_index:
+    source: products/chummer/HORIZON_REGISTRY.yaml
+    include:
+      where: public_guide.enabled == true
+    order_by: public_guide.order
+    required_fields:
+    - id
+    - title
+    - public_guide.pain_label
+    - canon_doc
+    - build_path.current_state
+  horizon_detail:
+    source: canon_doc
+    for_each:
+      from: products/chummer/HORIZON_REGISTRY.yaml
+      where: public_guide.enabled == true
+    required_sections:
+    - Table pain
+    - Bounded product move
+    - Likely owners
+    - Foundations
+    - Why still a horizon
+    required_registry_fields:
+    - build_path.intent
+    - build_path.current_state
+    - build_path.next_state
+    - build_path.owning_repos
+    - tool_posture
+    allowed_expansions:
+    - human-language table scenes
+    - public-facing dialogue examples
+    - downstream humor
+    - downstream visuals
+    forbidden_expansions:
+    - inventing new horizon ids
+    - overriding horizon order
+    - overriding owning repos
+    - overriding tool posture
+    - inventing build promises absent from design canon
+working_rule: >
+  The public guide may humanize and visualize canonical future lanes,
+  but the design repo decides which future lanes exist and which page classes may
+  consume which kinds of source material.

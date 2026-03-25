@@ -1,0 +1,850 @@
+product: chummer
+last_reviewed: 2026-03-24
+release_track: vnext-foundation
+repo_boundary_purity:
+- repo: chummer6-design
+  status: healthy
+  score: 0.93
+  reason: Canonical repo/milestone/blocker truth is now substantive and current; remaining drift is compatibility-only.
+- repo: chummer6-core
+  status: caution
+  score: 0.72
+  reason: Engine/package canon and session semantic ownership are now executable; remaining caution is legacy app/plugin and helper cargo, not contract ambiguity.
+- repo: chummer6-ui
+  status: healthy
+  score: 0.79
+  reason: Workbench/browser/desktop ownership is explicit, shared UI is package-owned, and retained legacy roots are isolated as compatibility cargo.
+- repo: chummer6-hub
+  status: healthy
+  score: 0.83
+  reason: Run/play contract canon plus registry/media owner transfer are now executable; remaining work is orchestrator-side adapter and product-surface polish.
+- repo: chummer6-mobile
+  status: healthy
+  score: 0.91
+  reason: The play shell is materially real, mirror coverage is present, and replay/resume/package-boundary proof is executable.
+- repo: chummer6-ui-kit
+  status: healthy
+  score: 0.88
+  reason: The shared package boundary is clear and downstream UI/mobile repos now enforce package-only primitive consumption in verification.
+- repo: chummer6-hub-registry
+  status: healthy
+  score: 0.9
+  reason: Contract shape and runtime registry service ownership now live together in the owner repo; downstream authority transfer is executable.
+- repo: chummer6-media-factory
+  status: healthy
+  score: 0.84
+  reason: The render-only contract plane and runtime execution now both live here, with clean-room integration proof from the hosted repo.
+program_phases:
+- id: A
+  title: Design and contract canon
+  status: complete
+  goal: Make central design and package ownership trustworthy.
+  milestones:
+  - id: A0
+    title: chummer6-design bootstrap complete
+    owners:
+    - chummer6-design
+    status: complete
+    exit:
+    - Active repo list matches the live repo graph.
+    - Media-factory is represented in ownership, milestones, blockers, sync, and project
+      scope.
+    - Canonical files are substantive, not placeholders.
+    - Root-level orphan product docs are removed or relocated.
+  - id: A1
+    title: Engine contract canon
+    owners:
+    - chummer6-core
+    - chummer6-design
+    status: complete
+    exit:
+    - Chummer.Engine.Contracts is the sole canonical engine/shared contract package.
+    - Engine runtime, explain, and reducer DTO families are owned once.
+  - id: A2
+    title: Play contract canon
+    owners:
+    - chummer6-hub
+    - chummer6-mobile
+    - chummer6-design
+    status: complete
+    exit:
+    - Chummer.Play.Contracts has stable ownership and package naming.
+    - Play consumes package-only seams, including hosted play API and replay/checkpoint DTOs.
+    - No duplicated play/run session transport DTO families remain across hosted/mobile surfaces.
+  - id: A3
+    title: Run orchestration contract canon
+    owners:
+    - chummer6-hub
+    - chummer6-design
+    status: complete
+    exit:
+    - Chummer.Run.Contracts owns hosted orchestration DTOs only.
+    - Media and registry execution contracts are no longer mixed into run orchestration
+      families.
+  - id: A4
+    title: External tools plane canon
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - External tools policy exists centrally.
+    - All owned tools are classified by architectural role.
+    - System-of-record rules are documented.
+    - External integrations are assigned to owning repos.
+- id: H
+  title: Horizons and public capability canon
+  status: complete
+  release_blocking: false
+  goal: Make future-capability posture canonical without expanding the current release critical path.
+  milestones:
+  - id: H0
+    title: Horizon canon established
+    owners:
+    - chummer6-design
+    status: complete
+    exit:
+    - "`HORIZONS.md` exists in the product front door."
+    - Canonical horizon docs exist for promoted future lanes.
+    - Future-capability posture no longer lives only in downstream public guide copy.
+  - id: H1
+    title: Public guide and horizon sync policy
+    owners:
+    - chummer6-design
+    status: complete
+    exit:
+    - "`PUBLIC_GUIDE_POLICY.md` defines `Chummer6` as downstream-only."
+    - The guide cannot outrun canonical horizon docs.
+    - Public-facing repo posture is explicit in the front door.
+  - id: H2
+    title: LTD capability map complete
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - Owned tools are mapped to promoted, bounded, parked, or non-product states.
+    - Explicit owners exist for promoted and bounded product lanes.
+    - "`EXTERNAL_TOOLS_PLANE.md` and `LTD_CAPABILITY_MAP.md` agree."
+  - id: H3
+    title: First bounded horizon promoted to research-ready
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - At least one horizon has named owners, tool posture, and provenance constraints.
+    - The horizon is ready for bounded research without widening release scope.
+  - id: H4
+    title: Public signal loop defined
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    status: complete
+    exit:
+    - Public proposal lanes are explicit.
+    - Advisory signal collection rules are documented.
+    - "`MetaSurvey`, `ApproveThis`, and `Teable` posture is canonical."
+  - id: H5
+    title: Table coaching horizon defined
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - "`TABLE PULSE` exists with explicit consent, privacy, and non-truth boundaries."
+    - "`Nonverbia` posture is canonical across `HORIZON_REGISTRY.yaml`, `EXTERNAL_TOOLS_PLANE.md`, and `LTD_CAPABILITY_MAP.md`."
+    - Post-session coaching outputs remain distinct from session truth, moderation truth, and player scoring.
+- id: I
+  title: Participation and bootstrap evolution
+  status: in_progress
+  release_blocking: false
+  goal: Make the bounded participation lane and package bootstrap policy first-class and boring across design, Hub, Fleet, guide, and legacy consumers.
+  milestones:
+  - id: I0
+    title: Participation workflow canon established
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - fleet
+    - Chummer6
+    status: complete
+    exit:
+    - "`PARTICIPATION_AND_BOOSTER_WORKFLOW.md` exists and defines actor, state, receipt, and revoke semantics."
+    - Guide/help policy and ownership matrix reference the same workflow.
+    - Horizon access and guided-preview posture fields are canonical where needed.
+  - id: I1
+    title: Participation surfaces converge on central canon
+    owners:
+    - fleet
+    - chummer6-hub
+    - Chummer6
+    - executive-assistant
+    status: in_progress
+    exit:
+    - Fleet and guide verification consume design-owned participation canon directly.
+    - User-facing participate copy is downstream of design rather than helper-script invention.
+    - Hub surface and Fleet control-plane terms no longer drift on sponsor-session meaning.
+  - id: I2
+    title: Package/bootstrap plane becomes boring
+    owners:
+    - chummer6-design
+    - chummer6-core
+    - chummer6-ui-kit
+    - chummer6-ui
+    - fleet
+    status: in_progress
+    exit:
+    - "`Chummer.Engine.Contracts` and `Chummer.Ui.Kit` restore deterministically through package feeds or explicit compatibility trees."
+    - Missing feed versus missing compatibility-tree failures are explicit.
+    - Legacy consumers no longer depend on ambient monorepo-relative project references as the implied default.
+- id: J
+  title: Public landing and discovery surface
+  status: in_progress
+  release_blocking: false
+  goal: Make `chummer.run` a canon-backed product front door with a proof shelf, invitation flow, and thin signed-in overlays.
+  milestones:
+  - id: J0
+    title: Public landing canon established
+    owners:
+    - chummer6-design
+    status: complete
+    exit:
+    - "`PUBLIC_LANDING_POLICY.md` exists and defines landing purpose, public-versus-registered posture, and copy constraints."
+    - "`PUBLIC_LANDING_MANIFEST.yaml` and `PUBLIC_FEATURE_REGISTRY.yaml` exist as machine-readable landing truth."
+    - "`PUBLIC_USER_MODEL.md` and `PUBLIC_MEDIA_BRIEFS.yaml` exist and constrain user handling plus visual generation."
+  - id: J1
+    title: Hosted landing projected from canon
+    owners:
+    - chummer6-hub
+    - chummer6-design
+    status: in_progress
+    exit:
+    - "`chummer.run` exposes `/`, `/what-is-chummer`, `/now`, `/horizons`, `/downloads`, `/participate`, `/status`, and `/artifacts` from design-owned landing truth."
+    - Public CTA routing does not depend on repo-local improvised feature maps.
+    - Landing copy does not mention provider or LTD names.
+  - id: J2
+    title: Signed-in overlays become boring
+    owners:
+    - chummer6-hub
+    status: in_progress
+    exit:
+    - "`/home` and `/account` give registered users a thin but real overlay above the public landing."
+    - Follow, beta, and participation overlays exist as product surfaces even if deeper workflows remain preview-bound.
+    - Public and registered behavior matches `PUBLIC_USER_MODEL.md`.
+  - id: J3
+    title: Identity and channel linking posture becomes canonical
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    status: in_progress
+    exit:
+    - "`IDENTITY_AND_CHANNEL_LINKING_MODEL.md` defines email hygiene, provider bootstrap priority, linked identities, linked channels, and official-versus-user-provided Telegram posture."
+    - Hub exposes a first real linked-identity and channel-link surface without inventing a second orchestration brain.
+    - EA remains the canonical companion/runtime brain behind official channel adapters.
+- id: K
+  title: Desktop auto-update
+  status: in_progress
+  release_blocking: false
+  goal: Make Windows, macOS, and Linux desktop heads installer-aware and self-updating through registry-owned channel truth and UI-owned apply helpers without turning Hub or Fleet into the runtime source of truth.
+  milestones:
+  - id: K0
+    title: Desktop update canon established
+    owners:
+    - chummer6-design
+    - chummer6-ui
+    - chummer6-hub-registry
+    - fleet
+    status: complete
+    exit:
+    - "`DESKTOP_AUTO_UPDATE_SYSTEM.md` exists and agrees with `RELEASE_PIPELINE.md`."
+    - Install media versus machine update payloads are explicitly distinguished.
+    - UI, registry, Hub, and Fleet ownership rules are explicit.
+    - Windows `.exe`, macOS `.dmg`, and Linux `.deb` desktop targets are required release-wave build outputs, even when public promotion remains per-platform.
+  - id: K1
+    title: Registry desktop release heads
+    owners:
+    - chummer6-hub-registry
+    - chummer6-design
+    status: in_progress
+    exit:
+    - "`Chummer.Hub.Registry.Contracts` includes desktop release-head and update-feed DTOs."
+    - Promoted desktop heads reference install media, machine update payloads, embedded runtime-bundle heads, and release-note references.
+    - Rollout, pause, and revoke state are part of registry truth.
+  - id: K2
+    title: Cross-platform desktop build and startup smoke gate
+    owners:
+    - chummer6-ui
+    - fleet
+    status: in_progress
+    exit:
+    - The release lane builds Windows `.exe`, macOS `.dmg`, and Linux `.deb` artifacts from one release candidate.
+    - Each built desktop head is launched on a platform-appropriate verification host before promotion.
+    - A startup crash or failed-ready smoke result emits a release-regression packet with platform, version, digest, and bounded logs.
+    - The product governor routes failed startup smoke through freeze, reroute, or fix posture before retrying promotion.
+  - id: K3
+    title: Windows desktop head self-updates
+    owners:
+    - chummer6-ui
+    - chummer6-hub-registry
+    - fleet
+    status: in_progress
+    exit:
+    - The Windows desktop client records pinned channel and installed version locally.
+    - The desktop head can check, stage, apply, and relaunch into a newer version through a UI-owned apply helper.
+    - Signed payload verification happens before apply and a last-known-good window exists until first successful launch.
+  - id: K4
+    title: macOS desktop head self-updates
+    owners:
+    - chummer6-ui
+    - chummer6-hub-registry
+    - fleet
+    status: in_progress
+    exit:
+    - The macOS desktop head ships as a `.dmg` install surface rather than archive cargo.
+    - The desktop head can check, stage, apply or hand off, relaunch, and recover without making the `.dmg` the runtime source of truth.
+    - Release evidence proves the macOS binary can be built, signed or notarized where required, and launched in startup smoke on a macOS verification host.
+  - id: K5
+    title: Linux desktop head installer/update handoff
+    owners:
+    - chummer6-ui
+    - chummer6-hub-registry
+    - fleet
+    status: in_progress
+    exit:
+    - The Linux desktop client ships as a `.deb` installer rather than a public portable archive.
+    - The updater can either apply an in-place payload or hand off the `.deb` installer when the lane is installer-only.
+    - Release evidence proves the Linux binary can be built and launched in startup smoke on a Linux verification host.
+  - id: K6
+    title: Rollout, revoke, and rollback discipline
+    owners:
+    - chummer6-hub-registry
+    - chummer6-ui
+    - fleet
+    status: in_progress
+    exit:
+    - Registry can pause or revoke a bad desktop head.
+    - Clients do not auto-apply revoked or downgraded heads.
+    - Promotion evidence includes the signature, digest, and notarization material needed to make rollback and recovery predictable.
+- id: L
+  title: Feedback and crash reporting
+  status: in_progress
+  release_blocking: false
+  goal: Ship a real support plane with crash reporting, structured bug reporting, and lightweight feedback before any support assistant becomes user-facing.
+  milestones:
+  - id: L0
+    title: Support and crash canon established
+    owners:
+    - chummer6-design
+    - chummer6-ui
+    - chummer6-hub
+    status: in_progress
+    exit:
+    - "`FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` exists and agrees with `OWNERSHIP_MATRIX.md`, `PUBLIC_HELP_COPY.md`, and `EXTERNAL_TOOLS_PLANE.md`."
+    - Crash reports, bug reports, and feedback are explicitly different intake lanes.
+    - The support assistant is explicitly phase 2 rather than phase 0.
+  - id: L1
+    title: Crash capture and recovery lane
+    owners:
+    - chummer6-ui
+    - chummer6-hub
+    - chummer6-hub-registry
+    - fleet
+    status: in_progress
+    exit:
+    - Desktop clients can create a redacted diagnostics bundle and offer a next-launch crash recovery dialog.
+    - Private crash submission does not depend on chat, sign-in, or a new AppSumo LTD.
+    - Hosted support intake is version-aware using registry-backed release facts where available.
+    - Redacted crash envelopes enter through Hub-owned intake rather than raw client-to-Fleet submission.
+    - Fleet consumes normalized crash work items for triage and patch preparation without bypassing review or release gates.
+  - id: L2
+    title: Structured bug reporting lane
+    owners:
+    - chummer6-ui
+    - chummer6-hub
+    status: in_progress
+    exit:
+    - Users can submit expected-versus-actual behavior, repro steps, optional screenshots, and optional diagnostics.
+    - Public-safe reproducible bugs can link or promote into the public issue lane.
+    - Sensitive or account-specific bug cases stay private in Hub support threads.
+  - id: L3
+    title: Lightweight feedback lane
+    owners:
+    - chummer6-ui
+    - chummer6-hub
+    status: in_progress
+    exit:
+    - Users can send low-friction product feedback without opening a full bug ticket.
+    - Structured feedback bridges remain adapter-bound and do not become support truth.
+    - Feedback can be clustered and triaged without pretending survey vendors are the ticket system of record.
+  - id: L4
+    title: Knowledge base and human escalation
+    owners:
+    - chummer6-hub
+    - chummer6-design
+    status: in_progress
+    exit:
+    - Help and known-issue surfaces are version-aware and linked to support cases where needed.
+    - Human escalation exists for private crash and bug cases.
+    - Hub help surfaces can reflect update availability and release posture without replacing registry truth.
+  - id: L5
+    title: Support assistant later
+    owners:
+    - chummer6-hub
+    - chummer6-design
+    status: pending
+    exit:
+    - A support assistant only lands after crash, bug-report, feedback, and human-escalation lanes are real.
+    - The assistant answers from curated help and known-issue sources and hands off cleanly when confidence is low.
+    - "`Karma Forge` is not reused as the support-assistant name."
+- id: M
+  title: Product governor and autopilot loop
+  status: in_progress
+  release_blocking: false
+  goal: Turn support truth, release truth, and scope pressure into one governed whole-product course-correction loop.
+  milestones:
+  - id: M0
+    title: Product governor canon established
+    owners:
+    - chummer6-design
+    - fleet
+    status: in_progress
+    exit:
+    - "`PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` exists and agrees with `OWNERSHIP_MATRIX.md` and Fleet scope canon."
+    - Whole-product freeze, reroute, and escalation rules are explicit.
+    - The product governor is not treated as a duplicate of the lead designer.
+  - id: M1
+    title: Feedback and signal OODA loop established
+    owners:
+    - chummer6-design
+    - chummer6-hub
+    - fleet
+    status: in_progress
+    exit:
+    - "`FEEDBACK_AND_SIGNAL_OODA_LOOP.md` defines intake classes, packet synthesis, routing, and closure rules."
+    - Hub, Fleet, designer, and product-governor roles are explicit.
+    - Raw signals no longer stand in for backlog or canon truth without clustering.
+  - id: M2
+    title: Weekly product pulse established
+    owners:
+    - chummer6-design
+    - fleet
+    status: in_progress
+    exit:
+    - "`PRODUCT_HEALTH_SCORECARD.yaml` exists and defines weekly pulse metrics."
+    - Release health, feedback closure, blocker age, design drift, and public-promise drift all have named owners.
+    - The weekly pulse can justify freeze, reroute, or defer decisions with bounded reasons.
+  - id: M3
+    title: Fleet operator surface consumes governor canon
+    owners:
+    - fleet
+    - chummer6-design
+    status: in_progress
+    exit:
+    - Fleet mirrors the governor and feedback-loop canon downstream.
+    - Fleet Studio exposes a `product_governor` role alongside the designer role.
+    - Designer and governor surfaces consume the same canonical loop instead of local prose.
+- id: B
+  title: Surface split completion
+  status: complete
+  goal: Finish the play/workbench/UI-kit boundary.
+  milestones:
+  - id: B0
+    title: Play shell becomes real
+    owners:
+    - chummer6-mobile
+    status: complete
+    exit:
+    - Real local ledger and sync client exist.
+    - Player shell and GM shell reach first usable end-to-end flows.
+    - Play mirror coverage exists under .codex-design.
+  - id: B1
+    title: UI kit becomes the real shared boundary
+    owners:
+    - chummer6-ui-kit
+    - chummer6-ui
+    - chummer6-mobile
+    status: complete
+    exit:
+    - Shared tokens, primitives, shell chrome, and state patterns live in Chummer.Ui.Kit.
+    - Presentation and play consume the package instead of duplicating shared UI.
+  - id: B2
+    title: Presentation purified to workbench/browser/desktop
+    owners:
+    - chummer6-ui
+    status: complete
+    exit:
+    - No dedicated play/mobile hosts remain in presentation.
+    - Presentation design docs and implementation scopes match the split reality.
+- id: C
+  title: Service extraction
+  status: complete
+  goal: Isolate registry and media into dedicated repos and shrink run-services.
+  milestones:
+  - id: C0
+    title: Hub registry extraction
+    owners:
+    - chummer6-hub-registry
+    - chummer6-hub
+    status: complete
+    exit:
+    - Artifact catalog, publication state, installs, reviews, and compatibility metadata
+      live behind chummer6-hub-registry.
+    - Run-services consumes registry contracts instead of owning registry persistence
+      internals.
+  - id: C1
+    title: Media factory extraction
+    owners:
+    - chummer6-media-factory
+    - chummer6-hub
+    status: complete
+    exit:
+    - Chummer.Media.Contracts is canonical.
+    - Media render execution leaves run-services.
+    - Media-factory has source, mirrors, milestones, and integration coverage.
+  - id: C1b
+    title: Orchestration-side external adapters
+    owners:
+    - chummer6-hub
+    status: complete
+    exit:
+    - Approval, docs/help, survey, research, and automation bridges are adapter-based.
+    - Provider routes emit Chummer receipts.
+    - No client repo owns third-party provider access.
+  - id: C1c
+    title: Media-side external adapters
+    owners:
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - Document, preview, route, video, and archive adapters exist behind media-factory.
+    - Media provenance is captured in manifests.
+    - Provider choice remains switchable and kill-switchable.
+  - id: C2
+    title: Run-services shrink
+    owners:
+    - chummer6-hub
+    status: complete
+    exit:
+    - Registry persistence and media render internals are no longer hosted here.
+    - Run-services reads as an orchestrator, not a hidden super-repo.
+- id: D
+  title: Truth and session canon
+  status: complete
+  goal: Make semantics authoritative and reusable.
+  milestones:
+  - id: D0
+    title: Explain canon complete
+    owners:
+    - chummer6-core
+    status: complete
+    exit:
+    - Structured explain traces are authoritative and consumable across product heads.
+  - id: D1
+    title: Session semantic canon complete
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-mobile
+    status: complete
+    exit:
+    - Semantic session mutation DTOs have one canonical owner.
+    - Transport wrappers do not invent second semantic event families or duplicate each other across play/run seams.
+  - id: D2
+    title: Runtime bundle canon complete
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-mobile
+    status: complete
+    exit:
+    - Runtime bundle semantics, refresh/rebind flows, and provenance are coherent
+      across engine, services, and clients.
+- id: E
+  title: Product completion
+  status: complete
+  goal: Finish the user-facing product once the seams are real.
+  milestones:
+  - id: E0
+    title: Workbench complete
+    owners:
+    - chummer6-ui
+    status: complete
+    exit:
+    - Builder, compare, explain, publish, moderation, and admin workflows are complete
+      enough for release.
+  - id: E1
+    title: Play complete
+    owners:
+    - chummer6-mobile
+    status: complete
+    exit:
+    - Player and GM play shells are complete across supported platforms.
+  - id: E2
+    title: Hub complete
+    owners:
+    - chummer6-hub-registry
+    - chummer6-hub
+    - chummer6-ui
+    status: complete
+    exit:
+    - Publication, installs, reviews, discovery, and compatibility are coherent end-to-end.
+  - id: E2b
+    title: Docs, feedback, and operator projection plane complete
+    owners:
+    - chummer6-hub
+    - chummer6-design
+    status: complete
+    exit:
+    - Docs/help surfaces are integrated.
+    - Feedback collection loops are integrated.
+    - Operator projection boards exist without becoming systems of record.
+  - id: E3
+    title: Assistant plane complete
+    owners:
+    - chummer6-hub
+    status: complete
+    exit:
+    - Coach, Spider, and Director are governed, grounded, and reviewable.
+  - id: E4
+    title: Media plane complete
+    owners:
+    - chummer6-media-factory
+    - chummer6-hub
+    status: complete
+    exit:
+    - Documents, portraits, and bounded video are stable service capabilities.
+- id: F
+  title: Hardening and release
+  status: complete
+  goal: Reach release-quality operational and user-facing confidence.
+  milestones:
+  - id: F0
+    title: Accessibility, localization, performance
+    owners:
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-ui-kit
+    status: complete
+    exit:
+    - Accessibility and localization are first-class.
+    - Performance targets are documented and met.
+  - id: F1
+    title: Observability, DR, replay safety
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-media-factory
+    status: complete
+    exit:
+    - Operational runbooks, restore drills, and replay safety are verified.
+  - id: F2
+    title: Legacy migration certification
+    owners:
+    - chummer6-core
+    - chummer5a
+    status: complete
+    exit:
+    - Legacy import/export and regression corpus are certified.
+  - id: F3
+    title: Foundation release complete
+    owners:
+    - chummer6-design
+    status: complete
+    exit:
+    - All prior phase exits are met.
+    - No open red blockers remain.
+    - The `vnext-foundation` product is complete enough for release.
+    - Growth tracks may continue without re-opening foundation release truth.
+current_release_blockers: []
+executable_queue:
+- id: WL-D007
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
+  notes: "Completed on 2026-03-11T23:31:00Z with review-context mirrors republished into core, ui, hub, mobile, ui-kit, hub-registry, and media-factory."
+- id: WL-D008
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/LOCAL_MIRROR_PUBLISH_BACKLOG.md
+  notes: "Completed on 2026-03-13T10:19:08Z after republishing WL-D008-01..07 mirror subsets across all seven code repos and re-verifying `PROGRAM_MILESTONES.yaml` checksum parity in `products/chummer/sync/LOCAL_MIRROR_PUBLISH_EVIDENCE.md`."
+- id: WL-D009
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
+  notes: "Completed on 2026-03-13T17:08:00Z after the latest split-wave truth-maintenance cycle reconfirmed ownership, contract, blocker, and milestone canon with dated no-change evidence in the maintenance log."
+- id: WL-D010
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_UNBLOCK_BACKLOG.md
+  notes: "Completed on 2026-03-11T23:31:00Z after provisioning and successful media-factory review-context mirror publish."
+- id: WL-D011
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_ACCESS_UNBLOCK_BACKLOG.md
+  notes: "Completed on 2026-03-11T23:31:00Z with sibling-repo review-context mirror republish and parity verification."
+- id: WL-D012
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
+  notes: "Completed on 2026-03-13T17:21:40Z with drift rows `WL-D007-DRIFT-2026-03-13-57`, `58`, `59`, `60`, and `62` republished to checksum parity; evidence appended in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`; BLK-007 cleared in `products/chummer/GROUP_BLOCKERS.md`."
+- id: WL-D013
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
+  notes: "Completed on 2026-03-13T19:35:00Z after confirming the latest recurring split-wave truth-maintenance closeout remains `WL-D013 Cycle 2026-03-13O` in `products/chummer/maintenance/TRUTH_MAINTENANCE_LOG.md` with explicit no-change evidence for ownership matrix, contract canon, blockers, and milestone registry; the recurring lane now reopens only when a new delta exists."
+- id: WL-D014
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
+  notes: "Completed on 2026-03-14T06:54:15Z: recurring parity check detected no drift across checked targets, and explicit no-change parity evidence was appended for every checked mirror target in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`."
+- id: WL-D016
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
+  notes: "Closed 2026-03-19: `WL-D016 Cycle 2026-03-19A` revalidated ownership, contract, blocker, and milestone truth after the final release-closeout edits; the lane now reopens only when a new canonical delta appears."
+- id: WL-D045
+  milestone: I0
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19 after publishing `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`, horizon rollout/access posture fields, and explicit package/bootstrap canon for the bounded sponsor-session lane."
+- id: WL-D046
+  milestone: I1
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19 after moving Fleet guide generation and verification onto design-owned canon directly and regenerating `Chummer6` from that path."
+- id: WL-D017
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
+  notes: "Closed 2026-03-19: the final parity cycle recorded in `REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md` found no review-template drift across the checked target repos after the release-closeout mirror refresh."
+- id: WL-D018
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/LOCAL_MIRROR_PUBLISH_BACKLOG.md
+  notes: "Closed 2026-03-19: `publish_local_mirrors.py` republished the final release-closeout drift and `--check` then confirmed zero remaining drift across all configured mirror targets, including Fleet."
+- id: WL-D019
+  milestone: C1b
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-hub` now has executable inventory and verification for live provider, research, prompt/help, approval-gated automation, operator, interop, and director-intake surfaces, while future SaaS adapters remain explicitly absent rather than boundary drift."
+- id: WL-D020
+  milestone: C1b
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-core` now quarantines the env/http direct-provider path behind explicit `AddLegacyEnvironmentAiTransportCompatibility(...)`, while the active default headless-core boundary uses neutral credential/transport catalogs plus `NotImplementedAiProviderTransportClient`."
+- id: WL-D021
+  milestone: C1c
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-media-factory` now treats document, preview, route, portrait/video, and archive lanes as explicit owner families in `MEDIA_ADAPTER_MATRIX.md`, with provider/backend choice held inside media-factory-owned surfaces."
+- id: WL-D022
+  milestone: C1c
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `MEDIA_CAPABILITY_SIGNOFF.md` plus local verification now keep provenance, preview kill-switch posture, backend-selection controls, and restore/lifecycle evidence explicit instead of hiding them in extraction prose."
+- id: WL-D023
+  milestone: E2
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-hub-registry` now has controller-backed verification for create/search/preview/install/review/projection/publication flows, and hub-side product surfaces remain downstream consumers of those owner APIs."
+- id: WL-D024
+  milestone: E2
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: moderation timeline, approval audit trail, install projection, pipeline projection, and runtime-bundle head lookup are now verified at the owner-controller layer with downstream consumer-only posture explicit."
+- id: WL-D025
+  milestone: E2b
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-hub` now carries `HOSTED_DOCS_HELP_CONSUMERS.md` and verifier-backed proof that docs query/result contracts stay owned by `Chummer.Play.Contracts.Docs` while prompt/lore/session help flows remain hosted consumers."
+- id: WL-D026
+  milestone: E2b
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-hub` now carries `HOSTED_FEEDBACK_AND_OPERATOR_CONSUMERS.md` and verifier-backed proof that advisory review, approval, checklist, and outbox-action feedback stays receipt-bearing and downstream of canonical registry/session truth."
+- id: WL-D027
+  milestone: E2b
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: hosted verification now binds `GmOpsBoardController`, `PipelineObservabilityController`, and sibling registry projection surfaces into one explicit operator-consumer rule rather than leaving ops-board posture implicit."
+- id: WL-D028
+  milestone: E3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-hub` now has explicit assistant-plane authority documentation and verifier-backed Coach/Spider/Director governance, grounding, approval-loop, and observability checks."
+- id: WL-D029
+  milestone: E4
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: document and packet-generation capability now has explicit owner-contract, provenance, retention, and operator signoff evidence in `chummer6-media-factory`."
+- id: WL-D030
+  milestone: E4
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: portrait, bounded-video, and route-cinema artifact families now share the same owner-repo lifecycle, reviewability, and restore-proof posture as document flows."
+- id: WL-D031
+  milestone: E0
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-ui` now carries `WORKBENCH_RELEASE_SIGNOFF.md`, which ties graph, continuity, planner/calendar, build, and diagnostics depth directly to the shipped verifier lanes."
+- id: WL-D032
+  milestone: E0
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: moderation/admin, publish, generated-asset review, and richer Hub UX are now treated as release-complete via the same verifier-backed workbench signoff instead of lingering as stale queue prose."
+- id: WL-D033
+  milestone: E1
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `chummer6-mobile` now keeps replay, reconnect, observe, offline queue/cache, role-shell bootstrap, and installable-PWA behavior executable in one standard verification path."
+- id: WL-D034
+  milestone: F0
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: UI, mobile, and ui-kit now each carry explicit signoff docs (`WORKBENCH_RELEASE_SIGNOFF.md`, `PLAY_RELEASE_SIGNOFF.md`, `SHARED_SURFACE_SIGNOFF.md`) and the standard verify paths enforce those closure claims."
+- id: WL-D035
+  milestone: F1
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: core, hub, hub-registry, and media-factory now each carry auditable runbooks, restore drills, and replay-safety proof surfaces."
+- id: WL-D036
+  milestone: F2
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: core-side legacy migration certification now explicitly binds the `chummer5a` oracle, parity oracle, migration loop, audit-compliance path, and compliance/acceptance suites."
+- id: WL-D037
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: `RELEASE_EVIDENCE_PACK.md` now carries the final release argument, and the dated `WL-D016`/`WL-D017`/`WL-D018` maintenance cycles record fresh truth, review-template, and local-mirror parity after the last design updates."
+- id: WL-D038
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: hub legacy roots were already moved behind explicit `legacy/` boundaries, and core now carries verifier-backed `LEGACY_ROOT_SURFACE_INVENTORY.md`, so remaining broad roots are explicit compatibility cargo rather than hidden owner drift."
+- id: WL-D039
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: Fleet premium burst policy was canonized in design first and then implemented downstream as a cheap-first baseline with explicit participant and operator premium-burst rules."
+- id: WL-D040
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: Hub community/account/ledger canon now makes sponsorship a reusable platform wave: Hub owns users, groups, facts/rewards/entitlements; Fleet owns sponsored worker execution and signed receipts; EA stays provider/telemetry substrate."
+- id: WL-D041
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: petition and synthesis canon now makes blocked-worker escalation explicit, requires clustered synthesis for repeated findings, and separates canonical design truth from automation-owned parity evidence."
+- id: WL-D042
+  milestone: F3
+  status: done
+  backlog: WORKLIST.md
+  notes: "Closed 2026-03-19: EA runtime evolution is now canonized as bounded cognitive-loop work on the existing substrate: proactive horizon scans, human-edit reflection, bounded replanning, and interruption-budget throttling."
