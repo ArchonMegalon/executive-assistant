@@ -21,6 +21,7 @@
 ## API Surface
 
 - Health: `GET /health`
+- Product browser data API: `/app/api/*`
 - Channels: `/v1/channels/*`
 - Connectors: `/v1/connectors/*`
 - Delivery: `/v1/delivery/*`

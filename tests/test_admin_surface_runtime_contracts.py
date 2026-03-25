@@ -55,6 +55,31 @@ def _seed_admin_state(client: TestClient, *, principal_id: str) -> None:
         priority="high",
         sla_due_at="2026-03-25T12:00:00+00:00",
     )
+    returned_task = container.orchestrator.create_human_task(
+        session_id=session.session_id,
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="Close investor dinner handoff",
+        why_human="Seed a returned handoff for the operator control plane.",
+        priority="medium",
+        sla_due_at="2026-03-25T16:00:00+00:00",
+    )
+    container.orchestrator.assign_human_task(
+        returned_task.human_task_id,
+        principal_id=principal_id,
+        operator_id="operator-admin-1",
+        assignment_source="seed",
+        assigned_by_actor_id="fixture",
+    )
+    container.orchestrator.return_human_task(
+        returned_task.human_task_id,
+        principal_id=principal_id,
+        operator_id="operator-admin-1",
+        resolution="completed",
+        returned_payload_json={"source": "fixture"},
+        provenance_json={"source": "fixture"},
+    )
     container.orchestrator._approvals.create_request(  # type: ignore[attr-defined]
         session.session_id,
         "step-approval-1",
@@ -111,3 +136,26 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert operators.status_code == 200
     assert "Tibor Ops" in operators.text
     assert "Review the executive follow-up before send" in operators.text
+    assert "Returned handoffs" in operators.text
+    assert "Close investor dinner handoff" in operators.text
+
+    diagnostics = client.get("/admin/api")
+    assert diagnostics.status_code == 200
+    assert "Diagnostics" in diagnostics.text
+    assert "Workspace plan" in diagnostics.text
+    assert "Operator seats" in diagnostics.text
+    assert "Seats used" in diagnostics.text
+    assert "Feature flags" in diagnostics.text
+    assert "Billing state" in diagnostics.text
+    assert "Support tier" in diagnostics.text
+    assert "Renewal owner" in diagnostics.text
+    assert "Configured providers" in diagnostics.text
+    assert "Export support-ready workspace bundle" in diagnostics.text
+    assert "Open bundle" in diagnostics.text
+    assert "Recent product events" in diagnostics.text
+
+    bundle = client.get("/app/api/diagnostics/export")
+    assert bundle.status_code == 200
+    diagnostics_api = client.get("/app/api/diagnostics")
+    assert diagnostics_api.status_code == 200
+    assert int(diagnostics_api.json()["analytics"]["counts"].get("support_bundle_opened") or 0) >= 1

@@ -1,63 +1,50 @@
 # Executive Assistant Customer Diagnostics
 
-Use this when a customer says the product is not behaving as expected.
+## Purpose
 
-## Questions to answer first
+This guide defines the minimum support view for a paying Executive Assistant workspace.
 
-1. Did the workspace connect Google successfully?
-2. Did the workspace produce memo items, queue items, and commitments?
-3. Is the issue in product state, provider state, or delivery state?
+## What support should answer quickly
 
-## Product checks
+- which workspace is affected
+- which plan and entitlements are active
+- whether messaging is included
+- whether the runtime is ready
+- how many operators are active
+- how many providers and lanes are bound
+- how much work is currently visible:
+  - memo items
+  - queue items
+  - commitments
+  - people
 
-- `GET /app/api/brief`
-- `GET /app/api/queue`
-- `GET /app/api/commitments`
-- `GET /app/api/drafts`
-- `GET /app/api/people`
-- `GET /app/api/handoffs`
-- `GET /app/api/diagnostics`
+## Current product surface
 
-These should explain what the browser is rendering.
+Use:
 
-## Runtime checks
+- `/admin/api`
+- `/app/api/diagnostics`
+- `/app/api/diagnostics/export`
 
-- `/v1/providers/states/*`
-- `/v1/human/tasks`
-- `/v1/delivery/outbox/pending`
-- `/v1/runtime/health`
+The admin diagnostics page is the operator-friendly surface.
+The diagnostics APIs are the machine-readable contracts.
 
-## Symptoms and likely causes
+## Minimum support workflow
 
-### No memo items
+1. open the admin diagnostics page
+2. confirm workspace, mode, region, timezone, and selected channels
+3. confirm plan and seat entitlements
+4. confirm readiness and provider counts
+5. confirm active operator count and current usage footprint
+6. if runtime work is missing, inspect:
+   - `/admin/audit-trail`
+   - `/admin/providers`
+   - `/admin/policies`
+7. if support needs a portable bundle, export:
+   - `/app/api/diagnostics/export`
 
-- no connected Google account
-- no seeded commitments or decision windows
-- product projections are returning empty source objects
+## Do not require for first-line support
 
-### Draft queue empty
-
-- no pending approval requests
-- no approval-backed draft-producing steps
-
-### Commitments missing
-
-- no open commitments or follow-ups in memory
-- commitment status already completed or cancelled
-
-### Admin providers look empty
-
-- no provider bindings for the current principal
-- binding health degraded or unavailable
-
-## Support bundle
-
-When escalating internally, capture:
-
-- current principal/workspace
-- memo payload
-- queue payload
-- commitments payload
-- provider registry read model
-- pending human tasks
-- pending delivery
+- raw database access
+- reading internal code
+- browsing internal implementation-only routes

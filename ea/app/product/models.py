@@ -21,6 +21,15 @@ class PolicyGate:
 
 
 @dataclass(frozen=True)
+class HistoryEntry:
+    event_type: str
+    created_at: str | None = None
+    source_id: str = ""
+    actor: str = ""
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class BriefItem:
     id: str
     workspace_id: str
@@ -80,6 +89,18 @@ class DraftCandidate:
 
 
 @dataclass(frozen=True)
+class CommitmentCandidate:
+    title: str
+    details: str
+    source_text: str
+    confidence: float
+    suggested_due_at: str | None = None
+    counterparty: str = ""
+    status: str = "pending"
+    candidate_id: str = ""
+
+
+@dataclass(frozen=True)
 class PersonProfile:
     id: str
     display_name: str
@@ -101,6 +122,7 @@ class PersonDetail:
     queue_items: tuple[DecisionQueueItem, ...] = ()
     handoffs: tuple[HandoffNote, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = ()
+    history: tuple[HistoryEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,7 +142,9 @@ class ProductSnapshot:
     brief_items: tuple[BriefItem, ...] = field(default_factory=tuple)
     queue_items: tuple[DecisionQueueItem, ...] = field(default_factory=tuple)
     commitments: tuple[CommitmentItem, ...] = field(default_factory=tuple)
+    commitment_candidates: tuple[CommitmentCandidate, ...] = field(default_factory=tuple)
     drafts: tuple[DraftCandidate, ...] = field(default_factory=tuple)
     people: tuple[PersonProfile, ...] = field(default_factory=tuple)
     handoffs: tuple[HandoffNote, ...] = field(default_factory=tuple)
+    completed_handoffs: tuple[HandoffNote, ...] = field(default_factory=tuple)
     stats_json: dict[str, int] = field(default_factory=dict)

@@ -35,6 +35,10 @@ def _configured_api_token(container: AppContainer) -> str:
     return str(container.settings.auth.api_token or "").strip()
 
 
+def _requested_operator_id(request: Request) -> str:
+    return str(request.headers.get("x-ea-operator-id") or "").strip()
+
+
 def _client_host(request: Request) -> str:
     client = getattr(request, "client", None)
     return str(getattr(client, "host", "") or "").strip()
@@ -285,6 +289,7 @@ def get_request_context(
             principal_id=principal_id,
             authenticated=True,
             auth_source="loopback_no_auth",
+            operator_id=_requested_operator_id(request),
         )
     authenticated = False
     if profile.auth_mode in {"token", "token_or_access"}:
@@ -307,6 +312,7 @@ def get_request_context(
         principal_id=principal_id,
         authenticated=authenticated,
         auth_source="api_token" if authenticated else "anonymous",
+        operator_id=_requested_operator_id(request) if authenticated else "",
     )
 
 

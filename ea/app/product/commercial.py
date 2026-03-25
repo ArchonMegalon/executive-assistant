@@ -18,6 +18,10 @@ class WorkspacePlan:
     display_name: str
     unit_of_sale: str
     entitlements: PlanEntitlements
+    support_tier: str
+    billing_state: str
+    renewal_owner_role: str
+    contract_note: str
 
 
 _PLANS = {
@@ -32,6 +36,10 @@ _PLANS = {
             audit_retention="30d",
             feature_flags=("morning_memo", "decision_queue", "commitment_ledger", "draft_queue"),
         ),
+        support_tier="guided",
+        billing_state="trial",
+        renewal_owner_role="principal",
+        contract_note="Google-first pilot with one executive and one operator.",
     ),
     "team": WorkspacePlan(
         plan_key="core",
@@ -44,6 +52,10 @@ _PLANS = {
             audit_retention="90d",
             feature_flags=("morning_memo", "decision_queue", "commitment_ledger", "draft_queue", "people_graph", "handoffs"),
         ),
+        support_tier="standard",
+        billing_state="active",
+        renewal_owner_role="office_admin",
+        contract_note="Shared office deployment with collaborative operator coverage.",
     ),
     "executive_ops": WorkspacePlan(
         plan_key="executive",
@@ -51,7 +63,7 @@ _PLANS = {
         unit_of_sale="workspace",
         entitlements=PlanEntitlements(
             principal_seats=1,
-            operator_seats=3,
+            operator_seats=1000,
             messaging_channels_enabled=True,
             audit_retention="180d",
             feature_flags=(
@@ -64,6 +76,10 @@ _PLANS = {
                 "admin_audit",
             ),
         ),
+        support_tier="priority",
+        billing_state="active",
+        renewal_owner_role="operator_lead",
+        contract_note="Managed executive-office deployment with priority support and audit depth.",
     ),
 }
 

@@ -132,6 +132,14 @@ class MemoryRuntimeService:
     ) -> list[MemoryCandidate]:
         return self._candidates.list_candidates(limit=limit, status=status, principal_id=principal_id)
 
+    def get_candidate(self, candidate_id: str, *, principal_id: str | None = None) -> MemoryCandidate | None:
+        candidate = self._candidates.get(candidate_id)
+        if not candidate:
+            return None
+        if principal_id and candidate.principal_id != str(principal_id or "").strip():
+            return None
+        return candidate
+
     def promote_candidate(
         self,
         candidate_id: str,

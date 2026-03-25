@@ -15,6 +15,37 @@ from app.services.responses_upstream import UpstreamResult
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 
 
+@pytest.fixture(autouse=True)
+def _reset_responses_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in list(os.environ.keys()):
+        if key.startswith(
+            (
+                "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+                "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER",
+                "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE",
+                "EA_ALLOW_BROWSER_PRINCIPAL_OVERRIDE",
+                "EA_OPERATOR_PRINCIPAL_IDS",
+                "EA_OPERATOR_PRINCIPALS",
+                "EA_OPERATOR_EMAILS",
+                "EA_OPERATOR_ACCESS_EMAILS",
+                "EA_PRINCIPAL_",
+                "EA_GEMINI_VORTEX_SLOT_",
+                "ONEMIN_AI_API_KEY",
+                "BROWSERACT_API_KEY",
+                "GOOGLE_API_KEY_FALLBACK_",
+                "EA_FLEET_STATUS_BASE_URL",
+            )
+        ):
+            monkeypatch.delenv(key, raising=False)
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
+    yield
+    upstream._test_reset_onemin_states()
+    upstream._test_reset_fleet_jury_cache()
+
+
 def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)

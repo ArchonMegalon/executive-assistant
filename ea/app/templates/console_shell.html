@@ -102,10 +102,62 @@
     color: var(--text-soft);
     font-size: 12px;
   }
+  .console-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .console-action {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
   .console-focus {
     display: grid;
     gap: 14px;
     align-content: start;
+  }
+  .console-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .console-field-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .console-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .console-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-form input,
+  .console-form textarea,
+  .console-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .console-form textarea {
+    min-height: 120px;
+    resize: vertical;
   }
   .console-callout {
     color: var(--text-soft);
@@ -117,6 +169,9 @@
     .console-section-grid {
       grid-template-columns: 1fr;
     }
+    .console-field-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 
@@ -124,6 +179,7 @@
 {% set c1 = cards[1] if cards|length > 1 else None %}
 {% set c2 = cards[2] if cards|length > 2 else None %}
 {% set c3 = cards[3] if cards|length > 3 else None %}
+{% set extra_cards = cards[2:] if cards|length > 2 else [] %}
 
 {% macro rows(items, tag='Open', helper='Keep the next action clear and easy to review.') -%}
 <div class="console-list">
@@ -133,11 +189,31 @@
   {% set detail = item.get('detail') or helper %}
   {% set row_tag = item.get('tag') or tag %}
   {% set href = item.get('href') or '' %}
+  {% set action_href = item.get('action_href') or '' %}
+  {% set action_label = item.get('action_label') or '' %}
+  {% set action_value = item.get('action_value') or '' %}
+  {% set action_method = (item.get('action_method') or 'post')|lower %}
+  {% set return_to = item.get('return_to') or '' %}
+  {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+  {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+  {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+  {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+  {% set secondary_return_to = item.get('secondary_return_to') or '' %}
   {% else %}
   {% set title = item %}
   {% set detail = helper %}
   {% set row_tag = tag %}
   {% set href = '' %}
+  {% set action_href = '' %}
+  {% set action_label = '' %}
+  {% set action_value = '' %}
+  {% set action_method = 'post' %}
+  {% set return_to = '' %}
+  {% set secondary_action_href = '' %}
+  {% set secondary_action_label = '' %}
+  {% set secondary_action_value = '' %}
+  {% set secondary_action_method = 'post' %}
+  {% set secondary_return_to = '' %}
   {% endif %}
   <div class="console-row">
     <div>
@@ -148,7 +224,31 @@
       {% endif %}
       <small>{{ detail }}</small>
     </div>
-    <div class="console-tag">{{ row_tag }}</div>
+    <div class="console-row-actions">
+      {% if action_href %}
+      {% if action_method == 'get' %}
+      <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ action_href }}">
+        {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+        {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if secondary_action_href %}
+      {% if secondary_action_method == 'get' %}
+      <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ secondary_action_href }}">
+        {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+        {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      <div class="console-tag">{{ row_tag }}</div>
+    </div>
   </div>
   {% endfor %}
 </div>
@@ -227,6 +327,40 @@
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Ready', 'These channels are shaping what the inbox view can do right now.') }}
     {% endif %}
+    <div class="console-callout">
+      <div class="console-kicker">Capture from note</div>
+      <form class="console-form" method="post" action="/app/actions/commitments/extract">
+        <label class="console-field">
+          <span>Note or thread snippet</span>
+          <textarea id="extract_source_text" name="source_text" placeholder="Paste the note, thread, or meeting takeaway that should become a commitment." required></textarea>
+        </label>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Counterparty</span>
+            <input id="extract_counterparty" name="counterparty" placeholder="Sofia N.">
+          </label>
+          <label class="console-field">
+            <span>Due at</span>
+            <input id="extract_due_at" name="due_at" placeholder="2026-03-26T10:00:00+00:00">
+          </label>
+        </div>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Kind</span>
+            <select id="extract_kind" name="kind">
+              <option value="commitment" selected>Commitment</option>
+              <option value="follow_up">Follow-up</option>
+            </select>
+          </label>
+          <label class="console-field">
+            <span>Stakeholder ID (optional)</span>
+            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="For explicit follow-up linking">
+          </label>
+        </div>
+        <input type="hidden" name="return_to" value="/app/inbox">
+        <button class="console-action" type="submit">Capture item</button>
+      </form>
+    </div>
   </aside>
 </section>
 {% elif current_nav == 'follow-ups' %}
@@ -248,6 +382,45 @@
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Context', 'This is why these items are still in the queue.') }}
     {% endif %}
+    <div class="console-callout">
+      <div class="console-kicker">Create a follow-up</div>
+      <form class="console-form" method="post" action="/app/actions/commitments/create">
+        <label class="console-field">
+          <span>Title</span>
+          <input id="create_followup_title" name="title" placeholder="Confirm board dinner date" required>
+        </label>
+        <label class="console-field">
+          <span>Context</span>
+          <textarea id="create_followup_details" name="details" placeholder="Why this follow-up matters and what the next move should be."></textarea>
+        </label>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Counterparty</span>
+            <input id="create_followup_counterparty" name="counterparty" placeholder="Sofia N.">
+          </label>
+          <label class="console-field">
+            <span>Due at</span>
+            <input id="create_followup_due_at" name="due_at" placeholder="2026-03-26T10:00:00+00:00">
+          </label>
+        </div>
+        <div class="console-field-grid">
+          <label class="console-field">
+            <span>Kind</span>
+            <select id="create_followup_kind" name="kind">
+              <option value="follow_up" selected>Follow-up</option>
+              <option value="commitment">Commitment</option>
+            </select>
+          </label>
+          <label class="console-field">
+            <span>Stakeholder ID (optional)</span>
+            <input id="create_followup_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
+          </label>
+        </div>
+        <input type="hidden" name="channel_hint" value="email">
+        <input type="hidden" name="return_to" value="/app/follow-ups">
+        <button class="console-action" type="submit">Create follow-up</button>
+      </form>
+    </div>
   </aside>
 </section>
 {% elif current_nav == 'memory' %}
@@ -311,9 +484,9 @@
 </section>
 {% endif %}
 
-{% if c2 or c3 %}
+{% if extra_cards %}
 <section class="console-section-grid">
-  {% for card in [c2, c3] if card %}
+  {% for card in extra_cards if card %}
   <section class="console-section">
     <div class="console-kicker">{{ card.eyebrow if card.eyebrow else 'Workspace' }}</div>
     <h2>{{ card.title }}</h2>

@@ -1,5 +1,6 @@
 from app.product.models import (
     BriefItem,
+    CommitmentCandidate,
     CommitmentItem,
     DecisionQueueItem,
     DraftCandidate,
@@ -15,6 +16,7 @@ from app.product.service import ProductService, build_product_service
 
 __all__ = [
     "BriefItem",
+    "CommitmentCandidate",
     "CommitmentItem",
     "DecisionQueueItem",
     "DraftCandidate",

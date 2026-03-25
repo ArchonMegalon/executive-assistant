@@ -185,7 +185,7 @@ def _documented_api_prefixes_from_architecture_map() -> list[str]:
     return [
         match.group(1).removesuffix("/*")
         for match in re.finditer(r"^- [^:]+: `([^`]+)`", architecture_map, flags=re.MULTILINE)
-        if match.group(1).startswith("/v1/")
+        if match.group(1).startswith(("/v1/", "/app/"))
     ]
 
 
@@ -262,9 +262,11 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     }
 
     assert released_caps == required_released
-    assert overlay.get("mode") == "prepend"
+    assert overlay.get("mode") == "append"
     items = overlay.get("items") or []
-    assert items == []
+    assert items == [
+        "Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context."
+    ]
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:

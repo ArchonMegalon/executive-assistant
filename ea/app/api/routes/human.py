@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context, resolve_principal_id
 from app.container import AppContainer
+from app.product.commercial import workspace_plan_for_mode
 
 router = APIRouter(prefix="/v1/human/tasks", tags=["human"])
 
@@ -506,6 +507,14 @@ def upsert_operator_profile(
     if not is_operator_context(context):
         raise HTTPException(status_code=403, detail="operator_scope_required")
     principal_id = resolve_principal_id(payload.principal_id, context)
+    existing = container.orchestrator.fetch_operator_profile(payload.operator_id, principal_id=principal_id)
+    if existing is None:
+        status = container.onboarding.status(principal_id=principal_id)
+        workspace = dict(status.get("workspace") or {})
+        plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+        active = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=500)
+        if len(active) >= plan.entitlements.operator_seats:
+            raise HTTPException(status_code=409, detail="operator_seat_limit_reached")
     try:
         row = container.orchestrator.upsert_operator_profile(
             principal_id=principal_id,

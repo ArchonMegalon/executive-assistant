@@ -150,6 +150,14 @@ def test_runtime_profile_non_prod_token_auth_matches_request_context_contract() 
         _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "caller-1"}),
         container=container,
     )
+    assert header_context.principal_id == "ops-fallback"
+
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+    header_context = get_request_context(
+        _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "caller-1"}),
+        container=container,
+    )
     assert header_context.principal_id == "caller-1"
 
 
@@ -166,11 +174,19 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
             container=container,
         )
 
+    assert profile.principal_source == "authenticated_header"
+    with pytest.raises(HTTPException, match="principal_required"):
+        get_request_context(
+            _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),
+            container=container,
+        )
+
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
     header_context = get_request_context(
         _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),
         container=container,
     )
-    assert profile.principal_source == "authenticated_header"
     assert header_context.principal_id == "ops-1"
     assert header_context.authenticated is True
 

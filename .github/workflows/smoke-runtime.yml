@@ -24,7 +24,28 @@ jobs:
 
       - name: Run Browser Surface Contracts
         run: |
-          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py tests/test_browser_surface_contracts.py tests/test_product_api_contracts.py tests/test_product_browser_journeys.py tests/test_admin_surface_runtime_contracts.py
+          PYTHONPATH=.:ea pytest -q tests/test_providers_api_contracts.py tests/test_browser_surface_contracts.py tests/test_product_projection_contracts.py tests/test_product_api_contracts.py tests/test_commitment_candidate_review_contracts.py tests/test_product_support_contracts.py tests/test_product_browser_journeys.py tests/test_product_entitlement_contracts.py tests/test_admin_surface_runtime_contracts.py tests/test_fixture_scenarios.py
+
+  product-browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ea/requirements.txt pytest httpx
+          python -m playwright install --with-deps chromium
+
+      - name: Run Product Browser E2E
+        run: |
+          PYTHONPATH=.:ea pytest -q tests/e2e/test_product_workflows.py
 
   smoke-runtime-api:
     runs-on: ubuntu-latest

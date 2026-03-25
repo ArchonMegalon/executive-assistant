@@ -23,6 +23,28 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     return client
 
 
+def build_operator_product_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    client.headers.update(
+        {
+            "Authorization": "Bearer test-token",
+            "X-EA-Principal-ID": principal_id,
+            "X-EA-Operator-ID": operator_id,
+        }
+    )
+    return client
+
+
 def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, str]:
     from app.domain.models import IntentSpecV3
 
@@ -37,6 +59,15 @@ def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, st
             approval_class="draft",
             budget_class="standard",
         )
+    )
+    operator = container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id="operator-office",
+        display_name="Office Operator",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded for product workflow tests.",
     )
     stakeholder = container.memory_runtime.upsert_stakeholder(
         principal_id=principal_id,
@@ -106,4 +137,78 @@ def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, st
         "decision_window_id": decision.decision_window_id,
         "deadline_window_id": deadline.window_id,
         "human_task_id": human_task.human_task_id,
+        "operator_id": operator.operator_id,
     }
+
+
+def start_workspace(
+    client: TestClient,
+    *,
+    mode: str,
+    workspace_name: str = "Executive Assistant",
+    timezone: str = "Europe/Vienna",
+    region: str = "AT",
+    language: str = "en",
+    selected_channels: list[str] | None = None,
+) -> None:
+    started = client.post(
+        "/v1/onboarding/start",
+        json={
+            "workspace_name": workspace_name,
+            "mode": mode,
+            "workspace_mode": mode,
+            "timezone": timezone,
+            "region": region,
+            "language": language,
+            "selected_channels": list(selected_channels or ["google"]),
+        },
+    )
+    assert started.status_code == 200
+
+
+def seed_founder_fixture(*, principal_id: str = "fixture-founder") -> tuple[TestClient, dict[str, str]]:
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+    return client, seeded
+
+
+def seed_executive_operator_fixture(*, principal_id: str = "fixture-exec-operator") -> tuple[TestClient, dict[str, str]]:
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="executive_ops", workspace_name="Executive Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+    return client, seeded
+
+
+def seed_team_fixture(*, principal_id: str = "fixture-team") -> tuple[TestClient, dict[str, str]]:
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="team", workspace_name="Team Office", selected_channels=["google", "telegram"])
+    seeded = seed_product_state(client, principal_id=principal_id)
+    container = client.app.state.container
+    container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id="operator-team-2",
+        display_name="Team Operator",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded for shared team fixture.",
+    )
+    other_task = container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="Coordinate shared follow-up queue",
+        why_human="Shared team fixture should surface multiple operator tasks.",
+        priority="medium",
+        sla_due_at="2026-03-26T09:00:00+00:00",
+    )
+    container.orchestrator.assign_human_task(
+        other_task.human_task_id,
+        principal_id=principal_id,
+        operator_id="operator-team-2",
+        assignment_source="seed",
+        assigned_by_actor_id="fixture",
+    )
+    return client, seeded

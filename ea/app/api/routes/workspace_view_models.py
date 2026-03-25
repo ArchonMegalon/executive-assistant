@@ -1,12 +1,47 @@
 from __future__ import annotations
 
-from app.product.models import BriefItem, CommitmentItem, DecisionQueueItem, DraftCandidate, HandoffNote, PersonProfile, ProductSnapshot
+from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionQueueItem, DraftCandidate, HandoffNote, PersonProfile, ProductSnapshot
 
 
-def _row(title: str, detail: str, tag: str, href: str = "") -> dict[str, str]:
+def _row(
+    title: str,
+    detail: str,
+    tag: str,
+    href: str = "",
+    action_href: str = "",
+    action_label: str = "",
+    action_value: str = "",
+    action_method: str = "",
+    return_to: str = "",
+    secondary_action_href: str = "",
+    secondary_action_label: str = "",
+    secondary_action_value: str = "",
+    secondary_action_method: str = "",
+    secondary_return_to: str = "",
+) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
     if href:
         row["href"] = href
+    if action_href:
+        row["action_href"] = action_href
+    if action_label:
+        row["action_label"] = action_label
+    if action_value:
+        row["action_value"] = action_value
+    if action_method:
+        row["action_method"] = action_method
+    if return_to:
+        row["return_to"] = return_to
+    if secondary_action_href:
+        row["secondary_action_href"] = secondary_action_href
+    if secondary_action_label:
+        row["secondary_action_label"] = secondary_action_label
+    if secondary_action_value:
+        row["secondary_action_value"] = secondary_action_value
+    if secondary_action_method:
+        row["secondary_action_method"] = secondary_action_method
+    if secondary_return_to:
+        row["secondary_return_to"] = secondary_return_to
     return row
 
 
@@ -21,11 +56,40 @@ def _queue_rows(values: tuple[DecisionQueueItem, ...]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
         due = f" · due {value.deadline[:10]}" if value.deadline else ""
-        rows.append(_row(value.title, f"{value.summary}{due}".strip(), value.priority.capitalize()))
+        action_href = ""
+        action_label = ""
+        action_value = ""
+        if value.id.startswith("approval:"):
+            action_href = f"/app/actions/drafts/{value.id}/approve"
+            action_label = "Approve"
+        elif value.id.startswith(("commitment:", "follow_up:")):
+            action_href = f"/app/actions/queue/{value.id}/resolve"
+            action_label = "Close"
+            action_value = "close"
+        elif value.id.startswith(("decision:", "deadline:")):
+            action_href = f"/app/actions/queue/{value.id}/resolve"
+            action_label = "Resolve"
+            action_value = "resolve"
+        rows.append(
+            _row(
+                value.title,
+                f"{value.summary}{due}".strip(),
+                value.priority.capitalize(),
+                action_href=action_href,
+                action_label=action_label,
+                action_value=action_value,
+                return_to="/app/briefing",
+                secondary_action_href=f"/app/actions/queue/{value.id}/resolve" if value.id.startswith(("commitment:", "follow_up:")) else "",
+                secondary_action_label="Drop" if value.id.startswith(("commitment:", "follow_up:")) else "",
+                secondary_action_value="drop" if value.id.startswith(("commitment:", "follow_up:")) else "",
+                secondary_action_method="post" if value.id.startswith(("commitment:", "follow_up:")) else "",
+                secondary_return_to="/app/briefing" if value.id.startswith(("commitment:", "follow_up:")) else "",
+            )
+        )
     return rows
 
 
-def _commitment_rows(values: tuple[CommitmentItem, ...]) -> list[dict[str, str]]:
+def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/app/inbox") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
         detail = " · ".join(
@@ -37,7 +101,52 @@ def _commitment_rows(values: tuple[CommitmentItem, ...]) -> list[dict[str, str]]
             )
             if part
         )
-        rows.append(_row(value.statement, detail or "Commitment is still open.", value.risk_level.capitalize()))
+        rows.append(
+            _row(
+                value.statement,
+                detail or "Commitment is still open.",
+                value.risk_level.capitalize(),
+                action_href=f"/app/actions/queue/{value.id}/resolve",
+                action_label="Close",
+                action_value="close",
+                return_to=return_to,
+                secondary_action_href=f"/app/actions/queue/{value.id}/resolve",
+                secondary_action_label="Drop",
+                secondary_action_value="drop",
+                secondary_action_method="post",
+                secondary_return_to=return_to,
+            )
+        )
+    return rows
+
+
+def _candidate_rows(values: tuple[CommitmentCandidate, ...]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for value in values:
+        detail = " · ".join(
+            part
+            for part in (
+                value.counterparty,
+                f"Due {value.suggested_due_at[:10]}" if value.suggested_due_at else "",
+                value.details[:96] if value.details else "",
+            )
+            if part
+        )
+        rows.append(
+            _row(
+                value.title,
+                detail or "Review this extracted commitment before it becomes part of the ledger.",
+                "Candidate",
+                href=f"/app/commitments/candidates/{value.candidate_id}",
+                action_href=f"/app/actions/commitments/candidates/{value.candidate_id}/accept",
+                action_label="Accept",
+                return_to="/app/inbox",
+                secondary_action_href=f"/app/actions/commitments/candidates/{value.candidate_id}/reject",
+                secondary_action_label="Reject",
+                secondary_action_method="post",
+                secondary_return_to="/app/inbox",
+            )
+        )
     return rows
 
 
@@ -54,7 +163,20 @@ def _draft_rows(values: tuple[DraftCandidate, ...]) -> list[dict[str, str]]:
             )
             if part
         )
-        rows.append(_row(value.recipient_summary or value.intent.title(), detail or "Draft awaiting review.", "Draft"))
+        rows.append(
+            _row(
+                value.recipient_summary or value.intent.title(),
+                detail or "Draft awaiting review.",
+                "Draft",
+                action_href=f"/app/actions/drafts/{value.id}/approve",
+                action_label="Approve",
+                return_to="/app/inbox",
+                secondary_action_href=f"/app/actions/drafts/{value.id}/reject",
+                secondary_action_label="Reject",
+                secondary_action_method="post",
+                secondary_return_to="/app/inbox",
+            )
+        )
     return rows
 
 
@@ -74,7 +196,7 @@ def _people_rows(values: tuple[PersonProfile, ...]) -> list[dict[str, str]]:
     return rows
 
 
-def _handoff_rows(values: tuple[HandoffNote, ...]) -> list[dict[str, str]]:
+def _handoff_rows(values: tuple[HandoffNote, ...], *, actionable: bool = True, return_to: str = "/app/follow-ups") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
         detail = " · ".join(
@@ -86,11 +208,88 @@ def _handoff_rows(values: tuple[HandoffNote, ...]) -> list[dict[str, str]]:
             )
             if part
         )
-        rows.append(_row(value.summary, detail or "Handoff remains open.", value.escalation_status.capitalize()))
+        rows.append(
+            _row(
+                value.summary,
+                detail or "Handoff remains open.",
+                value.escalation_status.capitalize(),
+                action_href=f"/app/actions/handoffs/{value.id}/assign" if actionable else "",
+                action_label="Claim" if actionable else "",
+                action_value="assign" if actionable else "",
+                return_to=return_to if actionable else "",
+                secondary_action_href=f"/app/actions/handoffs/{value.id}/complete" if actionable else "",
+                secondary_action_label="Complete" if actionable else "",
+                secondary_action_value="completed" if actionable else "",
+                secondary_return_to=return_to if actionable else "",
+            )
+        )
     return rows
 
 
-def workspace_section_payload(section: str, snapshot: ProductSnapshot) -> dict[str, object]:
+def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[dict[str, str]]:
+    workspace = dict(diagnostics.get("workspace") or {})
+    plan = dict(diagnostics.get("plan") or {})
+    billing = dict(diagnostics.get("billing") or {})
+    commercial = dict(diagnostics.get("commercial") or {})
+    entitlements = dict(diagnostics.get("entitlements") or {})
+    operators = dict(diagnostics.get("operators") or {})
+    readiness = dict(diagnostics.get("readiness") or {})
+    analytics = dict(diagnostics.get("analytics") or {})
+    analytics_counts = dict(analytics.get("counts") or {})
+    selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
+    feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
+    return [
+        _row("Workspace mode", str(workspace.get("mode") or "personal").replace("_", " ").title(), "Workspace"),
+        _row("Workspace plan", str(plan.get("display_name") or "Pilot"), "Plan"),
+        _row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan"),
+        _row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+        _row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
+        _row("Renewal owner", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing"),
+        _row("Contract note", str(billing.get("contract_note") or "Contract posture not set."), "Contract"),
+        _row("Channels", ", ".join(selected_channels) if selected_channels else "Google-first path", "Channels"),
+        _row("Operator seats", str(entitlements.get("operator_seats") or 0), "Entitlement"),
+        _row("Seats used", str(operators.get("seats_used") or 0), "Entitlement"),
+        _row("Seats remaining", str(operators.get("seats_remaining") or 0), "Entitlement"),
+        _row(
+            "Messaging scope",
+            "Included in this plan" if entitlements.get("messaging_channels_enabled") else "Upgrade required for Telegram and WhatsApp",
+            "Entitlement",
+        ),
+        _row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Entitlement"),
+        _row("Enabled product loops", ", ".join(feature_flags) if feature_flags else "No feature flags enabled", "Entitlement"),
+        _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
+        _row("Drafts approved", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
+        _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics"),
+        _row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics"),
+        _row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
+        _row(
+            "Commercial warnings",
+            "; ".join(str(value) for value in (commercial.get("warnings") or []) if str(value).strip()) or "No commercial warnings",
+            "Support",
+        ),
+        _row(
+            "Workspace diagnostics bundle",
+            str(readiness.get("detail") or "Export support-ready workspace bundle"),
+            "Bundle",
+            action_href="/app/api/diagnostics/export",
+            action_label="Open bundle",
+            action_method="get",
+            return_to=return_to,
+        ),
+    ]
+
+
+def workspace_section_payload(
+    section: str,
+    snapshot: ProductSnapshot,
+    diagnostics: dict[str, object] | None = None,
+    *,
+    operator_id: str = "",
+) -> dict[str, object]:
+    diagnostics = diagnostics or {}
+    operator_key = str(operator_id or "").strip()
+    assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
+    unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
     stats = [
         {"label": "Memo items", "value": str(snapshot.stats_json.get("brief_items", 0))},
         {"label": "Queue items", "value": str(snapshot.stats_json.get("queue_items", 0))},
@@ -175,6 +374,12 @@ def workspace_section_payload(section: str, snapshot: ProductSnapshot) -> dict[s
                     "items": _draft_rows(snapshot.drafts[:6]),
                 },
                 {
+                    "eyebrow": "Pending captures",
+                    "title": "What still needs commitment review",
+                    "body": "Extracted commitments stay reviewable before they enter the live ledger.",
+                    "items": _candidate_rows(snapshot.commitment_candidates[:6]),
+                },
+                {
                     "eyebrow": "Decision pressure",
                     "title": "What will force movement next",
                     "body": "The commitment loop stays honest when decisions and deadlines remain visible.",
@@ -190,13 +395,13 @@ def workspace_section_payload(section: str, snapshot: ProductSnapshot) -> dict[s
                     "eyebrow": "Open handoffs",
                     "title": "What is waiting on a human",
                     "body": "Handoffs are backed by real human tasks instead of suggestion copy.",
-                    "items": _handoff_rows(snapshot.handoffs[:8]),
+                    "items": _handoff_rows(snapshot.handoffs[:8], return_to="/app/follow-ups"),
                 },
                 {
                     "eyebrow": "Still open",
                     "title": "What handoffs are protecting",
                     "body": "Handoffs exist because commitments or approvals still need movement.",
-                    "items": _commitment_rows(snapshot.commitments[:6]),
+                    "items": _commitment_rows(snapshot.commitments[:6], return_to="/app/follow-ups"),
                 },
                 {
                     "eyebrow": "Related queue",
@@ -257,6 +462,104 @@ def workspace_section_payload(section: str, snapshot: ProductSnapshot) -> dict[s
                     "title": "Who the evidence touches",
                     "body": "Evidence is useful when it stays connected to the right people and commitments.",
                     "items": _people_rows(snapshot.people[:6]),
+                },
+            ],
+        },
+        "activity": {
+            "title": "Operator Queue",
+            "summary": "Assignments, follow-up handoffs, and principal waiting items stay visible as a real operating lane.",
+            "cards": [
+                {
+                    "eyebrow": "Assigned to me",
+                    "title": "What already belongs to this operator lane",
+                    "body": "Assigned work should stay separate from the claimable backlog.",
+                    "items": _handoff_rows(assigned_handoffs[:8], return_to="/app/activity"),
+                },
+                {
+                    "eyebrow": "Unclaimed handoffs",
+                    "title": "What can be claimed next",
+                    "body": "Operator work should be explicit, claimable, and closable from the same queue.",
+                    "items": _handoff_rows(unclaimed_handoffs[:8], return_to="/app/activity"),
+                },
+                {
+                    "eyebrow": "Waiting on principal",
+                    "title": "What still needs executive clearance",
+                    "body": "Approval-backed drafts and decision windows should not disappear into admin surfaces.",
+                    "items": _queue_rows(tuple(row for row in snapshot.queue_items if row.requires_principal)[:8]),
+                },
+                {
+                    "eyebrow": "Recently completed",
+                    "title": "What just moved through the operator lane",
+                    "body": "Returned handoffs should stay visible long enough to confirm the office loop actually closed.",
+                    "items": _handoff_rows(snapshot.completed_handoffs[:6], actionable=False),
+                },
+                {
+                    "eyebrow": "Commitment pressure",
+                    "title": "What operator work is protecting",
+                    "body": "Operator tasks are only useful when they keep the right commitments from slipping.",
+                    "items": _commitment_rows(snapshot.commitments[:8], return_to="/app/activity"),
+                },
+                {
+                    "eyebrow": "Affected stakeholders",
+                    "title": "Who is attached to the operator queue",
+                    "body": "The operator lane should stay tied to the people and relationships it serves.",
+                    "items": _people_rows(snapshot.people[:6]),
+                },
+            ],
+        },
+        "settings": {
+            "title": "Rules",
+            "summary": "Channel permissions, commercial boundaries, and support posture belong in one understandable control surface.",
+            "cards": [
+                {
+                    "eyebrow": "Workspace rules",
+                    "title": "Current plan, channels, and contract posture",
+                    "body": "A paying customer should be able to see what the workspace is allowed to do and what the plan includes.",
+                    "items": _diagnostic_rows(diagnostics, return_to="/app/settings"),
+                },
+                {
+                    "eyebrow": "Queue and memo health",
+                    "title": "What this ruleset is currently supporting",
+                    "body": "Usage and queue pressure should stay attached to the commercial and support posture.",
+                    "items": [
+                        _row("Memo items", str(snapshot.stats_json.get("brief_items", 0)), "Usage"),
+                        _row("Queue items", str(snapshot.stats_json.get("queue_items", 0)), "Usage"),
+                        _row("Commitments", str(snapshot.stats_json.get("commitments", 0)), "Usage"),
+                        _row("Handoffs", str(snapshot.stats_json.get("handoffs", 0)), "Usage"),
+                        _row("Active operators", str(dict(diagnostics.get("operators") or {}).get("active_count") or 0), "Usage"),
+                        _row("Memos opened", str(dict(dict(diagnostics.get("analytics") or {}).get("counts") or {}).get("memo_opened") or 0), "Analytics"),
+                        _row("Time to first value", str(dict(diagnostics.get("analytics") or {}).get("time_to_first_value_seconds") or "pending"), "Analytics"),
+                    ],
+                },
+                {
+                    "eyebrow": "Reviewable work",
+                    "title": "What the current rules are gating",
+                    "body": "Rules are useful when they explain what still needs approval, assignment, or follow-up.",
+                    "items": _queue_rows(snapshot.queue_items[:8]),
+                },
+                {
+                    "eyebrow": "Plan boundary",
+                    "title": "What this workspace actually includes",
+                    "body": "The commercial boundary should be visible where channel scope, support posture, and escalation rules are chosen.",
+                    "items": [
+                        _row("Support tier", str(dict(diagnostics.get("billing") or {}).get("support_tier") or "standard"), "Support"),
+                        _row("Billing state", str(dict(diagnostics.get("billing") or {}).get("billing_state") or "unknown"), "Billing"),
+                        _row(
+                            "Messaging scope",
+                            "Included" if dict(diagnostics.get("entitlements") or {}).get("messaging_channels_enabled") else "Not included on this plan",
+                            "Entitlement",
+                        ),
+                        _row(
+                            "Feature flags",
+                            ", ".join(str(value).replace("_", " ") for value in (dict(diagnostics.get("entitlements") or {}).get("feature_flags") or [])[:6]) or "No enabled features",
+                            "Entitlement",
+                        ),
+                        _row(
+                            "Warnings",
+                            "; ".join(str(value) for value in (dict(diagnostics.get("commercial") or {}).get("warnings") or []) if str(value).strip()) or "No current warnings",
+                            "Support",
+                        ),
+                    ],
                 },
             ],
         },
