@@ -182,11 +182,19 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     page_type, section_id, fallback_profile = _critical_asset_target(target_path)
     page_profile = page_visual_profile(page_type) if page_type else {}
     contracts = briefs.get("visual_contract") if isinstance(briefs.get("visual_contract"), dict) else {}
+    asset_overlay_contracts = (
+        briefs.get("asset_overlay_contracts") if isinstance(briefs.get("asset_overlay_contracts"), dict) else {}
+    )
     section = dict(_media_sections().get(section_id) or {}) if section_id else {}
     profile_name = str(page_profile.get("visual_density_profile") or fallback_profile or "").strip()
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
+    normalized_target = str(target_path or "").replace("\\", "/").strip()
+    asset_contract = dict(asset_overlay_contracts.get(normalized_target) or {}) if isinstance(asset_overlay_contracts, dict) else {}
+    if not asset_contract and normalized_target == "README.md":
+        asset_contract = dict(asset_overlay_contracts.get("assets/hero/chummer6-hero.png") or {})
     merged: dict[str, object] = {}
     merged.update(contract)
+    merged.update(asset_contract)
     merged.update(section)
     merged.update(page_profile)
     if profile_name:
