@@ -17,26 +17,47 @@ def _tour_dir() -> Path:
     return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
 
 
+def _resolved_tour_root() -> Path:
+    return _tour_dir().resolve()
+
+
+def _resolved_tour_bundle(slug: str) -> Path:
+    safe = str(slug or "").strip()
+    if not safe or "/" in safe or ".." in safe:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    root = _resolved_tour_root()
+    bundle_dir = (root / safe).resolve()
+    if bundle_dir != root and root not in bundle_dir.parents:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    if not bundle_dir.exists() or not bundle_dir.is_dir():
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    return bundle_dir
+
+
 def _tour_path(slug: str) -> Path:
     safe = str(slug or "").strip()
     if not safe or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="tour_not_found")
-    bundle_dir = _tour_dir() / safe
-    if bundle_dir.is_dir():
+    try:
+        bundle_dir = _resolved_tour_bundle(slug)
+    except HTTPException:
+        bundle_dir = None
+    if bundle_dir is not None:
         bundle_manifest = bundle_dir / "tour.json"
         if bundle_manifest.exists():
             return bundle_manifest
-    return _tour_dir() / f"{safe}.json"
+    root = _resolved_tour_root()
+    candidate = (root / f"{safe}.json").resolve()
+    if root not in candidate.parents:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    return candidate
 
 
 def _tour_bundle_dir(slug: str) -> Path | None:
-    safe = str(slug or "").strip()
-    if not safe or "/" in safe or ".." in safe:
-        raise HTTPException(status_code=404, detail="tour_not_found")
-    bundle_dir = _tour_dir() / safe
-    if bundle_dir.is_dir():
-        return bundle_dir
-    return None
+    try:
+        return _resolved_tour_bundle(slug)
+    except HTTPException:
+        return None
 
 
 def _load_tour(slug: str) -> dict[str, object]:
@@ -390,7 +411,7 @@ def _tour_html(payload: dict[str, object]) -> str:
     <div class="shell">
       <section class="hero">
         <div class="mast">
-          <div class="eyebrow">EA Property Tour <span>•</span> {variant_label}</div>
+          <div class="eyebrow">Property Tour <span>•</span> {variant_label}</div>
           <h1>{title_html}</h1>
           <p class="sub">{display_html}</p>
           <div class="facts">

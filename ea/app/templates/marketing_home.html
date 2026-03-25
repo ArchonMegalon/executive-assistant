@@ -1,50 +1,130 @@
 {% extends "base_public.html" %}
 {% block content %}
+<style>
+  .home-proof-grid,
+  .home-detail-grid,
+  .home-persona-grid,
+  .home-proof-strip {
+    display: grid;
+    gap: 14px;
+  }
+  .home-proof-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .home-proof-strip,
+  .home-detail-grid,
+  .home-persona-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .proof-card,
+  .detail-card,
+  .persona-card,
+  .proof-strip-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 18px;
+  }
+  .proof-card strong,
+  .detail-card strong,
+  .persona-card strong,
+  .proof-strip-card strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  @media (max-width: 1080px) {
+    .home-proof-grid,
+    .home-detail-grid,
+    .home-persona-grid,
+    .home-proof-strip {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
 <section class="hero">
-  <section class="panel">
-    <div class="eyebrow">Assistant workspace</div>
-    <h1>Start the day with a clear brief, draft queue, and follow-up list.</h1>
-    <p class="lead">Executive Assistant brings email, messaging, and calendar activity into one reviewed workspace, with durable context and explicit approvals for sensitive actions.</p>
-    <div class="hero-actions">
-      <a class="btn primary" href="/product">See the product</a>
-      <a class="btn" href="/get-started">Get started</a>
+  <section class="panel hero-copy">
+    <div>
+      <div class="kicker">Executive Assistant</div>
+      <h1>Walk into the day with a ranked brief, reviewed drafts, and follow-ups that stay visible.</h1>
+      <p class="lead">Executive Assistant pulls together email, calendar, and selected chats into one working view: who needs a reply, what is blocked, what can wait, and what should be reviewed before it leaves the workspace.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="/get-started">Get started</a>
+        <a class="btn" href="/product">See how it works</a>
+        <a class="btn ghost" href="/security">Trust and security</a>
+      </div>
     </div>
-    <div class="hero-notes">
-      <div class="note"><strong>Briefing</strong><div>What changed, what is blocked, and what needs a reply first.</div></div>
-      <div class="note"><strong>Drafts</strong><div>Reviewed replies with context, sources, and approval points.</div></div>
-      <div class="note"><strong>Follow-ups</strong><div>Commitments and deadlines that stay visible until closed.</div></div>
+
+    <div class="summary-strip">
+      <div class="summary">
+        <div class="label">Best first result</div>
+        <strong>{{ brief_headline }}</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Recommended first channel</div>
+        <strong>Google</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Best fit</div>
+        <strong>{{ workspace_mode_label }}</strong>
+      </div>
     </div>
   </section>
 
-  <section class="panel">
-    <div class="section-title">Today</div>
-    <h2 style="margin-bottom:12px;">{{ brief_headline }}</h2>
-    <div class="grid-2" style="margin-top:0; grid-template-columns: 220px 1fr; align-items:start;">
-      <aside class="surface" style="padding:14px;">
-        <div class="section-title">Workspace</div>
-        <div class="stack" style="gap:6px;">
-          <div><strong>{{ workspace_mode_label }}</strong><div class="muted" style="font-size:13px;">Current working mode</div></div>
-          <div><strong>{{ selected_channels_label }}</strong><div class="muted" style="font-size:13px;">Connected channel posture</div></div>
-          <div><strong>Approvals</strong><div class="muted" style="font-size:13px;">Reviewable outbound actions</div></div>
-        </div>
+  <section class="panel preview">
+    <div class="preview-top">
+      <div class="preview-title">Today</div>
+      <div class="pill">{{ selected_channels_label }}</div>
+    </div>
+
+    <div class="preview-grid">
+      <aside class="nav-card">
+        <div class="group">Workspace</div>
+        <a class="active" href="/app/today">Today</a>
+        <a href="/app/briefing">Briefing</a>
+        <a href="/app/inbox">Inbox</a>
+        <a href="/app/follow-ups">Follow-ups</a>
+        <a href="/app/contacts">Contacts</a>
+        <div class="group">Operations</div>
+        <a href="/app/channels">Channels</a>
+        <a href="/app/activity">Activity</a>
+        <a href="/app/settings">Settings</a>
       </aside>
-      <div class="stack">
-        <section class="surface">
-          <div class="section-title">Morning brief</div>
-          <div class="stack" style="gap:10px;">
+
+      <div class="preview-main">
+        <section>
+          <header>
+            <h3>Morning brief</h3>
+            <span>What deserves attention first</span>
+          </header>
+          <div class="list">
             {% for item in first_brief_items[:3] %}
-            <div>
-              <strong style="display:block; margin-bottom:3px; font-size:14px; color:var(--text);">{{ item.split(':', 1)[0] }}</strong>
-              <div class="muted" style="font-size:13px;">{% if ':' in item %}{{ item.split(':', 1)[1].strip() }}{% else %}{{ item }}{% endif %}</div>
+            <div class="row">
+              <div>
+                <strong>{{ item }}</strong>
+                <span>Surfaced in one place so the user does not have to rebuild the day manually.</span>
+              </div>
+              <div class="state">Now</div>
             </div>
             {% endfor %}
           </div>
         </section>
-        <section class="surface">
-          <div class="section-title">Trust</div>
-          <div class="stack" style="gap:8px;">
-            {% for item in trust_notes[:3] %}
-            <div class="muted" style="font-size:13px;">{{ item }}</div>
+
+        <section>
+          <header>
+            <h3>Review lane</h3>
+            <span>Drafts and approvals</span>
+          </header>
+          <div class="list">
+            {% for item in suggested_actions[:2] %}
+            <div class="row">
+              <div>
+                <strong>{{ item }}</strong>
+                <small>Prepared as a clear next move instead of another hidden reminder.</small>
+              </div>
+              <div class="state">Review</div>
+            </div>
             {% endfor %}
           </div>
         </section>
@@ -53,33 +133,63 @@
   </section>
 </section>
 
+<section class="section home-proof-strip">
+  <section class="proof-strip-card">
+    <strong>What customers buy first</strong>
+    A useful morning brief, a draft queue that actually saves time, and follow-ups that stop disappearing into message history.
+  </section>
+  <section class="proof-strip-card">
+    <strong>Why the product feels safe</strong>
+    Connected channels stay explicit, review stays visible, and the assistant does not pretend it has access or authority it does not really have.
+  </section>
+</section>
+
 <section class="section">
-  <div class="eyebrow">What it does</div>
-  <h2>A professional assistant system for daily operator work.</h2>
-  <div class="section-grid">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Week one</div>
+      <h2>What should feel real in the first few days</h2>
+    </div>
+    <p>You should not need a long rollout before the product feels helpful. The first week should already reduce triage, shorten reply work, and make commitments easier to keep in view.</p>
+  </div>
+  <div class="home-proof-grid">
     {% for feature in feature_cards %}
-    <section class="tile">
-      <h3>{{ feature.title }}</h3>
-      <p class="muted">{{ feature.body }}</p>
+    <section class="proof-card">
+      <strong>{{ feature.title }}</strong>
+      <p class="copy">{{ feature.body }}</p>
     </section>
     {% endfor %}
   </div>
 </section>
 
-<section class="section two-col">
-  <section class="tile">
-    <div class="eyebrow">Why it feels trustworthy</div>
-    <h2>Quiet controls, clear boundaries.</h2>
-    <ul class="list">
-      {% for item in trust_notes %}<li>{{ item }}</li>{% endfor %}
+<section class="section home-detail-grid">
+  <section class="detail-card">
+    <div class="kicker">How the first week works</div>
+    <h2>Connect once, then refine from a real workflow</h2>
+    <ul class="muted-list">
+      {% for step in how_steps %}
+      <li><strong>{{ step.title }}.</strong> {{ step.body }}</li>
+      {% endfor %}
     </ul>
   </section>
-  <section class="tile">
-    <div class="eyebrow">Recommended path</div>
-    <h2>Get to a first useful briefing quickly.</h2>
-    <ul class="list">
-      {% for step in how_steps %}<li>{{ step.body }}</li>{% endfor %}
+  <section class="detail-card">
+    <div class="kicker">What builds trust</div>
+    <h2>Reviewable actions and durable context</h2>
+    <ul class="muted-list">
+      {% for item in trust_notes %}
+      <li>{{ item }}</li>
+      {% endfor %}
     </ul>
   </section>
+</section>
+
+<section class="section home-persona-grid">
+  {% for persona in personas %}
+  <section class="persona-card">
+    <div class="kicker">Who it fits</div>
+    <h2>{{ persona.title }}</h2>
+    <p class="copy">{{ persona.body }}</p>
+  </section>
+  {% endfor %}
 </section>
 {% endblock %}

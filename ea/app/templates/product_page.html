@@ -2,39 +2,40 @@
 {% block content %}
 <style>
   .product-hero,
-  .product-card,
-  .product-detail {
+  .module-card,
+  .detail-card,
+  .promise-card,
+  .workflow-card {
     padding: 18px;
   }
-  .product-grid,
-  .product-detail-grid {
+  .module-grid,
+  .detail-grid,
+  .promise-grid,
+  .workflow-grid {
     display: grid;
     gap: 14px;
   }
-  .product-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .module-grid,
+  .promise-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .product-detail-grid {
+  .detail-grid,
+  .workflow-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .module-card,
-  .detail-card {
+  .detail-card,
+  .promise-card,
+  .workflow-card {
     border: 1px solid var(--line);
     border-radius: 12px;
     background: rgba(255,255,255,0.02);
-    padding: 16px;
-  }
-  .module-card .eyebrow,
-  .detail-card .eyebrow {
-    color: var(--text-dim);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
   }
   @media (max-width: 1080px) {
-    .product-grid,
-    .product-detail-grid {
+    .module-grid,
+    .detail-grid,
+    .promise-grid,
+    .workflow-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -42,22 +43,44 @@
 
 <section class="section panel product-hero">
   <div class="kicker">Product</div>
-  <h1>A shared workspace for briefs, drafts, follow-ups, and approvals.</h1>
-  <p class="lead">Executive Assistant is built for operators who need one place to review the day, prepare replies, track commitments, and keep context attached to the right people and threads.</p>
+  <h1>One assistant workspace for the work that usually gets rebuilt by hand.</h1>
+  <p class="lead">Executive Assistant is designed for the daily loop around briefings, drafts, follow-ups, and memory. It is strongest when the work is real, recurring, and spread across too many inboxes, threads, and calendars.</p>
+</section>
+
+<section class="section workflow-grid">
+  <section class="workflow-card">
+    <div class="kicker">A normal day</div>
+    <h2>Start with the brief</h2>
+    <ul class="muted-list">
+      <li>See what changed overnight.</li>
+      <li>See who needs a reply before lunch.</li>
+      <li>See which promises or deadlines are starting to slip.</li>
+      <li>See which items need review before anything is sent.</li>
+    </ul>
+  </section>
+  <section class="workflow-card">
+    <div class="kicker">What it replaces</div>
+    <h2>Less manual reconstruction</h2>
+    <ul class="muted-list">
+      <li>Less re-reading old threads to remember context.</li>
+      <li>Less rebuilding of the same follow-up list every morning.</li>
+      <li>Less switching between inbox, calendar, and chat just to decide what is next.</li>
+      <li>Less generic drafting with no source trail or review point.</li>
+    </ul>
+  </section>
 </section>
 
 <section class="section">
   <div class="section-head">
     <div>
-      <div class="kicker">Core product</div>
-      <h2>What the workspace should help you do every day</h2>
+      <div class="kicker">Core workflow</div>
+      <h2>What the workspace helps with every day</h2>
     </div>
-    <p>The product should feel like a working loop: start with a brief, clear the reply queue, track follow-ups, and keep review points visible.</p>
+    <p>The product works best when it turns scattered communication into one operating loop: brief, draft, review, follow-up, and memory.</p>
   </div>
-  <div class="product-grid">
+  <div class="module-grid">
     {% for module in product_modules %}
     <section class="module-card">
-      <div class="eyebrow">Workspace module</div>
       <h3>{{ module.title }}</h3>
       <p class="copy">{{ module.body }}</p>
     </section>
@@ -65,10 +88,28 @@
   </div>
 </section>
 
-<section class="section product-detail-grid">
+<section class="section promise-grid">
+  <section class="promise-card">
+    <div class="kicker">What customers expect</div>
+    <h2>Useful on day one</h2>
+    <p class="copy">The first connected channel should already produce a better brief and a clearer draft queue.</p>
+  </section>
+  <section class="promise-card">
+    <div class="kicker">What customers trust</div>
+    <h2>Clear review points</h2>
+    <p class="copy">The assistant should feel safe before it feels clever. Sensitive actions stay visible and reviewable.</p>
+  </section>
+  <section class="promise-card">
+    <div class="kicker">What customers keep</div>
+    <h2>Durable context</h2>
+    <p class="copy">People, commitments, and recurring themes should stay attached to the work instead of disappearing into one-off prompts.</p>
+  </section>
+</section>
+
+<section class="section detail-grid">
   <section class="detail-card">
-    <div class="eyebrow">In the app</div>
-    <h2>Navigation centered on ongoing work</h2>
+    <div class="kicker">In the app</div>
+    <h2>Navigation built around work</h2>
     <ul class="muted-list">
       {% for group in app_nav_groups %}
         {% for item in group["items"] %}
@@ -78,13 +119,12 @@
     </ul>
   </section>
   <section class="detail-card">
-    <div class="eyebrow">Working model</div>
-    <h2>One workspace, different operator rhythms</h2>
+    <div class="kicker">Workspace shapes</div>
+    <h2>One product, different operating rhythms</h2>
     <ul class="muted-list">
-      <li>Start with a briefing, not a blank inbox.</li>
-      <li>Review drafts before anything sensitive is sent.</li>
-      <li>Keep follow-ups attached to the right thread and owner.</li>
-      <li>Use approvals and durable context to keep the product trustworthy in real work.</li>
+      <li>Personal workspaces move fast around one person.</li>
+      <li>Shared workspaces keep the same queue, reviews, and follow-ups visible to a small team.</li>
+      <li>Executive support workspaces carry heavier stakeholder traffic, stricter review, and denser follow-up pressure.</li>
     </ul>
   </section>
 </section>

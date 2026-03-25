@@ -106,11 +106,11 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .bundle-grid,
-  .finish-grid {
+  .finish-grid,
+  .status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .path-grid,
-  .status-grid {
+  .path-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .mode-card,
@@ -168,8 +168,7 @@
     min-height: 100px;
     resize: vertical;
   }
-  .field-grid,
-  .path-forms {
+  .field-grid {
     display: grid;
     gap: 12px;
   }
@@ -228,13 +227,17 @@
     gap: 10px;
     flex-wrap: wrap;
   }
-  .mode-select {
-    display: grid;
-    gap: 12px;
+  details.advanced {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    padding: 14px;
   }
-  .step-callout {
-    display: grid;
-    gap: 10px;
+  details.advanced > summary {
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 600;
+    margin-bottom: 10px;
   }
   @media (max-width: 1080px) {
     .wizard-shell,
@@ -258,24 +261,20 @@
     <div>
       <div class="kicker">Get started</div>
       <h1>Set up the workspace once, then let the assistant settle into your day.</h1>
-      <p class="lead">Start with the operating mode, connect the first channel that produces a useful brief, then decide how drafts, memory, and approvals should behave.</p>
+      <p class="lead">You do not need to decide every advanced setting now. Choose who this workspace is for, connect Google first, then open the first brief and refine from there.</p>
     </div>
     <div class="summary-strip">
       <div class="summary">
         <div class="label">Step 1</div>
-        <strong>Choose the workspace mode</strong>
+        <strong>Who is this for?</strong>
       </div>
       <div class="summary">
         <div class="label">Step 2</div>
-        <strong>Connect the first useful channel</strong>
+        <strong>Connect Google</strong>
       </div>
       <div class="summary">
         <div class="label">Step 3</div>
-        <strong>Add messaging paths honestly</strong>
-      </div>
-      <div class="summary">
-        <div class="label">Step 4</div>
-        <strong>Set review and memory rules</strong>
+        <strong>Add messaging if it matters</strong>
       </div>
     </div>
   </div>
@@ -283,20 +282,20 @@
   <aside class="panel onboarding-side">
     <div>
       <div class="kicker">Recommended path</div>
-      <h2>Google first, messaging second.</h2>
-      <p class="copy">Google is the fastest route to a real result: a first brief, draft support, calendar context, and contact memory. Telegram and WhatsApp come after the workspace posture is clear.</p>
+      <h2>Start simple.</h2>
+      <p class="copy">Most workspaces should start with Google, a draft-friendly review posture, and no more channel complexity than they actually need in the first week.</p>
     </div>
     <div class="callout">
-      <strong>Personal</strong>
-      Best for one person using one inbox, one calendar, and one decision loop.
+      <strong>Solo workspace</strong>
+      One person, one inbox, one briefing loop.
     </div>
     <div class="callout">
-      <strong>Team / tenant</strong>
-      Best for a shared workspace where multiple operators or teammates clear drafts, approvals, and activity together.
+      <strong>Shared workspace</strong>
+      A small team sharing the same queue, reviews, or follow-ups.
     </div>
     <div class="callout">
-      <strong>Founder / chief of staff ops</strong>
-      Best when one workspace needs to manage stakeholder traffic, a busy calendar, follow-ups, and review queues around an executive.
+      <strong>Executive support</strong>
+      Heavier stakeholder traffic, more approvals, and more follow-up pressure around one executive.
     </div>
   </aside>
 </section>
@@ -305,19 +304,19 @@
   <aside class="panel wizard-nav">
     <button class="wizard-step-button" type="button" data-step-trigger="1">
       <strong>1. Workspace</strong>
-      <span>Name the workspace, choose the right operating model, and pick the first channels to expose.</span>
+      <span>Choose the kind of daily work this assistant is helping with.</span>
     </button>
     <button class="wizard-step-button" type="button" data-step-trigger="2">
-      <strong>2. Google</strong>
-      <span>Use Google Core to get to a first useful briefing quickly.</span>
+      <strong>2. Connect Google</strong>
+      <span>Get to the first useful brief as quickly as possible.</span>
     </button>
     <button class="wizard-step-button" type="button" data-step-trigger="3">
-      <strong>3. Messaging</strong>
-      <span>Keep Telegram and WhatsApp paths explicit instead of vague.</span>
+      <strong>3. Add messaging</strong>
+      <span>Only add Telegram or WhatsApp if they truly belong in the workflow.</span>
     </button>
     <button class="wizard-step-button" type="button" data-step-trigger="4">
-      <strong>4. Finish</strong>
-      <span>Choose retention, review, and briefing defaults before opening the app.</span>
+      <strong>4. Review rules</strong>
+      <span>Choose how drafts, recommendations, and stored context should behave.</span>
     </button>
   </aside>
 
@@ -326,26 +325,26 @@
       <div class="wizard-panel-header">
         <div>
           <div class="eyebrow">Step 1</div>
-          <h2>Choose how this workspace should behave.</h2>
+          <h2>Choose the kind of work this workspace will carry.</h2>
         </div>
-        <p class="step-context">The mode changes how the assistant should prioritize work. Pick the one that matches the real operating loop, not the org chart.</p>
+        <p class="step-context">Pick the option that matches the real daily rhythm. The right choice is about how the work behaves, not what the org chart says.</p>
       </div>
 
       <div class="mode-grid">
         <div class="mode-card">
           <strong>Personal</strong>
-          <p class="copy">One person, one daily brief, one set of channels. Best when the assistant is helping one operator move faster through inbox, calendar, and follow-ups.</p>
-          <button class="btn ghost" type="button" data-set-mode="personal">Use personal</button>
+          <p class="copy">Best when one person wants a brief, a draft queue, and visible follow-ups across their own tools.</p>
+          <button class="btn ghost" type="button" data-set-mode="personal">Use solo workspace</button>
         </div>
         <div class="mode-card">
-          <strong>Team / tenant</strong>
-          <p class="copy">A shared workspace for a team, support function, or operating unit. Use this when several people need the same activity, drafts, and approvals.</p>
-          <button class="btn ghost" type="button" data-set-mode="team">Use team / tenant</button>
+          <strong>Shared workspace</strong>
+          <p class="copy">Best when a small team shares the same incoming work, the same review queue, or the same follow-up list.</p>
+          <button class="btn ghost" type="button" data-set-mode="team">Use shared workspace</button>
         </div>
         <div class="mode-card">
-          <strong>Founder / chief of staff ops</strong>
-          <p class="copy">For executive operations with tighter review needs: stakeholder replies, meeting prep, escalation follow-ups, and a more approval-heavy daily loop.</p>
-          <button class="btn ghost" type="button" data-set-mode="executive_ops">Use founder / ops</button>
+          <strong>Executive support</strong>
+          <p class="copy">Best when one executive needs heavier review, more context, and more explicit follow-up management around stakeholder work.</p>
+          <button class="btn ghost" type="button" data-set-mode="executive_ops">Use executive support</button>
         </div>
       </div>
 
@@ -356,16 +355,14 @@
             <label for="workspace_name">Workspace name</label>
             <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
           </div>
-          <div class="mode-select">
-            <div>
-              <label for="workspace_mode">Workspace mode</label>
-              <select id="workspace_mode" name="workspace_mode">
-                <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
-                <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Team / tenant</option>
-                <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Founder / chief of staff ops</option>
-              </select>
-              <div class="field-help">You can change this later, but the initial mode helps the assistant choose the right tone and workload shape.</div>
-            </div>
+          <div>
+          <label for="workspace_mode">Workspace type</label>
+          <select id="workspace_mode" name="workspace_mode">
+              <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
+              <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
+              <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Executive support</option>
+          </select>
+            <div class="field-help">You can change this later. It helps the assistant start with the right briefing and review posture.</div>
           </div>
         </div>
         <div class="field-grid two">
@@ -385,16 +382,16 @@
           </div>
           <div>
             <label>Channels to prepare</label>
-            <div class="field-help">Pick what should appear in the workspace first. Google is the recommended default.</div>
+            <div class="field-help">Google is recommended. Messaging channels can wait until the first brief is already useful.</div>
           </div>
         </div>
         <div class="check-grid">
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}><span><strong>Google</strong>Inbox context, calendar, contacts, and the fastest path to a first brief.</span></label>
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}><span><strong>Telegram</strong>Personal identity or bot rollout once the workspace shape is clear.</span></label>
-          <label class="check-item"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}><span><strong>WhatsApp</strong>Business onboarding or explicit export intake, depending on your real support posture.</span></label>
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="google" {% if 'google' in selected_channels %}checked{% endif %}><span><strong>Google</strong>Best first connection for briefs, drafts, contacts, and calendar context.</span></label>
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="telegram" {% if 'telegram' in selected_channels %}checked{% endif %}><span><strong>Telegram</strong>Useful if important conversations happen there and need to shape the day.</span></label>
+          <label class="check-item"><input type="checkbox" name="selected_channels" value="whatsapp" {% if 'whatsapp' in selected_channels %}checked{% endif %}><span><strong>WhatsApp</strong>Useful when business or export-based WhatsApp context really belongs in the workspace.</span></label>
         </div>
         <div class="wizard-actions">
-          <div class="callout">Pick the closest real-world mode first. The assistant performs better when the workspace posture matches the actual review loop.</div>
+          <div class="callout">If you are unsure, choose personal, keep Google checked, and move on. The first useful result matters more than perfect setup.</div>
           <div class="right">
             <button class="btn primary" type="submit">Save workspace and continue</button>
           </div>
@@ -408,46 +405,58 @@
           <div class="eyebrow">Step 2</div>
           <h2>Connect Google first.</h2>
         </div>
-        <p class="step-context">Google is where most workspaces get their first genuine value: inbox context, calendar pressure, contacts, and a believable first briefing.</p>
+        <p class="step-context">For most customers, Google is where the assistant becomes useful first: email context, calendar pressure, contacts, and a real morning brief.</p>
       </div>
 
       <div class="status-grid">
         <div class="status-card">
           <div class="kicker">Current status</div>
           <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
-          <p class="copy">This just tells you whether the Google path is ready. It does not force a specific bundle.</p>
+          <p class="copy">This shows where the Google connection stands today.</p>
         </div>
         <div class="status-card">
-          <div class="kicker">Recommended first success</div>
+          <div class="kicker">Recommended choice</div>
           <strong>Google Core</strong>
-          <p class="copy">Start with drafts, delivery checks, calendar context, and contacts. Expand to the larger bundle only if the workspace genuinely needs it.</p>
+          <p class="copy">Enough for a useful brief and draft workflow without expanding the scope more than necessary on day one.</p>
         </div>
       </div>
 
       <div class="bundle-grid">
         <div class="bundle-card">
           <strong>Google Core</strong>
-          <p class="copy">Best for most workspaces. Enough to produce a useful brief and support real reply work without over-scoping the initial setup.</p>
+          <p class="copy">Read email metadata, calendar, and contacts, and support drafting and verification where needed.</p>
           <button class="btn ghost" type="button" data-set-google-bundle="core">Select Google Core</button>
         </div>
         <div class="bundle-card">
-          <strong>Google Full Workspace</strong>
-          <p class="copy">Use this when the assistant needs a larger workspace surface from the start, not just inbox and calendar orientation.</p>
+          <strong>Full Workspace</strong>
+          <p class="copy">Use this only when the workspace genuinely needs broader Google coverage from the beginning.</p>
           <button class="btn ghost" type="button" data-set-google-bundle="full_workspace">Select Full Workspace</button>
         </div>
       </div>
 
       <form class="wizard-form" method="post" action="/google/connect" data-next-step="3">
         {{ shared_browser_fields|safe }}
-        <div>
-          <label for="scope_bundle">Google bundle</label>
-          <select id="scope_bundle" name="scope_bundle">
+          <div>
+            <label for="scope_bundle">Google access level</label>
+            <select id="scope_bundle" name="scope_bundle">
             <option value="core">Google Core (recommended)</option>
             <option value="full_workspace">Google Full Workspace</option>
             <option value="verify">Advanced Gmail verify</option>
             <option value="send">Send only</option>
           </select>
-          <div class="field-help">If you are unsure, keep the default. It is the shortest route to a useful assistant experience.</div>
+          <div class="field-help">Google will ask for the Gmail, calendar, and contacts access needed for the selected bundle. After that, the assistant can start building a real brief from your workspace.</div>
+        </div>
+        <div class="status-grid">
+          <div class="status-card">
+            <div class="kicker">What Google is for</div>
+            <strong>Better briefs and better timing</strong>
+            <p class="copy">Calendar pressure, contacts context, and Gmail signals help the assistant decide what matters first.</p>
+          </div>
+          <div class="status-card">
+            <div class="kicker">Why the permissions look broad</div>
+            <strong>They support real drafting and delivery checks</strong>
+            <p class="copy">Drafts, send, delivery verification, and connected-mail behavior require more than a single lightweight scope.</p>
+          </div>
         </div>
         <div class="wizard-actions">
           <button class="btn ghost" type="button" data-step-back="1">Back</button>
@@ -463,15 +472,15 @@
       <div class="wizard-panel-header">
         <div>
           <div class="eyebrow">Step 3</div>
-          <h2>Add messaging paths without overpromising.</h2>
+          <h2>Add messaging only where it truly belongs.</h2>
         </div>
-        <p class="step-context">Telegram and WhatsApp should stay explicit. Personal identity, bot installation, business onboarding, and export intake are different paths and should remain visible as such.</p>
+        <p class="step-context">Messaging is useful when those conversations genuinely shape the day. Keep the product honest: personal identity, bot installation, business onboarding, and export intake are different paths.</p>
       </div>
 
       <div class="path-grid">
         <section class="path-card">
           <strong>Telegram personal path</strong>
-          <p class="copy">Use this when the assistant should understand your Telegram identity first and only later expand into bot surfaces or history posture.</p>
+          <p class="copy">Use this when Telegram should influence the brief or follow-up list for one person.</p>
           <form class="wizard-form" method="post" action="/setup/telegram" data-next-step="3">
             {{ shared_browser_fields|safe }}
             <div>
@@ -480,33 +489,33 @@
             </div>
             <div class="field-grid two">
               <div>
-                <label for="identity_mode">Identity mode</label>
+                <label for="identity_mode">Sign-in path</label>
                 <select id="identity_mode" name="identity_mode">
                   <option value="login_widget">Sign in with Telegram</option>
                   <option value="oidc">Telegram OIDC</option>
                 </select>
               </div>
               <div>
-                <label for="history_mode">History mode</label>
+                <label for="history_mode">History posture</label>
                 <select id="history_mode" name="history_mode">
                   <option value="future_only">Future messages only</option>
                   <option value="import_later">Import later</option>
-                  <option value="manual_forward">Manual forward / export later</option>
+                  <option value="manual_forward">Manual forward or export later</option>
                 </select>
               </div>
             </div>
             <div class="check-grid">
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="dm"><span><strong>Direct messages</strong>Use the assistant in a one-to-one thread.</span></label>
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="group"><span><strong>Groups</strong>Expose the assistant in group discussions once the identity path is clear.</span></label>
-              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="channel"><span><strong>Channels</strong>Use this only when channel automation is a real workflow need.</span></label>
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="dm"><span><strong>Direct messages</strong>Use the assistant in one-to-one Telegram conversations.</span></label>
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="group"><span><strong>Groups</strong>Include Telegram groups only when they regularly affect the workday.</span></label>
+              <label class="check-item"><input type="checkbox" name="assistant_surfaces" value="channel"><span><strong>Channels</strong>Use this only when channel publishing or monitoring is actually needed.</span></label>
             </div>
-            <button class="btn" type="submit">Save Telegram personal path</button>
+            <button class="btn" type="submit">Save Telegram path</button>
           </form>
         </section>
 
         <section class="path-card">
           <strong>Telegram bot rollout</strong>
-          <p class="copy">Treat bot installation as its own decision. This avoids promising that identity setup automatically means the assistant belongs everywhere.</p>
+          <p class="copy">Treat bot installation as its own decision so the product stays explicit about where the assistant belongs.</p>
           <form class="wizard-form" method="post" action="/setup/telegram/link-bot" data-next-step="3">
             {{ shared_browser_fields|safe }}
             <div>
@@ -522,13 +531,13 @@
               <label class="check-item"><input type="checkbox" name="install_surfaces" value="group"><span><strong>Install in group</strong>Shared room with explicit rollout.</span></label>
               <label class="check-item"><input type="checkbox" name="install_surfaces" value="channel"><span><strong>Install in channel</strong>Only where publishing is truly needed.</span></label>
             </div>
-            <button class="btn" type="submit">Save Telegram bot plan</button>
+            <button class="btn" type="submit">Save bot plan</button>
           </form>
         </section>
 
         <section class="path-card">
           <strong>WhatsApp Business path</strong>
-          <p class="copy">Use this when you need a formal business setup. Keep it separate from export intake so the product stays honest about what is live and what is imported.</p>
+          <p class="copy">Use this when the assistant needs a formal business-facing WhatsApp setup, not just imported history.</p>
           <form class="wizard-form" method="post" action="/setup/whatsapp/business" data-next-step="3">
             {{ shared_browser_fields|safe }}
             <div>
@@ -539,26 +548,26 @@
               <label for="business_name">Business name</label>
               <input id="business_name" name="business_name" placeholder="Acme GmbH">
             </div>
-            <label class="check-item"><input type="checkbox" name="import_history_now" value="true"><span><strong>Request history import only when supported</strong>Do not assume live business setup automatically means full historical sync.</span></label>
+            <label class="check-item"><input type="checkbox" name="import_history_now" value="true"><span><strong>Import history when supported</strong>Do not assume business setup automatically means a complete live history.</span></label>
             <button class="btn" type="submit">Save WhatsApp Business path</button>
           </form>
         </section>
 
         <section class="path-card">
           <strong>WhatsApp export intake</strong>
-          <p class="copy">Use this when the real workflow is import-first. This is the right choice when live sync is not the product claim you want to make.</p>
+          <p class="copy">Use this when imported chat context is the real need and live sync is not the product claim.</p>
           <form class="wizard-form" method="post" action="/setup/whatsapp/export" data-next-step="3">
             {{ shared_browser_fields|safe }}
             <div>
-              <label for="export_label">Export intake plan label</label>
+              <label for="export_label">Export intake label</label>
               <input id="export_label" name="export_label" placeholder="March personal export">
             </div>
             <div>
               <label for="selected_chat_labels_csv">Planned chat labels</label>
               <textarea id="selected_chat_labels_csv" name="selected_chat_labels_csv" placeholder="Family, Ops, Finance"></textarea>
             </div>
-            <label class="check-item"><input type="checkbox" name="include_media" value="true"><span><strong>Include media references</strong>Capture media references as part of the planned intake.</span></label>
-            <button class="btn" type="submit">Save WhatsApp export plan</button>
+            <label class="check-item"><input type="checkbox" name="include_media" value="true"><span><strong>Include media references</strong>Keep media references in the imported context when they matter.</span></label>
+            <button class="btn" type="submit">Save export plan</button>
           </form>
         </section>
       </div>
@@ -566,7 +575,7 @@
       <div class="wizard-actions">
         <button class="btn ghost" type="button" data-step-back="2">Back</button>
         <div class="right">
-          <button class="btn primary" type="button" data-step-next="4">Continue to privacy and finish</button>
+          <button class="btn primary" type="button" data-step-next="4">Continue</button>
         </div>
       </div>
     </section>
@@ -575,39 +584,48 @@
       <div class="wizard-panel-header">
         <div>
           <div class="eyebrow">Step 4</div>
-          <h2>Set the review and memory rules before the assistant starts working.</h2>
+          <h2>Choose a simple review posture and start.</h2>
         </div>
-        <p class="step-context">This is where you decide how much content should be retained, whether drafts are allowed, and how autonomous the briefing loop should be.</p>
+        <p class="step-context">Most customers should allow drafts and action suggestions first. Deeper retention and metadata choices can be configured once the first workflow is already useful.</p>
       </div>
 
       <div class="finish-grid">
         <div class="finish-card">
-          <strong>Review posture</strong>
-          <p class="copy">If you are unsure, allow drafts and action suggestions, but keep sending decisions with a human. That gives you value fast without pretending the assistant should act unchecked.</p>
+          <strong>Recommended starting point</strong>
+          Allow drafts and suggestions, keep sensitive actions reviewable, and avoid over-configuring the workspace before the first brief is visible.
         </div>
         <div class="finish-card">
-          <strong>Retention posture</strong>
-          <p class="copy">Choose the narrowest retention mode that still lets the assistant produce a useful brief. You can widen it later if the workspace proves it needs more continuity.</p>
+          <strong>Refine later</strong>
+          Once the assistant is already useful, adjust retention, metadata-only channels, and automation depth based on actual use instead of guesswork.
         </div>
       </div>
 
       <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="4">
         {{ shared_browser_fields|safe }}
-        <div>
-          <label for="retention_mode">Retention mode</label>
-          <select id="retention_mode" name="retention_mode">
-            <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
-            <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
-            <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
-          </select>
-        </div>
         <div class="check-grid">
-          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>Telegram metadata only</strong>Useful when Telegram should inform prioritization without storing full message bodies.</span></label>
-          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>WhatsApp metadata only</strong>Keep visibility into message flow while retaining less content.</span></label>
-          <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare responses for review before anything is sent.</span></label>
+          <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare replies for review before anything is sent.</span></label>
           <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and follow-up recommendations.</span></label>
-          <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic briefs</strong>Generate briefs on a schedule once the workspace is stable enough.</span></label>
+          <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic briefs</strong>Generate briefs on a schedule when the workspace is stable enough.</span></label>
         </div>
+
+        <details class="advanced">
+          <summary>Advanced storage and retention settings</summary>
+          <div class="field-grid" style="margin-top: 12px;">
+            <div>
+              <label for="retention_mode">Retention mode</label>
+              <select id="retention_mode" name="retention_mode">
+                <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
+                <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
+                <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
+              </select>
+            </div>
+            <div class="check-grid">
+              <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>Telegram metadata only</strong>Keep Telegram lighter if needed.</span></label>
+              <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>WhatsApp metadata only</strong>Keep WhatsApp lighter if needed.</span></label>
+            </div>
+          </div>
+        </details>
+
         <div class="wizard-actions">
           <button class="btn ghost" type="button" data-step-back="3">Back</button>
           <div class="right">
