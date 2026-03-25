@@ -209,6 +209,33 @@ contract_sets:
       - publication-safe dossier projections
     rule: "A living dossier is not just a build and not just a publication artifact. Engine receipts stay in `Chummer.Engine.Contracts`; long-lived dossier identity and continuity stay in `Chummer.Campaign.Contracts`."
 
+  - id: rule_environment_vnext
+    canonical_package: Chummer.Campaign.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - source pack refs
+      - house-rule pack refs
+      - option toggles
+      - compatibility fingerprint
+      - owner scope
+      - approval state
+    rule: "`Chummer.Engine.Contracts` owns ruleset and pack provenance atoms, but the chosen person, campaign, or group rule environment that a workspace restores is long-lived product truth in `Chummer.Campaign.Contracts`."
+
+  - id: roaming_workspace_vnext
+    canonical_package: Chummer.Campaign.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Hub.Registry.Contracts
+    status: in_progress
+    includes:
+      - person workspace preferences
+      - pinned runner and recent campaign refs
+      - artifact-shelf refs
+      - claimed-install restore projections
+      - workspace conflict summaries
+    rule: "Hub owns person, campaign, and group-scoped roaming workspace truth; Registry owns immutable install, compatibility, channel, and artifact records; clients may cache grants or restore hints locally but may not sync secrets or silently last-write-wins."
+
   - id: support_intake_vnext
     canonical_package: Chummer.Control.Contracts
     semantic_owner: chummer6-hub

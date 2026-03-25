@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-24
+last_reviewed: 2026-03-25
 purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
 
 scorecards:
@@ -36,6 +36,17 @@ scorecards:
       - name: replay_safe_campaign_snapshot_integrity
         target: 100%
         measurement: Campaign continuity projections must be reconstructable from replay-safe event or snapshot truth rather than ad hoc UI-only state.
+
+  - id: roaming_workspace_trust
+    owner_repo: chummer6-hub
+    user_promise: Claimed devices restore the right runners, campaigns, rule environments, artifacts, and eligible features without becoming mystery cloud blobs.
+    metrics:
+      - name: claimed_device_restore_candidate_fidelity
+        target: 100%
+        measurement: Restore surfaces must project recent runner, campaign, rule-environment, and artifact refs with provenance and conflict cues rather than opaque raw file sync.
+      - name: entitlement_grant_honesty
+        target: 100%
+        measurement: Premium, preview, GM, or creator access on a claimed install must derive from Hub-truth capability grants and eligible channel posture rather than synced install-local flags.
 
   - id: hosted_identity_and_participation
     owner_repo: chummer6-hub
@@ -111,6 +122,12 @@ release_gates:
     pass_conditions:
       - Build, campaign, recap, and replay flows preserve one living-dossier story instead of fragmenting into head-local truth.
       - Reporter-facing closure only claims fixed when the user's channel or support posture actually changed.
+
+  - id: roaming_workspace_gate
+    pass_conditions:
+      - Claimed-device restore keeps person, campaign, group, and install scopes explicit instead of flattening them into one sync blob.
+      - Dossier or rule-environment conflicts surface compare, branch, or repair choices rather than silent last-write-wins.
+      - Secrets, logs, crash dumps, and per-install channel posture remain local-only.
 
 rules:
   - These metrics are release gates, not dashboard decoration.

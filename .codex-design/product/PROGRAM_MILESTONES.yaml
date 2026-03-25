@@ -332,9 +332,9 @@ program_phases:
     - Promotion evidence includes the signature, digest, and notarization material needed to make rollback and recovery predictable.
 - id: L
   title: Feedback and crash reporting
-  status: in_progress
+  status: complete
   release_blocking: false
-  goal: Ship the first real support plane with crash reporting, structured bug reporting, lightweight feedback, and honest closure before any support assistant becomes user-facing.
+  goal: Ship the first real support plane with crash reporting, structured bug reporting, lightweight feedback, honest closure, and an optional grounded assistant that stays downstream of real case truth.
   milestones:
   - id: L0
     title: Support and crash canon established
@@ -396,10 +396,10 @@ program_phases:
     owners:
     - chummer6-hub
     - chummer6-design
-    status: pending
+    status: complete
     exit:
-    - A support assistant only lands after crash, bug-report, feedback, and human-escalation lanes are real.
-    - The assistant answers from curated help and known-issue sources and hands off cleanly when confidence is low.
+    - A support assistant lands only after crash, bug-report, feedback, and human-escalation lanes are real.
+    - The assistant answers from curated help, release, and signed-in case truth and hands off cleanly when confidence is low.
     - "`Karma Forge` is not reused as the support-assistant name."
 - id: M
   title: Product governor and autopilot loop

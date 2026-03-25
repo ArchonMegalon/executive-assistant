@@ -27,6 +27,7 @@ Read:
 4. `projects/*.md` for your repo
 5. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 6. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+7. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 
 ### Reviewer or release owner
 
@@ -53,12 +54,13 @@ Read:
 2. `HORIZON_REGISTRY.yaml`
 3. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 4. `BUILD_LAB_PRODUCT_MODEL.md`
-5. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
-6. `PRODUCT_HEALTH_SCORECARD.yaml`
-7. `USER_JOURNEYS.md`
-8. `EXPERIENCE_SUCCESS_METRICS.md`
-9. `METRICS_AND_SLOS.yaml`
-10. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+5. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+6. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
+7. `PRODUCT_HEALTH_SCORECARD.yaml`
+8. `USER_JOURNEYS.md`
+9. `EXPERIENCE_SUCCESS_METRICS.md`
+10. `METRICS_AND_SLOS.yaml`
+11. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
 
 ## Fast path by question
 
@@ -66,6 +68,7 @@ Read:
 * What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
 * What just closed and what is next? -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` and `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+* How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * What is the public release and install trust surface? -> `PUBLIC_RELEASE_EXPERIENCE.yaml`, `PUBLIC_DOWNLOADS_POLICY.md`, and `PUBLIC_AUTO_UPDATE_POLICY.md`
 * What is Build Lab supposed to become? -> `BUILD_LAB_PRODUCT_MODEL.md`
 * Who owns what? -> `ARCHITECTURE.md` and `OWNERSHIP_MATRIX.md`

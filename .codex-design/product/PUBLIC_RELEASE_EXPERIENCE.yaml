@@ -25,6 +25,13 @@ guest_gate_heading: Preview access
 guest_gate_summary: Create a Chummer account first so the installer handoff, claim code, and recovery path stay attached to the same preview copy from first launch.
 guest_gate_primary_label: Create account to get preview
 guest_gate_secondary_label: Sign in to an existing account
+signed_in_dispatch_heading: Keep this install linked from the first launch
+signed_in_dispatch_summary: Start the canonical installer download, copy the short-lived claim code, and let Chummer attach this installed copy back to your account when it opens.
+signed_in_dispatch_steps:
+  - Start the installer from this signed-in handoff page.
+  - Copy the short-lived claim code before you leave the browser.
+  - Launch Chummer and use the first-launch handoff to link this copy back to your account.
+  - Reopen Devices and access later if you need the same claim path again.
 install_steps:
   - Download the recommended installer for your platform.
   - Run the installer and launch Chummer.
