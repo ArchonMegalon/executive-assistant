@@ -1364,6 +1364,7 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
     assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
+    assert any("clean scene plate" in part.lower() and "composited after the art render" in part.lower() for part in hero_parts)
     assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
@@ -1535,7 +1536,7 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     assert "NEURAL LINK RESYNC" in seen["command"][7]
 
 
-def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
+def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
     media = _load_module()
 
     layout = media._first_contact_overlay_layout(
@@ -1546,8 +1547,26 @@ def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
 
     assert len(layout["fills"]) >= 5
     assert len(layout["chips"]) >= 7
-    assert any(int(fill["w"]) > 150 for fill in layout["fills"])
+    assert len(layout["lines"]) >= 4
+    assert len(layout["arcs"]) >= 3
     assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
+
+
+def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:
+    media = _load_module()
+    specs = media.asset_specs()
+    hero_spec = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
+    karma_spec = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
+
+    hero_prompt = str(hero_spec["prompt"])
+    karma_prompt = str(karma_spec["prompt"])
+
+    assert "clean base-scene plate" in hero_prompt
+    assert "deterministic post-composite overlay layer" in hero_prompt
+    assert "Reserve these overlay semantics for the verified composite layer" in hero_prompt
+    assert "Trust Check" not in hero_prompt
+    assert "clean base-scene plate" in karma_prompt
+    assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt
 
 
 def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
