@@ -86,9 +86,13 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert hero["required_person_count"] == "duo_or_team"
     assert hero["required_overlay_mode"] == "medscan_diagnostic"
     assert hero["critical_style_overrides_shared_prompt_scaffold"] is True
+    assert hero["style_epoch_force_only"] is True
     assert hero["overlay_render_strategy"] == "verified_post_composite_only"
     assert hero["render_layers"] == ["base_scene", "verified_overlay"]
     assert "AGI or ESS" in hero["status_binding_rule"]
+    assert "tusks" in " ".join(hero["required_troll_markers"]).lower()
+    assert hero["world_marker_minimum"] == 2
+    assert "metahuman presence" in " ".join(hero["world_marker_bucket"]).lower()
     assert "slim attribute rails" in " ".join(hero["overlay_geometry"]).lower()
     assert "illustrated cover-grade promo poster" in hero["critical_style_anchor"].lower()
     assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
@@ -104,6 +108,7 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert forge["visual_density_profile"] == "flagship_horizon"
     assert forge["required_person_count"] == "duo_preferred"
     assert forge["required_overlay_mode"] == "forge_review_ar"
+    assert forge["style_epoch_force_only"] is True
     assert forge["overlay_render_strategy"] == "verified_post_composite_only"
     assert forge["render_layers"] == ["base_scene", "verified_overlay"]
     assert "approval state" in " ".join(forge["overlay_priority_order"]).lower()

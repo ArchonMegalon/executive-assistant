@@ -1075,6 +1075,8 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     overlay_mode = overlay_mode_for_target(target)
     if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
         rules.append("For this flagship asset, let the poster epoch override the softer shared guide-still scaffold.")
+    if _boolish(contract.get("style_epoch_force_only"), default=False):
+        rules.append("Do not let this asset fall back to the softer secondary guide-still epoch.")
     if str(contract.get("critical_style_anchor") or "").strip():
         rules.append("Use the flagship poster style epoch here: illustrated cover-grade promo energy, Shadowrun street-life specificity, and lived-in grime instead of a tasteful editorial still.")
     if density == "high":
@@ -1114,6 +1116,17 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     status_binding_rule = str(contract.get("status_binding_rule") or "").strip()
     if status_binding_rule:
         rules.append(status_binding_rule.rstrip(".") + ".")
+    troll_markers = _string_list(contract.get("required_troll_markers"))
+    if troll_markers:
+        rules.append("The troll patient must read clearly through: " + "; ".join(troll_markers) + ".")
+    render_detail = _string_list(contract.get("required_render_detail"))
+    if render_detail:
+        rules.append("Render detail must hold on: " + "; ".join(render_detail) + ".")
+    world_markers = _string_list(contract.get("world_marker_bucket"))
+    world_marker_minimum = str(contract.get("world_marker_minimum") or "").strip()
+    if world_markers:
+        prefix = f"Keep at least {world_marker_minimum} Shadowrun world markers visible" if world_marker_minimum else "Keep Shadowrun world markers visible"
+        rules.append(prefix + ": " + "; ".join(world_markers[:4]) + ".")
     anchors = _string_list(contract.get("must_show_semantic_anchors"))
     if anchors:
         rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
@@ -1230,6 +1243,7 @@ def _critical_target_phrase_groups(target: str) -> tuple[tuple[str, ...], ...]:
     if target == "assets/hero/chummer6-hero.png":
         return (
             ("streetdoc", "garage clinic", "patch-up bay", "triage bench", "getaway van triage"),
+            ("troll", "troll patient", "hairy troll", "tusks", "dermal texture"),
             ("runner", "wounded runner", "support figure", "assistant", "teammate"),
             ("cyberware", "med-gel", "tool chest", "jury-rigged med rig", "work lamp"),
             ("BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION"),
@@ -1419,6 +1433,8 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
         if not any(str(token).casefold() in combined for token in token_group):
             findings.append(f"critical_anchor_missing:{token_group[0]}")
     if normalized == "assets/hero/chummer6-hero.png":
+        if not any(token in combined for token in ("troll", "troll patient", "hairy troll", "tusks", "dermal", "scarred skin")):
+            findings.append("critical_cast:missing_troll_patient")
         if not any(token in combined for token in ("orc", "ork", "troll", "elf", "dwarf", "metahuman")):
             findings.append("critical_lore:missing_metahuman_cue")
         if not any(token in combined for token in ("garage", "tool chest", "lift bay", "tarp", "extension cord", "work lamp", "van")):
@@ -1427,6 +1443,8 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_scene:missing_clinical_action")
         if not any(token in combined for token in ("cyberware", "cyberlimb", "implant", "augment", "calibration", "surgery", "med-gel")):
             findings.append("critical_scene:missing_cyberware_surgery")
+        if not any(token in combined for token in ("hair strands", "matted hair", "coarse hair", "scarred skin", "dermal texture")):
+            findings.append("critical_detail:missing_troll_microtexture")
         if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
             findings.append("critical_overlay:missing_attribute_rail")
         if overlay_mode == "medscan_diagnostic" and not any(

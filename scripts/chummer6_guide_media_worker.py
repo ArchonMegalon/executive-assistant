@@ -596,6 +596,14 @@ def target_visual_contract(target: str) -> dict[str, object]:
     if not asset_contract and normalized == "README.md":
         asset_contract = dict(asset_overlay_contracts.get("assets/hero/chummer6-hero.png") or {})
     contract.update(asset_contract)
+    world_marker_bucket = briefs.get("world_marker_bucket")
+    if isinstance(world_marker_bucket, list):
+        contract.setdefault(
+            "world_marker_bucket",
+            [str(entry).strip() for entry in world_marker_bucket if str(entry).strip()],
+        )
+    if briefs.get("world_marker_minimum") not in (None, ""):
+        contract.setdefault("world_marker_minimum", briefs.get("world_marker_minimum"))
     if normalized in FIRST_CONTACT_TARGETS:
         critical_style = briefs.get("critical_asset_style_epoch")
         if isinstance(critical_style, dict):
@@ -655,6 +663,16 @@ def cast_prompt_clause_for_target(target: str) -> str:
 
 
 def overlay_mode_for_target(target: str) -> str:
+    contract = target_visual_contract(target)
+    normalized_mode = (
+        str(contract.get("required_overlay_mode") or "")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    if normalized_mode:
+        return normalized_mode
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
         return "medscan_diagnostic"
@@ -3034,39 +3052,39 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
         return {
             "fills": [
                 {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.008), "h": int(height * 0.48), "color": (39, 212, 255, 78)},
-                {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.11), "h": int(height * 0.48), "color": (39, 212, 255, 24)},
-                {"x": int(width * 0.61), "y": int(height * 0.43), "w": int(width * 0.085), "h": int(height * 0.014), "color": (255, 166, 87, 72)},
-                {"x": int(width * 0.33), "y": int(height * 0.61), "w": int(width * 0.12), "h": int(height * 0.014), "color": (39, 212, 255, 58)},
+                {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.065), "h": int(height * 0.48), "color": (39, 212, 255, 18)},
+                {"x": int(width * 0.62), "y": int(height * 0.44), "w": int(width * 0.058), "h": int(height * 0.01), "color": (255, 166, 87, 86)},
+                {"x": int(width * 0.34), "y": int(height * 0.615), "w": int(width * 0.1), "h": int(height * 0.01), "color": (39, 212, 255, 72)},
+                {"x": int(width * 0.69), "y": int(height * 0.4), "w": int(width * 0.034), "h": int(height * 0.12), "color": (255, 166, 87, 36)},
             ],
             "boxes": [
-                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.15), "h": int(height * 0.54), "color": cyan},
-                {"x": int(width * 0.58), "y": int(height * 0.43), "w": int(width * 0.19), "h": int(height * 0.08), "color": amber},
+                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.105), "h": int(height * 0.54), "color": cyan},
             ],
             "lines": [
-                {"points": (int(width * 0.19), int(height * 0.28), int(width * 0.33), int(height * 0.35)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.19), int(height * 0.58), int(width * 0.3), int(height * 0.62)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.46), int(height * 0.62), int(width * 0.58), int(height * 0.58)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.76), int(height * 0.47), int(width * 0.69), int(height * 0.46)), "color": amber, "width": 3},
-                {"points": (int(width * 0.62), int(height * 0.51), int(width * 0.66), int(height * 0.61)), "color": amber, "width": 2},
-                {"points": (int(width * 0.64), int(height * 0.51), int(width * 0.68), int(height * 0.61)), "color": amber, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.31), int(height * 0.35)), "color": cyan, "width": 3},
+                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.29), int(height * 0.62)), "color": cyan, "width": 3},
+                {"points": (int(width * 0.44), int(height * 0.62), int(width * 0.58), int(height * 0.585)), "color": cyan, "width": 3},
+                {"points": (int(width * 0.72), int(height * 0.455), int(width * 0.675), int(height * 0.452)), "color": amber, "width": 3},
+                {"points": (int(width * 0.645), int(height * 0.465), int(width * 0.68), int(height * 0.57)), "color": amber, "width": 2},
+                {"points": (int(width * 0.665), int(height * 0.465), int(width * 0.705), int(height * 0.585)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.41), int(height * 0.24), int(width * 0.66), int(height * 0.5)), "start": 208, "end": 330, "color": cyan, "width": 3},
-                {"box": (int(width * 0.48), int(height * 0.34), int(width * 0.82), int(height * 0.72)), "start": 194, "end": 278, "color": amber, "width": 3},
-                {"box": (int(width * 0.56), int(height * 0.44), int(width * 0.71), int(height * 0.67)), "start": 210, "end": 342, "color": amber, "width": 2},
+                {"box": (int(width * 0.39), int(height * 0.22), int(width * 0.62), int(height * 0.47)), "start": 210, "end": 326, "color": cyan, "width": 3},
+                {"box": (int(width * 0.49), int(height * 0.36), int(width * 0.76), int(height * 0.7)), "start": 198, "end": 274, "color": amber, "width": 3},
+                {"box": (int(width * 0.57), int(height * 0.43), int(width * 0.71), int(height * 0.65)), "start": 214, "end": 336, "color": amber, "width": 2},
             ],
             "chips": [
                 {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.18), "text": "AGI 4 / UPGRADING", "color": amber},
+                {"x": int(width * 0.05), "y": int(height * 0.18), "text": "AGI 4 ↑ UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.23), "text": "REA 3", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.28), "text": "STR 6", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.33), "text": "CHA 2", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.38), "text": "INT 4", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.43), "text": "LOG 3", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 / UPGRADING", "color": amber},
+                {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.59), "y": int(height * 0.4), "text": "CYBERLIMB CALIBRATION", "color": amber},
+                {"x": int(width * 0.58), "y": int(height * 0.39), "text": "CYBERLIMB CALIBRATION", "color": amber},
                 {"x": int(width * 0.32), "y": int(height * 0.53), "text": "WOUND STABILIZED", "color": amber},
                 {"x": int(width * 0.34), "y": int(height * 0.61), "text": "NEURAL LINK RESYNC", "color": cyan},
             ],
@@ -3114,9 +3132,8 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"x": int(width * 0.55), "y": int(height * 0.47), "w": int(width * 0.14), "h": int(height * 0.012), "color": (39, 212, 255, 78)},
             ],
             "boxes": [
-                {"x": int(width * 0.05), "y": int(height * 0.13), "w": int(width * 0.17), "h": int(height * 0.045), "color": amber},
-                {"x": int(width * 0.63), "y": int(height * 0.1), "w": int(width * 0.22), "h": int(height * 0.06), "color": red},
-                {"x": int(width * 0.42), "y": int(height * 0.72), "w": int(width * 0.24), "h": int(height * 0.055), "color": amber},
+                {"x": int(width * 0.05), "y": int(height * 0.13), "w": int(width * 0.11), "h": int(height * 0.036), "color": amber},
+                {"x": int(width * 0.63), "y": int(height * 0.1), "w": int(width * 0.16), "h": int(height * 0.05), "color": red},
             ],
             "lines": [
                 {"points": (int(width * 0.22), int(height * 0.16), int(width * 0.35), int(height * 0.29)), "color": amber, "width": 3},
@@ -3425,6 +3442,12 @@ def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
     additions: list[str] = []
     if "not a static title card" not in lowered and "cover-grade framing" not in lowered:
         additions.append(scene_integrity_instruction_set(contract, target=target))
+    if target == "assets/hero/chummer6-hero.png" and not any(
+        token in lowered for token in ("troll patient", "troll runner", "hairy troll", "troll on a hacked surgical recliner")
+    ):
+        additions.append(
+            "The patient must read clearly as an ugly hairy troll runner with tusks, heavy body mass, rough scarred skin, dermal texture, and individually visible wet or matted hair strands."
+        )
     if (
         media_row_requests_easter_egg(target=target, row=row)
         and "chummer troll motif" not in lowered
@@ -3501,6 +3524,10 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     required_action_posture = [
         compact_text(entry, limit=40 if compact else 72) for entry in _string_list(contract.get("required_action_posture"))
     ]
+    troll_markers = [compact_text(entry, limit=42 if compact else 84) for entry in _string_list(contract.get("required_troll_markers"))]
+    render_detail = [compact_text(entry, limit=44 if compact else 96) for entry in _string_list(contract.get("required_render_detail"))]
+    world_markers = [compact_text(entry, limit=60 if compact else 110) for entry in _string_list(contract.get("world_marker_bucket"))]
+    world_marker_minimum = int(contract.get("world_marker_minimum") or 0) if str(contract.get("world_marker_minimum") or "").strip() else 0
     cyberpunk_intensity = str(contract.get("cyberpunk_intensity") or "").strip().lower().replace("_", " ")
     lore_weight = str(contract.get("shadowrun_lore_weight") or "").strip().lower().replace("_", " ")
     critical_style_mode = str(contract.get("critical_style_mode") or "").strip().lower().replace("_", " ")
@@ -3520,12 +3547,19 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     ]
     overlay_attachment_rule = compact_text(contract.get("overlay_attachment_rule") or "", limit=100 if compact else 220)
     status_binding_rule = compact_text(contract.get("status_binding_rule") or "", limit=100 if compact else 220)
+    style_epoch_force_only = _boolish(contract.get("style_epoch_force_only"), default=False)
     parts: list[str] = []
     if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
         parts.append(
             "Let the flagship poster epoch override the softer shared guide-still scaffold."
             if not compact
             else "override shared still scaffold"
+        )
+    if style_epoch_force_only:
+        parts.append(
+            "Do not fall back to the softer secondary guide-still epoch for this asset."
+            if not compact
+            else "no fallback to secondary still epoch"
         )
     if critical_style_mode:
         parts.append(
@@ -3622,6 +3656,31 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             if not compact
             else status_binding_rule
         )
+    if troll_markers:
+        joined = "; ".join(entry for entry in troll_markers if entry)
+        if joined:
+            parts.append(
+                f"The troll patient must read clearly through: {joined}."
+                if not compact
+                else f"troll markers {joined}"
+            )
+    if render_detail:
+        joined = "; ".join(entry for entry in render_detail if entry)
+        if joined:
+            parts.append(
+                f"Render detail must hold on: {joined}."
+                if not compact
+                else f"detail {joined}"
+            )
+    if world_markers:
+        joined = "; ".join(entry for entry in world_markers[:4] if entry)
+        if joined:
+            minimum = max(1, world_marker_minimum or 0)
+            parts.append(
+                f"Keep at least {minimum} Shadowrun world markers visible, such as: {joined}."
+                if not compact
+                else f"world markers {joined}"
+            )
     if negative_space_cap == "low":
         parts.append(
             "Avoid dead empty darkness, sparse corners, and quiet negative-space voids."
@@ -4335,14 +4394,14 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, visible attribute rails, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, grimier props, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, and not a lonely human doctor in a tidy white coat.",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, visible attribute rails, and strong foreground-midground-background layering. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, and not a lonely human doctor in a tidy white coat.",
             "environment": "an improvised streetdoc garage clinic carved into a rain-soaked barrens auto bay, with a hacked surgical recliner made from a mechanic chair, tool chests, lift-bay residue, hanging cables, med-gel, injector trays, cyberlimb parts, ammo trays, six-sided dice, a magical focus, tarp dividers, extension cords, rust, oil stains, wet concrete, and hard fluorescent strips fighting with amber work lamps across the room",
-            "subject": "an obvious ork or other metahuman streetdoc actively stabilizing a half-reclined post-run runner at the prep rail while a teammate crowds the opposite side with tools, telemetry, or light",
-            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the runner braces in the chair and the support figure reaches into frame with tool handoff, trust traces, attribute checks, and proof anchors spread through the improvised garage clinic",
+            "subject": "an obvious ork or other metahuman streetdoc actively stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the opposite side with tools, telemetry, or light",
+            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, and matted hair, and the support figure reaches into frame with tool handoff, trust traces, attribute checks, and proof anchors spread through the improvised garage clinic",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating a post-run runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or telemetry. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue diagnostics against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and obvious left-side attribute-rail support. Show at least two active people clearly in frame with visible hands doing work. No back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, and no lone gadget hero prop.",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or telemetry. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, and readable tusks. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue diagnostics against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and obvious left-side attribute-rail support. Show at least two active people clearly in frame with visible hands doing work. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, and no lone gadget hero prop.",
             "framing": "wide cover-energy garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, and deep background tool storage visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, or a clean suburban clinic",
+            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, a human patient, a clean-shaved patient, soft watercolor blur, broad painterly smearing, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, or a clean suburban clinic",
             "overlay_hint": "medscan attribute rail anchors, cyberlimb calibration cues, wound stabilization, neural-link resync, and subsystem fit brackets",
             "props": ["tool chest", "med-gel", "injector tray", "cyberware part", "ammo tray", "prep chair", "magical focus", "six-sided dice"],
             "overlays": ["BOD rail", "AGI rail", "REA rail", "STR rail", "ESS state", "EDGE readout", "cyberlimb calibration", "wound stabilized"],
@@ -4549,7 +4608,7 @@ def asset_specs() -> list[dict[str, object]]:
             "environment": "an improvised industrial rules lab built around an approval rail, rollback rig, provenance seals, rule cassettes, consequence chutes, diff strips, compatibility halos, and heat-scored control hardware under hard sodium spill",
             "action": "the rulesmith drives diff controls and cassette clamps while a reviewer leans into the approval rail and rollback rig under visible pressure, witness locks, consequence markers, and compatibility arcs",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab. A standing rulesmith and skeptical reviewer work at an approval rail and rollback rig while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together with stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, not a calm workshop, and not generic glowing-card tinkering. No readable labels.",
+            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab. A standing rulesmith and skeptical reviewer work at an approval rail, rollback rig, and consequence chamber while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together with stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, not a calm workshop, and not generic glowing-card tinkering. No readable labels.",
             "framing": "medium-wide two-person standing shot with both torsos, active hands on hardware, approval rails, diff strips, rollback rig hardware, witness locks, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
             "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, two people sitting at a table, generic paperwork workshop, or any scene without publication-control cues",
             "overlay_hint": "approval rails, provenance seals, rollback vectors, witness locks, compatibility arcs, and consequence-path anchors",

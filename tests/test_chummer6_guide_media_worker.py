@@ -1363,10 +1363,13 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
     assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
+    assert any("do not fall back to the softer secondary guide-still epoch" in part.lower() for part in hero_parts)
     assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
     assert any("clean scene plate" in part.lower() and "composited after the art render" in part.lower() for part in hero_parts)
     assert any("overlay render strategy: verified post composite only" in part.lower() for part in hero_parts)
     assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
+    assert any("troll patient must read clearly" in part.lower() for part in hero_parts)
+    assert any("shadowrun world markers visible" in part.lower() for part in hero_parts)
     assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
@@ -1555,6 +1558,22 @@ def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
     assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
 
 
+def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
+    media = _load_module()
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/hero/chummer6-hero.png",
+        width=960,
+        height=540,
+    )
+
+    total_box_area = sum(int(box["w"]) * int(box["h"]) for box in layout["boxes"])
+
+    assert total_box_area < int(0.07 * 960 * 540)
+    assert any(chip["text"] == "AGI 4 ↑ UPGRADING" for chip in layout["chips"])
+    assert any(chip["text"] == "ESS 2.8 ↑ UPGRADING" for chip in layout["chips"])
+
+
 def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:
     media = _load_module()
     specs = media.asset_specs()
@@ -1567,6 +1586,7 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
     assert "clean base-scene plate" in hero_prompt
     assert "deterministic post-composite overlay layer" in hero_prompt
     assert "Reserve these overlay semantics for the verified composite layer" in hero_prompt
+    assert "ugly hairy troll runner" in hero_prompt
     assert "Trust Check" not in hero_prompt
     assert "clean base-scene plate" in karma_prompt
     assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt
