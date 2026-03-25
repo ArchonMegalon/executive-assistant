@@ -89,6 +89,38 @@ class DraftCandidate:
 
 
 @dataclass(frozen=True)
+class DecisionItem:
+    id: str
+    title: str
+    summary: str
+    priority: str
+    owner_role: str
+    due_at: str | None
+    status: str
+    recommendation: str = ""
+    rationale: str = ""
+    options: tuple[str, ...] = ()
+    evidence_refs: tuple[EvidenceRef, ...] = ()
+    related_commitment_ids: tuple[str, ...] = ()
+    related_people: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ThreadItem:
+    id: str
+    title: str
+    channel: str
+    status: str
+    last_activity_at: str | None
+    summary: str
+    counterparties: tuple[str, ...] = ()
+    draft_ids: tuple[str, ...] = ()
+    related_commitment_ids: tuple[str, ...] = ()
+    related_decision_ids: tuple[str, ...] = ()
+    evidence_refs: tuple[EvidenceRef, ...] = ()
+
+
+@dataclass(frozen=True)
 class CommitmentCandidate:
     title: str
     details: str
@@ -138,13 +170,40 @@ class HandoffNote:
 
 
 @dataclass(frozen=True)
+class EvidenceItem:
+    id: str
+    label: str
+    source_type: str
+    summary: str
+    href: str = ""
+    related_object_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RuleItem:
+    id: str
+    label: str
+    scope: str
+    status: str
+    summary: str
+    current_value: str
+    impact: str
+    requires_approval: bool = False
+    simulated_effect: str = ""
+
+
+@dataclass(frozen=True)
 class ProductSnapshot:
     brief_items: tuple[BriefItem, ...] = field(default_factory=tuple)
     queue_items: tuple[DecisionQueueItem, ...] = field(default_factory=tuple)
     commitments: tuple[CommitmentItem, ...] = field(default_factory=tuple)
     commitment_candidates: tuple[CommitmentCandidate, ...] = field(default_factory=tuple)
     drafts: tuple[DraftCandidate, ...] = field(default_factory=tuple)
+    decisions: tuple[DecisionItem, ...] = field(default_factory=tuple)
+    threads: tuple[ThreadItem, ...] = field(default_factory=tuple)
     people: tuple[PersonProfile, ...] = field(default_factory=tuple)
     handoffs: tuple[HandoffNote, ...] = field(default_factory=tuple)
     completed_handoffs: tuple[HandoffNote, ...] = field(default_factory=tuple)
+    evidence: tuple[EvidenceItem, ...] = field(default_factory=tuple)
+    rules: tuple[RuleItem, ...] = field(default_factory=tuple)
     stats_json: dict[str, int] = field(default_factory=dict)

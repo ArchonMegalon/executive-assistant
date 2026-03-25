@@ -215,7 +215,8 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Rules" in page.content()
     assert "Workspace diagnostics bundle" in page.content()
     assert "Messaging scope" in page.content()
-    assert "Feature flags" in page.content()
+    assert "Draft approval" in page.content()
+    assert "Google-first activation" in page.content()
 
 
 def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -233,6 +234,7 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
     response = page.goto(f"{base_url}/app/briefing", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Approve reply to Sofia N." not in page.content()
+    assert "Choose board memo owner" in page.content()
 
     response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
     assert response is not None and response.ok
@@ -257,6 +259,11 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
     page.wait_for_url(f"{base_url}/app/inbox")
     page.wait_for_load_state("networkidle")
     assert "revised board packet" in page.content().lower()
+
+    response = page.goto(f"{base_url}/app/contacts", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Evidence" in page.content()
+    assert "Decision window" in page.content() or "Commitment" in page.content()
 
 
 def test_draft_rejection_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:

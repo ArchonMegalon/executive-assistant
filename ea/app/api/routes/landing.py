@@ -636,6 +636,75 @@ def people_root() -> RedirectResponse:
     return RedirectResponse("/app/memory", status_code=307)
 
 
+def _object_detail_row(title: str, detail: str, tag: str) -> dict[str, str]:
+    return {
+        "title": str(title or "").strip(),
+        "detail": str(detail or "").strip(),
+        "tag": str(tag or "").strip(),
+    }
+
+
+def _evidence_detail_rows(items) -> list[dict[str, str]]:  # type: ignore[no-untyped-def]
+    rows: list[dict[str, str]] = []
+    for item in items or ():
+        rows.append(
+            _object_detail_row(
+                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Supporting evidence"),
+                str(getattr(item, "ref", "") or "No external reference attached."),
+                str(getattr(item, "source_type", "") or "Evidence"),
+            )
+        )
+    if rows:
+        return rows
+    return [_object_detail_row("No supporting evidence yet", "This object has no attached evidence refs yet.", "Pending")]
+
+
+def _render_console_object_detail(
+    *,
+    request: Request,
+    context: RequestContext,
+    workspace_label: str,
+    page_title: str,
+    current_nav: str,
+    console_title: str,
+    console_summary: str,
+    object_kind: str,
+    object_title: str,
+    object_summary: str,
+    object_meta: list[dict[str, str]],
+    object_sidebar_title: str,
+    object_sidebar_copy: str,
+    object_sidebar_rows: list[dict[str, str]],
+    object_sections: list[dict[str, object]],
+) -> HTMLResponse:
+    return _render_public_template(
+        request,
+        "app/object_detail.html",
+        **{
+            **_console_shell_context(
+                request=request,
+                page_title=page_title,
+                current_nav=current_nav,
+                context=context,
+                console_title=console_title,
+                console_summary=console_summary,
+                nav_groups=APP_NAV_GROUPS,
+                workspace_label=workspace_label,
+                cards=[],
+                stats=[{"label": item["label"], "value": item["value"]} for item in object_meta],
+            ),
+            "object_kind": object_kind,
+            "object_title": object_title,
+            "object_summary": object_summary,
+            "object_meta": object_meta,
+            "object_sidebar_title": object_sidebar_title,
+            "object_sidebar_copy": object_sidebar_copy,
+            "object_sidebar_rows": object_sidebar_rows,
+            "object_sections": object_sections,
+        },
+    )
+
+
 @router.get("/app/people/{person_id}", response_class=HTMLResponse)
 def person_detail(
     person_id: str,
@@ -683,6 +752,267 @@ def person_detail(
             "person": detail.profile,
             "detail": detail,
         },
+    )
+
+
+@router.get("/app/decisions/{decision_ref}", response_class=HTMLResponse)
+def decision_detail(
+    decision_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    decision = product.get_decision(principal_id=context.principal_id, decision_ref=decision_ref)
+    if decision is None:
+        raise HTTPException(status_code=404, detail="decision_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="decision_opened",
+        surface=f"decision:{decision_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {decision.title}",
+        current_nav="briefing",
+        console_title=decision.title,
+        console_summary="Decision context, ownership, deadline pressure, and supporting evidence.",
+        object_kind="Decision queue",
+        object_title=decision.title,
+        object_summary=decision.summary or "This decision is open in the office loop.",
+        object_meta=[
+            {"label": "Priority", "value": str(decision.priority or "normal").title()},
+            {"label": "Owner", "value": str(decision.owner_role or "office").replace("_", " ").title()},
+            {"label": "Deadline", "value": str(decision.due_at or "")[:10] or "No due date"},
+            {"label": "Status", "value": str(decision.status or "open").replace("_", " ").title()},
+        ],
+        object_sidebar_title="Decision pressure",
+        object_sidebar_copy="A decision should stay tied to ownership, time pressure, and evidence instead of living as a generic card in a queue.",
+        object_sidebar_rows=[
+            _object_detail_row("Recommendation", decision.recommendation or "No recommendation projected yet.", "Recommend"),
+            _object_detail_row("Rationale", decision.rationale or "No rationale projected yet.", "Why"),
+            _object_detail_row("Evidence attached", f"{len(decision.evidence_refs or [])} supporting refs attached to this decision.", "Evidence"),
+            _object_detail_row("Why now", decision.summary or "This decision is still active in the queue.", "Priority"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Decision summary",
+                "title": "Current recommendation",
+                "items": [
+                    _object_detail_row(
+                        decision.title,
+                        decision.recommendation or decision.summary or "Review this decision with its current evidence and owner context.",
+                        str(decision.priority or "normal").title(),
+                    ),
+                    _object_detail_row("Options", ", ".join(decision.options or ()) or "No explicit options projected.", "Options"),
+                    _object_detail_row("Related commitments", ", ".join(decision.related_commitment_ids or ()) or "No linked commitments.", "Commitment"),
+                    _object_detail_row("Related people", ", ".join(decision.related_people or ()) or "No linked people.", "People"),
+                ],
+            },
+            {
+                "eyebrow": "Evidence",
+                "title": "Supporting evidence",
+                "items": _evidence_detail_rows(decision.evidence_refs),
+            },
+        ],
+    )
+
+
+@router.get("/app/threads/{thread_ref}", response_class=HTMLResponse)
+def thread_detail(
+    thread_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    thread = product.get_thread(principal_id=context.principal_id, thread_ref=thread_ref)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="thread_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="thread_opened",
+        surface=f"thread:{thread_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {thread.title}",
+        current_nav="inbox",
+        console_title=thread.title,
+        console_summary="Conversation state, related drafts, linked commitments, and decision context.",
+        object_kind="Conversation thread",
+        object_title=thread.title,
+        object_summary=thread.summary or "This thread is part of the current office loop.",
+        object_meta=[
+            {"label": "Channel", "value": str(thread.channel or "unknown").title()},
+            {"label": "Status", "value": str(thread.status or "open").replace("_", " ").title()},
+            {"label": "Last activity", "value": str(thread.last_activity_at or "")[:10] or "Unknown"},
+            {"label": "People", "value": str(len(thread.counterparties or []))},
+        ],
+        object_sidebar_title="Thread context",
+        object_sidebar_copy="A conversation should stay connected to the work it creates: drafts, commitments, decisions, and evidence.",
+        object_sidebar_rows=[
+            _object_detail_row("Counterparties", " · ".join(thread.counterparties or []) or "No counterparties projected.", "People"),
+            _object_detail_row("Drafts", ", ".join(thread.draft_ids or []) or "No active draft ids.", "Drafts"),
+            _object_detail_row("Commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments yet.", "Ledger"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Decision links",
+                "title": "Related office work",
+                "items": [
+                    _object_detail_row("Related decisions", ", ".join(thread.related_decision_ids or []) or "No linked decisions.", "Decision"),
+                    _object_detail_row("Related commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments.", "Commitment"),
+                    _object_detail_row("Draft queue", ", ".join(thread.draft_ids or []) or "No active drafts.", "Draft"),
+                ],
+            },
+            {
+                "eyebrow": "Evidence",
+                "title": "Supporting evidence",
+                "items": _evidence_detail_rows(thread.evidence_refs),
+            },
+        ],
+    )
+
+
+@router.get("/app/evidence/{evidence_ref}", response_class=HTMLResponse)
+def evidence_detail(
+    evidence_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    evidence = product.get_evidence(
+        principal_id=context.principal_id,
+        evidence_ref=evidence_ref,
+        operator_id=str(context.operator_id or "").strip(),
+    )
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="evidence_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="evidence_opened",
+        surface=f"evidence:{evidence_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    href_value = str(evidence.href or "").strip()
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {evidence.label}",
+        current_nav="contacts",
+        console_title=evidence.label,
+        console_summary="Evidence provenance, source type, and the objects that currently depend on it.",
+        object_kind="Evidence",
+        object_title=evidence.label,
+        object_summary=evidence.summary or "This evidence ref supports one or more projected product objects.",
+        object_meta=[
+            {"label": "Source type", "value": str(evidence.source_type or "unknown").replace("_", " ").title()},
+            {"label": "Linked objects", "value": str(len(evidence.related_object_refs or []))},
+            {"label": "Reference", "value": "External link" if href_value else "Embedded"},
+            {"label": "Status", "value": "Available"},
+        ],
+        object_sidebar_title="Provenance",
+        object_sidebar_copy="Evidence should explain why the product surfaced something and what objects currently depend on that fact.",
+        object_sidebar_rows=[
+            _object_detail_row("Reference", href_value or "No external URL attached to this evidence row.", "Link"),
+            _object_detail_row("Related objects", ", ".join(evidence.related_object_refs or []) or "No linked objects yet.", "Objects"),
+            _object_detail_row("Source label", evidence.label, "Evidence"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Evidence summary",
+                "title": "What this evidence says",
+                "items": [_object_detail_row(evidence.label, evidence.summary or "No summary projected.", str(evidence.source_type or "evidence").title())],
+            },
+            {
+                "eyebrow": "Dependencies",
+                "title": "Objects linked to this evidence",
+                "items": [
+                    _object_detail_row(ref, "This product object currently references the evidence row.", "Linked")
+                    for ref in (evidence.related_object_refs or [])
+                ]
+                or [_object_detail_row("No linked objects", "Nothing else points at this evidence yet.", "Pending")],
+            },
+        ],
+    )
+
+
+@router.get("/app/rules/{rule_id}", response_class=HTMLResponse)
+def rule_detail(
+    rule_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    rule = product.get_rule(principal_id=context.principal_id, rule_id=rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="rule_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="rules_opened",
+        surface=f"rule:{rule_id}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    simulated_effect = str(rule.simulated_effect or "").strip()
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {rule.label}",
+        current_nav="settings",
+        console_title=rule.label,
+        console_summary="Rule scope, current value, impact, and whether changes need approval.",
+        object_kind="Rules",
+        object_title=rule.label,
+        object_summary=rule.summary or "This rule shapes how the assistant reads, drafts, sends, remembers, or escalates work.",
+        object_meta=[
+            {"label": "Scope", "value": str(rule.scope or "workspace").replace("_", " ").title()},
+            {"label": "Status", "value": str(rule.status or "active").replace("_", " ").title()},
+            {"label": "Current value", "value": str(rule.current_value or "Not set")},
+            {"label": "Approval", "value": "Required" if rule.requires_approval else "Direct save"},
+        ],
+        object_sidebar_title="Rule effect",
+        object_sidebar_copy="Rules should be legible in product language: what they change, who they affect, and whether the change needs approval.",
+        object_sidebar_rows=[
+            _object_detail_row("Impact", rule.impact or "No impact summary projected yet.", "Impact"),
+            _object_detail_row("Simulation", simulated_effect or "Run a simulation in Settings before changing this rule.", "Simulate"),
+            _object_detail_row("Change posture", "Approval gate applies." if rule.requires_approval else "Directly editable in the current plan.", "Governance"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Rule summary",
+                "title": "Current posture",
+                "items": [
+                    _object_detail_row(rule.label, rule.summary or "No rule summary projected.", str(rule.status or "active").title()),
+                    _object_detail_row("Current value", str(rule.current_value or "Not set"), "Value"),
+                ],
+            },
+            {
+                "eyebrow": "Simulation",
+                "title": "Expected effect",
+                "items": [
+                    _object_detail_row("Preview", simulated_effect or "Use the rules surface to simulate this rule before saving changes.", "Effect")
+                ],
+            },
+        ],
     )
 
 

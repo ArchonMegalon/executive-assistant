@@ -1782,12 +1782,13 @@ fi
 echo "generic task execution ok"
 
 echo "== smoke: generic task async contracts =="
+GENERIC_APPROVAL_TASK_KEY="decision_brief_approval_${SMOKE_RUN_TOKEN}"
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
-  -d '{"task_key":"decision_brief_approval","deliverable_type":"decision_brief","default_risk_class":"low","default_approval_class":"manager","allowed_tools":["artifact_repository"],"evidence_requirements":["decision_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+  -d "{\"task_key\":\"${GENERIC_APPROVAL_TASK_KEY}\",\"deliverable_type\":\"decision_brief\",\"default_risk_class\":\"low\",\"default_approval_class\":\"manager\",\"allowed_tools\":[\"artifact_repository\"],\"evidence_requirements\":[\"decision_context\"],\"memory_write_policy\":\"reviewed_only\",\"budget_policy_json\":{\"class\":\"low\"}}" >/dev/null
 GENERIC_APPROVAL_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"task_key":"decision_brief_approval","text":"Decision context for the approval-backed briefing.","goal":"prepare a decision brief"}')"
+  -d "{\"task_key\":\"${GENERIC_APPROVAL_TASK_KEY}\",\"text\":\"Decision context for the approval-backed briefing.\",\"goal\":\"prepare a decision brief\"}")"
 GENERIC_APPROVAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${GENERIC_APPROVAL_JSON}")"
-if [[ "${GENERIC_APPROVAL_FIELDS}" != "decision_brief_approval|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+if [[ "${GENERIC_APPROVAL_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|poll_or_subscribe|True|True" ]]; then
   echo "expected generic task execution approval contract to return a first-class awaiting_approval response; got ${GENERIC_APPROVAL_FIELDS}" >&2
   echo "${GENERIC_APPROVAL_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -1795,19 +1796,19 @@ fi
 GENERIC_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("approval_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
 GENERIC_APPROVAL_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
 GENERIC_APPROVAL_SESSION_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); step_lookup={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; save_step=step_lookup.get('step_artifact_save') or {}; policy_step=step_lookup.get('step_policy_evaluate') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), save_step.get('state',''), save_step.get('dependency_keys') == ['step_policy_evaluate'], save_step.get('dependency_states') == {'step_policy_evaluate': 'completed'}, (save_step.get('dependency_step_ids') or {}).get('step_policy_evaluate') == policy_step.get('step_id',''), save_step.get('blocked_dependency_keys') == [], save_step.get('dependencies_satisfied') is True))" )"
-if [[ "${GENERIC_APPROVAL_SESSION_FIELDS}" != "decision_brief_approval|awaiting_approval|waiting_approval|True|True|True|True|True" ]]; then
+if [[ "${GENERIC_APPROVAL_SESSION_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True" ]]; then
   echo "expected generic approval-backed task session to preserve task identity plus satisfied dependency-state projection through awaiting_approval; got ${GENERIC_APPROVAL_SESSION_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 GENERIC_APPROVAL_PENDING_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; session_id='${GENERIC_APPROVAL_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('session_id') == session_id), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
-if [[ "${GENERIC_APPROVAL_PENDING_FIELDS}" != "decision_brief_approval|decision_brief" ]]; then
+if [[ "${GENERIC_APPROVAL_PENDING_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|decision_brief" ]]; then
   echo "expected pending approval projection to carry generic task identity before completion; got ${GENERIC_APPROVAL_PENDING_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 GENERIC_APPROVAL_DECISION_JSON="$(curl -fsS -X POST "${BASE}/v1/policy/approvals/${GENERIC_APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"decided_by\":\"${PRINCIPAL_ID}\",\"reason\":\"approved generic task execution\"}")"
 GENERIC_APPROVAL_DECISION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('deliverable_type',''), body.get('decision','')))" <<<"${GENERIC_APPROVAL_DECISION_JSON}")"
-if [[ "${GENERIC_APPROVAL_DECISION_FIELDS}" != "decision_brief_approval|decision_brief|approved" ]]; then
+if [[ "${GENERIC_APPROVAL_DECISION_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|decision_brief|approved" ]]; then
   echo "expected approval decision response to carry generic task identity; got ${GENERIC_APPROVAL_DECISION_FIELDS}" >&2
   echo "${GENERIC_APPROVAL_DECISION_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -1820,7 +1821,7 @@ if [[ "${GENERIC_APPROVAL_DONE_FIELDS}" != "completed|decision_brief|True" ]]; t
   fail 12 "policy contract mismatch"
 fi
 GENERIC_APPROVAL_HISTORY_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/history?session_id=${GENERIC_APPROVAL_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('decision') == 'approved'), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
-if [[ "${GENERIC_APPROVAL_HISTORY_FIELDS}" != "decision_brief_approval|decision_brief" ]]; then
+if [[ "${GENERIC_APPROVAL_HISTORY_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|decision_brief" ]]; then
   echo "expected approval history projection to carry generic task identity after approval; got ${GENERIC_APPROVAL_HISTORY_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi

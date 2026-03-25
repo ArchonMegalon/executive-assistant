@@ -10,24 +10,33 @@ from app.product.models import (
     BriefItem,
     CommitmentCandidate,
     CommitmentItem,
+    DecisionItem,
     DecisionQueueItem,
     DraftCandidate,
+    EvidenceItem,
     EvidenceRef,
     HandoffNote,
     HistoryEntry,
     PersonDetail,
     PersonProfile,
     ProductSnapshot,
+    RuleItem,
+    ThreadItem,
 )
 from app.product.projections import (
     commitment_item_from_commitment,
     commitment_item_from_follow_up,
     compact_text,
     contains_token,
+    decision_item_from_window,
     due_bonus,
+    evidence_items_from_objects,
     handoff_from_human_task,
     priority_weight,
+    rule_items_from_workspace,
+    simulate_rule,
     status_open,
+    thread_items_from_objects,
 )
 
 if TYPE_CHECKING:
@@ -724,6 +733,157 @@ class ProductService:
             return self._queue_item_from_deadline(updated)
         return None
 
+    def _decision_item_from_window(self, row: DecisionWindow) -> DecisionItem:
+        return decision_item_from_window(row)
+
+    def list_decisions(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 20,
+        include_closed: bool = False,
+    ) -> tuple[DecisionItem, ...]:
+        rows = [
+            self._decision_item_from_window(row)
+            for row in self._container.memory_runtime.list_decision_windows(principal_id=principal_id, limit=limit, status=None)
+            if include_closed or status_open(row.status)
+        ]
+        rows.sort(key=lambda row: (priority_weight(row.priority), due_bonus(row.due_at), row.title.lower()), reverse=True)
+        return tuple(rows[:limit])
+
+    def get_decision(self, *, principal_id: str, decision_ref: str) -> DecisionItem | None:
+        normalized = decision_ref.split(":", 1)[1] if decision_ref.startswith("decision:") else decision_ref
+        found = self._container.memory_runtime.get_decision_window(normalized, principal_id=principal_id)
+        if found is None:
+            return None
+        return self._decision_item_from_window(found)
+
+    def resolve_decision(
+        self,
+        *,
+        principal_id: str,
+        decision_ref: str,
+        actor: str,
+        action: str,
+        reason: str = "",
+        due_at: str | None = None,
+    ) -> DecisionItem | None:
+        item_ref = decision_ref if decision_ref.startswith("decision:") else f"decision:{decision_ref}"
+        updated = self.resolve_queue_item(
+            principal_id=principal_id,
+            item_ref=item_ref,
+            action=action,
+            actor=actor,
+            reason=reason,
+            due_at=due_at,
+        )
+        if updated is None:
+            return None
+        return self.get_decision(principal_id=principal_id, decision_ref=item_ref)
+
+    def list_threads(self, *, principal_id: str, limit: int = 20) -> tuple[ThreadItem, ...]:
+        drafts = self.list_drafts(principal_id=principal_id, limit=max(limit, 20))
+        commitments = self.list_commitments(principal_id=principal_id, limit=max(limit, 20))
+        decisions = self.list_decisions(principal_id=principal_id, limit=max(limit, 20), include_closed=True)
+        return thread_items_from_objects(drafts, commitments, decisions, limit=limit)
+
+    def get_thread(self, *, principal_id: str, thread_ref: str) -> ThreadItem | None:
+        normalized = thread_ref if thread_ref.startswith("thread:") else f"thread:{thread_ref}"
+        for row in self.list_threads(principal_id=principal_id, limit=200):
+            if row.id == normalized:
+                return row
+        return None
+
+    def list_evidence(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 40,
+        operator_id: str = "",
+    ) -> tuple[EvidenceItem, ...]:
+        brief_items = self.list_brief_items(principal_id=principal_id, limit=max(limit, 12), operator_id=operator_id)
+        queue_items = self.list_queue(principal_id=principal_id, limit=max(limit, 12), operator_id=operator_id)
+        commitments = self.list_commitments(principal_id=principal_id, limit=max(limit, 12))
+        drafts = self.list_drafts(principal_id=principal_id, limit=max(limit, 12))
+        decisions = self.list_decisions(principal_id=principal_id, limit=max(limit, 12), include_closed=True)
+        handoffs = self.list_handoffs(principal_id=principal_id, limit=max(limit, 12), operator_id=operator_id, status=None)
+        threads = thread_items_from_objects(drafts, commitments, decisions, limit=max(limit, 12))
+        return evidence_items_from_objects(
+            brief_items=brief_items,
+            queue_items=queue_items,
+            commitments=commitments,
+            drafts=drafts,
+            decisions=decisions,
+            handoffs=handoffs,
+            threads=threads,
+            limit=limit,
+        )
+
+    def get_evidence(self, *, principal_id: str, evidence_ref: str, operator_id: str = "") -> EvidenceItem | None:
+        for row in self.list_evidence(principal_id=principal_id, limit=200, operator_id=operator_id):
+            if row.id == evidence_ref:
+                return row
+        return None
+
+    def _rules_diagnostics(self, *, principal_id: str) -> tuple[dict[str, object], dict[str, object]]:
+        status = self._container.onboarding.status(principal_id=principal_id)
+        workspace = dict(status.get("workspace") or {})
+        selected_channels = tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip())
+        plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+        operators = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
+        seats_used = len(operators)
+        seat_limit = int(plan.entitlements.operator_seats or 0)
+        seat_overage = max(seats_used - seat_limit, 0)
+        selected_messaging = sorted({value for value in selected_channels if value in {"telegram", "whatsapp"}})
+        warnings: list[str] = []
+        if seat_overage:
+            warnings.append("Active operators exceed included seats.")
+        if selected_messaging and not plan.entitlements.messaging_channels_enabled:
+            warnings.append("Messaging channels are selected but not included in this plan.")
+        return status, {
+            "billing": {
+                "billing_state": plan.billing_state,
+                "support_tier": plan.support_tier,
+                "renewal_owner_role": plan.renewal_owner_role,
+                "contract_note": plan.contract_note,
+            },
+            "entitlements": {
+                "principal_seats": plan.entitlements.principal_seats,
+                "operator_seats": plan.entitlements.operator_seats,
+                "messaging_channels_enabled": plan.entitlements.messaging_channels_enabled,
+                "audit_retention": plan.entitlements.audit_retention,
+                "feature_flags": list(plan.entitlements.feature_flags),
+            },
+            "operators": {
+                "active_count": seats_used,
+                "seats_used": seats_used,
+                "seats_remaining": max(seat_limit - seats_used, 0),
+                "seat_overage": seat_overage,
+            },
+            "commercial": {
+                "selected_messaging_channels": selected_messaging,
+                "messaging_scope_mismatch": bool(selected_messaging and not plan.entitlements.messaging_channels_enabled),
+                "warnings": warnings,
+            },
+        }
+
+    def list_rules(self, *, principal_id: str) -> tuple[RuleItem, ...]:
+        status, diagnostics = self._rules_diagnostics(principal_id=principal_id)
+        return rule_items_from_workspace(status, diagnostics)
+
+    def get_rule(self, *, principal_id: str, rule_id: str) -> RuleItem | None:
+        for row in self.list_rules(principal_id=principal_id):
+            if row.id == rule_id:
+                return row
+        return None
+
+    def simulate_rule(self, *, principal_id: str, rule_id: str, proposed_value: str) -> RuleItem | None:
+        current = self.get_rule(principal_id=principal_id, rule_id=rule_id)
+        if current is None:
+            return None
+        _, diagnostics = self._rules_diagnostics(principal_id=principal_id)
+        return simulate_rule(current, proposed_value=proposed_value, diagnostics=diagnostics)
+
     def _brief_item_from_queue(self, row: DecisionQueueItem, *, workspace_id: str) -> BriefItem:
         return BriefItem(
             id=row.id,
@@ -978,6 +1138,8 @@ class ProductService:
         commitments = self.list_commitments(principal_id=principal_id, limit=10)
         commitment_candidates = self.list_commitment_candidates(principal_id=principal_id, limit=8)
         drafts = self.list_drafts(principal_id=principal_id, limit=8)
+        decisions = self.list_decisions(principal_id=principal_id, limit=8)
+        threads = self.list_threads(principal_id=principal_id, limit=8)
         people = self.list_people(principal_id=principal_id, limit=8)
         handoffs = self.list_handoffs(principal_id=principal_id, limit=8, operator_id=operator_id)
         completed_handoffs = self.list_handoffs(
@@ -986,24 +1148,34 @@ class ProductService:
             operator_id=operator_id,
             status="returned",
         )
+        evidence = self.list_evidence(principal_id=principal_id, limit=8, operator_id=operator_id)
+        rules = self.list_rules(principal_id=principal_id)
         return ProductSnapshot(
             brief_items=brief_items,
             queue_items=queue_items,
             commitments=commitments,
             commitment_candidates=commitment_candidates,
             drafts=drafts,
+            decisions=decisions,
+            threads=threads,
             people=people,
             handoffs=handoffs,
             completed_handoffs=completed_handoffs,
+            evidence=evidence,
+            rules=rules,
             stats_json={
                 "brief_items": len(brief_items),
                 "queue_items": len(queue_items),
                 "commitments": len(commitments),
                 "commitment_candidates": len(commitment_candidates),
                 "drafts": len(drafts),
+                "decisions": len(decisions),
+                "threads": len(threads),
                 "people": len(people),
                 "handoffs": len(handoffs),
                 "completed_handoffs": len(completed_handoffs),
+                "evidence": len(evidence),
+                "rules": len(rules),
             },
         )
 
@@ -1135,6 +1307,7 @@ class ProductService:
             "plan": diagnostics["plan"],
             "billing": diagnostics["billing"],
             "entitlements": diagnostics["entitlements"],
+            "commercial": diagnostics["commercial"],
             "readiness": diagnostics["readiness"],
             "usage": diagnostics["usage"],
             "analytics": diagnostics["analytics"],

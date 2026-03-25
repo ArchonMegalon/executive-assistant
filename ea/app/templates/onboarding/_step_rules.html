@@ -1,0 +1,126 @@
+<section class="panel wizard-panel" data-step-panel="3">
+  <div class="wizard-panel-header">
+    <div>
+      <div class="eyebrow">Step 3</div>
+      <h2>Review rules after first value, and add channels later.</h2>
+    </div>
+    <p class="step-context">This final step should confirm the first loop: memo, queue, commitments, and review posture. Keep channels narrow until the Google-backed office loop is already useful.</p>
+  </div>
+
+  <div class="finish-grid">
+    <div class="finish-card">
+      <strong>What the first useful loop should reveal</strong>
+      {% if activation_preview.brief %}
+      <p class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</p>
+      {% else %}
+      <p class="copy">Memo: connect Google, surface the first three items, and keep the scope narrow.</p>
+      {% endif %}
+      {% if activation_preview.queue %}
+      <p class="copy">Queue: {{ activation_preview.queue|join(' · ') }}</p>
+      {% else %}
+      <p class="copy">Queue: get to one approval or decision that feels real.</p>
+      {% endif %}
+    </div>
+    <div class="finish-card">
+      <strong>Rules after first value</strong>
+      <p class="copy">Start with reviewable drafts and suggestions. Change retention or automation depth only after the first memo and handoff loop feel credible.</p>
+    </div>
+  </div>
+
+  <div class="path-grid">
+    <section class="path-card">
+      <strong>Telegram later</strong>
+      <p class="copy">
+        {% if activation_entitlements.messaging_channels_enabled %}
+        Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.
+        {% else %}
+        Telegram is intentionally out of scope on the current plan. Prove the Google loop first before widening channels.
+        {% endif %}
+      </p>
+      <div class="wizard-actions">
+        <div class="right">
+          <a class="btn" href="/integrations/telegram">Review Telegram options</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="path-card">
+      <strong>WhatsApp later</strong>
+      <p class="copy">
+        {% if activation_entitlements.messaging_channels_enabled %}
+        Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.
+        {% else %}
+        WhatsApp is not part of the current plan. Keep the first proof loop inside Gmail and Calendar.
+        {% endif %}
+      </p>
+      <div class="wizard-actions">
+        <div class="right">
+          <a class="btn" href="/integrations/whatsapp">Review WhatsApp options</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="path-card">
+      <strong>Policy tuning after proof</strong>
+      <p class="copy">Use the rules surface after first value to change approvals, retention, or automation depth based on real use.</p>
+      <div class="wizard-actions">
+        <div class="right">
+          <a class="btn" href="/app/settings">Open rules</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="path-card">
+      <strong>Diagnostics for support</strong>
+      <p class="copy">If the first memo does not feel useful, use workspace diagnostics before adding more channels.</p>
+      <div class="wizard-actions">
+        <div class="right">
+          <a class="btn" href="/app/settings">Open workspace diagnostics</a>
+        </div>
+      </div>
+    </section>
+    <section class="path-card">
+      <strong>Recommended starting point</strong>
+      <p class="copy">Allow drafts and suggestions, keep sensitive actions reviewable, and avoid over-configuring the workspace before the first memo is visible.</p>
+    </section>
+
+    <section class="path-card">
+      <strong>Commercial boundary</strong>
+      <p class="copy">{{ activation_plan.display_name or 'Pilot' }} includes {{ activation_entitlements.operator_seats or 0 }} operator seat{% if (activation_entitlements.operator_seats or 0) != 1 %}s{% endif %}, {{ activation_entitlements.audit_retention or 'standard' }} audit retention, and {{ activation_billing.support_tier or 'guided' }} support.</p>
+    </section>
+  </div>
+
+  <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="3">
+    {{ shared_browser_fields|safe }}
+    <div class="check-grid">
+      <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare replies for review before anything is sent.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and follow-up recommendations.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic memos</strong>Generate memos on a schedule when the workspace is stable enough.</span></label>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced storage and retention settings</summary>
+      <div class="field-grid" style="margin-top: 12px;">
+        <div>
+          <label for="retention_mode">Retention mode</label>
+          <select id="retention_mode" name="retention_mode">
+            <option value="full_bodies" {% if privacy.retention_mode == 'full_bodies' %}selected{% endif %}>Keep full message bodies where allowed</option>
+            <option value="metadata_first" {% if privacy.retention_mode == 'metadata_first' %}selected{% endif %}>Metadata first</option>
+            <option value="short_window" {% if privacy.retention_mode == 'short_window' %}selected{% endif %}>Short retention window</option>
+          </select>
+        </div>
+        <div class="check-grid">
+          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="telegram" {% if 'telegram' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>Telegram metadata only</strong>Keep Telegram lighter if needed.</span></label>
+          <label class="check-item"><input type="checkbox" name="metadata_only_channels" value="whatsapp" {% if 'whatsapp' in (privacy.metadata_only_channels or []) %}checked{% endif %}><span><strong>WhatsApp metadata only</strong>Keep WhatsApp lighter if needed.</span></label>
+        </div>
+      </div>
+    </details>
+
+    <div class="wizard-actions">
+      <button class="btn ghost" type="button" data-step-back="2">Back</button>
+      <div class="right">
+        <button class="btn primary" type="submit">Finish setup and open the morning memo</button>
+      </div>
+    </div>
+  </form>
+</section>

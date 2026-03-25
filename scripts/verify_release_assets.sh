@@ -1054,7 +1054,8 @@ if grep -Fq "dependency_keys: list[str]" "ea/app/api/routes/rewrite.py" && \
    grep -Fq 'sidecar_step.parent_step_id == input_step.step_id' "tests/test_step_parent_projection_contracts.py" && \
    grep -Fq "first.get('principal_id','')" "scripts/smoke_api.sh" && \
    grep -Fq "approval-123|human-task-123|poll_or_subscribe|poll_or_subscribe|poll_or_subscribe|decision_brief_approval|stakeholder_briefing_review|rewrite_retry_delayed" "scripts/smoke_api.sh" && \
-   grep -Fq "decision_brief_approval|awaiting_approval|waiting_approval|True|True|True|True|True" "scripts/smoke_api.sh" && \
+   grep -Fq 'GENERIC_APPROVAL_TASK_KEY="decision_brief_approval_${SMOKE_RUN_TOKEN}"' "scripts/smoke_api.sh" && \
+   grep -Fq '${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True' "scripts/smoke_api.sh" && \
    grep -Fq "stakeholder_briefing_review|awaiting_human|waiting_human|True|True|True|True|queued|True|True|True" "scripts/smoke_api.sh"; then
   echo "ok: session step dependency projection contract and smoke coverage"
 else
