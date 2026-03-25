@@ -16,6 +16,9 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert client.get("/get-started").status_code == 200
     assert client.get("/app/today").status_code == 200
     assert client.get("/app/settings").status_code == 200
+    assert client.get("/app/api/plan").status_code == 200
+    assert client.get("/app/api/usage").status_code == 200
+    assert client.get("/app/api/support").status_code == 200
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
@@ -23,6 +26,9 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     counts = dict(payload["analytics"]["counts"])
     assert counts.get("memo_opened", 0) >= 1
     assert counts.get("rules_opened", 0) >= 1
+    assert counts.get("plan_opened", 0) >= 1
+    assert counts.get("usage_opened", 0) >= 1
+    assert counts.get("support_opened", 0) >= 1
 
 
 def test_support_bundle_export_includes_commercial_state_and_records_event() -> None:

@@ -62,13 +62,13 @@ Read:
 9. `USER_JOURNEYS.md`
 10. `EXPERIENCE_SUCCESS_METRICS.md`
 11. `METRICS_AND_SLOS.yaml`
-12. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+12. `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
 
 ## Fast path by question
 
 * What is Chummer? -> `VISION.md`
 * What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
-* What just closed and what is next? -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` and `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+* What just closed and what is next? -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` and `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`

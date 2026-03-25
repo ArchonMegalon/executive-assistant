@@ -97,6 +97,26 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "warnings" in diagnostics_body["commercial"]
     assert diagnostics_body["usage"]["queue_items"] >= 1
 
+    plan = client.get("/app/api/plan")
+    assert plan.status_code == 200
+    plan_body = plan.json()
+    assert plan_body["plan"]["plan_key"] == "pilot"
+    assert plan_body["billing"]["support_tier"] == "guided"
+    assert plan_body["entitlements"]["operator_seats"] == 1
+
+    usage = client.get("/app/api/usage")
+    assert usage.status_code == 200
+    usage_body = usage.json()
+    assert usage_body["usage"]["queue_items"] >= 1
+    assert "counts" in usage_body["analytics"]
+
+    support = client.get("/app/api/support")
+    assert support.status_code == 200
+    support_body = support.json()
+    assert support_body["plan"]["display_name"] == "Pilot"
+    assert "pending" in support_body["approvals"]
+    assert isinstance(support_body["human_tasks"], list)
+
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
     principal_id = "exec-product-resolve"

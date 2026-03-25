@@ -1157,6 +1157,236 @@ def rule_detail(
     )
 
 
+@router.get("/app/settings/plan", response_class=HTMLResponse)
+def settings_plan_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="plan_opened",
+        surface="settings_plan",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    plan = dict(diagnostics.get("plan") or {})
+    billing = dict(diagnostics.get("billing") or {})
+    entitlements = dict(diagnostics.get("entitlements") or {})
+    operators = dict(diagnostics.get("operators") or {})
+    commercial = dict(diagnostics.get("commercial") or {})
+    selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
+    feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
+    warnings = [str(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace plan",
+        current_nav="settings",
+        console_title="Workspace plan",
+        console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office.",
+        object_kind="Commercial boundary",
+        object_title=str(plan.get("display_name") or "Pilot"),
+        object_summary=str(billing.get("contract_note") or "Commercial posture is not yet set."),
+        object_meta=[
+            {"label": "Plan unit", "value": str(plan.get("unit_of_sale") or "workspace")},
+            {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
+            {"label": "Support tier", "value": str(billing.get("support_tier") or "standard")},
+            {"label": "Seats remaining", "value": str(operators.get("seats_remaining") or 0)},
+        ],
+        object_sidebar_title="Why this boundary matters",
+        object_sidebar_copy="Commercial scope should explain what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
+        object_sidebar_rows=[
+            _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
+            _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
+            _object_detail_row("Warnings", "; ".join(warnings) or "No current commercial warnings", "Support"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Plan",
+                "title": "Plan and billing posture",
+                "items": [
+                    _object_detail_row("Workspace plan", str(plan.get("display_name") or "Pilot"), "Plan"),
+                    _object_detail_row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan"),
+                    _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+                    _object_detail_row("Renewal owner", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing"),
+                    _object_detail_row("Contract note", str(billing.get("contract_note") or "No contract note recorded."), "Contract"),
+                ],
+            },
+            {
+                "eyebrow": "Entitlements",
+                "title": "What this workspace includes",
+                "items": [
+                    _object_detail_row("Principal seats", str(entitlements.get("principal_seats") or 0), "Seats"),
+                    _object_detail_row("Operator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
+                    _object_detail_row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Retention"),
+                    _object_detail_row("Feature flags", ", ".join(feature_flags) or "No enabled features", "Flags"),
+                ],
+            },
+        ],
+    )
+
+
+@router.get("/app/settings/usage", response_class=HTMLResponse)
+def settings_usage_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="usage_opened",
+        surface="settings_usage",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
+    analytics = dict(diagnostics.get("analytics") or {})
+    operators = dict(diagnostics.get("operators") or {})
+    readiness = dict(diagnostics.get("readiness") or {})
+    counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace usage",
+        current_nav="settings",
+        console_title="Usage and activation",
+        console_summary="Queue pressure, memo activity, operator load, and time-to-value should stay visible while shaping rules and support posture.",
+        object_kind="Usage state",
+        object_title="Current office loop",
+        object_summary=f"{usage.get('queue_items', 0)} queue items · {usage.get('commitments', 0)} commitments · {usage.get('handoffs', 0)} handoffs",
+        object_meta=[
+            {"label": "Memo items", "value": str(usage.get("brief_items", 0))},
+            {"label": "Queue items", "value": str(usage.get("queue_items", 0))},
+            {"label": "Commitments", "value": str(usage.get("commitments", 0))},
+            {"label": "Handoffs", "value": str(usage.get("handoffs", 0))},
+        ],
+        object_sidebar_title="Activation and readiness",
+        object_sidebar_copy="Usage only matters when it stays attached to readiness, operator capacity, and the speed with which the workspace reaches first real value.",
+        object_sidebar_rows=[
+            _object_detail_row("Active operators", str(operators.get("active_count") or 0), "Operators"),
+            _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
+            _object_detail_row("Readiness", str(readiness.get("detail") or "Runtime posture not recorded."), "Runtime"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Analytics",
+                "title": "Product loop signals",
+                "items": [
+                    _object_detail_row("Memo opened", str(counts.get("memo_opened") or 0), "Analytics"),
+                    _object_detail_row("Queue opened", str(counts.get("queue_opened") or 0), "Analytics"),
+                    _object_detail_row("Draft approved", str(counts.get("draft_approved") or 0), "Analytics"),
+                    _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Analytics"),
+                    _object_detail_row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics"),
+                ],
+            },
+            {
+                "eyebrow": "Capacity",
+                "title": "Operator and queue load",
+                "items": [
+                    _object_detail_row("Seats used", str(operators.get("seats_used") or 0), "Operators"),
+                    _object_detail_row("Seats remaining", str(operators.get("seats_remaining") or 0), "Operators"),
+                    _object_detail_row("Pending approvals", str(counts.get("approval_requested") or 0), "Approvals"),
+                    _object_detail_row("Support bundle opened", str(counts.get("support_bundle_opened") or 0), "Support"),
+                ],
+            },
+        ],
+    )
+
+
+@router.get("/app/settings/support", response_class=HTMLResponse)
+def settings_support_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="support_opened",
+        surface="settings_support",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    bundle = product.workspace_support_bundle(principal_id=context.principal_id)
+    billing = dict(bundle.get("billing") or {})
+    approvals = dict(bundle.get("approvals") or {})
+    human_tasks = [dict(value) for value in (bundle.get("human_tasks") or [])]
+    pending_delivery = [dict(value) for value in (bundle.get("pending_delivery") or [])]
+    providers = dict(bundle.get("providers") or {})
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace support",
+        current_nav="settings",
+        console_title="Support and diagnostics",
+        console_summary="Support posture should explain what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
+        object_kind="Support bundle",
+        object_title=str(billing.get("support_tier") or "standard").title(),
+        object_summary=str(billing.get("contract_note") or "Support posture is available for export."),
+        object_meta=[
+            {"label": "Pending approvals", "value": str(len(list(approvals.get("pending") or [])))},
+            {"label": "Human tasks", "value": str(len(human_tasks))},
+            {"label": "Pending delivery", "value": str(len(pending_delivery))},
+            {"label": "Providers", "value": str(providers.get("provider_count") or 0)},
+        ],
+        object_sidebar_title="What support should answer",
+        object_sidebar_copy="A customer-grade support surface should answer what was blocked, what still needs human review, which providers are in play, and what bundle may be exported without reading raw logs.",
+        object_sidebar_rows=[
+            _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
+            _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+            _object_detail_row("Export bundle", "Open the support-ready workspace bundle from Settings or Diagnostics export.", "Bundle"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Approvals",
+                "title": "Pending review and recent decisions",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("reason") or "Approval pending"),
+                        f"{str(item.get('status') or 'pending').replace('_', ' ')} · expires {str(item.get('expires_at') or '')[:10] or 'n/a'}",
+                        "Pending",
+                    )
+                    for item in list(approvals.get("pending") or [])[:6]
+                ] or [_object_detail_row("No pending approvals", "Nothing is blocked on approval right now.", "Clear")],
+            },
+            {
+                "eyebrow": "Support bundle",
+                "title": "Human tasks and provider posture",
+                "items": (
+                    [
+                        _object_detail_row(
+                            str(item.get("brief") or "Human task"),
+                            f"{str(item.get('status') or 'pending').replace('_', ' ')} · {str(item.get('assignment_state') or 'unassigned').replace('_', ' ')}",
+                            str(item.get("priority") or "normal").title(),
+                        )
+                        for item in human_tasks[:4]
+                    ]
+                    + [
+                        _object_detail_row(
+                            f"{str(item.get('channel') or 'delivery').title()} delivery",
+                            f"{str(item.get('recipient') or 'unknown')} · {str(item.get('status') or 'pending').replace('_', ' ')}",
+                            "Delivery",
+                        )
+                        for item in pending_delivery[:2]
+                    ]
+                )
+                or [_object_detail_row("Support surface is clear", "No human tasks or pending delivery are currently blocking the office loop.", "Clear")],
+            },
+        ],
+    )
+
+
 @router.get("/app/{section}", response_class=HTMLResponse)
 def app_shell(
     section: str,
