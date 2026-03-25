@@ -1,10 +1,10 @@
 # Executive Assistant
 
-Executive Assistant is a workspace for briefings, drafts, follow-ups, approvals, and durable context across email, calendar, and selected messaging channels. This repository contains the product surface plus the runtime underneath it: a principal-scoped FastAPI control plane, a queue-backed execution plane, and a Postgres-backed context plane for approvals, human tasks, tools/connectors, observations, delivery, and memory.
+Executive Assistant is an operating system for one executive office: morning memos, decision queues, commitments, handoffs, approvals, and durable context across email, calendar, and selected messaging channels. This repository contains the product surface plus the runtime underneath it: a principal-scoped FastAPI control plane, a queue-backed execution plane, and a Postgres-backed context plane for approvals, human tasks, tools/connectors, observations, delivery, and memory.
 
 ## Product and runtime
 
-- Product surface: marketing pages, onboarding, authenticated app shell, operator/admin shell, and public utility routes
+- Product surface: marketing pages, onboarding, authenticated app shell, operator/admin shell, and optional public utility routes
 - Control plane: API/auth/config, operator scripts, health/version endpoints, and runtime docs
 - Execution plane: sessions, steps, queue leasing, approvals, human routing, and worker roles
 - Context plane: memory, stakeholders, commitments, follow-ups, evidence, skills, and task contracts
@@ -44,6 +44,7 @@ Then open `http://localhost:8090/health`.
 
 - Operator runbook: [RUNBOOK.md](/docker/EA/RUNBOOK.md)
 - Architecture map: [ARCHITECTURE_MAP.md](/docker/EA/ARCHITECTURE_MAP.md)
+- Product brief v2: [PRODUCT_BRIEF_V2.md](/docker/EA/PRODUCT_BRIEF_V2.md)
 - HTTP examples: [HTTP_EXAMPLES.http](/docker/EA/HTTP_EXAMPLES.http)
 - Environment/profile guidance: [ENVIRONMENT_MATRIX.md](/docker/EA/ENVIRONMENT_MATRIX.md)
 - Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)

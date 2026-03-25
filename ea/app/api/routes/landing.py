@@ -263,6 +263,27 @@ def _render_public_template(request: Request, template_name: str, **context: Any
     return templates.TemplateResponse(request, template_name, context)
 
 
+def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, object]:
+    approvals = container.orchestrator.list_pending_approvals_for_principal(
+        principal_id=principal_id,
+        limit=6,
+    )
+    human_tasks = container.orchestrator.list_human_tasks(
+        principal_id=principal_id,
+        status="pending",
+        limit=6,
+    )
+    pending_delivery = container.channel_runtime.list_pending_delivery(
+        limit=6,
+        principal_id=principal_id,
+    )
+    return {
+        "approvals": approvals,
+        "human_tasks": human_tasks,
+        "pending_delivery": pending_delivery,
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
 def landing(
     request: Request,
@@ -553,7 +574,11 @@ def app_shell(
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     status = container.onboarding.status(principal_id=context.principal_id)
-    payload = _app_section_payload(section, status)
+    payload = _app_section_payload(
+        section,
+        status,
+        live_feed=_app_live_feed(container, principal_id=context.principal_id),
+    )
     workspace = dict(status.get("workspace") or {})
     return _render_public_template(
         request,

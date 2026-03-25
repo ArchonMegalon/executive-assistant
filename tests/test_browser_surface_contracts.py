@@ -52,6 +52,7 @@ def _assert_no_drift(text: str) -> None:
     assert "chummer" not in lower
     assert "gm_creator_ops" not in lower
     assert "principal id" not in lower
+    assert "operator access ·" not in lower
 
 
 def _internal_links(html: str) -> list[str]:
@@ -67,7 +68,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = client.get("/")
-    assert "Walk into the day with a ranked brief" in landing.text
+    assert "Start the day with a morning memo" in landing.text
     assert "Get started" in landing.text
     for href in _internal_links(landing.text):
         resolved = client.get(href, follow_redirects=False)
@@ -75,20 +76,24 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
 
 def test_app_surface_routes_render_without_product_drift() -> None:
-    client = _client(principal_id="exec-app-contract")
+    principal_id = "exec-app-contract"
+    client = _client(principal_id=principal_id)
     for path in APP_ROUTES:
         response = client.get(path)
         assert response.status_code == 200, path
         _assert_no_drift(response.text)
+        assert principal_id not in response.text
 
     today = client.get("/app/today")
-    assert "Today" in today.text
+    assert "Morning Memo" in today.text
     assert "Next to clear" in today.text
+    assert "Assistant workspace" in today.text
+    assert "Workspace overview" in today.text
 
     briefing = client.get("/app/briefing")
-    assert "Briefing" in briefing.text
+    assert "Decision Queue" in briefing.text
     assert "Context that shapes the day" in briefing.text
 
     inbox = client.get("/app/inbox")
-    assert "Inbox" in inbox.text
+    assert "Commitments" in inbox.text
     assert "Channel readiness" in inbox.text

@@ -70,6 +70,11 @@ class ChannelSettings:
 
 
 @dataclass(frozen=True)
+class FeatureSettings:
+    public_side_surfaces_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class RuntimeProfile:
     mode: str
     storage_backend: str
@@ -113,6 +118,7 @@ class Settings:
     auth: AuthSettings
     policy: PolicySettings
     channels: ChannelSettings
+    features: FeatureSettings
 
     @property
     def app_name(self) -> str:
@@ -161,6 +167,10 @@ class Settings:
     @property
     def storage_fallback_allowed(self) -> bool:
         return not is_prod_mode(self.runtime.mode)
+
+    @property
+    def public_side_surfaces_enabled(self) -> bool:
+        return self.features.public_side_surfaces_enabled
 
 
 def _runtime_mode(raw: str) -> str:
@@ -318,6 +328,10 @@ def get_settings() -> Settings:
     approval_required_chars = max(1, _to_int(os.environ.get("EA_APPROVAL_THRESHOLD_CHARS") or "5000", 5000))
     approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
     default_list_limit = max(1, min(500, _to_int(os.environ.get("EA_CHANNEL_DEFAULT_LIMIT") or "50", 50)))
+    raw_public_side_surfaces_enabled = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
+    public_side_surfaces_enabled = (
+        True if raw_public_side_surfaces_enabled is None else _env_truthy(raw_public_side_surfaces_enabled)
+    )
 
     settings = Settings(
         core=CoreSettings(
@@ -349,6 +363,7 @@ def get_settings() -> Settings:
             approval_ttl_minutes=approval_ttl_minutes,
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
+        features=FeatureSettings(public_side_surfaces_enabled=public_side_surfaces_enabled),
     )
     ensure_prod_api_token_configured(settings)
     return settings
