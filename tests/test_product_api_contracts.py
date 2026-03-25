@@ -13,6 +13,10 @@ def test_product_api_projects_real_runtime_objects() -> None:
     brief_body = brief.json()
     assert brief_body["total"] >= 1
     assert any(item["title"] == "Send board materials" for item in brief_body["items"])
+    commitment_brief = next(item for item in brief_body["items"] if item["title"] == "Send board materials")
+    assert commitment_brief["object_ref"] == f"commitment:{seeded['commitment_id']}"
+    assert commitment_brief["evidence_count"] >= 1
+    assert commitment_brief["confidence"] > 0
 
     queue = client.get("/app/api/queue")
     assert queue.status_code == 200
@@ -29,6 +33,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
     assert decision_detail.status_code == 200
     assert decision_detail.json()["title"] == "Choose board memo owner"
+    assert decision_detail.json()["impact_summary"]
+    assert decision_detail.json()["sla_status"] in {"due_now", "due_soon", "on_track", "unscheduled", "resolved"}
 
     commitments = client.get("/app/api/commitments")
     assert commitments.status_code == 200
@@ -175,6 +181,16 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     )
     assert decision_resolved.status_code == 200
     assert decision_resolved.json()["status"] == "decided"
+    assert decision_resolved.json()["resolution_reason"] == "Principal chose the owner"
+    assert decision_resolved.json()["sla_status"] == "resolved"
+
+    decision_reopened = client.post(
+        f"/app/api/decisions/decision:{seeded['decision_window_id']}/resolve",
+        json={"action": "reopen", "reason": "Need another pass with the operator"},
+    )
+    assert decision_reopened.status_code == 200
+    assert decision_reopened.json()["status"] == "open"
+    assert decision_reopened.json()["resolution_reason"] == ""
 
     deadline_closed = client.post(
         f"/app/api/queue/deadline:{seeded['deadline_window_id']}/resolve",

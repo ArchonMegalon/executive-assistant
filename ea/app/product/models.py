@@ -43,6 +43,9 @@ class BriefItem:
     related_commitment_ids: tuple[str, ...] = ()
     recommended_action: str = ""
     status: str = "open"
+    confidence: float = 0.0
+    object_ref: str = ""
+    evidence_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,9 @@ class DecisionItem:
     evidence_refs: tuple[EvidenceRef, ...] = ()
     related_commitment_ids: tuple[str, ...] = ()
     related_people: tuple[str, ...] = ()
+    impact_summary: str = ""
+    sla_status: str = ""
+    resolution_reason: str = ""
 
 
 @dataclass(frozen=True)

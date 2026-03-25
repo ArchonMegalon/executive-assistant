@@ -201,6 +201,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert decision_page.status_code == 200
     assert "Choose board memo owner" in decision_page.text
     assert "Decision queue" in decision_page.text
+    assert "Impact" in decision_page.text
+    assert "SLA" in decision_page.text
 
     threads = client.get("/app/api/threads")
     assert threads.status_code == 200
