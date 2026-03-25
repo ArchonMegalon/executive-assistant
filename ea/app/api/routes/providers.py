@@ -1183,189 +1183,207 @@ def refresh_onemin_billing(
     skipped: list[dict[str, object]] = []
     bound_account_labels: set[str] = set()
     bound_account_login_credentials: dict[str, dict[str, str]] = {}
+    refresh_allowed, throttle_seconds_remaining, throttle_reason = container.onemin_manager.begin_billing_refresh()
 
-    for binding in bindings:
-        binding_metadata = dict(binding.auth_metadata_json or {})
-        billing_run_url = _binding_run_url(
-            binding_metadata,
-            "onemin_billing_usage_run_url",
-            "browseract_onemin_billing_usage_run_url",
-            "run_url",
-        )
-        billing_workflow_id = _binding_workflow_id(
-            binding_metadata,
-            "onemin_billing_usage_workflow_id",
-            "browseract_onemin_billing_usage_workflow_id",
-            "workflow_id",
-        )
-        members_run_url = _binding_run_url(
-            binding_metadata,
-            "onemin_members_run_url",
-            "browseract_onemin_members_run_url",
-        )
-        members_workflow_id = _binding_workflow_id(
-            binding_metadata,
-            "onemin_members_workflow_id",
-            "browseract_onemin_members_workflow_id",
-        )
-        account_labels = _resolve_onemin_account_labels(binding)
-        binding_account_login_credentials: dict[str, dict[str, str]] = {}
-        bound_account_labels.update(account_labels)
-        for account_label in account_labels:
-            credentials = upstream.onemin_account_login_credentials(
-                account_name=account_label,
-                binding_metadata=binding_metadata,
+    try:
+        for binding in bindings:
+            binding_metadata = dict(binding.auth_metadata_json or {})
+            billing_run_url = _binding_run_url(
+                binding_metadata,
+                "onemin_billing_usage_run_url",
+                "browseract_onemin_billing_usage_run_url",
+                "run_url",
             )
-            if credentials:
-                binding_account_login_credentials[account_label] = credentials
-                bound_account_login_credentials[account_label] = credentials
-        if not account_labels:
-            skipped.append(
-                {
-                    "binding_id": binding.binding_id,
-                    "external_account_ref": binding.external_account_ref,
-                    "reason": "account_label_unresolved",
-                }
+            billing_workflow_id = _binding_workflow_id(
+                binding_metadata,
+                "onemin_billing_usage_workflow_id",
+                "browseract_onemin_billing_usage_workflow_id",
+                "workflow_id",
             )
-            continue
-
-        for account_label in account_labels:
-            if not billing_run_url and not billing_workflow_id and account_label not in binding_account_login_credentials:
+            members_run_url = _binding_run_url(
+                binding_metadata,
+                "onemin_members_run_url",
+                "browseract_onemin_members_run_url",
+            )
+            members_workflow_id = _binding_workflow_id(
+                binding_metadata,
+                "onemin_members_workflow_id",
+                "browseract_onemin_members_workflow_id",
+            )
+            account_labels = _resolve_onemin_account_labels(binding)
+            binding_account_login_credentials: dict[str, dict[str, str]] = {}
+            bound_account_labels.update(account_labels)
+            for account_label in account_labels:
+                credentials = upstream.onemin_account_login_credentials(
+                    account_name=account_label,
+                    binding_metadata=binding_metadata,
+                )
+                if credentials:
+                    binding_account_login_credentials[account_label] = credentials
+                    bound_account_login_credentials[account_label] = credentials
+            if not account_labels:
+                skipped.append(
+                    {
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                        "reason": "account_label_unresolved",
+                    }
+                )
                 continue
-            try:
-                output = _invoke_browseract_tool(
-                    container=container,
-                    principal_id=context.principal_id,
-                    tool_name="browseract.onemin_billing_usage",
-                    action_kind="billing.inspect",
-                    payload_json={
-                        "binding_id": binding.binding_id,
-                        "account_label": account_label,
-                        "capture_raw_text": bool(payload.capture_raw_text),
-                        **({"run_url": billing_run_url} if billing_run_url else {}),
-                        **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
-                        **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
-                    },
-                )
-                billing_results.append(
-                    {
-                        "binding_id": binding.binding_id,
-                        "external_account_ref": binding.external_account_ref,
-                        "account_label": account_label,
-                        **output,
-                    }
-                )
-            except ToolExecutionError as exc:
-                errors.append(
-                    {
-                        "binding_id": binding.binding_id,
-                        "external_account_ref": binding.external_account_ref,
-                        "account_label": account_label,
-                        "tool_name": "browseract.onemin_billing_usage",
-                        "error": str(exc or "tool_execution_failed"),
-                    }
-                )
+            if refresh_allowed:
+                for account_label in account_labels:
+                    if not billing_run_url and not billing_workflow_id:
+                        continue
+                    try:
+                        output = _invoke_browseract_tool(
+                            container=container,
+                            principal_id=context.principal_id,
+                            tool_name="browseract.onemin_billing_usage",
+                            action_kind="billing.inspect",
+                            payload_json={
+                                "binding_id": binding.binding_id,
+                                "account_label": account_label,
+                                "capture_raw_text": bool(payload.capture_raw_text),
+                                **({"run_url": billing_run_url} if billing_run_url else {}),
+                                **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
+                                **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
+                            },
+                        )
+                        billing_results.append(
+                            {
+                                "binding_id": binding.binding_id,
+                                "external_account_ref": binding.external_account_ref,
+                                "account_label": account_label,
+                                **output,
+                            }
+                        )
+                    except ToolExecutionError as exc:
+                        errors.append(
+                            {
+                                "binding_id": binding.binding_id,
+                                "external_account_ref": binding.external_account_ref,
+                                "account_label": account_label,
+                                "tool_name": "browseract.onemin_billing_usage",
+                                "error": str(exc or "tool_execution_failed"),
+                            }
+                        )
 
-        if not payload.include_members:
-            continue
-        for account_label in account_labels:
-            if not members_run_url and not members_workflow_id and account_label not in binding_account_login_credentials:
-                continue
-            try:
-                output = _invoke_browseract_tool(
-                    container=container,
-                    principal_id=context.principal_id,
-                    tool_name="browseract.onemin_member_reconciliation",
-                    action_kind="billing.reconcile_members",
-                    payload_json={
-                        "binding_id": binding.binding_id,
-                        "account_label": account_label,
-                        "capture_raw_text": bool(payload.capture_raw_text),
-                        **({"run_url": members_run_url} if members_run_url else {}),
-                        **({"workflow_id": members_workflow_id} if members_workflow_id else {}),
-                        **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
-                    },
-                )
-                member_results.append(
-                    {
-                        "binding_id": binding.binding_id,
-                        "external_account_ref": binding.external_account_ref,
-                        "account_label": account_label,
-                        **output,
-                    }
-                )
-            except ToolExecutionError as exc:
-                errors.append(
-                    {
-                        "binding_id": binding.binding_id,
-                        "external_account_ref": binding.external_account_ref,
-                        "account_label": account_label,
-                        "tool_name": "browseract.onemin_member_reconciliation",
-                        "error": str(exc or "tool_execution_failed"),
-                    }
-                )
+                if not payload.include_members:
+                    continue
+                for account_label in account_labels:
+                    if not members_run_url and not members_workflow_id:
+                        continue
+                    try:
+                        output = _invoke_browseract_tool(
+                            container=container,
+                            principal_id=context.principal_id,
+                            tool_name="browseract.onemin_member_reconciliation",
+                            action_kind="billing.reconcile_members",
+                            payload_json={
+                                "binding_id": binding.binding_id,
+                                "account_label": account_label,
+                                "capture_raw_text": bool(payload.capture_raw_text),
+                                **({"run_url": members_run_url} if members_run_url else {}),
+                                **({"workflow_id": members_workflow_id} if members_workflow_id else {}),
+                                **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
+                            },
+                        )
+                        member_results.append(
+                            {
+                                "binding_id": binding.binding_id,
+                                "external_account_ref": binding.external_account_ref,
+                                "account_label": account_label,
+                                **output,
+                            }
+                        )
+                    except ToolExecutionError as exc:
+                        errors.append(
+                            {
+                                "binding_id": binding.binding_id,
+                                "external_account_ref": binding.external_account_ref,
+                                "account_label": account_label,
+                                "tool_name": "browseract.onemin_member_reconciliation",
+                                "error": str(exc or "tool_execution_failed"),
+                            }
+                        )
 
-    api_billing_results: list[dict[str, object]] = []
-    api_member_results: list[dict[str, object]] = []
-    api_attempted_count = 0
-    api_skipped_count = 0
-    api_rate_limited = False
-    allow_global_provider_api = bool(payload.provider_api_all_accounts) and operator_allowed
-    effective_include_provider_api = bool(payload.include_provider_api)
-    if effective_include_provider_api and not allow_global_provider_api and not bound_account_labels:
-        effective_include_provider_api = False
-    if effective_include_provider_api:
-        (
-            api_billing_results,
-            api_member_results,
-            api_errors,
-            api_attempted_count,
-            api_skipped_count,
-            api_rate_limited,
-        ) = _refresh_onemin_via_provider_api(
-            include_members=bool(payload.include_members),
-            timeout_seconds=timeout_seconds,
-            all_accounts=allow_global_provider_api,
-            continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
-            account_labels=None if allow_global_provider_api else bound_account_labels,
-            account_login_credentials=None if allow_global_provider_api else bound_account_login_credentials,
-        )
-        billing_results.extend(api_billing_results)
-        member_results.extend(api_member_results)
-        errors.extend(api_errors)
+        api_billing_results: list[dict[str, object]] = []
+        api_member_results: list[dict[str, object]] = []
+        api_attempted_count = 0
+        api_skipped_count = 0
+        api_rate_limited = False
+        allow_global_provider_api = bool(payload.provider_api_all_accounts) and operator_allowed
+        effective_include_provider_api = bool(payload.include_provider_api)
+        all_api_account_rows = [
+            row for row in upstream.onemin_owner_rows() if row.get("account_name") and row.get("owner_email")
+        ]
+        if effective_include_provider_api and not allow_global_provider_api and not bound_account_labels:
+            effective_include_provider_api = False
+        if refresh_allowed and effective_include_provider_api:
+            (
+                api_billing_results,
+                api_member_results,
+                api_errors,
+                api_attempted_count,
+                api_skipped_count,
+                api_rate_limited,
+            ) = _refresh_onemin_via_provider_api(
+                include_members=bool(payload.include_members),
+                timeout_seconds=timeout_seconds,
+                all_accounts=allow_global_provider_api,
+                continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
+                account_labels=None if allow_global_provider_api else bound_account_labels,
+                account_login_credentials=None if allow_global_provider_api else bound_account_login_credentials,
+            )
+            billing_results.extend(api_billing_results)
+            member_results.extend(api_member_results)
+            errors.extend(api_errors)
+        elif effective_include_provider_api:
+            api_skipped_count = len(all_api_account_rows) if allow_global_provider_api else len(bound_account_labels)
 
-    note = ""
-    if bool(payload.include_provider_api) and not effective_include_provider_api:
-        note = "Direct 1min API refresh is disabled without operator scope or a bound account selection."
-    elif not bindings and api_billing_results:
-        note = "No BrowserAct connector bindings were configured; refreshed bound 1min account telemetry through the direct 1min API."
-    elif not bindings and api_rate_limited:
-        note = "No enabled BrowserAct connector bindings were configured, and direct 1min API calls were rate-limited. Retry later or add BrowserAct bindings for browser-backed billing probes."
-    elif not bindings:
-        note = "No enabled BrowserAct connector bindings were configured for this principal."
-    elif not billing_results and not member_results and not errors:
-        note = "No BrowserAct 1min billing or member workflows were configured on the selected bindings."
+        note = ""
+        if not refresh_allowed:
+            throttle_window = max(int(round(throttle_seconds_remaining)), 1)
+            if throttle_reason == "in_flight":
+                note = f"Live 1min billing refresh is already in progress; retry in about {throttle_window}s."
+            else:
+                note = f"Live 1min billing refresh is throttled to one run per minute; retry in about {throttle_window}s."
+        elif bool(payload.include_provider_api) and not effective_include_provider_api:
+            note = "Direct 1min API refresh is disabled without operator scope or a bound account selection."
+        elif not bindings and api_billing_results:
+            note = "No BrowserAct connector bindings were configured; refreshed bound 1min account telemetry through the direct 1min API."
+        elif not bindings and api_rate_limited:
+            note = "No enabled BrowserAct connector bindings were configured, and direct 1min API calls were rate-limited. Retry later or add BrowserAct bindings for browser-backed billing probes."
+        elif not bindings:
+            note = "No enabled BrowserAct connector bindings were configured for this principal."
+        elif not billing_results and not member_results and not errors:
+            note = "No BrowserAct 1min billing or member workflows were configured on the selected bindings."
 
-    return {
-        "provider_key": "onemin",
-        "principal_id": context.principal_id,
-        "connector_binding_count": len(bindings),
-        "api_account_count": len([row for row in upstream.onemin_owner_rows() if row.get("account_name") and row.get("owner_email")]),
-        "api_account_attempted": api_attempted_count,
-        "api_account_skipped": api_skipped_count,
-        "api_rate_limited": api_rate_limited,
-        "provider_api_scope": "global" if allow_global_provider_api else "bound_accounts_only",
-        "selected_binding_ids": [binding.binding_id for binding in bindings],
-        "billing_refresh_count": len(billing_results),
-        "member_reconciliation_count": len(member_results),
-        "api_billing_refresh_count": len(api_billing_results),
-        "api_member_reconciliation_count": len(api_member_results),
-        "billing_results": billing_results,
-        "member_results": member_results,
-        "errors": errors,
-        "skipped": skipped,
-        "note": note,
-    }
+        return {
+            "provider_key": "onemin",
+            "principal_id": context.principal_id,
+            "connector_binding_count": len(bindings),
+            "api_account_count": len(all_api_account_rows),
+            "api_account_attempted": api_attempted_count,
+            "api_account_skipped": api_skipped_count,
+            "api_rate_limited": api_rate_limited,
+            "refresh_throttled": not refresh_allowed,
+            "refresh_throttle_seconds_remaining": max(int(round(throttle_seconds_remaining)), 0) if not refresh_allowed else 0,
+            "provider_api_scope": "global" if allow_global_provider_api else "bound_accounts_only",
+            "selected_binding_ids": [binding.binding_id for binding in bindings],
+            "billing_refresh_count": len(billing_results),
+            "member_reconciliation_count": len(member_results),
+            "api_billing_refresh_count": len(api_billing_results),
+            "api_member_reconciliation_count": len(api_member_results),
+            "billing_results": billing_results,
+            "member_results": member_results,
+            "errors": errors,
+            "skipped": skipped,
+            "note": note,
+        }
+    finally:
+        if refresh_allowed:
+            container.onemin_manager.finish_billing_refresh()
 
 
 @router.post("/onemin/member-reconcile", response_model=None)
