@@ -31,13 +31,15 @@ from app.api.routes.landing_content import (
     TRUST_CARDS,
 )
 from app.api.routes.landing_view_models import (
-    admin_section_payload as _admin_section_payload,
     app_section_payload as _app_section_payload,
     channel_cards as _channel_cards,
     humanize as _humanize,
     list_rows as _list_rows,
 )
+from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
+from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
+from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
 
@@ -532,6 +534,18 @@ def get_started(
     privacy = dict(status.get("privacy") or {})
     selected_channels = {str(value) for value in (status.get("selected_channels") or []) if str(value).strip()}
     google = dict(channels.get("google") or {})
+    activation_preview = {
+        "brief": (),
+        "queue": (),
+        "commitments": (),
+    }
+    if principal_id:
+        snapshot = build_product_service(container).workspace_snapshot(principal_id=principal_id)
+        activation_preview = {
+            "brief": tuple(item.title for item in snapshot.brief_items[:3]),
+            "queue": tuple(item.title for item in snapshot.queue_items[:3]),
+            "commitments": tuple(item.statement for item in snapshot.commitments[:3]),
+        }
     return _render_public_template(
         request,
         "get_started.html",
@@ -548,6 +562,7 @@ def get_started(
                 "channels": channels,
                 "selected_channels": selected_channels,
                 "google": google,
+                "activation_preview": activation_preview,
                 "shared_browser_fields": _shared_browser_fields(
                     principal_id=principal_id,
                     access_identity=access_identity,
@@ -563,6 +578,51 @@ def app_root() -> RedirectResponse:
     return RedirectResponse("/app/today", status_code=307)
 
 
+@router.get("/app/people", response_class=HTMLResponse)
+def people_root() -> RedirectResponse:
+    return RedirectResponse("/app/memory", status_code=307)
+
+
+@router.get("/app/people/{person_id}", response_class=HTMLResponse)
+def person_detail(
+    person_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    detail = product.get_person_detail(principal_id=context.principal_id, person_id=person_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return _render_public_template(
+        request,
+        "app/people_detail.html",
+        **{
+            **_console_shell_context(
+                request=request,
+                page_title=f"Executive Assistant {detail.profile.display_name}",
+                current_nav="memory",
+                context=context,
+                console_title=detail.profile.display_name,
+                console_summary="Relationship context, open loops, current drafts, and evidence tied to one person.",
+                nav_groups=APP_NAV_GROUPS,
+                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                cards=[],
+                stats=[
+                    {"label": "Open loops", "value": str(detail.profile.open_loops_count)},
+                    {"label": "Commitments", "value": str(len(detail.commitments))},
+                    {"label": "Drafts", "value": str(len(detail.drafts))},
+                    {"label": "Evidence", "value": str(len(detail.evidence_refs))},
+                ],
+            ),
+            "person": detail.profile,
+            "detail": detail,
+        },
+    )
+
+
 @router.get("/app/{section}", response_class=HTMLResponse)
 def app_shell(
     section: str,
@@ -574,11 +634,19 @@ def app_shell(
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     status = container.onboarding.status(principal_id=context.principal_id)
-    payload = _app_section_payload(
-        section,
-        status,
-        live_feed=_app_live_feed(container, principal_id=context.principal_id),
-    )
+    core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts"}
+    if section in core_sections:
+        product = build_product_service(container)
+        payload = _workspace_section_payload(
+            section,
+            product.workspace_snapshot(principal_id=context.principal_id),
+        )
+    else:
+        payload = _app_section_payload(
+            section,
+            status,
+            live_feed=_app_live_feed(container, principal_id=context.principal_id),
+        )
     workspace = dict(status.get("workspace") or {})
     return _render_public_template(
         request,
@@ -607,13 +675,14 @@ def admin_root() -> RedirectResponse:
 def admin_shell(
     section: str,
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     _: None = Depends(require_operator_context),
 ) -> HTMLResponse:
     allowed = {row["key"] for group in ADMIN_NAV_GROUPS for row in group["items"]}
     if section not in allowed:
         raise HTTPException(status_code=404, detail="admin_section_not_found")
-    payload = _admin_section_payload(section)
+    payload = _build_admin_section_payload(section, container=container, principal_id=context.principal_id)
     return _render_public_template(
         request,
         "console_shell.html",

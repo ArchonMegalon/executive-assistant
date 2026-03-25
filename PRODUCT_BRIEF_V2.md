@@ -15,6 +15,17 @@ The first wedge is intentionally narrow:
 - one decision queue
 - one commitment system
 
+## Core product boundary
+
+In product mode, Executive Assistant includes:
+
+- the public marketing surface
+- onboarding / activation
+- the authenticated workspace
+- operator/admin controls for the same workspace
+
+It does not include optional experimental public utility routes such as `/results/*` or `/tours/*` unless those are explicitly enabled for a non-core deployment.
+
 ## Core objects
 
 Everything in the product should reduce to a small set of objects:

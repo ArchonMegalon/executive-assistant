@@ -1,0 +1,274 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .detail-grid,
+  .detail-meta,
+  .detail-sections,
+  .detail-list {
+    display: grid;
+    gap: 14px;
+  }
+  .detail-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  }
+  .detail-panel,
+  .detail-section,
+  .detail-meta-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+    padding: 18px;
+  }
+  .detail-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .detail-copy {
+    color: var(--text-soft);
+  }
+  .detail-meta {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .detail-meta-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .detail-meta-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.2rem;
+  }
+  .detail-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .detail-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .detail-row strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .detail-row small {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .detail-tag {
+    white-space: nowrap;
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  @media (max-width: 1080px) {
+    .detail-grid,
+    .detail-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+{% macro detail_rows(items, empty_title, empty_detail, empty_tag) -%}
+<div class="detail-list">
+  {% if items %}
+    {% for item in items %}
+    <div class="detail-row">
+      <div>
+        <strong>{{ item.title }}</strong>
+        <small>{{ item.detail }}</small>
+      </div>
+      <div class="detail-tag">{{ item.tag }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="detail-row">
+      <div>
+        <strong>{{ empty_title }}</strong>
+        <small>{{ empty_detail }}</small>
+      </div>
+      <div class="detail-tag">{{ empty_tag }}</div>
+    </div>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+<section class="detail-grid">
+  <section class="detail-panel">
+    <div class="detail-kicker">People graph</div>
+    <h1>{{ person.display_name }}</h1>
+    <p class="detail-copy">{{ person.role_or_company or "Relationship context is still forming." }}</p>
+    <div class="detail-meta">
+      <div class="detail-meta-card">
+        <span>Relationship</span>
+        <strong>{{ person.relationship_temperature|title }}</strong>
+      </div>
+      <div class="detail-meta-card">
+        <span>Open loops</span>
+        <strong>{{ person.open_loops_count }}</strong>
+      </div>
+      <div class="detail-meta-card">
+        <span>Preferred tone</span>
+        <strong>{{ person.preferred_tone or "direct" }}</strong>
+      </div>
+      <div class="detail-meta-card">
+        <span>Last touchpoint</span>
+        <strong>{{ person.latest_touchpoint_at[:10] if person.latest_touchpoint_at else "Unknown" }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <aside class="detail-panel">
+    <div class="detail-kicker">Office summary</div>
+    <h2>Why this person matters now</h2>
+    <p class="detail-copy">Keep the relationship tied to open commitments, active drafts, and the current queue instead of treating contacts as a dead list.</p>
+    <div class="detail-list">
+      <div class="detail-row">
+        <div>
+          <strong>Themes</strong>
+          <small>{{ person.themes|join(" · ") if person.themes else "No recurring themes stored yet." }}</small>
+        </div>
+        <div class="detail-tag">Themes</div>
+      </div>
+      <div class="detail-row">
+        <div>
+          <strong>Risks</strong>
+          <small>{{ person.risks|join(" · ") if person.risks else "No explicit risk markers yet." }}</small>
+        </div>
+        <div class="detail-tag">Risk</div>
+      </div>
+      <div class="detail-row">
+        <div>
+          <strong>Evidence</strong>
+          <small>{{ detail.evidence_refs|length }} supporting refs are attached to this relationship view.</small>
+        </div>
+        <div class="detail-tag">Proof</div>
+      </div>
+    </div>
+  </aside>
+</section>
+
+<section class="detail-sections">
+  <section class="detail-section">
+    <div class="detail-kicker">Commitment ledger</div>
+    <h2>Open commitments</h2>
+    <div class="detail-list">
+      {% if detail.commitments %}
+        {% for item in detail.commitments %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ item.statement }}</strong>
+            <small>{{ item.counterparty }}{% if item.due_at %} · due {{ item.due_at[:10] }}{% endif %}{% if item.proof_refs %} · {{ item.proof_refs[0].note }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">{{ item.risk_level|title }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No open commitments</strong>
+            <small>No current commitment rows are tied to this person.</small>
+          </div>
+          <div class="detail-tag">Clear</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <div class="detail-kicker">Draft queue</div>
+    <h2>Active drafts</h2>
+    <div class="detail-list">
+      {% if detail.drafts %}
+        {% for item in detail.drafts %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ item.recipient_summary }}</strong>
+            <small>{{ item.intent|title }} · {{ item.send_channel }} · {{ item.approval_status }}{% if item.draft_text %} · {{ item.draft_text[:120] }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">Draft</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No active drafts</strong>
+            <small>No current approval-backed drafts are attached to this person.</small>
+          </div>
+          <div class="detail-tag">Clear</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <div class="detail-kicker">Decision queue</div>
+    <h2>Queue items touching this relationship</h2>
+    <div class="detail-list">
+      {% if detail.queue_items %}
+        {% for item in detail.queue_items %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.summary }}{% if item.deadline %} · due {{ item.deadline[:10] }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">{{ item.priority|title }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No active queue items</strong>
+            <small>No approvals, tasks, or decision windows are currently tied to this person.</small>
+          </div>
+          <div class="detail-tag">Clear</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <div class="detail-kicker">Evidence</div>
+    <h2>Why the product surfaced this person</h2>
+    <div class="detail-list">
+      {% if detail.evidence_refs %}
+        {% for ref in detail.evidence_refs %}
+        <div class="detail-row">
+          <div>
+            <strong>{{ ref.label }}</strong>
+            <small>{{ ref.note or ref.source_type or "Evidence is attached to this relationship." }}</small>
+          </div>
+          <div class="detail-tag">{{ ref.source_type|replace("_", " ")|title or "Evidence" }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No evidence refs yet</strong>
+            <small>This relationship is present, but no explicit evidence refs have been projected yet.</small>
+          </div>
+          <div class="detail-tag">Empty</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+</section>
+{% endblock %}

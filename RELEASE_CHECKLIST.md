@@ -5,6 +5,7 @@
 - [ ] `git status` is clean on release branch.
 - [ ] `.env` is present with production-safe values.
 - [ ] `EA_STORAGE_BACKEND=postgres` and `DATABASE_URL` are set.
+- [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.
 - [ ] Optional local parity run completed: `make ci-gates`.
@@ -34,6 +35,7 @@
 
 - [ ] Optional one-command release bundle: `make release-preflight`
 - [ ] `make release-smoke`
+- [ ] Browser surface contract tests confirm no product-surface links to experimental routes in product mode.
 - [ ] `make operator-help` (manual spot-check of script usage contracts)
 - [ ] Optional combined local mirror: `make ci-gates`
 - [ ] Confirm blocked-policy path returns `403`.

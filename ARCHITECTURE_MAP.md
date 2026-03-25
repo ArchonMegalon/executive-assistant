@@ -6,6 +6,12 @@
 - ASGI app export: `ea/app/main.py`
 - Process runner / role switch: `ea/app/runner.py`
 
+## Core Product Boundary
+
+- Core product browser surface: `/`, `/product`, `/integrations`, `/security`, `/pricing`, `/docs`, `/get-started`, `/sign-in`, `/app/*`, `/admin/*`
+- Optional experimental public utility routes: `/results/*`, `/tours/*`
+- Product deployments should keep the experimental routes disabled unless explicitly required for a non-core use case
+
 ## Runtime Profile
 
 - Settings shape: `ea/app/settings.py`

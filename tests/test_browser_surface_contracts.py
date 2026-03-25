@@ -38,6 +38,9 @@ def _client(*, principal_id: str = "exec-browser-contract") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = ""
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
     os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
     os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     from app.api.app import create_app
@@ -71,8 +74,17 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Start the day with a morning memo" in landing.text
     assert "Get started" in landing.text
     for href in _internal_links(landing.text):
+        assert not href.startswith("/tours")
+        assert not href.startswith("/results")
         resolved = client.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
+
+
+def test_experimental_routes_are_unavailable_in_product_mode_by_default() -> None:
+    client = _client()
+    for path in ("/tours/example-tour", "/results/example-result"):
+        response = client.get(path)
+        assert response.status_code == 404, path
 
 
 def test_app_surface_routes_render_without_product_drift() -> None:
