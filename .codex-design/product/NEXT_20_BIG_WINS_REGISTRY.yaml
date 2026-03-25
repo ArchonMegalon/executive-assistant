@@ -1,0 +1,300 @@
+product: chummer
+version: 1
+last_reviewed: 2026-03-25
+program_wave: next_20_big_wins
+goal: Make the campaign center-of-gravity executable and then expand into the Build/Explain and trust surfaces.
+status: in_progress
+
+waves:
+  - id: W0
+    name: Close truth drift and make steering loop real
+    milestone_ids:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+    status: in_progress
+  - id: W1
+    name: Make campaign middle executable
+    milestone_ids:
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+    status: not_started
+  - id: W2
+    name: "Build the first moat: Build and Explain"
+    milestone_ids:
+      - 12
+      - 13
+      - 14
+      - 15
+      - 16
+    status: not_started
+  - id: W3
+    name: Trust and support as first-class surfaces
+    milestone_ids:
+      - 17
+      - 18
+      - 19
+      - 20
+    status: not_started
+
+milestones:
+  - id: 1
+    title: Publish a real closeout for the previous 15 wins
+    wave: W0
+    owners:
+      - chummer6-design
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-hub-registry
+      - fleet
+      - Chummer6
+    status: in_progress
+    exit_criteria:
+      - roadmap, canonical README, release-evidence text, public progress wording, and public guide agree on the same current state
+      - prior 15 wins are marked complete, split into follow-on work, or explicitly demoted
+      - public guide and design canon no longer disagree on what is done versus in-flight
+  - id: 2
+    title: Compile the public guide repo from design canon
+    wave: W0
+    owners:
+      - chummer6-design
+      - Chummer6
+      - fleet
+      - chummer6-hub
+    status: in_progress
+    dependencies:
+      - 3
+      - 1
+    exit_criteria:
+      - canonical source artifacts are generated into a committed public-guide output
+      - guide route copy uses public-facing summaries from published design registries
+      - stale hand-maintained guide copies are removed or re-pointed as downstream build outputs
+  - id: 3
+    title: Promote PUBLIC_TRUST_CONTENT.yaml into the canonical and verified set
+    wave: W0
+    owners:
+      - chummer6-design
+      - fleet
+    status: complete
+    exit_criteria:
+      - README canonical-set includes PUBLIC_TRUST_CONTENT.yaml
+      - verify enforces presence and schema/anchors for PUBLIC_TRUST_CONTENT.yaml
+      - help/contact/download pages consume declared trust content instead of diverging drafts
+  - id: 4
+    title: Make the weekly product pulse automatic and decision-relevant
+    wave: W0
+    owners:
+      - chummer6-design
+      - fleet
+      - chummer6-hub
+    status: in_progress
+    dependencies:
+      - 3
+    exit_criteria:
+      - automated weekly pulse snapshots are materialized and published by schedule
+      - progress history has depth beyond a single snapshot
+      - Product Governor decisions cite pulse snapshots directly for freeze / reroute / defer
+  - id: 5
+    title: Introduce a real additive-wave milestone registry
+    wave: W0
+    owners:
+      - chummer6-design
+    status: in_progress
+    exit_criteria:
+      - machine-readable registry contains 20 additive milestones with owners and exit criteria
+      - validators can reason against milestone states and next-wave references
+      - scorecard, blockers, and roadmap reference registry milestones directly
+  - id: 6
+    title: Ship Chummer.Campaign.Contracts as a real preview package family
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-media-factory
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - package-owned campaign contracts are consumed instead of local shadow shapes
+      - verification proves package-only consumption in UI, mobile, and media-factory
+      - versioning and migration notes are explicit in release evidence
+  - id: 7
+    title: Make the living dossier a real runtime object
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - build receipt -> dossier -> play -> recap -> return path is preserved across contexts
+      - dossier continuity survives claimed-device handoff and reconnect
+      - publication-safe dossier projections are first-class objects
+  - id: 8
+    title: Ship RuleEnvironment as first-class truth
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - rule environments exist for personal, campaign, and group scopes
+      - compatibility fingerprints and approval states are visible
+      - clients never compute against wrong environment silently
+  - id: 9
+    title: Make roaming workspace sync real across claimed devices
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - dossiers, campaigns, environments, artifacts, and entitlements restore on a claimed second device
+      - explicit conflict handling replaces silent last-write-wins
+      - secrets and local caches remain install-local
+  - id: 10
+    title: Ship the home cockpit and device-role model
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - home shows next safe action and what changed for the signed-in user
+      - device roles are visible and actionable from cockpit
+      - campaign / install / dossier visibility exists in one place
+  - id: 11
+    title: Deliver the campaign workspace / GM runboard
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - campaign roster, run state, objectives, recap, and continuity are visible in one workspace
+      - campaign return is coherent and not fragmented across unrelated screens
+      - GM health and readiness operate from shared workspace signals
+  - id: 12
+    title: Ship the Build Lab backend
+    wave: W2
+    owners:
+      - chummer6-core
+    status: not_started
+    exit_criteria:
+      - deterministic candidate generation and scoring output is available
+      - explain packets exist for every material recommendation
+      - outputs hand off to dossier/campaign state cleanly
+  - id: 13
+    title: Ship Build Lab UX end to end
+    wave: W2
+    owners:
+      - chummer6-ui
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - concept intake and candidate comparison are real user flows
+      - tradeoff and progression views are grounded
+      - Build Lab outputs feed dossier and campaign truth
+  - id: 14
+    title: Launch Rules Navigator as a first-class product surface
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - rule lookup and provenance are user-facing and explainable
+      - answer paths return evidence-backed before/after explanations
+      - support/help surfaces reuse explain truth instead of inventing behavior
+  - id: 15
+    title: Add interop as a first-class product promise
+    wave: W2
+    owners:
+      - chummer6-design
+      - chummer6-core
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - portability/import-export canon is explicit
+      - dossier and campaign package formats are defined
+      - interoperability is first-class in promise and implementation scope
+  - id: 16
+    title: Complete legacy migration from character-file thinking
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - imports land in living dossier and campaign spines
+      - migration receipts identify safe, risky, and blocked fields
+      - regression suite covers legacy edge cases
+  - id: 17
+    title: Turn the public release surface into a real trust surface
+    wave: W3
+    owners:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-ui
+      - fleet
+    status: not_started
+    exit_criteria:
+      - /downloads, known issues, release notes, and support status share same record source
+      - users can see recommended installer and channel posture
+      - fixed claims are channel-aware and timing-accurate
+  - id: 18
+    title: Build the grounded support assistant on real case truth
+    wave: W3
+    owners:
+      - chummer6-hub
+      - fleet
+      - executive-assistant
+      - chummer6-design
+    status: not_started
+    dependencies:
+      - 17
+    exit_criteria:
+      - assistant sources from curated help, release, and case data
+      - low-confidence and unsupported cases escalate to human triage
+      - support remains case-of-record in Hub
+  - id: 19
+    title: Create the organizer / community operator layer
+    wave: W3
+    owners:
+      - chummer6-hub
+      - executive-assistant
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - explicit community/operator roles and campaign permissions are available
+      - organizer-facing surfaces are first-class and controlled by same account model
+      - rewards remain subordinate to campaign/identity truth
+  - id: 20
+    title: Turn creator publication into a second pillar
+    wave: W3
+    owners:
+      - chummer6-media-factory
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - publication flow is coherent and governed
+      - creator outputs have shared provenance and discovery rules
+      - campaign and creator outputs share one trusted publication posture
