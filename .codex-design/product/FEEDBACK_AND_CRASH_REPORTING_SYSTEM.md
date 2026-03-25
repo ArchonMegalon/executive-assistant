@@ -264,17 +264,17 @@ The default safe attachment/report metadata is:
 
 Full diagnostics remain opt-in.
 
-## Assistant-later rule
+## Assistant rule
 
-If a support assistant is approved later, it must:
+Now that the first support plane is real, the grounded assistant may exist only as the later phase-2 layer. It must:
 
 * live on Hub/help-center surfaces first
 * answer from curated help, known-issue, and support-case sources
 * hand off cleanly to human support when confidence is low
 * remain optional rather than gating crash or bug submission
 
-The assistant is phase 2.
-It is not the first support feature.
+The assistant remains phase 2.
+It is not the first support feature and it is not the system of record.
 
 ## External-tool and LTD rule
 

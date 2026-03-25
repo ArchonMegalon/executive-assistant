@@ -39,7 +39,9 @@ The dossier may carry:
 
 * stable runner identity
 * campaign and crew links
+* rule-environment refs
 * continuity and recovery links
+* immutable snapshot and branch refs
 * recap and publication-safe projections
 
 ### 4. Session-active dossier
@@ -108,3 +110,16 @@ Must not own:
 The user should be able to say:
 
 > this is still my runner, my crew, and my run, even after I switched surfaces, disconnected, came back, or generated a recap packet.
+
+## Claimed-device restore rule
+
+A second claimed device should restore the dossier story through typed refs rather than raw file mirroring.
+
+That restore may surface:
+
+* recent runner identity
+* last-known campaign binding
+* newer-draft cues from another device
+* explicit latest, compare, branch, or stay-local choices
+
+It must not silently replace a local draft, hide a rule-environment mismatch, or pretend an artifact export is the canonical dossier.

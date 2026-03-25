@@ -18,6 +18,7 @@ That middle needs explicit canon for the things users actually carry across time
 * runner dossier
 * crew
 * campaign
+* rule environment
 * run
 * scene
 * objective
@@ -51,6 +52,7 @@ It is a campaign-facing working set with role, availability, trust, and assignme
 The long-lived operation frame that contains:
 
 * crew membership or roster context
+* active rule environment
 * run history
 * objectives
 * continuity state
@@ -140,6 +142,7 @@ It should carry:
 
 * runner dossier identity and version refs
 * crew and campaign identity
+* rule-environment refs and compatibility fingerprints
 * run, scene, and objective refs
 * continuity snapshot refs
 * replay-safe event or recap linkage

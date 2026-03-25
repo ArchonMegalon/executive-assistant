@@ -13,6 +13,7 @@ Current canonical journeys:
 
 * `build-and-inspect-a-character.md`
 * `rejoin-after-disconnect.md`
+* `continue-on-a-second-claimed-device.md`
 * `install-and-update.md`
 * `claim-install-and-close-a-support-case.md`
 * `run-a-campaign-and-return.md`

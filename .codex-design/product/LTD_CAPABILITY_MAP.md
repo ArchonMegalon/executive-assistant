@@ -65,7 +65,7 @@ Current rule:
 * Chummer does not need another AppSumo LTD to ship the core crash path.
 * No AppSumo chat/support product is promoted as the first support feature.
 * `MetaSurvey` and `Documentation.AI` are enough to start structured feedback and help projection behind Hub-owned adapters.
-* Any later support assistant is phase 2, Hub-owned, grounded on curated help/known-issue sources, and optional rather than gating crash or bug submission.
+* The grounded support assistant is the phase-2 layer: Hub-owned, grounded on curated help/known-issue and signed-in case sources, and optional rather than gating crash or bug submission.
 
 ## Bounded owner assignments
 

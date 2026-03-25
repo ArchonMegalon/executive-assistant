@@ -34,10 +34,12 @@ Canonical detail:
 
 ## Run
 
-Goal: keep the same runner, crew, and session alive across live play, reconnect, and recovery.
+Goal: keep the same runner, crew, campaign, and recent workspace alive across live play, claimed-device handoff, reconnect, and recovery.
 
 Canonical detail:
 
+* `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+* `journeys/continue-on-a-second-claimed-device.md`
 * `journeys/rejoin-after-disconnect.md`
 * `journeys/recover-from-sync-conflict.md`
 * `journeys/run-a-campaign-and-return.md`

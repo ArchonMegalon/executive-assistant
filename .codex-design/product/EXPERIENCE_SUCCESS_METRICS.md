@@ -36,12 +36,13 @@ Primary canon:
 
 User promise:
 
-* the same runner, crew, and session survive reconnect, continuity drift, and replay-driven recovery
+* the same runner, crew, campaign, and recent workspace survive claimed-device handoff, reconnect, continuity drift, and replay-driven recovery
 
 Primary canon:
 
 * `METRICS_AND_SLOS.yaml` -> `session_continuity`
 * `METRICS_AND_SLOS.yaml` -> `campaign_and_dossier_continuity`
+* `METRICS_AND_SLOS.yaml` -> `roaming_workspace_trust`
 * `PRODUCT_HEALTH_SCORECARD.yaml` -> `campaign_middle_health`
 
 ## Publish

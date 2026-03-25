@@ -261,6 +261,18 @@ Target outcomes:
 * badge correction path
 * entitlement revoke/grant audit path
 
+### HUB-P1-04
+
+Task: turn claimed installs into a roaming workspace backed by the existing account, campaign, and entitlement spine.
+
+Target outcomes:
+
+* person, campaign, and group-scoped workspace restore
+* rule-environment refs instead of ad hoc house-rule blobs
+* artifact-shelf restore by manifest or reference
+* capability grants instead of synced premium flags
+* explicit device-handoff conflict choices instead of silent last-write-wins
+
 ## P2 backlog
 
 ### HUB-P2-01

@@ -27,4 +27,4 @@ Those statements no longer conflict once "foundation complete" is kept separate 
 
 * weekly history depth must grow before public ETA can lean on measured velocity instead of mostly planning bands
 * `Chummer.Campaign.Contracts` and the living dossier still need to become the executable middle of the product
-* Build Lab, organizer or community operations, creator publication depth, and the later grounded support assistant remain additive growth lanes rather than closeout debt
+* Build Lab, organizer or community operations, and creator publication depth remain additive growth lanes rather than closeout debt
