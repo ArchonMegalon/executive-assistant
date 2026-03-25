@@ -5,6 +5,19 @@ from app.product.models import CommitmentItem, EvidenceRef
 from app.product.projections.common import compact_text, due_bonus, priority_weight, product_commitment_status
 
 
+def _as_float(value: object, *, default: float = 0.5) -> float:
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_str_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(str(item).strip() for item in value if str(item).strip())
+
+
 def commitment_item_from_commitment(row: Commitment) -> CommitmentItem:
     source = dict(row.source_json or {})
     return CommitmentItem(
@@ -26,10 +39,18 @@ def commitment_item_from_commitment(row: Commitment) -> CommitmentItem:
                 note=compact_text(row.details, fallback="Commitment is stored in workspace memory."),
             ),
         ),
+        confidence=_as_float(source.get("confidence"), default=0.82),
+        channel_hint=str(source.get("channel_hint") or "email"),
+        resolution_code=str(source.get("resolution_code") or ""),
+        resolution_reason=str(source.get("resolution_reason") or ""),
+        duplicate_of_ref=str(source.get("duplicate_of_ref") or ""),
+        merged_into_ref=str(source.get("merged_into_ref") or ""),
+        merged_from_refs=_as_str_tuple(source.get("merged_from_refs")),
     )
 
 
 def commitment_item_from_follow_up(row: FollowUp, stakeholders: dict[str, Stakeholder]) -> CommitmentItem:
+    source = dict(row.source_json or {})
     stakeholder = stakeholders.get(str(row.stakeholder_ref or "").strip())
     return CommitmentItem(
         id=f"follow_up:{row.follow_up_id}",
@@ -50,4 +71,11 @@ def commitment_item_from_follow_up(row: FollowUp, stakeholders: dict[str, Stakeh
                 note=compact_text(row.notes, fallback="Follow-up remains open in the workspace ledger."),
             ),
         ),
+        confidence=_as_float(source.get("confidence"), default=0.78),
+        channel_hint=str(source.get("channel_hint") or row.channel_hint or "email"),
+        resolution_code=str(source.get("resolution_code") or ""),
+        resolution_reason=str(source.get("resolution_reason") or ""),
+        duplicate_of_ref=str(source.get("duplicate_of_ref") or ""),
+        merged_into_ref=str(source.get("merged_into_ref") or ""),
+        merged_from_refs=_as_str_tuple(source.get("merged_from_refs")),
     )

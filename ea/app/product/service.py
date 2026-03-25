@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -49,6 +50,7 @@ _TEMPERATURE_BY_IMPORTANCE = {
     "medium": "steady",
     "low": "cool",
 }
+_COMMITMENT_KEY_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _now_iso() -> str:
@@ -91,6 +93,138 @@ class ProductService:
 
     def _commitment_item_from_follow_up(self, row: FollowUp, stakeholders: dict[str, Stakeholder]) -> CommitmentItem:
         return commitment_item_from_follow_up(row, stakeholders)
+
+    def _commitment_identity_key(self, *, title: str, counterparty: str = "") -> str:
+        normalized_title = _COMMITMENT_KEY_RE.sub(" ", str(title or "").strip().lower()).strip()
+        normalized_counterparty = _COMMITMENT_KEY_RE.sub(" ", str(counterparty or "").strip().lower()).strip()
+        if normalized_counterparty:
+            counterparty_parts = tuple(part for part in normalized_counterparty.split() if part)
+            stripped = False
+            suffixes: list[str] = [normalized_counterparty]
+            for index in range(len(counterparty_parts), 0, -1):
+                suffixes.append(" ".join(counterparty_parts[:index]))
+            for suffix in suffixes:
+                for prefix in (f" to {suffix}", f" for {suffix}", f" with {suffix}"):
+                    if normalized_title.endswith(prefix):
+                        normalized_title = normalized_title[: -len(prefix)].strip()
+                        stripped = True
+                        break
+                if stripped:
+                    break
+            if not stripped:
+                for suffix in suffixes:
+                    if normalized_title.endswith(suffix):
+                        normalized_title = normalized_title[: -len(suffix)].strip()
+                        break
+        return f"{normalized_title}|{normalized_counterparty}"
+
+    def _append_unique_refs(self, current: object, *values: str) -> tuple[str, ...]:
+        seen: set[str] = set()
+        rows: list[str] = []
+        if isinstance(current, (list, tuple)):
+            for item in current:
+                normalized = str(item or "").strip()
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    rows.append(normalized)
+        for value in values:
+            normalized = str(value or "").strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                rows.append(normalized)
+        return tuple(rows)
+
+    def _find_duplicate_commitment_ref(self, *, principal_id: str, title: str, counterparty: str = "") -> str:
+        wanted = self._commitment_identity_key(title=title, counterparty=counterparty)
+        if not wanted or wanted == "|":
+            return ""
+        stakeholders = self._stakeholder_lookup(principal_id)
+        for row in self._container.memory_runtime.list_commitments(principal_id=principal_id, limit=200, status=None):
+            candidate = self._commitment_item_from_commitment(row)
+            if self._commitment_identity_key(title=candidate.statement, counterparty=candidate.counterparty) == wanted:
+                return candidate.id
+        for row in self._container.memory_runtime.list_follow_ups(principal_id=principal_id, limit=200, status=None):
+            candidate = self._commitment_item_from_follow_up(row, stakeholders)
+            if self._commitment_identity_key(title=candidate.statement, counterparty=candidate.counterparty) == wanted:
+                return candidate.id
+        return ""
+
+    def _merge_candidate_into_existing(
+        self,
+        *,
+        principal_id: str,
+        duplicate_ref: str,
+        candidate_id: str,
+        title: str,
+        details: str,
+        due_at: str | None,
+        counterparty: str,
+        confidence: float,
+    ) -> CommitmentItem | None:
+        if duplicate_ref.startswith("commitment:"):
+            current = self._container.memory_runtime.get_commitment(duplicate_ref.split(":", 1)[1], principal_id=principal_id)
+            if current is None:
+                return None
+            source = dict(current.source_json or {})
+            merged_from_refs = self._append_unique_refs(source.get("merged_from_refs"), candidate_id)
+            updated = self._container.memory_runtime.upsert_commitment(
+                principal_id=principal_id,
+                commitment_id=current.commitment_id,
+                title=current.title,
+                details=current.details if details.strip() in {"", current.details.strip()} else f"{current.details}\n\nMerged candidate: {details.strip()}".strip(),
+                status="open" if not status_open(current.status) else current.status,
+                priority=current.priority,
+                due_at=due_at or current.due_at,
+                source_json={
+                    **source,
+                    "counterparty": counterparty.strip() or str(source.get("counterparty") or ""),
+                    "confidence": max(float(source.get("confidence") or 0.0), confidence),
+                    "merged_from_refs": list(merged_from_refs),
+                    "resolution_code": "" if not status_open(current.status) else str(source.get("resolution_code") or ""),
+                    "resolution_reason": "" if not status_open(current.status) else str(source.get("resolution_reason") or ""),
+                    "reopened_at": _now_iso() if not status_open(current.status) else str(source.get("reopened_at") or ""),
+                },
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="commitment_merged" if status_open(current.status) else "commitment_reopened",
+                payload={"candidate_id": candidate_id, "duplicate_of_ref": duplicate_ref, "title": title},
+                source_id=current.commitment_id,
+            )
+            return self._commitment_item_from_commitment(updated)
+        if duplicate_ref.startswith("follow_up:"):
+            current = self._container.memory_runtime.get_follow_up(duplicate_ref.split(":", 1)[1], principal_id=principal_id)
+            if current is None:
+                return None
+            source = dict(current.source_json or {})
+            merged_from_refs = self._append_unique_refs(source.get("merged_from_refs"), candidate_id)
+            updated = self._container.memory_runtime.upsert_follow_up(
+                principal_id=principal_id,
+                follow_up_id=current.follow_up_id,
+                stakeholder_ref=current.stakeholder_ref,
+                topic=current.topic,
+                status="open" if not status_open(current.status) else current.status,
+                due_at=due_at or current.due_at,
+                channel_hint=current.channel_hint,
+                notes=current.notes if details.strip() in {"", current.notes.strip()} else f"{current.notes}\n\nMerged candidate: {details.strip()}".strip(),
+                source_json={
+                    **source,
+                    "counterparty": counterparty.strip() or str(source.get("counterparty") or ""),
+                    "confidence": max(float(source.get("confidence") or 0.0), confidence),
+                    "merged_from_refs": list(merged_from_refs),
+                    "resolution_code": "" if not status_open(current.status) else str(source.get("resolution_code") or ""),
+                    "resolution_reason": "" if not status_open(current.status) else str(source.get("resolution_reason") or ""),
+                    "reopened_at": _now_iso() if not status_open(current.status) else str(source.get("reopened_at") or ""),
+                },
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="commitment_merged" if status_open(current.status) else "commitment_reopened",
+                payload={"candidate_id": candidate_id, "duplicate_of_ref": duplicate_ref, "title": title},
+                source_id=current.follow_up_id,
+            )
+            return self._commitment_item_from_follow_up(updated, self._stakeholder_lookup(principal_id))
+        return None
 
     def _handoff_from_human_task(self, task: HumanTask) -> HandoffNote:
         return handoff_from_human_task(task)
@@ -170,7 +304,7 @@ class ProductService:
                 due_at=due_at,
                 channel_hint=channel_hint,
                 notes=details,
-                source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner},
+                source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner, "channel_hint": channel_hint, "confidence": 1.0},
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -186,7 +320,7 @@ class ProductService:
             status="open",
             priority=priority,
             due_at=due_at,
-            source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner},
+            source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner, "channel_hint": channel_hint, "confidence": 1.0},
         )
         self._record_product_event(
             principal_id=principal_id,
@@ -207,6 +341,10 @@ class ProductService:
 
     def _candidate_from_memory_row(self, row) -> CommitmentCandidate:  # type: ignore[no-untyped-def]
         fact = dict(getattr(row, "fact_json", {}) or {})
+        duplicate_of_ref = str(fact.get("duplicate_of_ref") or "").strip()
+        status = str(getattr(row, "status", "pending") or "pending")
+        if duplicate_of_ref and status == "pending":
+            status = "duplicate"
         return CommitmentCandidate(
             candidate_id=str(getattr(row, "candidate_id", "") or ""),
             title=str(fact.get("title") or getattr(row, "summary", "") or "Commitment candidate"),
@@ -215,13 +353,21 @@ class ProductService:
             confidence=float(getattr(row, "confidence", 0.5) or 0.5),
             suggested_due_at=str(fact.get("suggested_due_at") or "") or None,
             counterparty=str(fact.get("counterparty") or ""),
-            status=str(getattr(row, "status", "pending") or "pending"),
+            status=status,
+            kind=str(fact.get("kind") or "commitment"),
+            stakeholder_id=str(fact.get("stakeholder_id") or ""),
+            duplicate_of_ref=duplicate_of_ref,
+            merge_strategy="merge" if duplicate_of_ref else "create",
         )
 
-    def list_commitment_candidates(self, *, principal_id: str, limit: int = 20) -> tuple[CommitmentCandidate, ...]:
-        rows = self._container.memory_runtime.list_candidates(limit=max(limit * 3, 50), status="pending", principal_id=principal_id)
+    def list_commitment_candidates(self, *, principal_id: str, limit: int = 20, status: str | None = None) -> tuple[CommitmentCandidate, ...]:
+        rows = self._container.memory_runtime.list_candidates(limit=max(limit * 4, 50), status=None, principal_id=principal_id)
         filtered = [row for row in rows if str(getattr(row, "category", "") or "") == "product_commitment_candidate"]
-        return tuple(self._candidate_from_memory_row(row) for row in filtered[:limit])
+        projected = tuple(self._candidate_from_memory_row(row) for row in filtered)
+        if status is not None:
+            wanted = str(status or "").strip().lower()
+            projected = tuple(row for row in projected if str(row.status or "").strip().lower() == wanted)
+        return tuple(projected[:limit])
 
     def get_commitment_candidate(self, *, principal_id: str, candidate_id: str) -> CommitmentCandidate | None:
         row = self._container.memory_runtime.get_candidate(candidate_id, principal_id=principal_id)
@@ -242,6 +388,11 @@ class ProductService:
         extracted = self.extract_commitments(text=text, counterparty=counterparty, due_at=due_at)
         staged: list[CommitmentCandidate] = []
         for candidate in extracted:
+            duplicate_of_ref = self._find_duplicate_commitment_ref(
+                principal_id=principal_id,
+                title=candidate.title,
+                counterparty=candidate.counterparty or counterparty,
+            )
             row = self._container.memory_runtime.stage_candidate(
                 principal_id=principal_id,
                 category="product_commitment_candidate",
@@ -254,6 +405,7 @@ class ProductService:
                     "counterparty": candidate.counterparty,
                     "kind": kind,
                     "stakeholder_id": stakeholder_id,
+                    "duplicate_of_ref": duplicate_of_ref,
                 },
                 confidence=candidate.confidence,
                 sensitivity="internal",
@@ -261,8 +413,8 @@ class ProductService:
             staged.append(self._candidate_from_memory_row(row))
             self._record_product_event(
                 principal_id=principal_id,
-                event_type="commitment_candidate_staged",
-                payload={"title": candidate.title, "kind": kind, "counterparty": candidate.counterparty},
+                event_type="commitment_candidate_duplicate_detected" if duplicate_of_ref else "commitment_candidate_staged",
+                payload={"title": candidate.title, "kind": kind, "counterparty": candidate.counterparty, "duplicate_of_ref": duplicate_of_ref},
                 source_id=row.candidate_id,
             )
         return tuple(staged)
@@ -290,6 +442,34 @@ class ProductService:
             return None
         candidate, _item = promoted
         fact = dict(candidate.fact_json or {})
+        duplicate_of_ref = str(fact.get("duplicate_of_ref") or "").strip()
+        if duplicate_of_ref:
+            merged = self._merge_candidate_into_existing(
+                principal_id=principal_id,
+                duplicate_ref=duplicate_of_ref,
+                candidate_id=candidate_id,
+                title=title.strip() or str(fact.get("title") or candidate.summary or "Commitment"),
+                details=details if details.strip() else str(fact.get("details") or ""),
+                due_at=due_at if str(due_at or "").strip() else (str(fact.get("suggested_due_at") or "") or None),
+                counterparty=counterparty.strip() or str(fact.get("counterparty") or ""),
+                confidence=float(getattr(candidate, "confidence", 0.5) or 0.5),
+            )
+            if merged is not None:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="commitment_candidate_accepted",
+                    payload={
+                        "candidate_id": candidate_id,
+                        "reviewer": reviewer,
+                        "title_override": title.strip(),
+                        "due_at_override": str(due_at or "").strip(),
+                        "counterparty_override": counterparty.strip(),
+                        "kind_override": kind.strip(),
+                        "merged_into_ref": duplicate_of_ref,
+                    },
+                    source_id=candidate_id,
+                )
+                return merged
         created = self.create_commitment(
             principal_id=principal_id,
             title=title.strip() or str(fact.get("title") or candidate.summary or "Commitment"),
@@ -315,6 +495,116 @@ class ProductService:
             source_id=candidate_id,
         )
         return created
+
+    def resolve_commitment(
+        self,
+        *,
+        principal_id: str,
+        commitment_ref: str,
+        action: str,
+        actor: str,
+        reason: str = "",
+        reason_code: str = "",
+        due_at: str | None = None,
+    ) -> CommitmentItem | None:
+        normalized = str(action or "").strip().lower()
+        code = str(reason_code or "").strip().lower()
+        if commitment_ref.startswith("commitment:"):
+            current = self._container.memory_runtime.get_commitment(commitment_ref.split(":", 1)[1], principal_id=principal_id)
+            if current is None:
+                return None
+            source = dict(current.source_json or {})
+            next_status = current.status
+            event_type = "commitment_updated"
+            if normalized in {"close", "done", "complete"}:
+                next_status = "completed"
+                event_type = "commitment_closed"
+                code = code or "completed"
+            elif normalized in {"drop", "dismiss", "cancel"}:
+                next_status = "cancelled"
+                event_type = "commitment_dropped"
+                code = code or "no_longer_needed"
+            elif normalized in {"defer", "snooze"}:
+                next_status = "open"
+                event_type = "commitment_deferred"
+                code = code or "deferred"
+            elif normalized in {"reopen"}:
+                next_status = "open"
+                event_type = "commitment_reopened"
+            updated_source = {
+                **source,
+                "resolution_code": "" if normalized == "reopen" else code,
+                "resolution_reason": "" if normalized == "reopen" else (reason or str(source.get("resolution_reason") or "")),
+                "channel_hint": str(source.get("channel_hint") or "email"),
+            }
+            if normalized == "reopen":
+                updated_source["reopened_at"] = _now_iso()
+            updated = self._container.memory_runtime.upsert_commitment(
+                principal_id=principal_id,
+                commitment_id=current.commitment_id,
+                title=current.title,
+                details=current.details,
+                status=next_status,
+                priority=current.priority,
+                due_at=due_at or current.due_at,
+                source_json=updated_source,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type=event_type,
+                payload={"item_ref": commitment_ref, "action": normalized or "update", "actor": actor, "reason": reason or "", "reason_code": code},
+                source_id=current.commitment_id,
+            )
+            return self._commitment_item_from_commitment(updated)
+        if commitment_ref.startswith("follow_up:"):
+            current = self._container.memory_runtime.get_follow_up(commitment_ref.split(":", 1)[1], principal_id=principal_id)
+            if current is None:
+                return None
+            source = dict(current.source_json or {})
+            next_status = current.status
+            event_type = "commitment_updated"
+            if normalized in {"close", "done", "complete"}:
+                next_status = "completed"
+                event_type = "commitment_closed"
+                code = code or "completed"
+            elif normalized in {"drop", "dismiss", "cancel"}:
+                next_status = "cancelled"
+                event_type = "commitment_dropped"
+                code = code or "no_longer_needed"
+            elif normalized in {"defer", "snooze"}:
+                next_status = "open"
+                event_type = "commitment_deferred"
+                code = code or "deferred"
+            elif normalized in {"reopen"}:
+                next_status = "open"
+                event_type = "commitment_reopened"
+            updated_source = {
+                **source,
+                "resolution_code": "" if normalized == "reopen" else code,
+                "resolution_reason": "" if normalized == "reopen" else (reason or str(source.get("resolution_reason") or "")),
+                "channel_hint": str(source.get("channel_hint") or current.channel_hint or "email"),
+            }
+            if normalized == "reopen":
+                updated_source["reopened_at"] = _now_iso()
+            updated = self._container.memory_runtime.upsert_follow_up(
+                principal_id=principal_id,
+                follow_up_id=current.follow_up_id,
+                stakeholder_ref=current.stakeholder_ref,
+                topic=current.topic,
+                status=next_status,
+                due_at=due_at or current.due_at,
+                channel_hint=current.channel_hint,
+                notes=current.notes if not reason else reason,
+                source_json=updated_source,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type=event_type,
+                payload={"item_ref": commitment_ref, "action": normalized or "update", "actor": actor, "reason": reason or "", "reason_code": code},
+                source_id=current.follow_up_id,
+            )
+            return self._commitment_item_from_follow_up(updated, self._stakeholder_lookup(principal_id))
+        return None
 
     def reject_commitment_candidate(
         self,
@@ -552,6 +842,7 @@ class ProductService:
         action: str,
         actor: str,
         reason: str = "",
+        reason_code: str = "",
         due_at: str | None = None,
     ) -> DecisionQueueItem | None:
         normalized = str(action or "").strip().lower()
@@ -590,68 +881,27 @@ class ProductService:
                 resolution_state=decision_row.decision,
             )
         if item_ref.startswith("commitment:"):
-            current = self._container.memory_runtime.get_commitment(item_ref.split(":", 1)[1], principal_id=principal_id)
-            if current is None:
-                return None
-            if normalized in {"close", "done", "complete"}:
-                next_status = "completed"
-                event_type = "commitment_closed"
-            elif normalized in {"drop", "dismiss"}:
-                next_status = "cancelled"
-                event_type = "commitment_dropped"
-            else:
-                next_status = "in_progress"
-                event_type = "commitment_updated"
-            updated = self._container.memory_runtime.upsert_commitment(
+            updated = self.resolve_commitment(
                 principal_id=principal_id,
-                commitment_id=current.commitment_id,
-                title=current.title,
-                details=current.details,
-                status=next_status,
-                priority=current.priority,
-                due_at=due_at or current.due_at,
-                source_json=dict(current.source_json or {}),
+                commitment_ref=item_ref,
+                action=normalized,
+                actor=actor,
+                reason=reason,
+                reason_code=reason_code,
+                due_at=due_at,
             )
-            self._record_product_event(
-                principal_id=principal_id,
-                event_type=event_type,
-                payload={"item_ref": item_ref, "action": normalized or "update", "actor": actor, "reason": reason or ""},
-                source_id=current.commitment_id,
-            )
-            return self._queue_item_from_commitment(self._commitment_item_from_commitment(updated))
+            return None if updated is None else self._queue_item_from_commitment(updated)
         if item_ref.startswith("follow_up:"):
-            current = self._container.memory_runtime.get_follow_up(item_ref.split(":", 1)[1], principal_id=principal_id)
-            if current is None:
-                return None
-            if normalized in {"close", "done", "complete"}:
-                next_status = "completed"
-                event_type = "commitment_closed"
-            elif normalized in {"drop", "dismiss"}:
-                next_status = "cancelled"
-                event_type = "commitment_dropped"
-            else:
-                next_status = "open"
-                event_type = "commitment_updated"
-            updated = self._container.memory_runtime.upsert_follow_up(
+            updated = self.resolve_commitment(
                 principal_id=principal_id,
-                follow_up_id=current.follow_up_id,
-                stakeholder_ref=current.stakeholder_ref,
-                topic=current.topic,
-                status=next_status,
-                due_at=due_at or current.due_at,
-                channel_hint=current.channel_hint,
-                notes=current.notes if not reason else reason,
-                source_json=dict(current.source_json or {}),
+                commitment_ref=item_ref,
+                action=normalized,
+                actor=actor,
+                reason=reason,
+                reason_code=reason_code,
+                due_at=due_at,
             )
-            self._record_product_event(
-                principal_id=principal_id,
-                event_type=event_type,
-                payload={"item_ref": item_ref, "action": normalized or "update", "actor": actor, "reason": reason or ""},
-                source_id=current.follow_up_id,
-            )
-            return self._queue_item_from_commitment(
-                self._commitment_item_from_follow_up(updated, self._stakeholder_lookup(principal_id))
-            )
+            return None if updated is None else self._queue_item_from_commitment(updated)
         if item_ref.startswith("human_task:"):
             current = self._container.orchestrator.fetch_human_task(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:

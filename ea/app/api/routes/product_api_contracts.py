@@ -71,6 +71,13 @@ class CommitmentOut(BaseModel):
     last_activity_at: str | None = None
     risk_level: str
     proof_refs: list[EvidenceRefOut]
+    confidence: float = 0.5
+    channel_hint: str = ""
+    resolution_code: str = ""
+    resolution_reason: str = ""
+    duplicate_of_ref: str = ""
+    merged_into_ref: str = ""
+    merged_from_refs: list[str] = []
 
 
 class CommitmentCandidateOut(BaseModel):
@@ -82,6 +89,10 @@ class CommitmentCandidateOut(BaseModel):
     suggested_due_at: str | None = None
     counterparty: str = ""
     status: str = "pending"
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+    duplicate_of_ref: str = ""
+    merge_strategy: str = "create"
 
 
 class DraftCandidateOut(BaseModel):
@@ -266,6 +277,7 @@ class DraftApproveIn(BaseModel):
 class QueueResolveIn(BaseModel):
     action: str = Field(min_length=1)
     reason: str = ""
+    reason_code: str = ""
     due_at: str | None = None
 
 
@@ -397,6 +409,13 @@ def commitment_out(value: CommitmentItem) -> CommitmentOut:
         last_activity_at=value.last_activity_at,
         risk_level=value.risk_level,
         proof_refs=evidence_out(value.proof_refs),
+        confidence=value.confidence,
+        channel_hint=value.channel_hint,
+        resolution_code=value.resolution_code,
+        resolution_reason=value.resolution_reason,
+        duplicate_of_ref=value.duplicate_of_ref,
+        merged_into_ref=value.merged_into_ref,
+        merged_from_refs=list(value.merged_from_refs),
     )
 
 
@@ -410,6 +429,10 @@ def commitment_candidate_out(value: CommitmentCandidate) -> CommitmentCandidateO
         suggested_due_at=value.suggested_due_at,
         counterparty=value.counterparty,
         status=value.status,
+        kind=value.kind,
+        stakeholder_id=value.stakeholder_id,
+        duplicate_of_ref=value.duplicate_of_ref,
+        merge_strategy=value.merge_strategy,
     )
 
 
