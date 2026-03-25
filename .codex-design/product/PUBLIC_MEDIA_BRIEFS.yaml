@@ -233,6 +233,79 @@ visual_contract:
       - quiet desk still life
       - single operator in a glow void
       - semantically empty glow props
+asset_overlay_contracts:
+  assets/hero/chummer6-hero.png:
+    required_overlay_mode: medscan_diagnostic
+    allowed_overlay_modes:
+      - medscan_diagnostic
+    overlay_geometry:
+      - slim attribute rails
+      - seam-following anchors
+      - capsule status chips
+      - curved callout splines
+      - small radial scan halos
+    overlay_priority_order:
+      - attribute rail
+      - subsystem status chips
+      - cyberware calibration
+      - wound stability
+    overlay_actionability_rule: >
+      Show only information a runner or streetdoc would actively use while
+      stabilizing and upgrading a patient in the moment.
+    overlay_render_strategy: verified_post_composite_only
+    render_layers:
+      - base_scene
+      - verified_overlay
+    status_binding_rule: >
+      Attach UPGRADING only to a concrete attribute or subsystem chip such as
+      AGI or ESS; never float it as a detached headline.
+    overlay_attachment_rule: >
+      Anchor chips to the attribute rail or the treated augment zone; avoid
+      face or torso coverage.
+  assets/pages/horizons-index.png:
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - route arcs
+      - district markers
+      - subtle lane glyphs
+    overlay_actionability_rule: >
+      Use overlays only for environmental navigation or route cues when the
+      scene benefits from them; avoid diagnostic HUD behavior.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+    overlay_attachment_rule: >
+      Keep overlays edge-biased and route-anchored; never cover the central
+      path or imply city-wide scanning.
+  assets/horizons/karma-forge.png:
+    required_overlay_mode: forge_review_ar
+    allowed_overlay_modes:
+      - forge_review_ar
+    overlay_geometry:
+      - rail-following approval lines
+      - provenance seals
+      - rollback vectors
+      - compact witness chips
+      - compatibility arcs
+    overlay_priority_order:
+      - approval state
+      - provenance
+      - rollback
+      - witness lock
+      - revert cost
+    overlay_actionability_rule: >
+      Show only the review and consequence data needed to understand governed
+      rules change in progress.
+    overlay_render_strategy: verified_post_composite_only
+    render_layers:
+      - base_scene
+      - verified_overlay
+    overlay_attachment_rule: >
+      Attach overlays to rails, packet flow, and apparatus geometry; avoid
+      floating torso or face coverage.
 sections:
   - id: hero
     brief_family: clinic_intake

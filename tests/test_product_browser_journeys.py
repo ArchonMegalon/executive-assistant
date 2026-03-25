@@ -46,6 +46,9 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Billing state" in settings.text
     assert "Messaging scope" in settings.text
     assert "Feature flags" in settings.text
+    assert "/app/settings/plan" in settings.text
+    assert "/app/settings/usage" in settings.text
+    assert "/app/settings/support" in settings.text
 
     person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
     assert person_detail.status_code == 200
@@ -239,6 +242,21 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Rules" in rule_page.text
     assert "Expected effect" in rule_page.text
     assert seeded["decision_window_id"] in decisions.text
+
+    plan_page = client.get("/app/settings/plan")
+    assert plan_page.status_code == 200
+    assert "Commercial boundary" in plan_page.text
+    assert "What this workspace includes" in plan_page.text
+
+    usage_page = client.get("/app/settings/usage")
+    assert usage_page.status_code == 200
+    assert "Usage state" in usage_page.text
+    assert "Product loop signals" in usage_page.text
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Support bundle" in support_page.text
+    assert "Pending review and recent decisions" in support_page.text
 
 
 def test_browser_commitment_capture_actions_work() -> None:

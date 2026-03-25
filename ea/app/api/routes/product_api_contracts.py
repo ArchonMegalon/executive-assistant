@@ -188,6 +188,25 @@ class WorkspaceDiagnosticsOut(BaseModel):
     analytics: dict[str, object]
 
 
+class WorkspacePlanDetailOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    operators: dict[str, object]
+
+
+class WorkspaceUsageDetailOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    usage: dict[str, int]
+    analytics: dict[str, object]
+    readiness: dict[str, object]
+    operators: dict[str, object]
+
+
 class WorkspaceSupportBundleOut(BaseModel):
     workspace: dict[str, object]
     selected_channels: list[str]

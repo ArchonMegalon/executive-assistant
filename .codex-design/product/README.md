@@ -21,7 +21,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 4. Delivery and release control:
    `RELEASE_PIPELINE.md` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
-   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
 
 ### Full canonical set
 
@@ -64,28 +64,30 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 37. `HORIZON_SIGNAL_POLICY.md`
 38. `PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md`
 39. `METRICS_AND_SLOS.yaml`
-40. `journeys/README.md`
-41. `OWNERSHIP_MATRIX.md`
-42. `PROGRAM_MILESTONES.yaml`
-43. `CONTRACT_SETS.yaml`
-44. `GROUP_BLOCKERS.md`
-45. `projects/*.md` for repo-specific scope
-46. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
-47. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
-48. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-49. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
-50. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
-51. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-52. `USER_JOURNEYS.md`
-53. `EXPERIENCE_SUCCESS_METRICS.md`
-54. `PUBLIC_NAVIGATION.yaml`
-55. `PUBLIC_PROGRESS_PARTS.yaml`
-56. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
-57. `PUBLIC_RELEASE_EXPERIENCE.yaml`
-58. `BUILD_LAB_PRODUCT_MODEL.md`
-59. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
-60. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
-61. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+40. `PUBLIC_TRUST_CONTENT.yaml`
+41. `journeys/README.md`
+42. `OWNERSHIP_MATRIX.md`
+43. `PROGRAM_MILESTONES.yaml`
+44. `CONTRACT_SETS.yaml`
+45. `GROUP_BLOCKERS.md`
+46. `projects/*.md` for repo-specific scope
+47. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
+48. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+49. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+50. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+51. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
+52. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+53. `USER_JOURNEYS.md`
+54. `EXPERIENCE_SUCCESS_METRICS.md`
+55. `PUBLIC_NAVIGATION.yaml`
+56. `PUBLIC_PROGRESS_PARTS.yaml`
+57. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
+58. `PUBLIC_RELEASE_EXPERIENCE.yaml`
+59. `BUILD_LAB_PRODUCT_MODEL.md`
+60. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
+61. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
+62. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+63. `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
@@ -113,10 +115,11 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `IDENTITY_AND_CHANNEL_LINKING_MODEL.md` is the canonical source for email hygiene, social bootstrap, linked identities, official companion channels, and the rule that EA stays the orchestrator brain behind those channels.
 `PUBLIC_GUIDE_PAGE_REGISTRY.yaml`, `PUBLIC_PART_REGISTRY.yaml`, `PUBLIC_FAQ_REGISTRY.yaml`, and `PUBLIC_HELP_COPY.md` are the machine-readable and public-safe source of truth for downstream guide generation outside the landing surface, including the generated download/build shelf.
 `METRICS_AND_SLOS.yaml` is the release-scorecard canon for measurable user-trust, continuity, publication, and install/update gates.
+`PUBLIC_TRUST_CONTENT.yaml` is the canonical trust-content manifest for help, contact, and support statements surfaced at `/help`, `/contact`, and `/downloads`.
 `journeys/*.md` defines the top end-to-end user flows and failure-mode recoveries that multiple repos must preserve.
 `BUILD_LAB_PRODUCT_MODEL.md` defines Build Lab as a flagship Build plus Explain surface rather than leaving it as a downstream milestone label without a canonical product promise.
 `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` records the just-closed install, update, support, and operator-control wave so roadmap and milestone language does not lag the public-main implementation.
-`NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is the ordered follow-on plan for the next additive program wins after closeout.
+`NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is preserved as the prior plan and `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` is the active follow-on plan.
 
 ## Active Chummer repos
 

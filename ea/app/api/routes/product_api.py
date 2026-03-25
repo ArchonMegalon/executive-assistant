@@ -33,7 +33,9 @@ from app.api.routes.product_api_contracts import (
     ThreadItemOut,
     ThreadResponse,
     WorkspaceDiagnosticsOut,
+    WorkspacePlanDetailOut,
     WorkspaceSupportBundleOut,
+    WorkspaceUsageDetailOut,
     brief_out,
     commitment_candidate_out,
     commitment_out,
@@ -525,6 +527,53 @@ def get_workspace_diagnostics(
     return WorkspaceDiagnosticsOut(**service.workspace_diagnostics(principal_id=context.principal_id))
 
 
+@router.get("/plan", response_model=WorkspacePlanDetailOut)
+def get_workspace_plan_detail(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspacePlanDetailOut:
+    service = build_product_service(container)
+    diagnostics = service.workspace_diagnostics(principal_id=context.principal_id)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="plan_opened",
+        surface="plan_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspacePlanDetailOut(
+        workspace=dict(diagnostics.get("workspace") or {}),
+        selected_channels=[str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()],
+        plan=dict(diagnostics.get("plan") or {}),
+        billing=dict(diagnostics.get("billing") or {}),
+        entitlements=dict(diagnostics.get("entitlements") or {}),
+        commercial=dict(diagnostics.get("commercial") or {}),
+        operators=dict(diagnostics.get("operators") or {}),
+    )
+
+
+@router.get("/usage", response_model=WorkspaceUsageDetailOut)
+def get_workspace_usage_detail(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceUsageDetailOut:
+    service = build_product_service(container)
+    diagnostics = service.workspace_diagnostics(principal_id=context.principal_id)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="usage_opened",
+        surface="usage_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspaceUsageDetailOut(
+        workspace=dict(diagnostics.get("workspace") or {}),
+        selected_channels=[str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()],
+        usage={str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()},
+        analytics=dict(diagnostics.get("analytics") or {}),
+        readiness=dict(diagnostics.get("readiness") or {}),
+        operators=dict(diagnostics.get("operators") or {}),
+    )
+
+
 @router.get("/evidence", response_model=EvidenceResponse)
 def list_evidence(
     limit: int = Query(default=40, ge=1, le=200),
@@ -604,6 +653,21 @@ def export_workspace_support_bundle(
         principal_id=context.principal_id,
         event_type="support_bundle_opened",
         surface="diagnostics_export",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+
+
+@router.get("/support", response_model=WorkspaceSupportBundleOut)
+def get_workspace_support_detail(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceSupportBundleOut:
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="support_opened",
+        surface="support_api",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
