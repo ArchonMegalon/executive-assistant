@@ -14,7 +14,7 @@ waves:
       - 3
       - 4
       - 5
-    status: in_progress
+    status: complete
   - id: W1
     name: Make campaign middle executable
     milestone_ids:
@@ -24,7 +24,7 @@ waves:
       - 9
       - 10
       - 11
-    status: not_started
+    status: in_progress
   - id: W2
     name: "Build the first moat: Build and Explain"
     milestone_ids:
@@ -33,7 +33,7 @@ waves:
       - 14
       - 15
       - 16
-    status: not_started
+    status: in_progress
   - id: W3
     name: Trust and support as first-class surfaces
     milestone_ids:
@@ -41,7 +41,7 @@ waves:
       - 18
       - 19
       - 20
-    status: not_started
+    status: in_progress
 
 milestones:
   - id: 1
@@ -54,7 +54,7 @@ milestones:
       - chummer6-hub-registry
       - fleet
       - Chummer6
-    status: in_progress
+    status: complete
     exit_criteria:
       - roadmap, canonical README, release-evidence text, public progress wording, and public guide agree on the same current state
       - prior 15 wins are marked complete, split into follow-on work, or explicitly demoted
@@ -67,7 +67,7 @@ milestones:
       - Chummer6
       - fleet
       - chummer6-hub
-    status: in_progress
+    status: complete
     dependencies:
       - 3
       - 1
@@ -93,7 +93,7 @@ milestones:
       - chummer6-design
       - fleet
       - chummer6-hub
-    status: in_progress
+    status: complete
     dependencies:
       - 3
     exit_criteria:
@@ -105,7 +105,7 @@ milestones:
     wave: W0
     owners:
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - machine-readable registry contains 20 additive milestones with owners and exit criteria
       - validators can reason against milestone states and next-wave references
@@ -119,7 +119,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - package-owned campaign contracts are consumed instead of local shadow shapes
       - verification proves package-only consumption in UI, mobile, and media-factory
@@ -131,7 +131,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: complete
     exit_criteria:
       - build receipt -> dossier -> play -> recap -> return path is preserved across contexts
       - dossier continuity survives claimed-device handoff and reconnect
@@ -144,7 +144,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: in_progress
     exit_criteria:
       - rule environments exist for personal, campaign, and group scopes
       - compatibility fingerprints and approval states are visible
@@ -157,7 +157,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: in_progress
     exit_criteria:
       - dossiers, campaigns, environments, artifacts, and entitlements restore on a claimed second device
       - explicit conflict handling replaces silent last-write-wins
@@ -169,7 +169,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: complete
     exit_criteria:
       - home shows next safe action and what changed for the signed-in user
       - device roles are visible and actionable from cockpit
@@ -181,7 +181,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: in_progress
     exit_criteria:
       - campaign roster, run state, objectives, recap, and continuity are visible in one workspace
       - campaign return is coherent and not fragmented across unrelated screens
@@ -191,7 +191,7 @@ milestones:
     wave: W2
     owners:
       - chummer6-core
-    status: not_started
+    status: complete
     exit_criteria:
       - deterministic candidate generation and scoring output is available
       - explain packets exist for every material recommendation
@@ -202,7 +202,7 @@ milestones:
     owners:
       - chummer6-ui
       - chummer6-hub
-    status: not_started
+    status: in_progress
     exit_criteria:
       - concept intake and candidate comparison are real user flows
       - tradeoff and progression views are grounded
@@ -227,7 +227,7 @@ milestones:
       - chummer6-design
       - chummer6-core
       - chummer6-hub
-    status: not_started
+    status: complete
     exit_criteria:
       - portability/import-export canon is explicit
       - dossier and campaign package formats are defined
@@ -240,7 +240,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - imports land in living dossier and campaign spines
       - migration receipts identify safe, risky, and blocked fields
@@ -253,7 +253,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - fleet
-    status: not_started
+    status: complete
     exit_criteria:
       - /downloads, known issues, release notes, and support status share same record source
       - users can see recommended installer and channel posture
@@ -266,7 +266,7 @@ milestones:
       - fleet
       - executive-assistant
       - chummer6-design
-    status: not_started
+    status: complete
     dependencies:
       - 17
     exit_criteria:
