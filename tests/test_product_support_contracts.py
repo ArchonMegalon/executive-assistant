@@ -41,6 +41,10 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert body["billing"]["support_tier"] == "priority"
     assert body["entitlements"]["operator_seats"] >= 1
     assert body["analytics"]["counts"].get("support_bundle_opened", 0) >= 1
+    assert "queue_health" in body
+    assert "assignment_suggestions" in body
+    assert "sla_breaches" in body["queue_health"]
+    assert "unclaimed_handoffs" in body["queue_health"]
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
 

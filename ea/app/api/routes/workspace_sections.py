@@ -368,6 +368,7 @@ def workspace_section_payload(
 ) -> dict[str, object]:
     diagnostics = diagnostics or {}
     operator_key = str(operator_id or "").strip()
+    queue_health = dict(diagnostics.get("queue_health") or {})
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
     stats = [
@@ -556,6 +557,26 @@ def workspace_section_payload(
             "title": "Operator Queue",
             "summary": "Assignments, follow-up handoffs, and principal waiting items stay visible as a real operating lane.",
             "cards": [
+                {
+                    "eyebrow": "Queue health",
+                    "title": "Queue health",
+                    "body": "SLA breaches, unclaimed work, approvals, and delivery backlog should stay visible in one operational view.",
+                    "items": [
+                        _row("Queue state", str(queue_health.get("state") or "healthy").title(), str(queue_health.get("state") or "healthy").title()),
+                        _row("SLA breaches", str(queue_health.get("sla_breaches") or 0), "Queue"),
+                        _row("Unclaimed handoffs", str(queue_health.get("unclaimed_handoffs") or 0), "Queue"),
+                        _row("Pending approvals", str(queue_health.get("pending_approvals") or 0), "Queue"),
+                        _row("Waiting on principal", str(queue_health.get("waiting_on_principal") or 0), "Queue"),
+                        _row("Queued delivery", str(queue_health.get("pending_delivery") or 0), "Queue"),
+                    ],
+                },
+                {
+                    "eyebrow": "Suggested next claims",
+                    "title": "Suggested next claims",
+                    "body": "Claim suggestions rank unclaimed work before it ages into a visible office miss.",
+                    "items": _handoff_rows(unclaimed_handoffs[:3], actionable=False, return_to="/app/activity")
+                    or [_row("No claim suggestions", "The unclaimed operator lane is currently clear.", "Clear")],
+                },
                 {
                     "eyebrow": "Assigned to me",
                     "title": "What already belongs to this operator lane",

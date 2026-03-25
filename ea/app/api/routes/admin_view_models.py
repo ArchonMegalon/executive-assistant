@@ -223,6 +223,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_usage = dict(diagnostics.get("usage") or {})
     diagnostics_readiness = dict(diagnostics.get("readiness") or {})
     diagnostics_provider = dict(diagnostics.get("providers") or {})
+    diagnostics_queue = dict(diagnostics.get("queue_health") or {})
     diagnostics_operator = dict(diagnostics.get("operators") or {})
     diagnostics_analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
@@ -265,9 +266,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     ]
     support_rows = [
         _row("Workspace readiness", str(diagnostics_readiness.get("detail") or readiness_label), readiness_state.title()),
+        _row("Queue state", str(diagnostics_queue.get("state") or "healthy"), "Queue"),
+        _row("Queue detail", str(diagnostics_queue.get("detail") or "Queue posture is stable."), "Queue"),
+        _row("SLA breaches", str(diagnostics_queue.get("sla_breaches") or 0), "Queue"),
+        _row("Unclaimed handoffs", str(diagnostics_queue.get("unclaimed_handoffs") or 0), "Queue"),
+        _row("Pending approvals", str(diagnostics_queue.get("pending_approvals") or 0), "Queue"),
+        _row("Waiting on principal", str(diagnostics_queue.get("waiting_on_principal") or 0), "Queue"),
         _row("Active operators", str(diagnostics_operator.get("active_count") or 0), "Support"),
         _row("Configured providers", str(diagnostics_provider.get("provider_count") or 0), "Support"),
         _row("Routing lanes", str(diagnostics_provider.get("lane_count") or 0), "Support"),
+        _row("Queued delivery", str(diagnostics_queue.get("pending_delivery") or 0), "Support"),
         _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
         _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),
