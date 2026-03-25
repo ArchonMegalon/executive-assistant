@@ -165,6 +165,26 @@ class PostgresConnectorBindingRepository:
                 rows = cur.fetchall()
         return [self._from_row(row) for row in rows]
 
+    def list_for_connector(self, connector_name: str, limit: int = 100) -> list[ConnectorBinding]:
+        normalized = str(connector_name or "").strip()
+        if not normalized:
+            return []
+        n = max(1, min(500, int(limit or 100)))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT binding_id, principal_id, connector_name, external_account_ref, scope_json, auth_metadata_json, status, created_at, updated_at
+                    FROM connector_bindings
+                    WHERE lower(connector_name) = lower(%s)
+                    ORDER BY updated_at DESC, binding_id DESC
+                    LIMIT %s
+                    """,
+                    (normalized, n),
+                )
+                rows = cur.fetchall()
+        return [self._from_row(row) for row in rows]
+
     def get(self, binding_id: str) -> ConnectorBinding | None:
         bid = str(binding_id or "").strip()
         if not bid:

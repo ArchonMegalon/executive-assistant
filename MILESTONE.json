@@ -1487,7 +1487,10 @@
     },
     {
       "name": "knowledge_fabric_projection_slice",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-517"
+      ],
       "scope": [
         "knowledge_projection_pipeline",
         "rules_receipt_indexing",
@@ -1495,7 +1498,7 @@
         "build_time_vectorized_rule_inputs",
         "citations_surface_in_answers"
       ],
-      "notes": "Add a non-canonical knowledge-fabric lane: generate build-time vector/graph artifacts from core rule sources, persist citations and receipts for explainability, and expose a cited query interface for help/explain flows without treating the projection as source-of-truth."
+      "notes": "The non-canonical knowledge-fabric projection lane is now branch baseline behavior: evidence-pack artifact saves materialize stable `evidence_object_id` and `citation_handle` rows behind `/v1/evidence/objects*`, mergeable via `/v1/evidence/merge`, and the Chummer help/canon surface stays receipt-backed while keeping this projection advisory instead of source-of-truth. Release/operator guards now pin these citation/query/help contracts."
     },
     {
       "name": "ai_mechanics_boundary_enforcement",
@@ -1510,58 +1513,73 @@
     },
     {
       "name": "append_only_session_ledger_and_delta_sync_slice",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-518"
+      ],
       "scope": [
         "append_only_session_events",
         "replay_friendly_session_projections",
         "delta_sync_for_offline_clients",
         "hard_truth_vs_soft_crdt_boundaries"
       ],
-      "notes": "Keep session truth append-only and ledger-backed, with explicit delta-replay projections for resume/reconnect and bounded soft-merge surfaces for notes/plans only; prevent CRDT patterns from becoming the canonical mechanics or session-truth path."
+      "notes": "Session truth is now pinned as append-only and ledger-backed across both in-memory and Postgres repositories: `append_event(...)` only appends, `events_for(...)` replays in deterministic oldest-first order (`created_at`, then `event_id`), and `/v1/rewrite/sessions/{session_id}` exposes event IDs/timestamps so reconnecting clients can checkpoint and delta-sync from the ordered session stream while keeping canonical mechanics/session truth out of soft-merge CRDT surfaces."
     },
     {
       "name": "portable_engine_host_posture",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-519"
+      ],
       "scope": [
         "deterministic_engine_host_profiles",
         "host_portability_contract",
         "runtime_surface_compatibility_planning",
         "non_committal_technology_selection"
       ],
-      "notes": "Define a portability posture for the deterministic core (server, browser, or embed path where practical) so host strategy is explicit but technology choice (e.g., rewrite language or runtime) remains implementation-level, not architectural doctrine."
+      "notes": "The deterministic core host-portability posture is now pinned as current branch baseline behavior: host strategy remains explicit across server/browser/embed profile planning while runtime-surface compatibility and non-committal implementation-level technology selection stay architectural constraints, and release/operator guards now pin that portability contract."
     },
     {
       "name": "local_coprocessor_optional_lane",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-520"
+      ],
       "scope": [
         "optional_user_owned_compute",
         "non_mandatory_client_compute_gate",
         "local_acceleration_evidence_path",
         "feature_flagged_local_runtime"
       ],
-      "notes": "Add an optional local co-processor lane for byoc/optional acceleration use-cases while keeping it advisory and non-blocking; no shipped behavior should require local compute to function."
+      "notes": "The local co-processor lane is now pinned as optional and non-blocking branch baseline behavior: BYOC/local acceleration remains feature-flagged and advisory, release/operator guards keep local-acceleration evidence-path expectations visible, and no shipped runtime path may require local compute to function."
     },
     {
       "name": "codex_onemin_specialist_router_admission",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-521"
+      ],
       "scope": [
         "onemin_capacity_gating",
         "core_lane_admission_rules",
         "specialist_capability_bindings",
         "proofbacked_topup_integration"
       ],
-      "notes": "Keep 1min usage as specialist escalation only: add admission checks before core lane use and make specialist capabilities explicit (`code_generate`, `reasoned_patch_review`, etc.) while preserving existing billing/observability truth from BrowserAct billing snapshots."
+      "notes": "The 1min specialist escalation posture is now pinned as current branch baseline behavior: core lane admission stays explicit and capacity-gated, specialist capability bindings remain first-class (`code_generate`, `reasoned_patch_review`, etc.), proof-backed 1min top-up/billing snapshots remain wired into runtime observability, and release/operator guards now pin those admission and specialist bindings."
     },
     {
       "name": "replay_forensics_horizon_bootstrap",
-      "status": "planned",
+      "status": "released",
+      "task_refs": [
+        "D-522"
+      ],
       "scope": [
         "session_replay_slice",
         "what_if_comparison_preparation",
         "forensics_receipt_exports",
         "runway_projection_from_event_history"
       ],
-      "notes": "Create bootstrap artifacts and ownership for a replay/forensics lane so session history can drive explainable recaps and bounded what-if analysis without making it a release-blocking blocker in vnext-foundation."
+      "notes": "Replay/forensics horizon bootstrap is now pinned as current branch baseline behavior: session inspection already exposes append-only event timelines plus receipt/run-cost/artifact proof lookups, retry/approval replay snapshot tests keep replay ordering stable, and release/operator guards now pin those bootstrap artifacts for bounded recap and what-if preparation flows."
     },
     {
       "name": "evidence_object_ledger_api",

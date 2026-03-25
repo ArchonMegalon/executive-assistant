@@ -5,6 +5,7 @@ import argparse
 import shutil
 import json
 import mimetypes
+import os
 import re
 import sys
 import urllib.error
@@ -14,7 +15,7 @@ from pathlib import Path
 
 
 DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/public_browseract_results")
-DEFAULT_PUBLIC_BASE_URL = "https://ea.girschele.com/results"
+DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("EA_PUBLIC_RESULT_BASE_URL", "https://myexternalbrain.com/results")).strip().rstrip("/")
 
 
 def slugify(value: str) -> str:

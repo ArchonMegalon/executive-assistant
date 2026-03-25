@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from app.domain.models import ConnectorBinding, OnboardingState
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository
-from app.services.google_oauth import GOOGLE_PROVIDER_KEY, build_google_oauth_start, google_scope_bundle_details
+from app.services.assistant_onboarding_service import AssistantOnboardingService
+from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
 from app.services.provider_registry import ProviderRegistryService
 from app.services.tool_runtime import ToolRuntimeService
+from app.services.telegram_onboarding_service import (
+    TELEGRAM_IDENTITY_CONNECTOR,
+    TELEGRAM_OFFICIAL_BOT_CONNECTOR,
+)
+from app.services.whatsapp_onboarding_service import (
+    WHATSAPP_BUSINESS_CONNECTOR,
+    WHATSAPP_EXPORT_CONNECTOR,
+)
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
-
-TELEGRAM_IDENTITY_CONNECTOR = "telegram_identity"
-TELEGRAM_OFFICIAL_BOT_CONNECTOR = "telegram_official_bot"
-WHATSAPP_BUSINESS_CONNECTOR = "whatsapp_business"
-WHATSAPP_EXPORT_CONNECTOR = "whatsapp_export"
 
 GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "send": "send",
@@ -22,6 +25,12 @@ GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "all": "all",
     "core": "core",
     "full_workspace": "full_workspace",
+}
+
+WORKSPACE_MODE_ALIASES = {
+    "personal": "personal",
+    "team": "team",
+    "executive_ops": "executive_ops",
 }
 
 ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
@@ -36,23 +45,16 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
         "summary": "A shared workspace for handoffs, inbox triage, follow-ups, and tenant-safe memory.",
     },
     {
-        "key": "gm_creator_ops",
-        "label": "GM / creator / campaign ops",
-        "summary": "Campaign or community ops with drafts, recaps, and durable memory across channels.",
+        "key": "executive_ops",
+        "label": "Founder / chief of staff ops",
+        "summary": "Cross-channel executive operations with briefs, drafts, follow-ups, and durable memory.",
     },
 )
 
-FEATURED_DOMAIN_CATALOG: tuple[dict[str, str], ...] = (
-    {
-        "key": "chummer",
-        "label": "Chummer",
-        "summary": "Shadowrun rules truth, dossiers, runsite packs, and campaign memory as one featured assistant domain.",
-        "href": "https://chummer.run/",
-    },
-)
+FEATURED_DOMAIN_CATALOG: tuple[dict[str, str], ...] = ()
 
 
-class OnboardingService:
+class OnboardingService(AssistantOnboardingService):
     def __init__(
         self,
         *,
@@ -61,10 +63,12 @@ class OnboardingService:
         tool_runtime: ToolRuntimeService,
         settings: Settings,
     ) -> None:
-        self._repo = onboarding_repo
-        self._provider_registry = provider_registry
-        self._tool_runtime = tool_runtime
-        self._settings = settings
+        super().__init__(
+            onboarding_repo=onboarding_repo,
+            provider_registry=provider_registry,
+            tool_runtime=tool_runtime,
+            settings=settings,
+        )
 
     def start_workspace(
         self,
@@ -78,6 +82,7 @@ class OnboardingService:
         selected_channels: tuple[str, ...],
     ) -> dict[str, object]:
         normalized_channels = self._normalize_channels(selected_channels)
+        normalized_workspace_mode = self._normalize_workspace_mode(workspace_mode)
         state = self._repo.get_for_principal(principal_id)
         channel_preferences = dict(state.channel_preferences_json if state is not None else {})
         for channel in normalized_channels:
@@ -86,7 +91,7 @@ class OnboardingService:
             principal_id=principal_id,
             onboarding_id=state.onboarding_id if state is not None else None,
             workspace_name=workspace_name,
-            workspace_mode=workspace_mode or "personal",
+            workspace_mode=normalized_workspace_mode,
             region=region,
             language=language,
             timezone=timezone,
@@ -115,7 +120,7 @@ class OnboardingService:
         bundle_details = google_scope_bundle_details(oauth_bundle)
         google_pref["oauth_bundle"] = oauth_bundle
         try:
-            packet = build_google_oauth_start(
+            packet = self._google_oauth.build_start(
                 principal_id=principal_id,
                 scope_bundle=oauth_bundle,
                 redirect_uri_override=redirect_uri_override,
@@ -164,19 +169,14 @@ class OnboardingService:
         assistant_surfaces: tuple[str, ...],
     ) -> dict[str, object]:
         external_ref = str(telegram_ref or "").strip() or principal_id
-        surfaces = tuple(sorted({str(v).strip().lower() for v in assistant_surfaces if str(v).strip()}))
-        binding = self._tool_runtime.upsert_connector_binding(
+        binding = self._telegram_identity.stage_identity(
             principal_id=principal_id,
-            connector_name=TELEGRAM_IDENTITY_CONNECTOR,
-            external_account_ref=external_ref,
-            scope_json={"assistant_surfaces": list(surfaces)},
-            auth_metadata_json={
-                "identity_mode": str(identity_mode or "login_widget").strip() or "login_widget",
-                "history_mode": str(history_mode or "future_only").strip() or "future_only",
-                "status": "guided_manual",
-            },
-            status="guided",
+            telegram_ref=external_ref,
+            identity_mode=identity_mode,
+            history_mode=history_mode,
+            assistant_surfaces=assistant_surfaces,
         )
+        surfaces = tuple(sorted({str(v).strip().lower() for v in assistant_surfaces if str(v).strip()}))
         state = self._ensure_state(principal_id)
         telegram_pref = dict((state.channel_preferences_json or {}).get("telegram") or {})
         telegram_pref.update(
@@ -207,19 +207,14 @@ class OnboardingService:
         install_surfaces: tuple[str, ...],
         default_chat_ref: str,
     ) -> dict[str, object]:
+        binding = self._telegram_bot.link_official_bot(
+            principal_id=principal_id,
+            bot_handle=str(bot_handle or "").strip() or principal_id,
+            install_surfaces=install_surfaces,
+            default_chat_ref=default_chat_ref,
+        )
         external_ref = str(bot_handle or "").strip() or principal_id
         surfaces = tuple(sorted({str(v).strip().lower() for v in install_surfaces if str(v).strip()}))
-        binding = self._tool_runtime.upsert_connector_binding(
-            principal_id=principal_id,
-            connector_name=TELEGRAM_OFFICIAL_BOT_CONNECTOR,
-            external_account_ref=external_ref,
-            scope_json={"install_surfaces": list(surfaces)},
-            auth_metadata_json={
-                "default_chat_ref": str(default_chat_ref or "").strip(),
-                "status": "bot_link_requested",
-            },
-            status="planned",
-        )
         state = self._ensure_state(principal_id)
         telegram_pref = dict((state.channel_preferences_json or {}).get("telegram") or {})
         telegram_pref.update(
@@ -248,18 +243,13 @@ class OnboardingService:
         business_name: str,
         import_history_now: bool,
     ) -> dict[str, object]:
-        external_ref = str(phone_number or "").strip() or principal_id
-        binding = self._tool_runtime.upsert_connector_binding(
+        binding = self._whatsapp_business.start_business_onboarding(
             principal_id=principal_id,
-            connector_name=WHATSAPP_BUSINESS_CONNECTOR,
-            external_account_ref=external_ref,
-            scope_json={"import_history_now": bool(import_history_now)},
-            auth_metadata_json={
-                "business_name": str(business_name or "").strip(),
-                "status": "planned_business",
-            },
-            status="planned",
+            phone_number=phone_number,
+            business_name=business_name,
+            import_history_now=import_history_now,
         )
+        external_ref = str(phone_number or "").strip() or principal_id
         state = self._ensure_state(principal_id)
         whatsapp_pref = dict((state.channel_preferences_json or {}).get("whatsapp") or {})
         whatsapp_pref.update(
@@ -289,16 +279,14 @@ class OnboardingService:
         selected_chat_labels: tuple[str, ...],
         include_media: bool,
     ) -> dict[str, object]:
+        binding = self._whatsapp_import.plan_export_ingest(
+            principal_id=principal_id,
+            export_label=export_label,
+            selected_chat_labels=selected_chat_labels,
+            include_media=include_media,
+        )
         external_ref = str(export_label or "").strip() or principal_id
         chats = tuple(str(v).strip() for v in selected_chat_labels if str(v).strip())
-        binding = self._tool_runtime.upsert_connector_binding(
-            principal_id=principal_id,
-            connector_name=WHATSAPP_EXPORT_CONNECTOR,
-            external_account_ref=external_ref,
-            scope_json={"selected_chat_labels": list(chats), "include_media": bool(include_media)},
-            auth_metadata_json={"status": "export_planned"},
-            status="planned",
-        )
         state = self._ensure_state(principal_id)
         whatsapp_pref = dict((state.channel_preferences_json or {}).get("whatsapp") or {})
         whatsapp_pref.update(
@@ -307,9 +295,10 @@ class OnboardingService:
                 "export_label": external_ref,
                 "selected_chat_labels": list(chats),
                 "include_media": bool(include_media),
+                "ingestion_mode": "planned_only",
                 "binding_id": binding.binding_id,
                 "status": "export_planned",
-                "next_step": "Upload the exported chats explicitly; generic automatic WhatsApp history import is not promised here.",
+                "next_step": "Plan explicit WhatsApp export intake; generic automatic WhatsApp history import is not promised here.",
             }
         )
         updated = self._replace_channel_pref(state, "whatsapp", whatsapp_pref, status="in_progress")
@@ -319,6 +308,59 @@ class OnboardingService:
             "status": "export_planned",
         }
         return payload
+
+    def acknowledge_whatsapp_export_import(
+        self,
+        *,
+        principal_id: str,
+        binding_id: str,
+        imported_message_count: int,
+        status: str,
+    ) -> dict[str, object]:
+        state = self._ensure_state(principal_id)
+        binding = self._find_whatsapp_export_binding(principal_id=principal_id, binding_id=binding_id)
+        if binding is None:
+            raise RuntimeError("onboarding_whatsapp_export_binding_not_found")
+        normalized_status = str(status or "imported").strip()
+        self._chat_export_ingest.ack_import(
+            principal_id=principal_id,
+            binding_id=binding.binding_id,
+            imported_message_count=imported_message_count,
+            status=normalized_status,
+        )
+        whatsapp_pref = dict((state.channel_preferences_json or {}).get("whatsapp") or {})
+        if str(whatsapp_pref.get("binding_id") or "") != binding.binding_id:
+            whatsapp_pref["binding_id"] = binding.binding_id
+        completion_status = (
+            "export_intake_complete"
+            if normalized_status.lower() in {"imported", "completed", "import_acknowledged", "ok"}
+            else "export_planned"
+        )
+        whatsapp_pref.update(
+            {
+                "mode": "export",
+                "ingestion_mode": "plan_confirmed",
+                "status": completion_status,
+                "last_imported_count": int(imported_message_count or 0),
+                "next_step": "Use next setup steps to finalize memory policy and generate the first brief.",
+            }
+        )
+        updated = self._replace_channel_pref(state, "whatsapp", whatsapp_pref, status="in_progress")
+        payload = self.status(principal_id=principal_id, state_override=updated)
+        payload["whatsapp_export"] = {
+            "binding_id": binding.binding_id,
+            "status": "import_acknowledged",
+            "imported_message_count": int(imported_message_count or 0),
+        }
+        return payload
+
+    def _find_whatsapp_export_binding(self, *, principal_id: str, binding_id: str) -> ConnectorBinding | None:
+        for binding in self._tool_runtime.list_connector_bindings(principal_id=principal_id, limit=200):
+            if binding.connector_name != WHATSAPP_EXPORT_CONNECTOR:
+                continue
+            if binding.binding_id == binding_id:
+                return binding
+        return None
 
     def finalize(
         self,
@@ -363,7 +405,7 @@ class OnboardingService:
             principal_id=principal_id,
             onboarding_id=state.onboarding_id,
             workspace_name=state.workspace_name,
-            workspace_mode=state.workspace_mode,
+            workspace_mode=self._normalize_workspace_mode(state.workspace_mode),
             region=state.region,
             language=state.language,
             timezone=state.timezone,
@@ -399,12 +441,28 @@ class OnboardingService:
             connectors=connectors,
         )
         next_step = self._next_step(state=state, channel_statuses=channel_statuses)
+        normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
+        raw_workspace_mode = str(state.workspace_mode or "").strip().lower() if state is not None else ""
+        preview_requires_refresh = bool(
+            state is not None
+            and raw_workspace_mode
+            and raw_workspace_mode != normalized_workspace_mode
+        )
+        if preview_requires_refresh:
+            preview = self._build_brief_preview(
+                principal_id=principal_id,
+                state=state,
+                privacy=dict(state.privacy_preferences_json) if state is not None else {},
+                channel_statuses=channel_statuses,
+                google_binding=google_binding,
+                connectors=connectors,
+            )
         return {
             "principal_id": principal_id,
             "status": state.status if state is not None else "draft",
             "workspace": {
                 "name": state.workspace_name if state is not None else "",
-                "mode": state.workspace_mode if state is not None else "personal",
+                "mode": normalized_workspace_mode,
                 "region": state.region if state is not None else "",
                 "language": state.language if state is not None else "",
                 "timezone": state.timezone if state is not None else "",
@@ -502,12 +560,18 @@ class OnboardingService:
         whatsapp_pref = dict(channel_prefs.get("whatsapp") or {})
         whatsapp_status = str(whatsapp_pref.get("status") or "").strip() or "not_selected"
         whatsapp_detail = str(whatsapp_pref.get("next_step") or "").strip() or (
-            "WhatsApp stays split between supported business onboarding and explicit export import."
+            "WhatsApp stays split between supported business onboarding and explicit export-planned intake."
         )
         if by_name.get(WHATSAPP_BUSINESS_CONNECTOR):
             whatsapp_status = "planned_business"
         elif by_name.get(WHATSAPP_EXPORT_CONNECTOR):
-            whatsapp_status = "export_planned"
+            export_statuses = [str(binding.status or "") for binding in by_name.get(WHATSAPP_EXPORT_CONNECTOR, [])]
+            if any(status.strip().lower() in {"import_acknowledged", "export_intake_complete", "imported", "completed"} for status in export_statuses):
+                whatsapp_status = "import_acknowledged"
+            elif any(status.strip().lower() == "planned" for status in export_statuses):
+                whatsapp_status = "export_planned"
+            else:
+                whatsapp_status = "export_planned"
         return {
             "google": {
                 "status": google_status,
@@ -544,6 +608,7 @@ class OnboardingService:
             },
             "whatsapp": {
                 "status": whatsapp_status,
+                "ingestion_mode": str(whatsapp_pref.get("ingestion_mode") or "planned_only"),
                 "detail": whatsapp_detail,
                 "path_options": [
                     {
@@ -553,12 +618,12 @@ class OnboardingService:
                     },
                     {
                         "key": "export",
-                        "label": "WhatsApp export upload",
-                        "summary": "Fallback for personal or unsupported paths: upload exported chats explicitly instead of pretending a generic sync exists.",
+                        "label": "WhatsApp export planning",
+                        "summary": "Fallback for personal or unsupported paths: stage export-file intake explicitly instead of pretending a generic sync exists.",
                     },
                 ],
                 "capabilities": [
-                    "Stage Business onboarding separately from export upload",
+                    "Stage Business onboarding separately from export intake planning",
                     "Keep historical import and future sync as distinct events",
                 ],
                 "limitations": [
@@ -627,15 +692,16 @@ class OnboardingService:
                         history_state.append("WhatsApp Business is staged without pretending a history sync already happened.")
                 elif mode == "export":
                     export_label = str(prefs.get("export_label") or "").strip()
-                    connected.append(f"WhatsApp export lane staged as {export_label or 'export upload'}")
-                    history_state.append("WhatsApp history will arrive through explicit export upload, not opaque scraping.")
+                    connected.append(f"WhatsApp export lane staged as {export_label or 'export intake plan'}")
+                    history_state.append("WhatsApp history intake is staged from a planned export flow; no automatic bulk pull is claimed yet.")
                 else:
                     history_state.append("WhatsApp is selected but not configured yet.")
         if not selected_channels:
             history_state.append("No channels are selected yet, so the first brief can only describe setup posture.")
-        top_themes = list(self._top_themes_for_mode(state.workspace_mode if state is not None else "personal", selected_channels))
+        normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
+        top_themes = list(self._top_themes_for_mode(normalized_workspace_mode, selected_channels))
         if not top_contacts:
-            top_contacts = ["No imported contacts yet; the assistant will seed a watchlist after the first real sync or upload."]
+            top_contacts = ["No imported contacts yet; the assistant will seed a watchlist after the first real sync or planned intake."]
         first_brief_lines = [
             "Reply first: identify the highest-friction thread across connected channels.",
             "Calendar watch: surface the next real commitment and the people attached to it.",
@@ -644,11 +710,11 @@ class OnboardingService:
         if "telegram" in selected_channels:
             first_brief_lines.append("Telegram recap: distinguish DM urgency from group chatter instead of flattening them together.")
         if "whatsapp" in selected_channels:
-            first_brief_lines.append("WhatsApp digest: separate imported history from future live sync so the timeline stays honest.")
+            first_brief_lines.append("WhatsApp digest: separate planned export intake from future live sync so the timeline stays honest.")
         suggested_actions = [
             "Connect Google if it is selected but still waiting on consent.",
             "Choose whether Telegram starts future-only or with a later explicit import step.",
-            "Pick either WhatsApp Business onboarding or export upload; do not leave both ambiguous.",
+            "Pick either WhatsApp Business onboarding or export intake plan; do not leave both ambiguous.",
         ]
         trust_notes = [
             "Postgres is the source of truth for onboarding, bindings, memory, jobs, and receipts when durable storage is configured.",
@@ -658,10 +724,10 @@ class OnboardingService:
         return {
             "headline": f"{workspace_name} wakes up with one cross-channel brief instead of three disconnected inboxes.",
             "principal_id": principal_id,
-            "workspace_mode": state.workspace_mode if state is not None else "personal",
+            "workspace_mode": normalized_workspace_mode,
             "who_you_are": [
                 f"Workspace: {workspace_name}",
-                f"Mode: {(state.workspace_mode if state is not None else 'personal').replace('_', ' ')}",
+                f"Mode: {normalized_workspace_mode.replace('_', ' ')}",
                 f"Timezone: {state.timezone if state is not None and state.timezone else 'unspecified'}",
             ],
             "connected_channels": connected,
@@ -691,7 +757,7 @@ class OnboardingService:
         if "telegram" in state.selected_channels and str(dict(channel_statuses.get("telegram") or {}).get("status") or "") == "guided_manual":
             return "Decide whether Telegram starts as identity-only, official bot, or future-only memory."
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
-            return "Choose the WhatsApp path: supported business onboarding or explicit export import."
+            return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
             return "Finalize privacy and brief preferences so EA can build the first trustworthy brief."
         return "Review the first brief, then keep connecting the next real channel or import path."
@@ -703,8 +769,15 @@ class OnboardingService:
         return tuple(normalized)
 
     @staticmethod
+    def _normalize_workspace_mode(value: str) -> str:
+        normalized = str(value or "personal").strip().lower() or "personal"
+        if normalized.endswith("_creator_ops"):
+            return "executive_ops"
+        return WORKSPACE_MODE_ALIASES.get(normalized, "personal")
+
+    @staticmethod
     def _top_themes_for_mode(workspace_mode: str, selected_channels: list[str]) -> tuple[str, ...]:
-        normalized_mode = str(workspace_mode or "personal").strip().lower() or "personal"
+        normalized_mode = OnboardingService._normalize_workspace_mode(workspace_mode)
         base: list[str]
         if normalized_mode == "team":
             base = [
@@ -712,11 +785,11 @@ class OnboardingService:
                 "Meeting prep and recap across the channels already connected",
                 "Handoffs that should become durable memory instead of inbox drift",
             ]
-        elif normalized_mode == "gm_creator_ops":
+        elif normalized_mode == "executive_ops":
             base = [
-                "Session prep and follow-up across player channels",
-                "Campaign memory that should survive chat scrollback",
-                "Drafts, recaps, and ops notes with source traces",
+                "Executive briefings that connect email, chat, calendar, and follow-up state",
+                "Durable relationship memory that should survive inbox and chat scrollback",
+                "Drafts, meeting prep, and operator notes with source traces",
             ]
         else:
             base = [

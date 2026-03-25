@@ -50,6 +50,21 @@ class GoogleOAuthAccountOut(BaseModel):
     connector_binding_id: str
 
 
+class GoogleOAuthCallbackOut(GoogleOAuthAccountOut):
+    pass
+
+
+class GoogleGmailSmokeTestOut(BaseModel):
+    binding_id: str
+    provider_key: str
+    principal_id: str
+    sender_email: str
+    recipient_email: str | None
+    rfc822_message_id: str
+    gmail_message_id: str
+    sent_at: str
+
+
 class GoogleOAuthDisconnectIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
 
@@ -77,19 +92,6 @@ def _account_out(account: GoogleOAuthAccount) -> GoogleOAuthAccountOut:
     )
 
 
-def _smoke_out(result: GoogleGmailSmokeResult) -> dict[str, object]:
-    return {
-        "binding_id": result.binding.binding_id,
-        "provider_key": result.binding.provider_key,
-        "principal_id": result.binding.principal_id,
-        "sender_email": result.sender_email,
-        "recipient_email": result.recipient_email,
-        "rfc822_message_id": result.rfc822_message_id,
-        "gmail_message_id": result.gmail_message_id,
-        "sent_at": result.sent_at,
-    }
-
-
 @router.post("/oauth/start", dependencies=[Depends(require_request_auth)])
 def google_oauth_start(
     body: GoogleOAuthStartIn,
@@ -115,7 +117,7 @@ def google_oauth_callback(
     code: str = Query(..., min_length=1),
     state: str = Query(..., min_length=1),
     container: AppContainer = Depends(get_container),
-) -> GoogleOAuthAccountOut:
+) -> GoogleOAuthCallbackOut:
     try:
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
@@ -176,7 +178,7 @@ def google_gmail_smoke_test(
     body: GoogleGmailSmokeTestIn,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> dict[str, object]:
+) -> GoogleGmailSmokeTestOut:
     principal_id = resolve_principal_id(body.principal_id, context)
     try:
         result = run_google_gmail_smoke_test(
@@ -186,4 +188,13 @@ def google_gmail_smoke_test(
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _smoke_out(result)
+    return GoogleGmailSmokeTestOut(
+        binding_id=result.binding.binding_id,
+        provider_key=result.binding.provider_key,
+        principal_id=result.binding.principal_id,
+        sender_email=result.sender_email,
+        recipient_email=result.recipient_email,
+        rfc822_message_id=result.rfc822_message_id,
+        gmail_message_id=result.gmail_message_id,
+        sent_at=result.sent_at,
+    )

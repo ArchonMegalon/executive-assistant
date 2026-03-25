@@ -3,14 +3,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import get_container
+from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 
 router = APIRouter(prefix="/v1/observations", tags=["observations"])
 
 
 class ObservationIn(BaseModel):
-    principal_id: str = Field(min_length=1, max_length=200)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     channel: str = Field(min_length=1, max_length=100)
     event_type: str = Field(min_length=1, max_length=120)
     payload: dict[str, object] = Field(default_factory=dict)
@@ -39,9 +39,11 @@ class ObservationOut(BaseModel):
 def ingest_observation(
     body: ObservationIn,
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> ObservationOut:
+    principal_id = resolve_principal_id(body.principal_id, context)
     row = container.channel_runtime.ingest_observation(
-        principal_id=body.principal_id,
+        principal_id=principal_id,
         channel=body.channel,
         event_type=body.event_type,
         payload=body.payload,
@@ -68,10 +70,13 @@ def ingest_observation(
 
 @router.get("/recent")
 def list_recent_observations(
+    principal_id: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=50, ge=1, le=500),
     container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
 ) -> list[ObservationOut]:
-    rows = container.channel_runtime.list_recent_observations(limit=limit)
+    resolved_principal = resolve_principal_id(principal_id, context)
+    rows = container.channel_runtime.list_recent_observations(limit=limit, principal_id=resolved_principal)
     return [
         ObservationOut(
             observation_id=r.observation_id,

@@ -1069,8 +1069,9 @@ Content-Type: application/json
     "artifact_repository"
   ],
   "evidence_requirements": [
-    "repo_readmes",
-    "design_scope",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
     "public_status",
     "source_prompt"
   ],
@@ -1078,8 +1079,9 @@ Content-Type: application/json
   "memory_reads": [
     "entities",
     "relationships",
-    "repo_readmes",
-    "design_scope",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
     "public_status"
   ],
   "memory_writes": [
@@ -1163,8 +1165,9 @@ Content-Type: application/json
     "artifact_repository"
   ],
   "evidence_requirements": [
-    "repo_readmes",
-    "design_scope",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
     "public_status",
     "source_prompt"
   ],
@@ -1172,8 +1175,9 @@ Content-Type: application/json
   "memory_reads": [
     "entities",
     "relationships",
-    "repo_readmes",
-    "design_scope",
+    "public_page_registry",
+    "public_part_registry",
+    "public_faq_registry",
     "public_status"
   ],
   "memory_writes": [

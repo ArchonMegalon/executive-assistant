@@ -4,9 +4,12 @@ import hashlib
 import json
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Mapping
+from typing import Any, Mapping
 
-import jwt
+try:
+    import jwt
+except ModuleNotFoundError:  # pragma: no cover - exercised in dependency-light test envs
+    jwt = None  # type: ignore[assignment]
 
 from app.settings import AuthSettings
 
@@ -119,14 +122,22 @@ def _audience_values(value: object) -> tuple[str, ...]:
     return ()
 
 
+def _require_jwt_support() -> Any:
+    if jwt is None:
+        raise RuntimeError("cloudflare_access_jwt_support_missing")
+    return jwt
+
+
 @lru_cache(maxsize=16)
-def _jwks_client(certs_url: str) -> jwt.PyJWKClient:
-    return jwt.PyJWKClient(certs_url)
+def _jwks_client(certs_url: str) -> Any:
+    jwt_module = _require_jwt_support()
+    return jwt_module.PyJWKClient(certs_url)
 
 
 def _decode_access_jwt(*, token: str, config: CloudflareAccessConfig) -> dict[str, object]:
+    jwt_module = _require_jwt_support()
     signing_key = _jwks_client(config.certs_url).get_signing_key_from_jwt(token)
-    claims = jwt.decode(
+    claims = jwt_module.decode(
         token,
         signing_key.key,
         algorithms=["RS256"],

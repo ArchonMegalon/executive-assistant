@@ -354,7 +354,7 @@ def test_policy_evaluate_external_send_requires_approval() -> None:
 
 
 def test_human_task_flow_and_session_projection() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "human task seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -729,7 +729,7 @@ def test_human_task_flow_and_session_projection() -> None:
 
 
 def test_human_task_sort_by_last_transition_desc() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "sort seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -792,7 +792,7 @@ def test_human_task_sort_by_last_transition_desc() -> None:
 
 
 def test_human_task_sort_by_created_asc_across_queue_views() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "created asc seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -916,7 +916,7 @@ def test_human_task_sort_by_created_asc_across_queue_views() -> None:
 
 
 def test_human_task_sort_by_priority_then_created_asc_across_queue_views() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "priority sort seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -1075,7 +1075,7 @@ def test_human_task_sort_by_priority_then_created_asc_across_queue_views() -> No
 
 
 def test_human_task_priority_filter_across_queue_views() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "priority filter seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -1193,7 +1193,7 @@ def test_human_task_priority_filter_across_queue_views() -> None:
 
 
 def test_human_task_multi_priority_filter_across_queue_views() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "multi priority filter seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -1304,7 +1304,7 @@ def test_human_task_multi_priority_filter_across_queue_views() -> None:
 
 
 def test_human_task_priority_summary_view() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "priority summary seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -1400,7 +1400,7 @@ def test_human_task_priority_summary_view() -> None:
 
 
 def test_human_task_priority_summary_for_assigned_operator() -> None:
-    client = _client(storage_backend="memory")
+    client = _client(storage_backend="memory", operator=True)
     create = client.post("/v1/rewrite/artifact", json={"text": "assigned priority summary seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]

@@ -1587,8 +1587,6 @@ class BrowserActToolAdapter:
             or binding_metadata.get("browseract_onemin_billing_usage_workflow_id")
             or ""
         ).strip()
-        if not run_url and not workflow_id:
-            raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_billing_usage")
         page_url = str(payload.get("page_url") or "https://app.1min.ai/billing-usage").strip() or "https://app.1min.ai/billing-usage"
         account_label = str(payload.get("account_label") or binding.external_account_ref or binding.binding_id).strip() or binding.binding_id
         try:
@@ -1597,7 +1595,51 @@ class BrowserActToolAdapter:
             timeout_seconds = 180
 
         callback = getattr(self, "_onemin_billing_usage", None)
-        if callback is not None:
+        if not run_url and not workflow_id:
+            if bool(payload.get("force_browseract")):
+                raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_billing_usage")
+            login_email, login_password = self._onemin_login_credentials_for_account(
+                account_label=account_label,
+                binding_metadata=binding_metadata,
+            )
+            if not login_email:
+                raise ToolExecutionError(f"owner_email_required:onemin:{account_label}")
+            if not login_password:
+                raise ToolExecutionError("onemin_password_missing")
+            template_service = self._onemin_billing_usage_ui_service()
+            local_payload = dict(payload)
+            local_payload.update(
+                {
+                    "page_url": page_url,
+                    "login_email": login_email,
+                    "login_password": login_password,
+                    "browseract_username": login_email,
+                    "browseract_password": login_password,
+                    "timeout_seconds": timeout_seconds,
+                }
+            )
+            requested_inputs = self._build_browseract_ui_runtime_inputs(
+                payload=local_payload,
+                service=template_service,
+            )
+            requested_inputs.update(
+                self._browseract_ui_service_runtime_credentials(
+                    payload=local_payload,
+                    binding_metadata=binding_metadata,
+                    service=template_service,
+                )
+            )
+            response = self._create_template_backed_ui_service_direct(
+                run_url="",
+                workflow_id="",
+                request_payload=local_payload,
+                requested_inputs=requested_inputs,
+                binding_metadata=binding_metadata,
+                service=template_service,
+            )
+            if not isinstance(response, dict):
+                raise ToolExecutionError("browseract_template_execution_failed:onemin_billing_usage")
+        elif callback is not None:
             maybe = callback(run_url=run_url, request_payload=dict(payload), page_url=page_url, account_label=account_label)
             if isinstance(maybe, dict):
                 response = maybe
@@ -1606,6 +1648,7 @@ class BrowserActToolAdapter:
                     workflow_id=workflow_id,
                     account_label=account_label,
                     timeout_seconds=timeout_seconds,
+                    binding_metadata=binding_metadata,
                 )
             else:
                 response = self._post_browseract_json(
@@ -1626,6 +1669,7 @@ class BrowserActToolAdapter:
                     workflow_id=workflow_id,
                     account_label=account_label,
                     timeout_seconds=timeout_seconds,
+                    binding_metadata=binding_metadata,
                 )
             else:
                 response = self._post_browseract_json(
@@ -1751,21 +1795,23 @@ class BrowserActToolAdapter:
         if not run_url and not workflow_id:
             if bool(payload.get("force_browseract")):
                 raise ToolExecutionError("run_url_or_workflow_id_required:browseract.onemin_member_reconciliation")
-            owner_email = self._onemin_owner_email_for_account(account_label=account_label)
-            if not owner_email:
+            login_email, login_password = self._onemin_login_credentials_for_account(
+                account_label=account_label,
+                binding_metadata=binding_metadata,
+            )
+            if not login_email:
                 raise ToolExecutionError(f"owner_email_required:onemin:{account_label}")
-            password = self._onemin_browser_password()
-            if not password:
+            if not login_password:
                 raise ToolExecutionError("onemin_password_missing")
             template_service = self._onemin_member_reconciliation_ui_service()
             local_payload = dict(payload)
             local_payload.update(
                 {
                     "page_url": page_url,
-                    "login_email": owner_email,
-                    "login_password": password,
-                    "browseract_username": owner_email,
-                    "browseract_password": password,
+                    "login_email": login_email,
+                    "login_password": login_password,
+                    "browseract_username": login_email,
+                    "browseract_password": login_password,
                     "timeout_seconds": timeout_seconds,
                 }
             )
@@ -1799,6 +1845,7 @@ class BrowserActToolAdapter:
                     workflow_id=workflow_id,
                     account_label=account_label,
                     timeout_seconds=timeout_seconds,
+                    binding_metadata=binding_metadata,
                 )
             else:
                 response = self._post_browseract_json(
@@ -1819,6 +1866,7 @@ class BrowserActToolAdapter:
                     workflow_id=workflow_id,
                     account_label=account_label,
                     timeout_seconds=timeout_seconds,
+                    binding_metadata=binding_metadata,
                 )
             else:
                 response = self._post_browseract_json(
@@ -2650,7 +2698,7 @@ class BrowserActToolAdapter:
 
     @staticmethod
     def _crezlo_public_tour_base_url() -> str:
-        return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://ea.girschele.com/tours").strip().rstrip("/")
+        return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
 
     @staticmethod
     def _crezlo_public_tour_slug(value: object) -> str:
@@ -5391,6 +5439,55 @@ class BrowserActToolAdapter:
                 return str(row.get("owner_email") or "").strip()
         return ""
 
+    @classmethod
+    def _onemin_login_credentials_for_account(
+        cls,
+        *,
+        account_label: str,
+        binding_metadata: dict[str, object] | None = None,
+    ) -> tuple[str, str]:
+        from app.services import responses_upstream as upstream
+
+        credentials = upstream.onemin_account_login_credentials(
+            account_name=account_label,
+            binding_metadata=dict(binding_metadata or {}),
+        )
+        login_email = str(credentials.get("login_email") or cls._onemin_owner_email_for_account(account_label=account_label)).strip()
+        login_password = str(credentials.get("login_password") or cls._onemin_browser_password()).strip()
+        return login_email, login_password
+
+    @staticmethod
+    def _onemin_billing_usage_ui_service() -> BrowserActUiServiceDefinition:
+        return BrowserActUiServiceDefinition(
+            service_key="onemin_billing_usage",
+            capability_key="onemin_billing_usage",
+            tool_name="browseract.onemin_billing_usage",
+            skill_key="onemin_billing_usage",
+            task_key="onemin_billing_usage",
+            name="1min Billing Usage",
+            description="Open the logged-in 1min billing usage page and extract the visible credit, top-up, and billing state.",
+            deliverable_type="onemin_billing_usage_packet",
+            action_kind="billing.inspect",
+            output_label="billing_usage_page",
+            browseract_service_names=("BrowserAct", "1min.ai"),
+            tags=("browseract", "ui-only", "billing", "template-backed"),
+            aliases=("onemin_billing", "1min_billing", "billing_usage"),
+            binding_workflow_id_keys=(
+                "onemin_billing_usage_workflow_id",
+                "browseract_onemin_billing_usage_workflow_id",
+            ),
+            binding_run_url_keys=(
+                "onemin_billing_usage_run_url",
+                "browseract_onemin_billing_usage_run_url",
+            ),
+            required_top_level_inputs=(),
+            required_runtime_inputs=(),
+            payload_to_runtime_inputs={"page_url": "page_url"},
+            input_properties={"page_url": {"type": "string"}},
+            worker_script_name="browseract_template_service_worker.py",
+            template_key="onemin_billing_usage_reader_live",
+        )
+
     @staticmethod
     def _onemin_member_reconciliation_ui_service() -> BrowserActUiServiceDefinition:
         return BrowserActUiServiceDefinition(
@@ -5429,18 +5526,21 @@ class BrowserActToolAdapter:
         workflow_id: str,
         account_label: str,
         timeout_seconds: int,
+        binding_metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        owner_email = self._onemin_owner_email_for_account(account_label=account_label)
-        if not owner_email:
+        login_email, login_password = self._onemin_login_credentials_for_account(
+            account_label=account_label,
+            binding_metadata=binding_metadata,
+        )
+        if not login_email:
             raise ToolExecutionError(f"owner_email_required:onemin:{account_label}")
-        password = self._onemin_browser_password()
-        if not password:
+        if not login_password:
             raise ToolExecutionError("onemin_password_missing")
         started = self._run_browseract_workflow_task_with_inputs(
             workflow_id=workflow_id,
             input_values={
-                "browseract_username": owner_email,
-                "browseract_password": password,
+                "browseract_username": login_email,
+                "browseract_password": login_password,
             },
         )
         return self._wait_for_browseract_task(

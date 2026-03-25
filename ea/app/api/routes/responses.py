@@ -508,6 +508,7 @@ class _ResponsesCreateRequest(BaseModel):
     include: list[str] | None = None
     service_tier: str | None = None
     prompt_cache_key: str | None = None
+    previous_response_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1176,20 +1177,21 @@ def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
         accepted.append("service_tier")
     if payload.prompt_cache_key:
         accepted.append("prompt_cache_key")
+    if payload.store is not None:
+        accepted.append("store")
+    if payload.tools is not None:
+        accepted.append("tools")
+    if payload.tool_choice is not None:
+        accepted.append("tool_choice")
+    if payload.parallel_tool_calls is not None:
+        accepted.append("parallel_tool_calls")
+    if _requested_previous_response_id(payload):
+        accepted.append("previous_response_id")
     return accepted
 
 
 def _rejected_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
-    rejected: list[str] = []
-    if payload.store is not None:
-        rejected.append("store")
-    if payload.tools is not None:
-        rejected.append("tools")
-    if payload.tool_choice is not None:
-        rejected.append("tool_choice")
-    if payload.parallel_tool_calls is not None:
-        rejected.append("parallel_tool_calls")
-    return rejected
+    return []
 
 
 def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
@@ -1667,6 +1669,18 @@ def _response_tools(payload: _ResponsesCreateRequest) -> list[dict[str, object]]
         if isinstance(entry, dict):
             tools.append(dict(entry))
     return tools
+
+
+def _tool_choice_disables_tools(payload: _ResponsesCreateRequest) -> bool:
+    raw_tool_choice = getattr(payload, "tool_choice", None)
+    if raw_tool_choice is None:
+        return False
+    if isinstance(raw_tool_choice, str):
+        return raw_tool_choice.strip().lower() == "none"
+    if isinstance(raw_tool_choice, dict):
+        tool_choice_type = str(raw_tool_choice.get("type") or "").strip().lower()
+        return tool_choice_type == "none"
+    return False
 
 
 def _tool_shim_supported_tools(raw_tools: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -2238,7 +2252,7 @@ def _survival_max_output_tokens() -> int:
 
 
 def _survival_rejected_fields(payload: _ResponsesCreateRequest) -> list[str]:
-    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "0").strip().lower() not in {"0", "false", "no", "off"}
+    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "1").strip().lower() not in {"0", "false", "no", "off"}
     rejected: list[str] = []
     tools = getattr(payload, "tools", None)
     if refuse_tools and tools:
@@ -2754,6 +2768,8 @@ def _run_response(
     previous_response_id = _requested_previous_response_id(request)
     raw_tools = _response_tools(request)
     supported_tools = _tool_shim_supported_tools(raw_tools)
+    if _tool_choice_disables_tools(request):
+        supported_tools = []
     history_items = _history_items_for_request(
         previous_response_id=previous_response_id,
         parsed_input=parsed_input,

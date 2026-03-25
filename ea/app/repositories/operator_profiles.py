@@ -21,7 +21,7 @@ class OperatorProfileRepository(Protocol):
     ) -> OperatorProfile:
         ...
 
-    def get(self, operator_id: str) -> OperatorProfile | None:
+    def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
         ...
 
     def list_for_principal(
@@ -43,8 +43,11 @@ def _normalize_status(value: str) -> str:
 
 class InMemoryOperatorProfileRepository:
     def __init__(self) -> None:
-        self._rows: Dict[str, OperatorProfile] = {}
-        self._order: List[str] = []
+        self._rows: Dict[tuple[str, str], OperatorProfile] = {}
+        self._order: List[tuple[str, str]] = []
+
+    def _key(self, principal_id: str, operator_id: str) -> tuple[str, str]:
+        return (str(principal_id or "").strip(), str(operator_id or "").strip())
 
     def upsert_profile(
         self,
@@ -59,13 +62,12 @@ class InMemoryOperatorProfileRepository:
         notes: str = "",
     ) -> OperatorProfile:
         now = now_utc_iso()
+        normalized_principal = str(principal_id or "").strip()
         key = str(operator_id or "").strip()
-        existing = self._rows.get(key) if key else None
-        if existing and existing.principal_id != str(principal_id or "").strip():
-            existing = None
+        existing = self._rows.get(self._key(normalized_principal, key)) if key else None
         row = OperatorProfile(
             operator_id=existing.operator_id if existing else (key or str(uuid.uuid4())),
-            principal_id=str(principal_id or "").strip(),
+            principal_id=normalized_principal,
             display_name=str(display_name or existing.display_name if existing else display_name).strip(),
             roles=tuple(str(v).strip() for v in roles if str(v).strip()),
             skill_tags=tuple(str(v).strip().lower() for v in skill_tags if str(v).strip()),
@@ -75,13 +77,27 @@ class InMemoryOperatorProfileRepository:
             created_at=existing.created_at if existing else now,
             updated_at=now,
         )
-        self._rows[row.operator_id] = row
-        if row.operator_id not in self._order:
-            self._order.append(row.operator_id)
+        storage_key = self._key(row.principal_id, row.operator_id)
+        self._rows[storage_key] = row
+        if storage_key not in self._order:
+            self._order.append(storage_key)
         return row
 
-    def get(self, operator_id: str) -> OperatorProfile | None:
-        return self._rows.get(str(operator_id or "").strip())
+    def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
+        normalized_operator_id = str(operator_id or "").strip()
+        if not normalized_operator_id:
+            return None
+        normalized_principal = str(principal_id or "").strip()
+        if normalized_principal:
+            return self._rows.get(self._key(normalized_principal, normalized_operator_id))
+        matches = [
+            row
+            for (row_principal_id, row_operator_id), row in self._rows.items()
+            if row_operator_id == normalized_operator_id
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def list_for_principal(
         self,

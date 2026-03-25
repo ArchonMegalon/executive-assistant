@@ -12,6 +12,8 @@ from pathlib import Path
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
+DEFAULT_SENDER_EMAIL = "sprachenzentrum@myexternalbrain.com"
+DEFAULT_SENDER_NAME = "Sprachenzentrum"
 VARIANT_ORDER = {
     "layout_first": 0,
     "light_and_view": 1,
@@ -243,8 +245,8 @@ def parse_args() -> argparse.Namespace:
         help="One or more manifest JSON files. Later files override earlier rows by run_key.",
     )
     parser.add_argument("--to", required=True, help="Recipient email address.")
-    parser.add_argument("--from-email", default="ea@girschele.com")
-    parser.add_argument("--from-name", default="EA")
+    parser.add_argument("--from-email", default=os.environ.get("EA_EMAIL_DEFAULT_FROM", DEFAULT_SENDER_EMAIL))
+    parser.add_argument("--from-name", default=os.environ.get("EA_EMAIL_DEFAULT_NAME", DEFAULT_SENDER_NAME))
     parser.add_argument("--output", required=True, help="Path to write send receipts JSON.")
     parser.add_argument("--public-index", default="", help="Optional hosted public-tour index JSON.")
     parser.add_argument("--idempotency-prefix", default="crezlo-tour-result", help="Emailit idempotency key prefix.")

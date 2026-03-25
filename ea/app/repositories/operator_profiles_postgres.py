@@ -45,8 +45,8 @@ class PostgresOperatorProfileRepository:
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS operator_profiles (
-                        operator_id TEXT PRIMARY KEY,
                         principal_id TEXT NOT NULL,
+                        operator_id TEXT NOT NULL,
                         display_name TEXT NOT NULL,
                         roles_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                         skill_tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -56,6 +56,13 @@ class PostgresOperatorProfileRepository:
                         created_at TIMESTAMPTZ NOT NULL,
                         updated_at TIMESTAMPTZ NOT NULL
                     )
+                    """
+                )
+                cur.execute("ALTER TABLE operator_profiles DROP CONSTRAINT IF EXISTS operator_profiles_pkey")
+                cur.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_operator_profiles_principal_operator
+                    ON operator_profiles(principal_id, operator_id)
                     """
                 )
                 cur.execute(
@@ -103,9 +110,11 @@ class PostgresOperatorProfileRepository:
         status: str = "active",
         notes: str = "",
     ) -> OperatorProfile:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_operator_id = str(operator_id or "").strip()
         row = OperatorProfile(
-            operator_id=str(operator_id or "").strip() or str(uuid.uuid4()),
-            principal_id=str(principal_id or "").strip(),
+            operator_id=normalized_operator_id or str(uuid.uuid4()),
+            principal_id=normalized_principal,
             display_name=str(display_name or "").strip(),
             roles=tuple(str(v).strip() for v in roles if str(v).strip()),
             skill_tags=tuple(str(v).strip().lower() for v in skill_tags if str(v).strip()),
@@ -122,9 +131,8 @@ class PostgresOperatorProfileRepository:
                     INSERT INTO operator_profiles
                     (operator_id, principal_id, display_name, roles_json, skill_tags_json, trust_tier, status, notes, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (operator_id) DO UPDATE
-                    SET principal_id = EXCLUDED.principal_id,
-                        display_name = EXCLUDED.display_name,
+                    ON CONFLICT (principal_id, operator_id) DO UPDATE
+                    SET display_name = EXCLUDED.display_name,
                         roles_json = EXCLUDED.roles_json,
                         skill_tags_json = EXCLUDED.skill_tags_json,
                         trust_tier = EXCLUDED.trust_tier,
@@ -149,22 +157,37 @@ class PostgresOperatorProfileRepository:
                 out = cur.fetchone()
         return self._from_row(out) if out else row
 
-    def get(self, operator_id: str) -> OperatorProfile | None:
+    def get(self, operator_id: str, *, principal_id: str | None = None) -> OperatorProfile | None:
         key = str(operator_id or "").strip()
         if not key:
             return None
         with self._connect() as conn:
             with conn.cursor() as cur:
+                if str(principal_id or "").strip():
+                    cur.execute(
+                        """
+                        SELECT operator_id, principal_id, display_name, roles_json, skill_tags_json, trust_tier, status, notes, created_at, updated_at
+                        FROM operator_profiles
+                        WHERE operator_id = %s AND principal_id = %s
+                        """,
+                        (key, str(principal_id or "").strip()),
+                    )
+                    row = cur.fetchone()
+                    return self._from_row(row) if row else None
                 cur.execute(
                     """
                     SELECT operator_id, principal_id, display_name, roles_json, skill_tags_json, trust_tier, status, notes, created_at, updated_at
                     FROM operator_profiles
                     WHERE operator_id = %s
+                    ORDER BY principal_id ASC
+                    LIMIT 2
                     """,
                     (key,),
                 )
-                row = cur.fetchone()
-        return self._from_row(row) if row else None
+                rows = cur.fetchall()
+        if len(rows) == 1:
+            return self._from_row(rows[0])
+        return None
 
     def list_for_principal(
         self,

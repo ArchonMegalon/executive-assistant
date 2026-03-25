@@ -1240,6 +1240,7 @@ class ObservationEvent:
 @dataclass(frozen=True)
 class DeliveryOutboxItem:
     delivery_id: str
+    principal_id: str
     channel: str
     recipient: str
     content: str

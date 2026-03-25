@@ -900,7 +900,7 @@ def test_chummer6_visual_director_skill_slice_is_documented_and_guarded() -> Non
     assert "test_ea_json_can_execute_visual_director_skill_identity" in worker_test
     assert "chummer6_visual_director" in smoke_script
     assert "Gemini Vortex" in smoke_script
-    assert "chummer6_visual_director" in readme
+    assert "chummer6_visual_director" not in readme
     assert "chummer6_visual_director" in runbook
     assert "chummer6_visual_director" in http_examples
     assert "`chummer6_visual_director`" in skills_doc
@@ -931,7 +931,7 @@ def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
     assert "test_skill_catalog_can_execute_chummer6_public_writer_skill" in skills_test
     assert "test_public_reader_guard_rejects_maintainer_imperatives" in worker_test
     assert "chummer6_public_writer" in smoke_script
-    assert "chummer6_public_writer" in readme
+    assert "chummer6_public_writer" not in readme
     assert "chummer6_public_writer" in runbook
     assert "chummer6_public_writer" in http_examples
     assert "`chummer6_public_writer`" in skills_doc
@@ -1285,6 +1285,35 @@ def test_evidence_object_ledger_api_is_documented_and_guarded() -> None:
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "evidence_object_ledger_api")
     assert capability["status"] == "released"
+
+
+def test_knowledge_fabric_projection_slice_is_documented_and_released() -> None:
+    evidence_runtime = (ROOT / "ea/app/services/evidence_runtime.py").read_text(encoding="utf-8")
+    evidence_router = (ROOT / "ea/app/api/routes/evidence.py").read_text(encoding="utf-8")
+    evidence_models = (ROOT / "ea/app/domain/models.py").read_text(encoding="utf-8")
+    smoke_test = _smoke_runtime_text()
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    chummer_worker_test = (ROOT / "tests/test_chummer6_guide_worker.py").read_text(encoding="utf-8")
+    chummer_canon_test = (ROOT / "tests/test_chummer6_guide_canon.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "citation_handles = normalize_evidence_strings" in evidence_runtime
+    assert 'prefix="/v1/evidence"' in evidence_router
+    assert "def evidence_citation_handle(" in evidence_models
+    assert "test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts" in smoke_test
+    assert "EVIDENCE_OBJECT_FIELDS" in smoke_script
+    assert "how_can_i_help" in chummer_worker_test
+    assert "test_load_faq_and_help_canon_track_public_question_sets" in chummer_canon_test
+    assert "/v1/evidence/objects*" in readme
+    assert "/v1/evidence/objects" in runbook
+    assert "Promoted milestone capability `knowledge_fabric_projection_slice` to released" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "knowledge_fabric_projection_slice")
+    assert capability["status"] == "released"
+    assert "Release/operator guards now pin these citation/query/help contracts." in capability["notes"]
 
 
 def test_dispatch_then_memory_candidate_workflow_template_is_documented_and_guarded() -> None:
@@ -3878,3 +3907,117 @@ def test_provider_registry_capability_routing_is_documented_and_released() -> No
     )
     assert capability["status"] == "released"
     assert "release/operator guards now pin that capability-addressed routing baseline" in capability["notes"]
+
+
+def test_append_only_session_ledger_and_delta_sync_slice_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
+    memory_ledger = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
+    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "Promoted milestone capability `append_only_session_ledger_and_delta_sync_slice` to released" in changelog
+    assert "append-only session-event writes" in changelog
+    assert "events_for(...)" in changelog
+    assert "delta-sync baseline" in changelog
+    assert "event_id: str" in rewrite_route
+    assert "created_at: str" in rewrite_route
+    assert "events: list[SessionEventOut]" in rewrite_route
+    assert "self._events[sid].append(event)" in memory_ledger
+    assert "return list(self._events.get(str(session_id or \"\"), []))" in memory_ledger
+    assert "INSERT INTO execution_events" in postgres_ledger
+    assert "ORDER BY created_at ASC, event_id ASC" in postgres_ledger
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "append_only_session_ledger_and_delta_sync_slice"
+    )
+    assert capability["status"] == "released"
+    assert capability.get("task_refs") == ["D-518"]
+    assert "append-only and ledger-backed" in capability["notes"]
+    assert "delta-sync" in capability["notes"]
+
+
+def test_portable_engine_host_posture_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "Promoted milestone capability `portable_engine_host_posture` to released" in changelog
+    assert "deterministic core host-portability posture" in changelog
+    assert "server/browser/embed host profile planning" in changelog
+    assert "release/operator guards now pin that portability contract" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "portable_engine_host_posture")
+    assert capability["status"] == "released"
+    assert capability.get("task_refs") == ["D-519"]
+    assert "release/operator guards now pin that portability contract" in capability["notes"]
+
+
+def test_local_coprocessor_optional_lane_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+
+    assert "Promoted milestone capability `local_coprocessor_optional_lane` to released" in changelog
+    assert "optional/local BYOC acceleration lane" in changelog
+    assert "feature-flagged and advisory-only baseline behavior" in changelog
+    assert "no shipped runtime path requires local co-processor execution" in changelog
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "local_coprocessor_optional_lane")
+    assert capability["status"] == "released"
+    assert capability.get("task_refs") == ["D-520"]
+    assert "optional and non-blocking branch baseline behavior" in capability["notes"]
+    assert "no shipped runtime path may require local compute" in capability["notes"]
+
+
+def test_codex_onemin_specialist_router_admission_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+    brain_catalog = (ROOT / "ea/app/services/brain_catalog.py").read_text(encoding="utf-8")
+    provider_registry = (ROOT / "ea/app/services/provider_registry.py").read_text(encoding="utf-8")
+    responses_upstream = (ROOT / "ea/app/services/responses_upstream.py").read_text(encoding="utf-8")
+
+    assert "Promoted milestone capability `codex_onemin_specialist_router_admission` to released" in changelog
+    assert "1min specialist-escalation-only router posture" in changelog
+    assert "core lane admission stays explicit and capacity-gated" in changelog
+    assert "proof-backed 1min top-up/billing snapshots" in changelog
+    assert 'profile="core"' in brain_catalog
+    assert 'provider_hint_order=("onemin",)' in brain_catalog
+    assert 'capability_key="code_generate"' in provider_registry
+    assert 'capability_key="reasoned_patch_review"' in provider_registry
+    assert "billing_next_topup_at" in responses_upstream
+    assert "billing_topup_amount" in responses_upstream
+    assert "depletes_before_next_topup" in responses_upstream
+
+    capability = next(
+        entry for entry in milestone["capabilities"] if entry["name"] == "codex_onemin_specialist_router_admission"
+    )
+    assert capability["status"] == "released"
+    assert capability.get("task_refs") == ["D-521"]
+    assert "specialist escalation posture" in capability["notes"]
+    assert "release/operator guards now pin those admission and specialist bindings" in capability["notes"]
+
+
+def test_replay_forensics_horizon_bootstrap_is_documented_and_released() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
+    rewrite_route = (ROOT / "ea/app/api/routes/rewrite.py").read_text(encoding="utf-8")
+    memory_ledger = (ROOT / "ea/app/repositories/ledger.py").read_text(encoding="utf-8")
+    postgres_ledger = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
+    retry_contracts = (ROOT / "tests/test_queue_retry_contracts.py").read_text(encoding="utf-8")
+
+    assert "Promoted milestone capability `replay_forensics_horizon_bootstrap` to released" in changelog
+    assert "retry/approval snapshot replay stability coverage" in changelog
+    assert "event_id: str" in rewrite_route
+    assert "created_at: str" in rewrite_route
+    assert '@router.get("/receipts/{receipt_id}")' in rewrite_route
+    assert '@router.get("/run-costs/{cost_id}")' in rewrite_route
+    assert '@router.get("/artifacts/{artifact_id}")' in rewrite_route
+    assert "return list(self._events.get(str(session_id or \"\"), []))" in memory_ledger
+    assert "ORDER BY created_at ASC, event_id ASC" in postgres_ledger
+    assert "test_approval_resume_snapshot_is_stable_for_retry_session_replay" in retry_contracts
+    assert "test_approval_resume_service_snapshot_is_stable_for_retry_session_replay" in retry_contracts
+    assert "test_approval_resume_delayed_retry_snapshot_is_stable_for_async_replay" in retry_contracts
+
+    capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "replay_forensics_horizon_bootstrap")
+    assert capability["status"] == "released"
+    assert capability.get("task_refs") == ["D-522"]
+    assert "release/operator guards now pin those bootstrap artifacts" in capability["notes"]

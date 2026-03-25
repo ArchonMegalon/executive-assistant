@@ -72,6 +72,9 @@ class ToolRuntimeService:
     def list_connector_bindings(self, principal_id: str, limit: int = 100) -> list[ConnectorBinding]:
         return self._connector_bindings.list_for_principal(principal_id, limit=limit)
 
+    def list_connector_bindings_for_connector(self, connector_name: str, limit: int = 100) -> list[ConnectorBinding]:
+        return self._connector_bindings.list_for_connector(connector_name, limit=limit)
+
     def get_connector_binding(self, binding_id: str) -> ConnectorBinding | None:
         return self._connector_bindings.get(binding_id)
 

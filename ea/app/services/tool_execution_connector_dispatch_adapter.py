@@ -46,8 +46,22 @@ class ConnectorDispatchToolAdapter:
             metadata["principal_id"] = str(binding.principal_id or "").strip()
         if "priority" not in metadata:
             metadata["priority"] = str(payload.get("priority") or metadata.get("priority") or "normal").strip() or "normal"
+        metadata.setdefault("binding_id", str(binding.binding_id or "").strip())
+        metadata.setdefault("connector_name", str(binding.connector_name or "").strip())
+        metadata.setdefault("external_account_ref", str(binding.external_account_ref or "").strip())
+        if normalized_channel == "email":
+            subject = str(payload.get("subject") or metadata.get("subject") or "").strip()
+            if subject:
+                metadata["subject"] = subject
+            sender_email = str(dict(binding.auth_metadata_json or {}).get("sender_email") or "").strip()
+            sender_name = str(dict(binding.auth_metadata_json or {}).get("sender_name") or "").strip()
+            if sender_email:
+                metadata.setdefault("from_email", sender_email)
+            if sender_name:
+                metadata.setdefault("from_name", sender_name)
         metadata.setdefault("defer_if_focus", True)
         delivery = self.channel_runtime.queue_delivery(
+            principal_id=str(binding.principal_id or "").strip(),
             channel=normalized_channel,
             recipient=str(payload.get("recipient") or "").strip(),
             content=str(payload.get("content") or ""),

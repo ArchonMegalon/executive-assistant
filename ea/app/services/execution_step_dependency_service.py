@@ -120,9 +120,25 @@ class ExecutionStepDependencyService:
     def merged_step_input_json(self, session_id: str, rewrite_step: ExecutionStep) -> dict[str, object]:
         input_json = dict(rewrite_step.input_json or {})
         declared_input_keys = set(self.declared_step_input_keys(rewrite_step))
+        plan_step_key = str((rewrite_step.input_json or {}).get("plan_step_key") or "").strip()
+        wants_source_text = "source_text" in declared_input_keys
         for dependency in self.dependency_steps_for_step(session_id, rewrite_step):
-            for key, value in dict(dependency.output_json or {}).items():
+            dependency_output = dict(dependency.output_json or {})
+            dependency_plan_step_key = str((dependency.input_json or {}).get("plan_step_key") or "").strip()
+            if wants_source_text and not str(input_json.get("source_text") or "").strip():
+                dependency_source_text = str(
+                    dependency_output.get("source_text") or dependency_output.get("normalized_text") or ""
+                ).strip()
+                if dependency_source_text:
+                    input_json["source_text"] = dependency_source_text
+            for key, value in dependency_output.items():
                 if not declared_input_keys or key in declared_input_keys:
+                    if (
+                        plan_step_key == "step_artifact_save"
+                        and key == "normalized_text"
+                        and dependency_plan_step_key == "step_reasoned_patch_review"
+                    ):
+                        continue
                     input_json[key] = value
             human_payload = (dependency.output_json or {}).get("human_returned_payload_json")
             if isinstance(human_payload, dict):

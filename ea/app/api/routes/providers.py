@@ -12,7 +12,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
+from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context as shared_is_operator_context, resolve_principal_id
 from app.container import AppContainer
 from app.domain.models import ProviderBindingRecord, ProviderBindingState, ToolInvocationRequest
 from app.services import responses_upstream as upstream
@@ -143,6 +143,83 @@ def _state_out(row: ProviderBindingState) -> ProviderStateOut:
     )
 
 
+def _state_out_redacted(row: ProviderBindingState) -> ProviderStateOut:
+    return ProviderStateOut(
+        provider_key=row.provider_key,
+        display_name=row.display_name,
+        executable=row.executable,
+        enabled=row.enabled,
+        status=row.status,
+        source=row.source,
+        auth_mode=row.auth_mode,
+        priority=row.priority,
+        binding_id=row.binding_id,
+        secret_env_names=[],
+        secret_configured=row.secret_configured,
+        capabilities=list(row.capabilities),
+        tool_names=list(row.tool_names),
+        state=row.state,
+        health_state=row.health_state,
+        health_details_json={},
+        updated_at=row.updated_at,
+    )
+
+
+def _redact_registry_for_principal(view: dict[str, object]) -> dict[str, object]:
+    result = dict(view or {})
+    redacted_providers: list[dict[str, object]] = []
+    for provider in list(result.get("providers") or []):
+        row = dict(provider or {})
+        slot_pool = dict(row.get("slot_pool") or {})
+        slot_pool["owners"] = []
+        slot_pool["lease_holders"] = []
+        slot_pool["last_used_principal_id"] = ""
+        slot_pool["last_used_principal_label"] = ""
+        slot_pool["last_used_owner_category"] = ""
+        slot_pool["last_used_lane_role"] = ""
+        slot_pool["last_used_hub_user_id"] = ""
+        slot_pool["last_used_hub_group_id"] = ""
+        slot_pool["last_used_sponsor_session_id"] = ""
+        slot_pool["last_used_at"] = None
+        row["slot_pool"] = slot_pool
+        row["last_used_principal_id"] = ""
+        row["last_used_principal_label"] = ""
+        row["last_used_owner_category"] = ""
+        row["last_used_lane_role"] = ""
+        row["last_used_hub_user_id"] = ""
+        row["last_used_hub_group_id"] = ""
+        row["last_used_sponsor_session_id"] = ""
+        row["last_used_at"] = None
+        redacted_providers.append(row)
+    result["providers"] = redacted_providers
+    redacted_lanes: list[dict[str, object]] = []
+    for lane in list(result.get("lanes") or []):
+        row = dict(lane or {})
+        capacity_summary = dict(row.get("capacity_summary") or {})
+        capacity_summary["slot_owners"] = []
+        capacity_summary["lease_holders"] = []
+        capacity_summary["last_used_principal_id"] = ""
+        capacity_summary["last_used_principal_label"] = ""
+        capacity_summary["last_used_owner_category"] = ""
+        capacity_summary["last_used_lane_role"] = ""
+        capacity_summary["last_used_hub_user_id"] = ""
+        capacity_summary["last_used_hub_group_id"] = ""
+        capacity_summary["last_used_sponsor_session_id"] = ""
+        capacity_summary["last_used_at"] = None
+        row["capacity_summary"] = capacity_summary
+        row["last_used_principal_id"] = ""
+        row["last_used_principal_label"] = ""
+        row["last_used_owner_category"] = ""
+        row["last_used_lane_role"] = ""
+        row["last_used_hub_user_id"] = ""
+        row["last_used_hub_group_id"] = ""
+        row["last_used_sponsor_session_id"] = ""
+        row["last_used_at"] = None
+        redacted_lanes.append(row)
+    result["lanes"] = redacted_lanes
+    return result
+
+
 @router.post("/bindings", response_model=ProviderBindingOut)
 def upsert_provider_binding(
     body: ProviderBindingIn,
@@ -236,7 +313,9 @@ def list_provider_states(
 ) -> list[ProviderStateOut]:
     resolved_principal = resolve_principal_id(principal_id, context)
     rows = container.provider_registry.list_binding_states(principal_id=resolved_principal)
-    return [_state_out(row) for row in rows]
+    include_sensitive = _is_operator_context(context)
+    serializer = _state_out if include_sensitive else _state_out_redacted
+    return [serializer(row) for row in rows]
 
 
 @router.get("/states/{provider_key}", response_model=ProviderStateOut)
@@ -250,7 +329,7 @@ def get_provider_state(
     row = container.provider_registry.binding_state(provider_key, principal_id=resolved_principal)
     if row is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
-    return _state_out(row)
+    return _state_out(row) if _is_operator_context(context) else _state_out_redacted(row)
 
 
 @router.get("/registry", response_model=dict[str, object])
@@ -262,11 +341,14 @@ def get_provider_registry(
     resolved_principal = resolve_principal_id(principal_id, context)
     provider_health = upstream._provider_health_report()
     profile_decisions = container.brain_router.list_profile_decisions(principal_id=resolved_principal)
-    return container.provider_registry.registry_read_model(
+    view = container.provider_registry.registry_read_model(
         principal_id=resolved_principal,
         provider_health=provider_health,
         profile_decisions=profile_decisions,
     )
+    if not _is_operator_context(context):
+        view = _redact_registry_for_principal(view)
+    return view
 
 
 @router.post("/onemin/probe-all", response_model=dict[str, object])
@@ -458,7 +540,14 @@ def _binding_workflow_id(binding_metadata: dict[str, object], *keys: str) -> str
     return ""
 
 
+def _binding_has_trusted_onemin_mapping(binding) -> bool:
+    binding_metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
+    return bool(binding_metadata.get("trusted_onemin_mapping"))
+
+
 def _resolve_onemin_account_labels(binding) -> tuple[str, ...]:
+    if not _binding_has_trusted_onemin_mapping(binding):
+        return ()
     binding_metadata = dict(binding.auth_metadata_json or {})
 
     explicit_labels: list[str] = []
@@ -539,18 +628,7 @@ def _operator_email_allowlist() -> set[str]:
 
 
 def _is_operator_context(context: RequestContext) -> bool:
-    principal_id = str(context.principal_id or "").strip()
-    if not principal_id or not bool(context.authenticated):
-        return False
-    if context.auth_source == "loopback_no_auth":
-        return True
-    if principal_id in _operator_principal_allowlist():
-        return True
-    access_email = str(context.access_email or "").strip().lower()
-    if access_email and access_email in _operator_email_allowlist():
-        return True
-    lowered = principal_id.lower()
-    return lowered.startswith(("system", "operator", "admin", "automation", "scheduler", "cron", "daemon", "health"))
+    return shared_is_operator_context(context)
 
 
 def _invoke_browseract_tool(
@@ -757,13 +835,16 @@ def _onemin_api_get_json(*, url: str, headers: dict[str, str], timeout_seconds: 
     return payload
 
 
-def _onemin_api_login(*, owner_email: str, timeout_seconds: int) -> dict[str, object]:
-    password = _onemin_password()
+def _onemin_api_login(*, login_email: str, login_password: str, timeout_seconds: int) -> dict[str, object]:
+    email = str(login_email or "").strip()
+    password = str(login_password or "").strip()
+    if not email:
+        raise RuntimeError("onemin_login_email_missing")
     if not password:
         raise RuntimeError("onemin_password_missing")
     request = urllib.request.Request(
         f"{_onemin_rest_host()}/auth/login",
-        data=json.dumps({"email": owner_email, "password": password}).encode("utf-8"),
+        data=json.dumps({"email": email, "password": password}).encode("utf-8"),
         headers=_onemin_request_headers(include_json_content_type=True),
         method="POST",
     )
@@ -794,9 +875,15 @@ def _refresh_onemin_api_account(
     owner_email: str,
     include_members: bool,
     timeout_seconds: int,
+    login_email: str = "",
+    login_password: str = "",
 ) -> tuple[dict[str, object], dict[str, object] | None]:
     observed_at = upstream.now_utc_iso()
-    user = _onemin_api_login(owner_email=owner_email, timeout_seconds=timeout_seconds)
+    user = _onemin_api_login(
+        login_email=str(login_email or owner_email).strip(),
+        login_password=str(login_password or _onemin_password()).strip(),
+        timeout_seconds=timeout_seconds,
+    )
     teams = user.get("teams") if isinstance(user.get("teams"), list) else []
     if not teams:
         raise RuntimeError("onemin_team_missing")
@@ -919,6 +1006,7 @@ def _refresh_onemin_via_provider_api(
     all_accounts: bool = False,
     continue_on_rate_limit: bool = False,
     account_labels: set[str] | None = None,
+    account_login_credentials: dict[str, dict[str, str]] | None = None,
 ) -> tuple[
     list[dict[str, object]],
     list[dict[str, object]],
@@ -935,6 +1023,7 @@ def _refresh_onemin_via_provider_api(
         for row in upstream.onemin_owner_rows()
         if str(row.get("account_name") or "").strip() and str(row.get("owner_email") or "").strip()
     ]
+    login_credentials = dict(account_login_credentials or {})
     normalized_labels = {str(value or "").strip() for value in (account_labels or set()) if str(value or "").strip()}
     if normalized_labels:
         owner_rows = [row for row in owner_rows if str(row.get("account_name") or "").strip() in normalized_labels]
@@ -986,11 +1075,14 @@ def _refresh_onemin_via_provider_api(
             continue
         attempted_count += 1
         try:
+            credentials = dict(login_credentials.get(account_name) or {})
             billing_result, member_result = _refresh_onemin_api_account(
                 account_name=account_name,
                 owner_email=owner_email,
                 include_members=include_members,
                 timeout_seconds=timeout_seconds,
+                login_email=str(credentials.get("login_email") or owner_email).strip(),
+                login_password=str(credentials.get("login_password") or "").strip(),
             )
             billing_results.append(billing_result)
             if member_result is not None:
@@ -1054,6 +1146,7 @@ def refresh_onemin_billing(
     errors: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
     bound_account_labels: set[str] = set()
+    bound_account_login_credentials: dict[str, dict[str, str]] = {}
 
     for binding in bindings:
         binding_metadata = dict(binding.auth_metadata_json or {})
@@ -1080,7 +1173,16 @@ def refresh_onemin_billing(
             "browseract_onemin_members_workflow_id",
         )
         account_labels = _resolve_onemin_account_labels(binding)
+        binding_account_login_credentials: dict[str, dict[str, str]] = {}
         bound_account_labels.update(account_labels)
+        for account_label in account_labels:
+            credentials = upstream.onemin_account_login_credentials(
+                account_name=account_label,
+                binding_metadata=binding_metadata,
+            )
+            if credentials:
+                binding_account_login_credentials[account_label] = credentials
+                bound_account_login_credentials[account_label] = credentials
         if not account_labels:
             skipped.append(
                 {
@@ -1091,64 +1193,48 @@ def refresh_onemin_billing(
             )
             continue
 
-        if not billing_run_url and not billing_workflow_id:
-            skipped.append(
-                {
-                    "binding_id": binding.binding_id,
-                    "external_account_ref": binding.external_account_ref,
-                    "reason": "billing_workflow_missing",
-                    "account_labels": list(account_labels),
-                }
-            )
-        else:
-            for account_label in account_labels:
-                try:
-                    output = _invoke_browseract_tool(
-                        container=container,
-                        principal_id=context.principal_id,
-                        tool_name="browseract.onemin_billing_usage",
-                        action_kind="billing.inspect",
-                        payload_json={
-                            "binding_id": binding.binding_id,
-                            "account_label": account_label,
-                            "capture_raw_text": bool(payload.capture_raw_text),
-                            **({"run_url": billing_run_url} if billing_run_url else {}),
-                            **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
-                            **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
-                        },
-                    )
-                    billing_results.append(
-                        {
-                            "binding_id": binding.binding_id,
-                            "external_account_ref": binding.external_account_ref,
-                            "account_label": account_label,
-                            **output,
-                        }
-                    )
-                except ToolExecutionError as exc:
-                    errors.append(
-                        {
-                            "binding_id": binding.binding_id,
-                            "external_account_ref": binding.external_account_ref,
-                            "account_label": account_label,
-                            "tool_name": "browseract.onemin_billing_usage",
-                            "error": str(exc or "tool_execution_failed"),
-                        }
-                    )
+        for account_label in account_labels:
+            if not billing_run_url and not billing_workflow_id and account_label not in binding_account_login_credentials:
+                continue
+            try:
+                output = _invoke_browseract_tool(
+                    container=container,
+                    principal_id=context.principal_id,
+                    tool_name="browseract.onemin_billing_usage",
+                    action_kind="billing.inspect",
+                    payload_json={
+                        "binding_id": binding.binding_id,
+                        "account_label": account_label,
+                        "capture_raw_text": bool(payload.capture_raw_text),
+                        **({"run_url": billing_run_url} if billing_run_url else {}),
+                        **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
+                        **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
+                    },
+                )
+                billing_results.append(
+                    {
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                        "account_label": account_label,
+                        **output,
+                    }
+                )
+            except ToolExecutionError as exc:
+                errors.append(
+                    {
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                        "account_label": account_label,
+                        "tool_name": "browseract.onemin_billing_usage",
+                        "error": str(exc or "tool_execution_failed"),
+                    }
+                )
 
         if not payload.include_members:
             continue
-        if not members_run_url and not members_workflow_id:
-            skipped.append(
-                {
-                    "binding_id": binding.binding_id,
-                    "external_account_ref": binding.external_account_ref,
-                    "reason": "members_workflow_missing",
-                    "account_labels": list(account_labels),
-                }
-            )
-            continue
         for account_label in account_labels:
+            if not members_run_url and not members_workflow_id and account_label not in binding_account_login_credentials:
+                continue
             try:
                 output = _invoke_browseract_tool(
                     container=container,
@@ -1206,6 +1292,7 @@ def refresh_onemin_billing(
             all_accounts=allow_global_provider_api,
             continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
             account_labels=None if allow_global_provider_api else bound_account_labels,
+            account_login_credentials=None if allow_global_provider_api else bound_account_login_credentials,
         )
         billing_results.extend(api_billing_results)
         member_results.extend(api_member_results)

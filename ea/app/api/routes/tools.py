@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.tool_execution import ToolExecutionError
 
 router = APIRouter(prefix="/v1/tools", tags=["tools"])
+log = logging.getLogger("ea.api.tools")
 
 
 class ToolIn(BaseModel):
@@ -50,7 +52,7 @@ class ToolExecutionOut(BaseModel):
     receipt_json: dict[str, object]
 
 
-@router.post("/registry")
+@router.post("/registry", dependencies=[Depends(require_operator_context)])
 def upsert_tool(
     body: ToolIn,
     container: AppContainer = Depends(get_container),
@@ -78,7 +80,7 @@ def upsert_tool(
     )
 
 
-@router.get("/registry")
+@router.get("/registry", dependencies=[Depends(require_operator_context)])
 def list_enabled_tools(
     limit: int = Query(default=100, ge=1, le=500),
     container: AppContainer = Depends(get_container),
@@ -100,7 +102,7 @@ def list_enabled_tools(
     ]
 
 
-@router.get("/registry/{tool_name}")
+@router.get("/registry/{tool_name}", dependencies=[Depends(require_operator_context)])
 def get_tool(
     tool_name: str,
     container: AppContainer = Depends(get_container),
@@ -139,6 +141,12 @@ def execute_tool(
         result = container.tool_execution.execute_invocation(invocation)
     except ToolExecutionError as exc:
         detail = str(exc or "tool_execution_failed")
+        log.warning(
+            "tool_execution_failed tool=%s principal=%s detail=%s",
+            body.tool_name,
+            context.principal_id,
+            detail,
+        )
         if detail.startswith("tool_not_registered:") or detail.startswith("connector_binding_not_found:"):
             status_code = 404
         elif detail == "principal_scope_mismatch" or detail.startswith("connector_binding_scope_mismatch:"):

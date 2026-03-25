@@ -241,7 +241,7 @@ def test_memory_routes_use_default_principal_when_header_and_body_are_omitted() 
 
 def test_auth_allow_and_deny() -> None:
     token = "secret-token"
-    client = _client(storage_backend="memory", auth_token=token)
+    client = _client(storage_backend="memory", auth_token=token, authenticated=False)
 
     denied = client.get("/v1/observations/recent")
     assert denied.status_code == 401
@@ -298,7 +298,7 @@ def test_prod_mode_rejects_blank_api_token_at_startup() -> None:
 
         from app.api.app import create_app
 
-        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN to be set"):
+        with pytest.raises(RuntimeError, match="EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access auth to be set"):
             TestClient(create_app())
     finally:
         for key, value in saved_env.items():
