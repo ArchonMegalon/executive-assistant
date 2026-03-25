@@ -28,6 +28,9 @@ class BriefItemOut(BaseModel):
     related_commitment_ids: list[str]
     recommended_action: str
     status: str
+    confidence: float = 0.0
+    object_ref: str = ""
+    evidence_count: int = 0
 
 
 class DecisionQueueItemOut(BaseModel):
@@ -57,6 +60,9 @@ class DecisionItemOut(BaseModel):
     evidence_refs: list[EvidenceRefOut]
     related_commitment_ids: list[str]
     related_people: list[str]
+    impact_summary: str = ""
+    sla_status: str = ""
+    resolution_reason: str = ""
 
 
 class CommitmentOut(BaseModel):
@@ -363,6 +369,9 @@ def brief_out(value: BriefItem) -> BriefItemOut:
         related_commitment_ids=list(value.related_commitment_ids),
         recommended_action=value.recommended_action,
         status=value.status,
+        confidence=value.confidence,
+        object_ref=value.object_ref,
+        evidence_count=value.evidence_count,
     )
 
 
@@ -396,6 +405,9 @@ def decision_out(value: DecisionItem) -> DecisionItemOut:
         evidence_refs=evidence_out(value.evidence_refs),
         related_commitment_ids=list(value.related_commitment_ids),
         related_people=list(value.related_people),
+        impact_summary=value.impact_summary,
+        sla_status=value.sla_status,
+        resolution_reason=value.resolution_reason,
     )
 
 

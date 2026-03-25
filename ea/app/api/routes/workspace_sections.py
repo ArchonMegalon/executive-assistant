@@ -48,7 +48,24 @@ def _row(
 def _brief_rows(values: tuple[BriefItem, ...], *, tag: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
-        rows.append(_row(value.title, value.why_now or value.summary, tag))
+        href = ""
+        object_ref = str(value.object_ref or "").strip()
+        if object_ref.startswith("decision:"):
+            href = f"/app/decisions/{object_ref}"
+        elif object_ref.startswith(("commitment:", "follow_up:")):
+            href = f"/app/commitment-items/{object_ref}"
+        elif object_ref.startswith("human_task:"):
+            href = f"/app/handoffs/{object_ref}"
+        detail = " · ".join(
+            part
+            for part in (
+                value.why_now or value.summary,
+                f"{value.evidence_count} evidence" if value.evidence_count else "",
+                f"{int(round(value.confidence * 100))}% confidence" if value.confidence else "",
+            )
+            if part
+        )
+        rows.append(_row(value.title, detail, tag, href=href))
     return rows
 
 

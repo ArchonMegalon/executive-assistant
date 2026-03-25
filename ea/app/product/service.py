@@ -954,7 +954,13 @@ class ProductService:
             current = self._container.memory_runtime.get_decision_window(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:
                 return None
+            source = dict(current.source_json or {})
             next_status = "decided" if normalized in {"resolve", "close", "done", "complete"} else "open"
+            if normalized in {"defer", "snooze", "reopen", "escalate"}:
+                next_status = "open"
+            next_authority = current.authority_required
+            if normalized == "escalate":
+                next_authority = "principal"
             updated = self._container.memory_runtime.upsert_decision_window(
                 principal_id=principal_id,
                 decision_window_id=current.decision_window_id,
@@ -963,14 +969,24 @@ class ProductService:
                 opens_at=current.opens_at,
                 closes_at=due_at or current.closes_at,
                 urgency=current.urgency,
-                authority_required=current.authority_required,
+                authority_required=next_authority,
                 status=next_status,
                 notes=reason or current.notes,
-                source_json=dict(current.source_json or {}),
+                source_json={
+                    **source,
+                    "resolution_reason": reason if normalized in {"resolve", "close", "done", "complete"} else "",
+                    "resolved_by": actor if normalized in {"resolve", "close", "done", "complete"} else "",
+                    "resolved_at": _now_iso() if normalized in {"resolve", "close", "done", "complete"} else "",
+                    "reopened_by": actor if normalized == "reopen" else str(source.get("reopened_by") or ""),
+                    "reopened_at": _now_iso() if normalized == "reopen" else str(source.get("reopened_at") or ""),
+                    "escalation_reason": reason if normalized == "escalate" else "",
+                    "escalated_by": actor if normalized == "escalate" else str(source.get("escalated_by") or ""),
+                    "escalated_at": _now_iso() if normalized == "escalate" else str(source.get("escalated_at") or ""),
+                },
             )
             self._record_product_event(
                 principal_id=principal_id,
-                event_type="queue_resolved",
+                event_type="decision_resolved" if normalized in {"resolve", "close", "done", "complete"} else ("decision_escalated" if normalized == "escalate" else ("decision_reopened" if normalized == "reopen" else "queue_resolved")),
                 payload={"item_ref": item_ref, "action": normalized or "resolve", "actor": actor, "reason": reason or ""},
                 source_id=current.decision_window_id,
             )
@@ -1152,6 +1168,13 @@ class ProductService:
         return simulate_rule(current, proposed_value=proposed_value, diagnostics=diagnostics)
 
     def _brief_item_from_queue(self, row: DecisionQueueItem, *, workspace_id: str) -> BriefItem:
+        confidence = 0.7
+        if row.id.startswith("approval:"):
+            confidence = 0.95
+        elif row.id.startswith("decision:"):
+            confidence = 0.88
+        elif row.id.startswith(("commitment:", "follow_up:")):
+            confidence = 0.84
         return BriefItem(
             id=row.id,
             workspace_id=workspace_id,
@@ -1165,13 +1188,107 @@ class ProductService:
             related_commitment_ids=(row.id,) if row.queue_kind == "close_commitment" else (),
             recommended_action=row.queue_kind.replace("_", " "),
             status=row.resolution_state,
+            confidence=confidence,
+            object_ref=row.id,
+            evidence_count=len(row.evidence_refs),
+        )
+
+    def _brief_item_from_decision(self, row: DecisionItem, *, workspace_id: str) -> BriefItem:
+        why_now_parts = [
+            str(row.sla_status or "").replace("_", " ").title(),
+            row.impact_summary or row.summary,
+        ]
+        return BriefItem(
+            id=f"brief:{row.id}",
+            workspace_id=workspace_id,
+            kind="decision",
+            title=row.title,
+            summary=row.summary,
+            score=float(priority_weight(row.priority) + due_bonus(row.due_at) + 1),
+            why_now=" · ".join(part for part in why_now_parts if part),
+            evidence_refs=row.evidence_refs,
+            related_people=row.related_people,
+            related_commitment_ids=row.related_commitment_ids,
+            recommended_action="resolve decision",
+            status=row.status,
+            confidence=0.9 if row.evidence_refs else 0.75,
+            object_ref=row.id,
+            evidence_count=len(row.evidence_refs),
+        )
+
+    def _brief_item_from_commitment(self, row: CommitmentItem, *, workspace_id: str) -> BriefItem:
+        why_now_parts = [
+            row.risk_level.replace("_", " ").title(),
+            f"Due {row.due_at[:10]}" if row.due_at else "",
+            row.counterparty,
+        ]
+        return BriefItem(
+            id=f"brief:{row.id}",
+            workspace_id=workspace_id,
+            kind="commitment",
+            title=row.statement,
+            summary=row.proof_refs[0].note if row.proof_refs else row.statement,
+            score=float(priority_weight(row.risk_level) + due_bonus(row.due_at)),
+            why_now=" · ".join(part for part in why_now_parts if part),
+            evidence_refs=row.proof_refs,
+            related_people=(row.counterparty,) if row.counterparty else (),
+            related_commitment_ids=(row.id,),
+            recommended_action="close commitment",
+            status=row.status,
+            confidence=row.confidence,
+            object_ref=row.id,
+            evidence_count=len(row.proof_refs),
+        )
+
+    def _brief_item_from_handoff(self, row: HandoffNote, *, workspace_id: str) -> BriefItem:
+        why_now_parts = [
+            row.escalation_status.replace("_", " ").title(),
+            f"Due {row.due_time[:10]}" if row.due_time else "",
+            row.owner,
+        ]
+        return BriefItem(
+            id=f"brief:{row.id}",
+            workspace_id=workspace_id,
+            kind="handoff",
+            title=row.summary,
+            summary=row.evidence_refs[0].note if row.evidence_refs else row.summary,
+            score=float(priority_weight(row.escalation_status) + due_bonus(row.due_time)),
+            why_now=" · ".join(part for part in why_now_parts if part),
+            evidence_refs=row.evidence_refs,
+            related_people=(row.owner,) if row.owner else (),
+            related_commitment_ids=(),
+            recommended_action="claim handoff" if row.status == "pending" else "review handoff",
+            status=row.status,
+            confidence=0.8 if row.evidence_refs else 0.65,
+            object_ref=row.id,
+            evidence_count=len(row.evidence_refs),
         )
 
     def list_brief_items(self, *, principal_id: str, limit: int = 20, operator_id: str = "") -> tuple[BriefItem, ...]:
-        queue = self.list_queue(principal_id=principal_id, limit=max(limit, 10), operator_id=operator_id)
-        items = [self._brief_item_from_queue(row, workspace_id=principal_id) for row in queue]
-        items.sort(key=lambda row: (row.score, row.title.lower()), reverse=True)
-        return tuple(items[:limit])
+        queue = self.list_queue(principal_id=principal_id, limit=max(limit, 8), operator_id=operator_id)
+        decisions = self.list_decisions(principal_id=principal_id, limit=max(limit, 6))
+        commitments = self.list_commitments(principal_id=principal_id, limit=max(limit, 6))
+        handoffs = self.list_handoffs(principal_id=principal_id, limit=max(limit, 4), operator_id=operator_id, status=None)
+        items: list[BriefItem] = []
+        items.extend(self._brief_item_from_decision(row, workspace_id=principal_id) for row in decisions)
+        items.extend(self._brief_item_from_commitment(row, workspace_id=principal_id) for row in commitments)
+        items.extend(self._brief_item_from_handoff(row, workspace_id=principal_id) for row in handoffs)
+        for row in queue:
+            if row.id.startswith(("decision:", "commitment:", "follow_up:", "human_task:")):
+                continue
+            items.append(self._brief_item_from_queue(row, workspace_id=principal_id))
+        deduped: dict[str, BriefItem] = {}
+        for row in items:
+            key = row.object_ref or row.id
+            current = deduped.get(key)
+            if current is None or (row.score, row.evidence_count, row.confidence) > (current.score, current.evidence_count, current.confidence):
+                deduped[key] = row
+        ordered = sorted(
+            deduped.values(),
+            key=lambda row: (row.score, row.evidence_count, row.confidence, row.title.lower()),
+            reverse=True,
+        )
+        return tuple(ordered[:limit])
 
     def _person_profile(self, row: Stakeholder, *, open_loops_count: int) -> PersonProfile:
         themes = tuple(str(key).replace("_", " ") for key in dict(row.open_loops_json or {}).keys())
