@@ -790,6 +790,44 @@ def test_render_with_ooda_treats_explicit_provider_order_as_a_strict_filter(
     assert attempted_commands == []
 
 
+def test_render_with_ooda_preserves_spec_provider_order_without_env_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_IMAGE_PROVIDER_ORDER", raising=False)
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    attempted_commands: list[str] = []
+
+    def fake_run_command_provider(name: str, template: list[str], **kwargs):
+        attempted_commands.append(name)
+        if name == "browseract_prompting_systems":
+            output_path = kwargs["output_path"]
+            output_path.write_bytes(b"png")
+            return True, "browseract_prompting_systems:rendered"
+        return False, f"{name}:should_not_run"
+
+    monkeypatch.setattr(media, "run_command_provider", fake_run_command_provider)
+    monkeypatch.setattr(media, "run_url_provider", lambda *args, **kwargs: (False, "url:should_not_run"))
+
+    result = media.render_with_ooda(
+        prompt="bounded runsite scene",
+        output_path=tmp_path / "out.png",
+        width=1600,
+        height=900,
+        spec={
+            "target": "assets/hero/chummer6-hero.png",
+            "media_row": {"scene_contract": {}},
+            "providers": ["browseract_prompting_systems", "media_factory", "onemin"],
+        },
+    )
+
+    assert attempted_commands[0] == "browseract_prompting_systems"
+    assert result["provider"] == "browseract_prompting_systems"
+
+
 def test_canonical_horizon_visual_contract_uses_canon_not_bespoke_fallback_map() -> None:
     media = _load_module()
 
@@ -1406,6 +1444,35 @@ def test_visual_audit_score_accepts_gritty_flash_for_karma_forge(monkeypatch: py
     score, notes = media.visual_audit_score(
         image_path=image_path,
         target="assets/horizons/karma-forge.png",
+    )
+
+    assert score > 0
+    assert "visual_audit:insufficient_flash" not in notes
+
+
+def test_visual_audit_score_accepts_gritty_flash_for_hero(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+    width, height = 48, 36
+    tile_w, tile_h = 12, 12
+    raw: list[int] = []
+    tile_specs = {
+        (2, 0): (5, 135),
+        (0, 1): (15, 140),
+    }
+    for y in range(height):
+        tile_y = min(2, y // tile_h)
+        for x in range(width):
+            tile_x = min(3, x // tile_w)
+            low, high = tile_specs.get((tile_x, tile_y), (10, 110))
+            raw.append(high if (x + y) % 2 else low)
+
+    monkeypatch.setattr(media, "_visual_audit_grayscale_grid", lambda **kwargs: (width, height, raw))
+
+    score, notes = media.visual_audit_score(
+        image_path=image_path,
+        target="assets/hero/chummer6-hero.png",
     )
 
     assert score > 0

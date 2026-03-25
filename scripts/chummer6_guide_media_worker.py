@@ -2992,27 +2992,43 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
         }
     if target == "assets/pages/horizons-index.png":
         return {
-            "boxes": [
-                {"x": int(width * 0.14), "y": int(height * 0.62), "w": int(width * 0.14), "h": int(height * 0.16), "color": amber},
-                {"x": int(width * 0.41), "y": int(height * 0.58), "w": int(width * 0.14), "h": int(height * 0.16), "color": cyan},
-                {"x": int(width * 0.68), "y": int(height * 0.6), "w": int(width * 0.14), "h": int(height * 0.16), "color": amber},
+            "fills": [
+                {"x": int(width * 0.08), "y": int(height * 0.18), "w": int(width * 0.14), "h": int(height * 0.12), "color": (255, 166, 87, 84)},
+                {"x": int(width * 0.18), "y": int(height * 0.62), "w": int(width * 0.16), "h": int(height * 0.16), "color": (255, 166, 87, 72)},
+                {"x": int(width * 0.42), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.18), "color": (39, 212, 255, 70)},
+                {"x": int(width * 0.66), "y": int(height * 0.18), "w": int(width * 0.18), "h": int(height * 0.12), "color": (39, 212, 255, 78)},
+                {"x": int(width * 0.7), "y": int(height * 0.6), "w": int(width * 0.16), "h": int(height * 0.16), "color": (255, 166, 87, 72)},
             ],
-            "chips": [],
+            "boxes": [
+                {"x": int(width * 0.18), "y": int(height * 0.62), "w": int(width * 0.16), "h": int(height * 0.16), "color": amber},
+                {"x": int(width * 0.42), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.18), "color": cyan},
+                {"x": int(width * 0.7), "y": int(height * 0.6), "w": int(width * 0.16), "h": int(height * 0.16), "color": amber},
+            ],
+            "chips": [
+                {"x": int(width * 0.11), "y": int(height * 0.13), "text": "CLINIC LANE", "color": amber},
+                {"x": int(width * 0.44), "y": int(height * 0.51), "text": "ARCHIVE STAIR", "color": cyan},
+                {"x": int(width * 0.68), "y": int(height * 0.13), "text": "ROOF ROUTE", "color": cyan},
+                {"x": int(width * 0.72), "y": int(height * 0.55), "text": "RAIL YARD", "color": amber},
+            ],
         }
     if target == "assets/horizons/karma-forge.png":
         return {
             "fills": [
-                {"x": int(width * 0.04), "y": int(height * 0.58), "w": int(width * 0.28), "h": int(height * 0.24), "color": (255, 166, 87, 86)},
-                {"x": int(width * 0.28), "y": int(height * 0.48), "w": int(width * 0.26), "h": int(height * 0.22), "color": (39, 212, 255, 82)},
-                {"x": int(width * 0.6), "y": int(height * 0.08), "w": int(width * 0.28), "h": int(height * 0.22), "color": (255, 78, 78, 88)},
-                {"x": int(width * 0.58), "y": int(height * 0.48), "w": int(width * 0.22), "h": int(height * 0.18), "color": (39, 212, 255, 74)},
-                {"x": int(width * 0.7), "y": int(height * 0.68), "w": int(width * 0.16), "h": int(height * 0.12), "color": (255, 166, 87, 80)},
+                {"x": int(width * 0.02), "y": int(height * 0.08), "w": int(width * 0.18), "h": int(height * 0.14), "color": (255, 166, 87, 144)},
+                {"x": int(width * 0.04), "y": int(height * 0.58), "w": int(width * 0.28), "h": int(height * 0.24), "color": (255, 166, 87, 112)},
+                {"x": int(width * 0.28), "y": int(height * 0.48), "w": int(width * 0.26), "h": int(height * 0.22), "color": (39, 212, 255, 120)},
+                {"x": int(width * 0.6), "y": int(height * 0.08), "w": int(width * 0.28), "h": int(height * 0.22), "color": (255, 78, 78, 128)},
+                {"x": int(width * 0.58), "y": int(height * 0.48), "w": int(width * 0.22), "h": int(height * 0.18), "color": (39, 212, 255, 110)},
+                {"x": int(width * 0.43), "y": int(height * 0.68), "w": int(width * 0.26), "h": int(height * 0.2), "color": (255, 166, 87, 132)},
+                {"x": int(width * 0.7), "y": int(height * 0.68), "w": int(width * 0.16), "h": int(height * 0.12), "color": (255, 166, 87, 120)},
             ],
             "boxes": [
+                {"x": int(width * 0.02), "y": int(height * 0.08), "w": int(width * 0.18), "h": int(height * 0.14), "color": amber},
                 {"x": int(width * 0.08), "y": int(height * 0.64), "w": int(width * 0.18), "h": int(height * 0.16), "color": amber},
                 {"x": int(width * 0.33), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.17), "color": cyan},
                 {"x": int(width * 0.66), "y": int(height * 0.16), "w": int(width * 0.2), "h": int(height * 0.18), "color": red},
                 {"x": int(width * 0.6), "y": int(height * 0.5), "w": int(width * 0.18), "h": int(height * 0.14), "color": cyan},
+                {"x": int(width * 0.43), "y": int(height * 0.72), "w": int(width * 0.24), "h": int(height * 0.16), "color": amber},
                 {"x": int(width * 0.72), "y": int(height * 0.7), "w": int(width * 0.12), "h": int(height * 0.1), "color": amber},
             ],
             "chips": [
@@ -3149,13 +3165,24 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             _draw_overlay_chip(draw, x=int(w * 0.59), y=int(h * 0.47), text="TRUST CHECK", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.32), y=int(h * 0.52), text="WOUND STABILIZED", color=amber)
         elif target == "assets/pages/horizons-index.png":
-            for index, color in enumerate((amber, cyan, amber)):
-                offset = int(w * (0.16 + index * 0.22))
-                draw.arc((offset, int(h * 0.56), offset + int(w * 0.18), int(h * 1.08)), start=250, end=318, fill=color, width=3)
-            draw.line((int(w * 0.2), int(h * 0.73), int(w * 0.38), int(h * 0.64)), fill=cyan, width=2)
-            draw.line((int(w * 0.5), int(h * 0.7), int(w * 0.62), int(h * 0.58)), fill=amber, width=2)
-            draw.line((int(w * 0.73), int(h * 0.7), int(w * 0.84), int(h * 0.63)), fill=cyan, width=2)
+            draw.rounded_rectangle((int(w * 0.08), int(h * 0.18), int(w * 0.22), int(h * 0.3)), outline=amber, fill=(amber[0], amber[1], amber[2], 84), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.18), int(h * 0.62), int(w * 0.34), int(h * 0.78)), outline=amber, fill=(amber[0], amber[1], amber[2], 72), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.42), int(h * 0.56), int(w * 0.62), int(h * 0.74)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 70), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.66), int(h * 0.18), int(w * 0.84), int(h * 0.3)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 78), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.7), int(h * 0.6), int(w * 0.86), int(h * 0.76)), outline=amber, fill=(amber[0], amber[1], amber[2], 72), width=2, radius=6)
+            for index, color in enumerate((amber, cyan, amber, cyan)):
+                offset = int(w * (0.12 + index * 0.18))
+                draw.arc((offset, int(h * 0.5), offset + int(w * 0.22), int(h * 1.06)), start=248, end=322, fill=color, width=3)
+            draw.line((int(w * 0.18), int(h * 0.72), int(w * 0.38), int(h * 0.63)), fill=cyan, width=3)
+            draw.line((int(w * 0.38), int(h * 0.68), int(w * 0.52), int(h * 0.58)), fill=amber, width=3)
+            draw.line((int(w * 0.52), int(h * 0.66), int(w * 0.72), int(h * 0.56)), fill=cyan, width=3)
+            draw.line((int(w * 0.68), int(h * 0.68), int(w * 0.82), int(h * 0.6)), fill=amber, width=3)
+            _draw_overlay_chip(draw, x=int(w * 0.11), y=int(h * 0.13), text="CLINIC LANE", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.44), y=int(h * 0.51), text="ARCHIVE STAIR", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.68), y=int(h * 0.13), text="ROOF ROUTE", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.72), y=int(h * 0.55), text="RAIL YARD", color=amber)
         elif target == "assets/horizons/karma-forge.png":
+            draw.rounded_rectangle((int(w * 0.02), int(h * 0.08), int(w * 0.2), int(h * 0.22)), outline=amber, fill=(amber[0], amber[1], amber[2], 86), width=2, radius=6)
             draw.rounded_rectangle(
                 (int(w * 0.04), int(h * 0.58), int(w * 0.32), int(h * 0.82)),
                 outline=amber,
@@ -3181,10 +3208,13 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             draw.rounded_rectangle((int(w * 0.33), int(h * 0.56), int(w * 0.53), int(h * 0.73)), outline=cyan, width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.66), int(h * 0.16), int(w * 0.86), int(h * 0.34)), outline=red, width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.6), int(h * 0.5), int(w * 0.78), int(h * 0.64)), outline=cyan, width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.43), int(h * 0.72), int(w * 0.67), int(h * 0.88)), outline=amber, fill=(amber[0], amber[1], amber[2], 76), width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.72), int(h * 0.7), int(w * 0.84), int(h * 0.8)), outline=amber, width=2, radius=6)
+            draw.line((int(w * 0.18), int(h * 0.18), int(w * 0.32), int(h * 0.3)), fill=amber, width=3)
             draw.line((int(w * 0.26), int(h * 0.74), int(w * 0.34), int(h * 0.69)), fill=cyan, width=3)
             draw.line((int(w * 0.53), int(h * 0.66), int(w * 0.66), int(h * 0.28)), fill=amber, width=3)
             draw.line((int(w * 0.52), int(h * 0.58), int(w * 0.74), int(h * 0.56)), fill=cyan, width=3)
+            draw.line((int(w * 0.54), int(h * 0.74), int(w * 0.7), int(h * 0.78)), fill=amber, width=3)
             draw.arc((int(w * 0.54), int(h * 0.16), int(w * 0.94), int(h * 0.56)), start=178, end=275, fill=red, width=4)
             draw.arc((int(w * 0.42), int(h * 0.44), int(w * 0.88), int(h * 0.92)), start=210, end=302, fill=amber, width=3)
             _draw_overlay_chip(draw, x=int(w * 0.08), y=int(h * 0.58), text="DIFF", color=amber)
@@ -3252,7 +3282,9 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     dark_flat_tiles = 0
     bright_tiles = 0
     bright_tile_floor = 92.0
-    if target == "assets/horizons/karma-forge.png":
+    if target == "assets/hero/chummer6-hero.png":
+        bright_tile_floor = 70.0
+    elif target == "assets/horizons/karma-forge.png":
         bright_tile_floor = 34.0
     spreads: list[float] = []
     active_cols: set[int] = set()
@@ -3911,10 +3943,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         preferred = provider_order()
         if explicit_provider_filter:
             requested = [value for value in requested if value in preferred]
-        providers = sorted(
-            dict.fromkeys(requested),
-            key=lambda value: preferred.index(value) if value in preferred else len(preferred),
-        ) or preferred
+        providers = list(dict.fromkeys(requested)) or preferred
     else:
         providers = provider_order()
     for provider in providers:
