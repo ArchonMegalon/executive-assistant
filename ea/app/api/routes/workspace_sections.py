@@ -405,6 +405,12 @@ def workspace_section_payload(
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
+    suggested_handoff_ids = {
+        str(item.get("id") or "").strip()
+        for item in assignment_suggestions
+        if str(item.get("id") or "").strip()
+    }
+    remaining_unclaimed_handoffs = tuple(row for row in unclaimed_handoffs if row.id not in suggested_handoff_ids)
     stats = [
         {"label": "Memo items", "value": str(snapshot.stats_json.get("brief_items", 0))},
         {"label": "Queue items", "value": str(snapshot.stats_json.get("queue_items", 0))},
@@ -661,7 +667,8 @@ def workspace_section_payload(
                     "eyebrow": "Unclaimed handoffs",
                     "title": "What can be claimed next",
                     "body": "Operator work should be explicit, claimable, and closable from the same queue.",
-                    "items": _handoff_rows(unclaimed_handoffs[:8], return_to="/app/activity"),
+                    "items": _handoff_rows(remaining_unclaimed_handoffs[:8], return_to="/app/activity")
+                    or [_row("No unclaimed handoffs", "Suggested claims already cover the current claimable backlog.", "Clear")],
                 },
                 {
                     "eyebrow": "Waiting on principal",

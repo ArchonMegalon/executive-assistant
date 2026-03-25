@@ -1551,7 +1551,23 @@ def app_shell(
                         "title": str(pack.get("headline") or "Inline loop"),
                         "body": str(pack.get("summary") or "Clear the compact office loop."),
                         "items": list(pack.get("items") or []),
-                    }
+                    },
+                    *[
+                        {
+                            "eyebrow": "Channel digest",
+                            "title": str(digest.get("headline") or "Channel digest"),
+                            "body": " ".join(
+                                part
+                                for part in (
+                                    str(digest.get("summary") or "").strip(),
+                                    str(digest.get("preview_text") or "").strip(),
+                                )
+                                if part
+                            ),
+                            "items": list(digest.get("items") or []),
+                        }
+                        for digest in list(pack.get("digests") or [])
+                    ],
                 ],
                 stats=stats,
             ),
@@ -1631,6 +1647,74 @@ def app_channel_approve_draft(
     if approved is None:
         raise HTTPException(status_code=404, detail="draft_not_found")
     return RedirectResponse(return_to, status_code=303)
+
+
+@router.get("/app/channel-loop/{digest_key}", response_class=HTMLResponse)
+def app_channel_digest(
+    digest_key: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    product = build_product_service(container)
+    pack = product.channel_loop_pack(
+        principal_id=context.principal_id,
+        operator_id=str(context.operator_id or "").strip(),
+    )
+    digest = next((row for row in list(pack.get("digests") or []) if str(row.get("key") or "").strip() == digest_key), None)
+    if digest is None:
+        raise HTTPException(status_code=404, detail="channel_digest_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="channel_digest_opened",
+        surface=f"channel_digest_{digest_key}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
+    stats = [
+        {
+            "label": str(key).replace("_", " ").title(),
+            "value": str(int(value or 0)),
+        }
+        for key, value in dict(digest.get("stats") or {}).items()
+    ]
+    return _render_public_template(
+        request,
+        "console_shell.html",
+        **_console_shell_context(
+            request=request,
+            page_title=f"Executive Assistant {str(digest.get('headline') or 'Channel digest')}",
+            current_nav="today",
+            context=context,
+            console_title=str(digest.get("headline") or "Channel digest"),
+            console_summary=" ".join(
+                part
+                for part in (
+                    str(digest.get("summary") or "").strip(),
+                    str(digest.get("preview_text") or "").strip(),
+                )
+                if part
+            ),
+            nav_groups=APP_NAV_GROUPS,
+            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            cards=[
+                {
+                    "eyebrow": "Channel digest",
+                    "title": str(digest.get("headline") or "Channel digest"),
+                    "body": " ".join(
+                        part
+                        for part in (
+                            str(digest.get("summary") or "").strip(),
+                            str(digest.get("preview_text") or "").strip(),
+                        )
+                        if part
+                    ),
+                    "items": list(digest.get("items") or []),
+                }
+            ],
+            stats=stats,
+        ),
+    )
 
 
 @router.get("/app/channel/queue/{item_ref:path}/resolve")

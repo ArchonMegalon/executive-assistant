@@ -210,6 +210,11 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Operator Queue" in page.content()
     assert "Prepare board follow-up handoff" in page.content()
 
+    response = page.goto(f"{base_url}/app/channel-loop/memo", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Morning memo digest" in page.content()
+    assert "Open memo" in page.content()
+
     response = page.goto(f"{base_url}/app/settings", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Rules" in page.content()

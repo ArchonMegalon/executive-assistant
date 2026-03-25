@@ -2091,6 +2091,7 @@ class ProductService:
                     "secondary_action_method": "get",
                 }
             )
+        digests = self._channel_digests(snapshot=snapshot, operator_key=operator_key)
         return {
             "headline": "Inline loop",
             "summary": "Use a compact, mobile-safe surface for the memo, approvals, commitments, handoffs, and the next decision that still matters.",
@@ -2102,7 +2103,190 @@ class ProductService:
                 "open_handoffs": len(snapshot.handoffs),
                 "open_decisions": len(snapshot.decisions),
             },
+            "digests": digests,
         }
+
+    def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str) -> list[dict[str, object]]:
+        at_risk_commitments = [
+            item
+            for item in snapshot.commitments
+            if _is_past_due(item.due_at) or item.risk_level in {"high", "critical", "due_now"}
+        ]
+        open_decisions = [item for item in snapshot.decisions if item.status != "decided"]
+        principal_queue = [item for item in snapshot.queue_items if item.requires_principal]
+        assigned_handoffs = [item for item in snapshot.handoffs if operator_key and item.owner == operator_key]
+        unclaimed_handoffs = [item for item in snapshot.handoffs if not str(item.owner or "").strip()]
+        visible_handoffs = assigned_handoffs[:1] + unclaimed_handoffs[:2]
+        if not visible_handoffs:
+            visible_handoffs = list(snapshot.handoffs[:2])
+        memo_items: list[dict[str, str]] = []
+        for item in snapshot.brief_items[:2]:
+            memo_items.append(
+                {
+                    "title": item.title,
+                    "detail": item.why_now or item.summary or "Open the memo before the day fragments.",
+                    "tag": item.kind.replace("_", " ").title() or "Memo",
+                    "href": "/app/today",
+                    "action_href": "/app/today",
+                    "action_label": "Open memo",
+                    "action_method": "get",
+                }
+            )
+        if at_risk_commitments:
+            commitment = at_risk_commitments[0]
+            memo_items.append(
+                {
+                    "title": commitment.statement,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            commitment.counterparty,
+                            f"Due {commitment.due_at[:10]}" if commitment.due_at else "",
+                            commitment.risk_level.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "Commitment pressure needs a visible next action.",
+                    "tag": "Commitment",
+                    "href": f"/app/commitment-items/{commitment.id}",
+                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop%2Fmemo",
+                    "action_label": "Close",
+                    "action_method": "get",
+                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop%2Fmemo",
+                    "secondary_action_label": "Defer",
+                    "secondary_action_method": "get",
+                }
+            )
+        approval_items: list[dict[str, str]] = []
+        for draft in snapshot.drafts[:2]:
+            approval_items.append(
+                {
+                    "title": f"Approve draft for {draft.recipient_summary or 'next reply'}",
+                    "detail": " · ".join(
+                        part for part in (draft.intent.title(), draft.send_channel, draft.approval_status) if part
+                    )
+                    or "Draft is waiting for approval.",
+                    "tag": "Draft",
+                    "href": "/app/inbox",
+                    "action_href": f"/app/channel/drafts/{draft.id}/approve?return_to=%2Fapp%2Fchannel-loop%2Fapprovals",
+                    "action_label": "Approve now",
+                    "action_method": "get",
+                }
+            )
+        for decision in open_decisions[:2]:
+            approval_items.append(
+                {
+                    "title": decision.title,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            decision.owner_role,
+                            decision.sla_status.replace("_", " ").title(),
+                            decision.impact_summary or decision.summary,
+                        )
+                        if part
+                    )
+                    or "Decision still needs a visible resolution.",
+                    "tag": "Decision",
+                    "href": f"/app/decisions/{decision.id}",
+                    "action_href": f"/app/channel/decisions/{decision.id}/resolve?action=resolve&return_to=%2Fapp%2Fchannel-loop%2Fapprovals",
+                    "action_label": "Resolve now",
+                    "action_method": "get",
+                    "secondary_action_href": f"/app/decisions/{decision.id}",
+                    "secondary_action_label": "Review",
+                    "secondary_action_method": "get",
+                }
+            )
+        operator_items: list[dict[str, str]] = []
+        for handoff in visible_handoffs:
+            action_href = f"/app/channel/handoffs/{handoff.id}/assign?return_to=%2Fapp%2Fchannel-loop%2Foperator"
+            action_label = "Claim"
+            if operator_key and handoff.owner == operator_key:
+                action_href = f"/app/channel/handoffs/{handoff.id}/complete?return_to=%2Fapp%2Fchannel-loop%2Foperator"
+                action_label = "Complete"
+            operator_items.append(
+                {
+                    "title": handoff.summary,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            handoff.owner or "Unclaimed",
+                            f"Due {handoff.due_time[:10]}" if handoff.due_time else "",
+                            handoff.escalation_status.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "Handoff is waiting in the operator lane.",
+                    "tag": "Handoff",
+                    "href": f"/app/handoffs/{handoff.id}",
+                    "action_href": action_href,
+                    "action_label": action_label,
+                    "action_method": "get",
+                }
+            )
+        if snapshot.commitments:
+            commitment = at_risk_commitments[0] if at_risk_commitments else snapshot.commitments[0]
+            operator_items.append(
+                {
+                    "title": commitment.statement,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            commitment.counterparty,
+                            f"Due {commitment.due_at[:10]}" if commitment.due_at else "",
+                            commitment.risk_level.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "Commitment still needs an explicit owner and next step.",
+                    "tag": "Commitment",
+                    "href": f"/app/commitment-items/{commitment.id}",
+                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop%2Foperator",
+                    "action_label": "Close",
+                    "action_method": "get",
+                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop%2Foperator",
+                    "secondary_action_label": "Defer",
+                    "secondary_action_method": "get",
+                }
+            )
+        return [
+            {
+                "key": "memo",
+                "headline": "Morning memo digest",
+                "summary": "Forward or open the ranked day brief from a mobile-safe surface.",
+                "preview_text": f"{len(snapshot.brief_items)} memo items, {len(at_risk_commitments)} commitments at risk, {len(open_decisions)} open decisions.",
+                "items": memo_items,
+                "stats": {
+                    "memo_items": len(snapshot.brief_items),
+                    "at_risk_commitments": len(at_risk_commitments),
+                    "open_decisions": len(open_decisions),
+                },
+            },
+            {
+                "key": "approvals",
+                "headline": "Inline approvals",
+                "summary": "Clear draft approvals and decision pressure without dropping into the full workspace.",
+                "preview_text": f"{len(snapshot.drafts)} pending drafts and {len(principal_queue)} principal-backed queue items are waiting.",
+                "items": approval_items,
+                "stats": {
+                    "pending_drafts": len(snapshot.drafts),
+                    "principal_queue_items": len(principal_queue),
+                    "open_decisions": len(open_decisions),
+                },
+            },
+            {
+                "key": "operator",
+                "headline": "Operator handoff digest",
+                "summary": "Claim, complete, and close the next office item from a compact operator surface.",
+                "preview_text": f"{len(assigned_handoffs)} assigned handoffs, {len(unclaimed_handoffs)} unclaimed handoffs, {len(snapshot.commitments)} open commitments.",
+                "items": operator_items,
+                "stats": {
+                    "assigned_handoffs": len(assigned_handoffs),
+                    "unclaimed_handoffs": len(unclaimed_handoffs),
+                    "open_commitments": len(snapshot.commitments),
+                },
+            },
+        ]
 
     def record_surface_event(
         self,

@@ -153,6 +153,11 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert channel_loop_body["headline"] == "Inline loop"
     assert any(item["action_label"] == "Approve now" for item in channel_loop_body["items"])
     assert any("/app/channel/drafts/" in item.get("action_href", "") for item in channel_loop_body["items"])
+    digests = {item["key"]: item for item in channel_loop_body["digests"]}
+    assert {"memo", "approvals", "operator"} <= set(digests)
+    assert digests["memo"]["preview_text"]
+    assert any(item["action_label"] == "Approve now" for item in digests["approvals"]["items"])
+    assert any(item["tag"] == "Handoff" for item in digests["operator"]["items"])
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:

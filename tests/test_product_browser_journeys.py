@@ -280,6 +280,18 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert channel_loop.status_code == 200
     assert "Inline loop" in channel_loop.text
     assert "Approve now" in channel_loop.text
+    assert "Morning memo digest" in channel_loop.text
+    assert "Inline approvals" in channel_loop.text
+    assert "Operator handoff digest" in channel_loop.text
+
+    memo_digest = client.get("/app/channel-loop/memo")
+    assert memo_digest.status_code == 200
+    assert "Morning memo digest" in memo_digest.text
+    assert "Open memo" in memo_digest.text
+
+    operator_digest = client.get("/app/channel-loop/operator")
+    assert operator_digest.status_code == 200
+    assert "Operator handoff digest" in operator_digest.text
 
 
 def test_channel_loop_get_actions_work() -> None:
@@ -292,28 +304,32 @@ def test_channel_loop_get_actions_work() -> None:
     assert "Inline loop" in loop_page.text
     assert "Resolve now" in loop_page.text
 
+    approvals_page = client.get("/app/channel-loop/approvals")
+    assert approvals_page.status_code == 200
+    assert "Inline approvals" in approvals_page.text
+
     approved = client.get(
-        f"/app/channel/drafts/approval:{seeded['approval_id']}/approve?return_to=/app/channel-loop",
+        f"/app/channel/drafts/approval:{seeded['approval_id']}/approve?return_to=/app/channel-loop/approvals",
         follow_redirects=False,
     )
     assert approved.status_code == 303
-    assert approved.headers["location"] == "/app/channel-loop"
+    assert approved.headers["location"] == "/app/channel-loop/approvals"
     assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
 
     closed = client.get(
-        f"/app/channel/queue/commitment:{seeded['commitment_id']}/resolve?action=close&return_to=/app/channel-loop",
+        f"/app/channel/queue/commitment:{seeded['commitment_id']}/resolve?action=close&return_to=/app/channel-loop/memo",
         follow_redirects=False,
     )
     assert closed.status_code == 303
-    assert closed.headers["location"] == "/app/channel-loop"
+    assert closed.headers["location"] == "/app/channel-loop/memo"
     assert "Send board materials" not in client.get("/app/inbox").text
 
     decision_resolved = client.get(
-        f"/app/channel/decisions/decision:{seeded['decision_window_id']}/resolve?action=resolve&return_to=/app/channel-loop",
+        f"/app/channel/decisions/decision:{seeded['decision_window_id']}/resolve?action=resolve&return_to=/app/channel-loop/approvals",
         follow_redirects=False,
     )
     assert decision_resolved.status_code == 303
-    assert decision_resolved.headers["location"] == "/app/channel-loop"
+    assert decision_resolved.headers["location"] == "/app/channel-loop/approvals"
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
     assert decision_detail.status_code == 200
     assert decision_detail.json()["status"] == "decided"

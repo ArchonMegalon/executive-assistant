@@ -259,11 +259,21 @@ class ChannelLoopItemOut(BaseModel):
     secondary_action_method: str = "get"
 
 
+class ChannelDigestOut(BaseModel):
+    key: str
+    headline: str
+    summary: str
+    preview_text: str
+    items: list[ChannelLoopItemOut]
+    stats: dict[str, int]
+
+
 class ChannelLoopOut(BaseModel):
     headline: str
     summary: str
     items: list[ChannelLoopItemOut]
     stats: dict[str, int]
+    digests: list[ChannelDigestOut] = []
 
 
 class BriefResponse(BaseModel):

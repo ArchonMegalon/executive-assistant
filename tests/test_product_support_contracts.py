@@ -19,6 +19,8 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert client.get("/app/api/plan").status_code == 200
     assert client.get("/app/api/usage").status_code == 200
     assert client.get("/app/api/support").status_code == 200
+    assert client.get("/app/channel-loop/memo").status_code == 200
+    assert client.get("/app/channel-loop/operator").status_code == 200
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
@@ -29,6 +31,7 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert counts.get("plan_opened", 0) >= 1
     assert counts.get("usage_opened", 0) >= 1
     assert counts.get("support_opened", 0) >= 1
+    assert counts.get("channel_digest_opened", 0) >= 2
     assert payload["billing"]["invoice_status"] in {"trial_active", "current", "upgrade_required"}
     assert "risk_state" in payload["providers"]
     assert "blocked_actions" in payload["commercial"]
