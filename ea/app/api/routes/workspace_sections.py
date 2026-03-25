@@ -328,6 +328,8 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
     entitlements = dict(diagnostics.get("entitlements") or {})
     operators = dict(diagnostics.get("operators") or {})
     readiness = dict(diagnostics.get("readiness") or {})
+    providers = dict(diagnostics.get("providers") or {})
+    queue_health = dict(diagnostics.get("queue_health") or {})
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(analytics.get("counts") or {})
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
@@ -344,6 +346,10 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Operator seats", str(entitlements.get("operator_seats") or 0), "Entitlement", href="/app/settings/plan"),
         _row("Seats used", str(operators.get("seats_used") or 0), "Entitlement", href="/app/settings/usage"),
         _row("Seats remaining", str(operators.get("seats_remaining") or 0), "Entitlement", href="/app/settings/usage"),
+        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
+        _row("Provider risk", str(providers.get("risk_state") or "unknown").replace("_", " "), "Support", href="/app/settings/support"),
+        _row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
+        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/activity"),
         _row(
             "Messaging scope",
             "Included in this plan" if entitlements.get("messaging_channels_enabled") else "Upgrade required for Telegram and WhatsApp",
@@ -357,6 +363,12 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics", href="/app/settings/usage"),
         _row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics", href="/app/settings/usage"),
         _row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics", href="/app/settings/usage"),
+        _row(
+            "Upgrade required for",
+            ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "No blocked actions",
+            "Support",
+            href="/app/settings/support",
+        ),
         _row(
             "Commercial warnings",
             "; ".join(str(value) for value in (commercial.get("warnings") or []) if str(value).strip()) or "No commercial warnings",
@@ -386,6 +398,9 @@ def workspace_section_payload(
     diagnostics = diagnostics or {}
     operator_key = str(operator_id or "").strip()
     queue_health = dict(diagnostics.get("queue_health") or {})
+    provider_posture = dict(diagnostics.get("providers") or {})
+    commercial = dict(diagnostics.get("commercial") or {})
+    readiness = dict(diagnostics.get("readiness") or {})
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
     stats = [
@@ -585,6 +600,25 @@ def workspace_section_payload(
                         _row("Pending approvals", str(queue_health.get("pending_approvals") or 0), "Queue"),
                         _row("Waiting on principal", str(queue_health.get("waiting_on_principal") or 0), "Queue"),
                         _row("Queued delivery", str(queue_health.get("pending_delivery") or 0), "Queue"),
+                        _row("Retrying delivery", str(queue_health.get("retrying_delivery") or 0), "Queue"),
+                        _row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue"),
+                        _row("Load score", str(queue_health.get("load_score") or 0), "Queue"),
+                        _row("Oldest handoff age", f"{queue_health.get('oldest_handoff_age_hours') or 0}h", "Queue"),
+                        _row("Oldest queued delivery age", f"{queue_health.get('oldest_pending_delivery_age_hours') or 0}h", "Queue"),
+                    ],
+                },
+                {
+                    "eyebrow": "Provider posture",
+                    "title": "Provider posture",
+                    "body": "The operator lane is only trustworthy when provider risk, fallback coverage, and workspace health stay visible.",
+                    "items": [
+                        _row("Provider risk", str(provider_posture.get("risk_state") or "unknown").replace("_", " ").title(), "Provider"),
+                        _row("Ready providers", str(provider_posture.get("ready_count") or 0), "Provider"),
+                        _row("Degraded providers", str(provider_posture.get("degraded_count") or 0), "Provider"),
+                        _row("Failed providers", str(provider_posture.get("failed_count") or 0), "Provider"),
+                        _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),
+                        _row("Failover-ready lanes", str(provider_posture.get("failover_ready_lanes") or 0), "Provider"),
+                        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
                     ],
                 },
                 {
@@ -630,6 +664,26 @@ def workspace_section_payload(
                     "body": "The operator lane should stay tied to the people and relationships it serves.",
                     "items": _people_rows(snapshot.people[:6]),
                 },
+                {
+                    "eyebrow": "Commercial pressure",
+                    "title": "What the plan boundary is blocking",
+                    "body": "Operator work gets noisy when seat limits, messaging scope, or support posture are out of sync with the office loop.",
+                    "items": [
+                        _row("Recommended plan", str(commercial.get("recommended_plan_label") or "Current plan"), "Plan", href="/app/settings/plan"),
+                        _row(
+                            "Blocked actions",
+                            ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
+                            "Support",
+                            href="/app/settings/support",
+                        ),
+                        _row(
+                            "Warnings",
+                            "; ".join(str(value) for value in (commercial.get("warnings") or []) if str(value).strip()) or "No current warnings",
+                            "Support",
+                            href="/app/settings/support",
+                        ),
+                    ],
+                },
             ],
         },
         "settings": {
@@ -663,9 +717,13 @@ def workspace_section_payload(
                         _row("Queue items", str(snapshot.stats_json.get("queue_items", 0)), "Usage"),
                         _row("Commitments", str(snapshot.stats_json.get("commitments", 0)), "Usage"),
                         _row("Handoffs", str(snapshot.stats_json.get("handoffs", 0)), "Usage"),
+                        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/activity"),
+                        _row("Retrying delivery", str(queue_health.get("retrying_delivery") or 0), "Queue", href="/app/settings/support"),
+                        _row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue", href="/app/settings/support"),
                         _row("Active operators", str(dict(diagnostics.get("operators") or {}).get("active_count") or 0), "Usage", href="/app/settings/usage"),
                         _row("Memos opened", str(dict(dict(diagnostics.get("analytics") or {}).get("counts") or {}).get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
                         _row("Time to first value", str(dict(diagnostics.get("analytics") or {}).get("time_to_first_value_seconds") or "pending"), "Analytics", href="/app/settings/usage"),
+                        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
                     ],
                 },
                 {
@@ -700,6 +758,15 @@ def workspace_section_payload(
                             ", ".join(str(value).replace("_", " ") for value in (dict(diagnostics.get("entitlements") or {}).get("feature_flags") or [])[:6]) or "No enabled features",
                             "Entitlement",
                             href="/app/settings/plan",
+                        ),
+                        _row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Support", href="/app/settings/support"),
+                        _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
+                        _row("Recommended plan", str(commercial.get("recommended_plan_label") or "Current plan"), "Plan", href="/app/settings/plan"),
+                        _row(
+                            "Blocked actions",
+                            ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
+                            "Support",
+                            href="/app/settings/support",
                         ),
                         _row(
                             "Warnings",

@@ -272,9 +272,14 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Unclaimed handoffs", str(diagnostics_queue.get("unclaimed_handoffs") or 0), "Queue"),
         _row("Pending approvals", str(diagnostics_queue.get("pending_approvals") or 0), "Queue"),
         _row("Waiting on principal", str(diagnostics_queue.get("waiting_on_principal") or 0), "Queue"),
+        _row("Retrying delivery", str(diagnostics_queue.get("retrying_delivery") or 0), "Queue"),
+        _row("Delivery errors", str(diagnostics_queue.get("delivery_errors") or 0), "Queue"),
+        _row("Load score", str(diagnostics_queue.get("load_score") or 0), "Queue"),
         _row("Active operators", str(diagnostics_operator.get("active_count") or 0), "Support"),
         _row("Configured providers", str(diagnostics_provider.get("provider_count") or 0), "Support"),
         _row("Routing lanes", str(diagnostics_provider.get("lane_count") or 0), "Support"),
+        _row("Provider risk", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
+        _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
         _row("Queued delivery", str(diagnostics_queue.get("pending_delivery") or 0), "Support"),
         _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
@@ -341,7 +346,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "cards": [
                 {"eyebrow": "Bindings", "title": "Configured providers", "items": provider_rows or [_row("No provider bindings", "No providers are currently bound for this principal.", "Empty")]},
                 {"eyebrow": "Routing", "title": "Lane routing state", "items": lane_rows or [_row("No active lanes", "No provider lanes are currently active.", "Empty")]},
-                {"eyebrow": "Readiness", "title": "Deployment posture", "items": [_row("Runtime readiness", readiness_label, readiness_state.title())]},
+                {
+                    "eyebrow": "Readiness",
+                    "title": "Deployment posture",
+                    "items": [
+                        _row("Runtime readiness", readiness_label, readiness_state.title()),
+                        _row("Provider risk", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
+                        _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
+                        _row("Failover-ready lanes", str(diagnostics_provider.get("failover_ready_lanes") or 0), "Support"),
+                    ],
+                },
             ],
         },
         "audit-trail": {

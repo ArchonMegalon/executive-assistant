@@ -153,6 +153,10 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Queue state" in diagnostics.text
     assert "SLA breaches" in diagnostics.text
     assert "Unclaimed handoffs" in diagnostics.text
+    assert "Retrying delivery" in diagnostics.text
+    assert "Load score" in diagnostics.text
+    assert "Provider risk" in diagnostics.text
+    assert "Fallback lanes" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
     assert "Open bundle" in diagnostics.text
     assert "Recent product events" in diagnostics.text
