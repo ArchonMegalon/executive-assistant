@@ -85,6 +85,7 @@ FIRST_CONTACT_TARGETS = frozenset(
         "assets/horizons/karma-forge.png",
     }
 )
+CRITICAL_VISUAL_TARGETS = FIRST_CONTACT_TARGETS
 SPARSE_HUMOR_TARGETS = frozenset(
     {
         "assets/hero/poc-warning.png",
@@ -2389,7 +2390,7 @@ def lore_background_clause(contract: dict[str, object] | None) -> str:
 def scene_integrity_instruction_set(contract: dict[str, object] | None, *, target: str) -> str:
     _ = target
     return (
-        "Secondary art direction for the same image: keep it as a lived moment, not a poster or title card. "
+        "Secondary art direction for the same image: keep it as a lived moment with cover-grade framing, not a static title card. "
         "Show one focal action, one clear prop cluster, and one secondary story clue. "
         f"{composition_visual_guardrails(contract)} "
         "Avoid centered brochure posing, fake readable typography, and generic wallpaper composition."
@@ -2608,7 +2609,70 @@ def first_contact_variant_count(*, target: str) -> int:
 
 
 def visual_audit_enabled(*, target: str) -> bool:
-    return first_contact_target(target) and Image is not None
+    if not first_contact_target(target):
+        return False
+    if Image is not None:
+        return True
+    try:
+        return bool(ffmpeg_bin())
+    except Exception:
+        return False
+
+
+def critical_visual_gate_failures(
+    *,
+    target: str,
+    base_score: float,
+    base_notes: list[str],
+    final_score: float,
+    final_notes: list[str],
+) -> list[str]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized not in CRITICAL_VISUAL_TARGETS:
+        return []
+    gate = {
+        "assets/hero/chummer6-hero.png": {
+            "min_base_score": 85.0,
+            "reject_notes": {
+                "visual_audit:dead_negative_space",
+                "visual_audit:low_semantic_density",
+                "visual_audit:insufficient_flash",
+                "visual_audit:narrow_subject_cluster",
+                "visual_audit:shallow_layering",
+            },
+        },
+        "assets/pages/horizons-index.png": {
+            "min_base_score": 78.0,
+            "reject_notes": {
+                "visual_audit:dead_negative_space",
+                "visual_audit:low_semantic_density",
+                "visual_audit:narrow_subject_cluster",
+                "visual_audit:missing_lane_plurality",
+            },
+        },
+        "assets/horizons/karma-forge.png": {
+            "min_base_score": 90.0,
+            "reject_notes": {
+                "visual_audit:dead_negative_space",
+                "visual_audit:low_semantic_density",
+                "visual_audit:insufficient_flash",
+                "visual_audit:narrow_subject_cluster",
+                "visual_audit:shallow_layering",
+            },
+        },
+    }.get(normalized, {})
+    failures: list[str] = []
+    min_base_score = float(gate.get("min_base_score") or 0.0)
+    if min_base_score and base_score < min_base_score:
+        failures.append(f"critical_visual_gate:base_score<{min_base_score:.0f}")
+    reject_notes = {str(entry).strip() for entry in gate.get("reject_notes") or set() if str(entry).strip()}
+    seen_notes = set(base_notes) | set(final_notes)
+    for note in sorted(reject_notes):
+        if note in seen_notes:
+            failures.append(f"critical_visual_gate:{note.split(':', 1)[-1]}")
+    if final_score < max(40.0, min_base_score * 0.65):
+        failures.append("critical_visual_gate:final_score_too_low")
+    return failures
 
 
 def _overlay_font():
@@ -2627,6 +2691,146 @@ def _text_box(draw, text: str, *, font) -> tuple[int, int]:
     except Exception:  # pragma: no cover - compatibility path
         width, height = draw.textsize(text, font=font)
         return max(1, int(width)), max(1, int(height))
+
+
+def _ffmpeg_overlay_fontfile() -> str:
+    candidates = [
+        env_value("CHUMMER6_OVERLAY_FONT"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ]
+    for candidate in candidates:
+        path = Path(str(candidate or "").strip())
+        if path.exists():
+            return str(path)
+    return ""
+
+
+def _ffmpeg_escape_drawtext(text: str) -> str:
+    cleaned = str(text or "")
+    return (
+        cleaned.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+        .replace(",", "\\,")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("%", "\\%")
+    )
+
+
+def _ffmpeg_rgba_color(color: tuple[int, int, int, int]) -> str:
+    red, green, blue, alpha = color
+    return f"0x{red:02x}{green:02x}{blue:02x}@{max(0.0, min(1.0, alpha / 255.0)):.3f}"
+
+
+def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> dict[str, list[dict[str, object]]]:
+    cyan = (39, 212, 255, 110)
+    amber = (255, 166, 87, 95)
+    red = (255, 78, 78, 110)
+    if target == "assets/hero/chummer6-hero.png":
+        return {
+            "boxes": [
+                {"x": int(width * 0.1), "y": int(height * 0.5), "w": int(width * 0.16), "h": int(height * 0.2), "color": cyan},
+                {"x": int(width * 0.46), "y": int(height * 0.42), "w": int(width * 0.18), "h": int(height * 0.22), "color": amber},
+                {"x": int(width * 0.68), "y": int(height * 0.54), "w": int(width * 0.18), "h": int(height * 0.18), "color": cyan},
+            ],
+            "chips": [
+                {"x": int(width * 0.09), "y": int(height * 0.44), "text": "TRUST CHECK", "color": cyan},
+                {"x": int(width * 0.45), "y": int(height * 0.36), "text": "UPGRADING", "color": amber},
+                {"x": int(width * 0.66), "y": int(height * 0.48), "text": "FIT DELTA", "color": cyan},
+            ],
+        }
+    if target == "assets/pages/horizons-index.png":
+        return {
+            "boxes": [
+                {"x": int(width * 0.14), "y": int(height * 0.62), "w": int(width * 0.14), "h": int(height * 0.16), "color": amber},
+                {"x": int(width * 0.41), "y": int(height * 0.58), "w": int(width * 0.14), "h": int(height * 0.16), "color": cyan},
+                {"x": int(width * 0.68), "y": int(height * 0.6), "w": int(width * 0.14), "h": int(height * 0.16), "color": amber},
+            ],
+            "chips": [
+                {"x": int(width * 0.13), "y": int(height * 0.56), "text": "ALT-A", "color": amber},
+                {"x": int(width * 0.4), "y": int(height * 0.52), "text": "ALT-B", "color": cyan},
+                {"x": int(width * 0.67), "y": int(height * 0.54), "text": "ALT-C", "color": amber},
+            ],
+        }
+    if target == "assets/horizons/karma-forge.png":
+        return {
+            "fills": [
+                {"x": int(width * 0.06), "y": int(height * 0.66), "w": int(width * 0.22), "h": int(height * 0.18), "color": (255, 166, 87, 56)},
+                {"x": int(width * 0.3), "y": int(height * 0.52), "w": int(width * 0.22), "h": int(height * 0.18), "color": (39, 212, 255, 54)},
+                {"x": int(width * 0.62), "y": int(height * 0.1), "w": int(width * 0.24), "h": int(height * 0.18), "color": (255, 78, 78, 58)},
+            ],
+            "boxes": [
+                {"x": int(width * 0.08), "y": int(height * 0.68), "w": int(width * 0.16), "h": int(height * 0.15), "color": amber},
+                {"x": int(width * 0.33), "y": int(height * 0.6), "w": int(width * 0.18), "h": int(height * 0.16), "color": cyan},
+                {"x": int(width * 0.68), "y": int(height * 0.18), "w": int(width * 0.18), "h": int(height * 0.16), "color": red},
+            ],
+            "chips": [
+                {"x": int(width * 0.08), "y": int(height * 0.62), "text": "DIFF", "color": amber},
+                {"x": int(width * 0.33), "y": int(height * 0.54), "text": "APPROVAL", "color": cyan},
+                {"x": int(width * 0.67), "y": int(height * 0.12), "text": "ROLLBACK", "color": red},
+                {"x": int(width * 0.6), "y": int(height * 0.42), "text": "PROVENANCE", "color": cyan},
+            ],
+        }
+    return {"boxes": [], "chips": []}
+
+
+def _apply_first_contact_overlay_postpass_ffmpeg(*, image_path: Path, target: str, width: int, height: int) -> str:
+    layout = _first_contact_overlay_layout(target=target, width=width, height=height)
+    filters: list[str] = []
+    for fill in layout.get("fills", []):
+        filters.append(
+            "drawbox="
+            f"x={int(fill['x'])}:y={int(fill['y'])}:w={int(fill['w'])}:h={int(fill['h'])}:"
+            f"color={_ffmpeg_rgba_color(fill['color'])}:t=fill"
+        )
+    for box in layout["boxes"]:
+        filters.append(
+            "drawbox="
+            f"x={int(box['x'])}:y={int(box['y'])}:w={int(box['w'])}:h={int(box['h'])}:"
+            f"color={_ffmpeg_rgba_color(box['color'])}:t=2"
+        )
+    fontfile = _ffmpeg_overlay_fontfile()
+    escaped_fontfile = fontfile.replace("\\", "\\\\").replace(":", "\\:")
+    for chip in layout["chips"]:
+        if not fontfile:
+            continue
+        filters.append(
+            "drawtext="
+            f"fontfile='{escaped_fontfile}':"
+            f"text='{_ffmpeg_escape_drawtext(str(chip['text']))}':"
+            f"x={int(chip['x'])}:y={int(chip['y'])}:"
+            "fontsize=18:"
+            "fontcolor=white@0.92:"
+            "box=1:"
+            f"boxcolor={_ffmpeg_rgba_color(chip['color'])}:"
+            "boxborderw=6"
+        )
+    if not filters:
+        return "first_contact_overlay:unavailable"
+    temp_path = image_path.with_name(f"{image_path.stem}.overlaytmp{image_path.suffix}")
+    command = [
+        ffmpeg_bin(),
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(image_path),
+        "-vf",
+        ",".join(filters),
+        str(temp_path),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"first_contact_overlay:ffmpeg_failed:{detail[:240]}") from exc
+    if not temp_path.exists():
+        raise RuntimeError("first_contact_overlay:ffmpeg_missing_output")
+    temp_path.replace(image_path)
+    return "first_contact_overlay:applied_ffmpeg"
 
 
 def _draw_overlay_chip(draw, *, x: int, y: int, text: str, color: tuple[int, int, int, int]) -> None:
@@ -2651,7 +2855,12 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
     if not first_contact_target(str(spec.get("target") or "")):
         return "first_contact_overlay:skipped"
     if Image is None or ImageDraw is None:
-        return "first_contact_overlay:unavailable"
+        return _apply_first_contact_overlay_postpass_ffmpeg(
+            image_path=image_path,
+            target=str(spec.get("target") or "").strip(),
+            width=width,
+            height=height,
+        )
     if not image_path.exists():
         raise RuntimeError(f"first_contact_overlay:missing_image:{image_path}")
 
@@ -2686,6 +2895,27 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             _draw_overlay_chip(draw, x=int(w * 0.42), y=int(h * 0.65), text="ALT-B", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.7), y=int(h * 0.66), text="ALT-C", color=amber)
         elif target == "assets/horizons/karma-forge.png":
+            draw.rounded_rectangle(
+                (int(w * 0.06), int(h * 0.66), int(w * 0.28), int(h * 0.84)),
+                outline=amber,
+                fill=(amber[0], amber[1], amber[2], 56),
+                width=2,
+                radius=6,
+            )
+            draw.rounded_rectangle(
+                (int(w * 0.3), int(h * 0.52), int(w * 0.52), int(h * 0.7)),
+                outline=cyan,
+                fill=(cyan[0], cyan[1], cyan[2], 54),
+                width=2,
+                radius=6,
+            )
+            draw.rounded_rectangle(
+                (int(w * 0.62), int(h * 0.1), int(w * 0.86), int(h * 0.28)),
+                outline=red,
+                fill=(red[0], red[1], red[2], 58),
+                width=2,
+                radius=6,
+            )
             draw.rounded_rectangle((int(w * 0.08), int(h * 0.72), int(w * 0.26), int(h * 0.87)), outline=amber, width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.34), int(h * 0.68), int(w * 0.5), int(h * 0.83)), outline=cyan, width=2, radius=6)
             draw.rounded_rectangle((int(w * 0.68), int(h * 0.2), int(w * 0.84), int(h * 0.38)), outline=red, width=2, radius=6)
@@ -2704,99 +2934,141 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
     return "first_contact_overlay:applied"
 
 
+def _visual_audit_grayscale_grid(*, image_path: Path, width: int = 48, height: int = 36) -> tuple[int, int, list[int]]:
+    if not image_path.exists():
+        return 0, 0, []
+    if Image is not None:
+        with Image.open(image_path).convert("L") as image:
+            resized = image.resize((width, height))
+            return width, height, list(resized.getdata())
+    command = [
+        ffmpeg_bin(),
+        "-v",
+        "error",
+        "-i",
+        str(image_path),
+        "-vf",
+        f"scale={width}:{height},format=gray",
+        "-frames:v",
+        "1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "gray",
+        "pipe:1",
+    ]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True)
+    except Exception:
+        return 0, 0, []
+    raw = list(completed.stdout or b"")
+    if len(raw) != width * height:
+        return 0, 0, []
+    return width, height, raw
+
+
 def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[str]]:
-    if Image is None:
-        return 0.0, []
-    with Image.open(image_path).convert("L") as image:
-        width, height = image.size
-        tiles_x = 4
-        tiles_y = 3
-        tile_w = max(1, width // tiles_x)
-        tile_h = max(1, height // tiles_y)
-        active_tiles = 0
-        dark_flat_tiles = 0
-        bright_tiles = 0
-        spreads: list[float] = []
-        active_cols: set[int] = set()
-        active_rows: set[int] = set()
-        for y in range(tiles_y):
-            for x in range(tiles_x):
-                crop = image.crop((x * tile_w, y * tile_h, min(width, (x + 1) * tile_w), min(height, (y + 1) * tile_h)))
-                low, high = crop.getextrema()
-                pixels = list(crop.getdata())
-                avg = mean(pixels) if pixels else 0.0
-                spread = float((high or 0) - (low or 0))
-                spreads.append(spread)
-                if avg < 70 and spread < 28:
-                    dark_flat_tiles += 1
-                if spread >= 42:
-                    active_tiles += 1
-                    active_cols.add(x)
-                    active_rows.add(y)
-                if avg >= 92 and spread >= 48:
-                    bright_tiles += 1
-        notes: list[str] = []
-        score = float(active_tiles * 12 - dark_flat_tiles * 9 + mean(spreads))
-        visual_contract = target_visual_contract(target)
-        density = str(visual_contract.get("density_target") or "").strip().lower()
-        overlay_density = str(visual_contract.get("overlay_density") or "").strip().lower()
-        negative_space_cap = str(visual_contract.get("negative_space_cap") or "").strip().lower()
-        flash_level = str(visual_contract.get("flash_level") or "").strip().lower()
-        required_active_tiles = 5
-        max_dark_flat_tiles = 5
-        required_bright_tiles = 0
-        required_active_cols = 0
-        required_active_rows = 0
-        if density == "high":
-            required_active_tiles = max(required_active_tiles, 6)
-            required_active_cols = 3
-            required_active_rows = 2
-        if overlay_density == "medium":
-            required_active_tiles = max(required_active_tiles, 6)
-            required_bright_tiles = max(required_bright_tiles, 1)
-        elif overlay_density == "high":
-            required_active_tiles = max(required_active_tiles, 7)
-            required_bright_tiles = max(required_bright_tiles, 2)
-        if negative_space_cap == "low":
-            max_dark_flat_tiles = min(max_dark_flat_tiles, 4)
-        if flash_level == "bold":
-            required_bright_tiles = max(required_bright_tiles, 2)
-        if target == "assets/hero/chummer6-hero.png":
-            required_active_tiles = max(required_active_tiles, 7)
-            required_bright_tiles = max(required_bright_tiles, 3)
-            required_active_cols = max(required_active_cols, 4)
-            required_active_rows = max(required_active_rows, 3)
-        elif target == "assets/pages/horizons-index.png":
-            required_active_tiles = max(required_active_tiles, 7)
-            required_active_cols = max(required_active_cols, 4)
-        elif target == "assets/horizons/karma-forge.png":
-            required_active_tiles = max(required_active_tiles, 8)
-            required_bright_tiles = max(required_bright_tiles, 3)
-            required_active_cols = max(required_active_cols, 4)
-            required_active_rows = max(required_active_rows, 3)
-        if dark_flat_tiles > max_dark_flat_tiles:
-            notes.append("visual_audit:dead_negative_space")
-            score -= 25
-        if active_tiles < required_active_tiles:
-            notes.append("visual_audit:low_semantic_density")
-            score -= 25
-        if required_bright_tiles and bright_tiles < required_bright_tiles:
-            notes.append("visual_audit:insufficient_flash")
-            score -= 18
-        if required_active_cols and len(active_cols) < required_active_cols:
-            notes.append("visual_audit:narrow_subject_cluster")
-            score -= 18
-        if required_active_rows and len(active_rows) < required_active_rows:
-            notes.append("visual_audit:shallow_layering")
-            score -= 16
-        if target == "assets/pages/horizons-index.png" and len(spreads) >= 12:
-            left = mean([spreads[0], spreads[4], spreads[8]])
-            center = mean([spreads[1], spreads[5], spreads[9]])
-            right = mean([spreads[2], spreads[6], spreads[10]])
-            if min(left, center, right) < 24:
-                notes.append("visual_audit:missing_lane_plurality")
-                score -= 20
-        return score, notes
+    width, height, raw = _visual_audit_grayscale_grid(image_path=image_path)
+    if not raw:
+        return 0.0, ["visual_audit:unavailable"]
+    visual_contract = target_visual_contract(target)
+    density = str(visual_contract.get("density_target") or "").strip().lower()
+    overlay_density = str(visual_contract.get("overlay_density") or "").strip().lower()
+    negative_space_cap = str(visual_contract.get("negative_space_cap") or "").strip().lower()
+    flash_level = str(visual_contract.get("flash_level") or "").strip().lower()
+    tiles_x = 4
+    tiles_y = 3
+    tile_w = max(1, width // tiles_x)
+    tile_h = max(1, height // tiles_y)
+    active_tiles = 0
+    dark_flat_tiles = 0
+    bright_tiles = 0
+    bright_tile_floor = 92.0
+    if target == "assets/horizons/karma-forge.png":
+        bright_tile_floor = 84.0
+    spreads: list[float] = []
+    active_cols: set[int] = set()
+    active_rows: set[int] = set()
+    for y in range(tiles_y):
+        for x in range(tiles_x):
+            pixels: list[int] = []
+            start_x = x * tile_w
+            end_x = width if x == tiles_x - 1 else min(width, (x + 1) * tile_w)
+            start_y = y * tile_h
+            end_y = height if y == tiles_y - 1 else min(height, (y + 1) * tile_h)
+            for row in range(start_y, end_y):
+                base = row * width
+                pixels.extend(raw[base + start_x : base + end_x])
+            low = min(pixels) if pixels else 0
+            high = max(pixels) if pixels else 0
+            avg = mean(pixels) if pixels else 0.0
+            spread = float((high or 0) - (low or 0))
+            spreads.append(spread)
+            if avg < 70 and spread < 28:
+                dark_flat_tiles += 1
+            if spread >= 42:
+                active_tiles += 1
+                active_cols.add(x)
+                active_rows.add(y)
+            if avg >= bright_tile_floor and spread >= 48:
+                bright_tiles += 1
+    notes: list[str] = []
+    score = float(active_tiles * 12 - dark_flat_tiles * 9 + mean(spreads))
+    required_active_tiles = 5
+    max_dark_flat_tiles = 5
+    required_bright_tiles = 0
+    required_active_cols = 0
+    required_active_rows = 0
+    if density == "high":
+        required_active_tiles = max(required_active_tiles, 6)
+        required_active_cols = 3
+        required_active_rows = 2
+    if overlay_density == "medium":
+        required_active_tiles = max(required_active_tiles, 6)
+        required_bright_tiles = max(required_bright_tiles, 1)
+    elif overlay_density == "high":
+        required_active_tiles = max(required_active_tiles, 7)
+        required_bright_tiles = max(required_bright_tiles, 2)
+    if negative_space_cap == "low":
+        max_dark_flat_tiles = min(max_dark_flat_tiles, 4)
+    if flash_level == "bold":
+        required_bright_tiles = max(required_bright_tiles, 2)
+    if target == "assets/hero/chummer6-hero.png":
+        required_active_tiles = max(required_active_tiles, 7)
+        required_bright_tiles = 1
+        required_active_cols = max(required_active_cols, 4)
+        required_active_rows = max(required_active_rows, 3)
+    elif target == "assets/pages/horizons-index.png":
+        required_active_tiles = max(required_active_tiles, 7)
+        required_active_cols = max(required_active_cols, 4)
+    elif target == "assets/horizons/karma-forge.png":
+        required_active_tiles = max(required_active_tiles, 8)
+        required_bright_tiles = max(required_bright_tiles, 2)
+        required_active_cols = max(required_active_cols, 4)
+        required_active_rows = max(required_active_rows, 3)
+    if dark_flat_tiles > max_dark_flat_tiles:
+        notes.append("visual_audit:dead_negative_space")
+        score -= 25
+    if active_tiles < required_active_tiles:
+        notes.append("visual_audit:low_semantic_density")
+        score -= 25
+    if required_bright_tiles and bright_tiles < required_bright_tiles:
+        notes.append("visual_audit:insufficient_flash")
+        score -= 18
+    if required_active_cols and len(active_cols) < required_active_cols:
+        notes.append("visual_audit:narrow_subject_cluster")
+        score -= 18
+    if required_active_rows and len(active_rows) < required_active_rows:
+        notes.append("visual_audit:shallow_layering")
+        score -= 16
+    if target == "assets/pages/horizons-index.png" and len(spreads) >= 12:
+        left = mean([spreads[0], spreads[4], spreads[8]])
+        center = mean([spreads[1], spreads[5], spreads[9]])
+        right = mean([spreads[2], spreads[6], spreads[10]])
+        if min(left, center, right) < 24:
+            notes.append("visual_audit:missing_lane_plurality")
+            score -= 20
+    return score, notes
 
 
 def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
@@ -3062,7 +3334,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The hero must show at least two people in the intake lane, with a streetdoc or support figure clearly present beside the focal runner. No crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, and no quiet side-profile portrait."
+        hard_block += " The hero must show at least two people in the intake lane, with a streetdoc or support figure clearly present beside the focal runner. One body must be half-reclined, strapped into a prep chair, or braced against a visible prep rail while the streetdoc is actively touching the patient or cyberware. No crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, no quiet side-profile portrait, no hallway symmetry, and no back-facing idle pair."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
@@ -3420,7 +3692,7 @@ def asset_specs() -> list[dict[str, object]]:
             lore_clause,
             f"Keep the overall look consistent with: {style_bits}." if style_bits else "",
             easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
-            "Make it feel like a lived-in Shadowrun world scene, not a product poster or tabletop glamour shot.",
+            "Make it feel like a lived-in Shadowrun world scene with cover-grade energy, not a glossy brochure cover or tabletop glamour shot.",
             "Avoid generic skylines, abstract icon soup, flat infographics, or brochure-cover posing.",
             "Do not print text, prompts, OODA labels, metadata, or resolution callouts on the image.",
             "No readable words or numbers on screens, papers, props, or overlays; use abstract bars, chips, glyphs, or traces instead.",
@@ -3496,18 +3768,18 @@ def asset_specs() -> list[dict[str, object]]:
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
             "prompt_nudge": "Treat the hero like a first-contact Shadowrun cover, not a quiet mood still: runner prep, intake truth, visible rules pressure, strong foreground-midground-background layering, and obvious Chummer semantics at a glance. Push for packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder foreground clutter. This is a streetdoc intake bay or prep cage with at least two people in frame, not alley-brooding at a crate, not desk glamour, not a maintainer wink, and not a lonely person nursing a gadget in the rain.",
-            "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
-            "subject": "a streetdoc and a runner locked in an upgrade trust check while a teammate hovers just inside the prep lane",
-            "action": "the streetdoc is mid-adjustment at the prep rail while the runner braces and layered trust traces, fit checks, and proof anchors live all through the room around them",
+            "environment": "a cramped streetdoc triage bay centered on a reclined prep chair or vertical gurney, with surgical armature lights, hanging gear rails, clipped med tags, sealed med pouches, injector trays, intake bins, med drawers, translucent rule markers, floor clutter, and hard practical spill across the whole room",
+            "subject": "a streetdoc actively patching a half-reclined runner at the prep rail while a teammate crowds the opposite side with tools or telemetry",
+            "action": "the streetdoc is physically working at an exposed cyberware or trauma point while the runner braces in the chair and the support figure reaches into frame with tool handoff, trust traces, fit checks, and proof anchors spread all through the room",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage: a streetdoc works on a runner at a vertical prep rail while a teammate or assistant hovers just behind the lane, all framed by hanging gear hooks, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent stat markers, and suspended prep props while provenance traces and fit-check brackets cling to those physical anchors. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Push it toward packed flashy poster energy with stronger orange-cyan contrast, harder rim light, and bolder silhouettes. Show at least two people clearly in frame with both hands active inside the prop field, not as a quiet side-profile portrait. Use strong foreground props on both sides, a readable midground operator relationship, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
-            "framing": "medium-wide two-or-three-person standing shot with the streetdoc, runner, active hands, dense foreground prep props, the hanging prep wall, med drawers, and some floor visible, with strong foreground-midground-background separation; no portrait crop and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, or a quiet low-density mood still",
+            "replace_visual_prompt": "Wide first-contact Shadowrun cover scene inside a cramped streetdoc triage bay: a runner is half-reclined or strapped into a prep chair or vertical gurney across the lower middle of frame while a streetdoc leans in with active hands at an exposed cyberware or trauma point and a second support figure crowds the opposite edge with tools or telemetry. Surgical armatures, hanging gear rails, clipped med tags, sealed pouches, injector trays, med drawers, floor clutter, and translucent stat markers must spread across the frame so the scene reads as triage under inspection pressure rather than a quiet corridor. The frame must feel dense, layered, and specific enough that a new viewer immediately reads character-build trust, inspection pressure, and Shadowrun prep instead of generic cyberpunk melancholy. Push it toward packed flashy cover energy with stronger orange-cyan contrast, harder rim light, and bolder silhouettes. Show at least two people clearly in frame with hands actively doing work; no back-facing idle pair, no hallway symmetry, and no quiet side-profile portrait. Use strong foreground props on both sides, a readable midground operator relationship, and a rich background of clipped proof objects. Wardrobe must stay plain and unbranded: no chest label, no sleeve patch, no nameplate, no emblem, and no readable lettering anywhere. No alley, no rain-soaked street setup, no desk, no bench, no crate, no bright screen, no glowing panel, no framed board, no handheld device, no phone, no card, and no lone gadget hero prop.",
+            "framing": "medium-wide three-person triage shot with the reclined runner crossing the lower-middle frame, the streetdoc entering from one side, the support figure on the opposite edge, dense foreground prep props, overhead armature light, and deep background storage visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
+            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, or a quiet low-density mood still",
             "overlay_hint": "build-state provenance traces, target-posture brackets, fit checks, and trust markers",
-            "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],
+            "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "injector tray", "prep chair", "translucent stat marker"],
             "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
-            "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check", "inspection pressure", "streetdoc assist"],
-            "overlay_callouts": ["provenance trace", "fit check", "trust mark", "state delta", "upgrade state"],
+            "visual_motifs": ["hanging prep cluster", "sealed gear", "trust check", "inspection pressure", "streetdoc assist", "triage action"],
+            "overlay_callouts": ["provenance trace", "fit check", "trust mark", "state delta", "upgrade state", "triage lane"],
             "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
         },
         "assets/hero/poc-warning.png": {
@@ -3701,16 +3973,16 @@ def asset_specs() -> list[dict[str, object]]:
             "overlay_hint": "dossier anchors and provenance marks",
         },
         "assets/horizons/karma-forge.png": {
-            "required": "workshop_bench",
+            "required": "approval_rail",
             "banned": TABLEAU_COMPOSITIONS,
             "person_count_target": "duo_preferred",
             "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not a committee around glowing furniture. This should feel dense, graphic, and high-pressure, with obvious approval, rollback, provenance, and compatibility logic in the frame. Prefer a rulesmith plus reviewer or witness over one isolated operator.",
             "subject": "a rulesmith and skeptical reviewer reconciling a volatile house-rule pack through review, diff, and rollback pressure",
-            "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
+            "environment": "an industrial approval rail with diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
             "action": "the rulesmith drives diff controls while a reviewer leans into the approval rail and rollback lane under visible pressure",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "A rulesmith and skeptical reviewer at an industrial review bench reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together, not anonymous forge hands over flame and not one isolated operator in a glow void. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop and not generic glowing-card tinkering. No readable labels.",
-            "framing": "medium-wide two-person shot with both torsos, active hands on hardware, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
+            "replace_visual_prompt": "A rulesmith and skeptical reviewer stand at an industrial approval rail and consequence lane while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together, not anonymous forge hands over flame and not one isolated operator in a glow void. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, and not generic glowing-card tinkering. No readable labels.",
+            "framing": "medium-wide two-person standing shot with both torsos, active hands on hardware, approval rails, diff strips, rollback hardware, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
             "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, or any scene without publication-control cues",
             "overlay_hint": "compatibility arcs, diff markers, approval seals, rollback arcs, provenance rails, and control-state brackets",
             "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers"],
@@ -3947,7 +4219,7 @@ def asset_specs() -> list[dict[str, object]]:
             ("assets/parts/media-factory.png", "render_lane"),
             ("assets/horizons/alice.png", "simulation_lab"),
             ("assets/horizons/jackpoint.png", "archive_room"),
-            ("assets/horizons/karma-forge.png", "workshop_bench"),
+            ("assets/horizons/karma-forge.png", "approval_rail"),
             ("assets/horizons/nexus-pan.png", "van_interior"),
             ("assets/horizons/runbook-press.png", "proof_room"),
         ):
@@ -4127,11 +4399,18 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         best_statuses: list[str] = []
         best_score = float("-inf")
         best_notes: list[str] = []
+        best_gate_failures: list[str] = []
         for variant in range(variant_attempts):
             candidate_path = out_path if variant_attempts == 1 else out_path.with_name(f"{out_path.stem}.__candidate{variant}{out_path.suffix}")
             result = render_with_ooda(prompt=prompt, output_path=candidate_path, width=width, height=height, spec=spec)
             statuses: list[str] = list(result["attempts"])
             statuses.append(normalize_banner_size(image_path=candidate_path, width=width, height=height))
+            base_score = 0.0
+            base_notes: list[str] = []
+            if visual_audit_enabled(target=target):
+                base_score, base_notes = visual_audit_score(image_path=candidate_path, target=target)
+                statuses.extend(note.replace("visual_audit:", "base_visual_audit:", 1) for note in base_notes)
+                statuses.append(f"base_visual_audit:score:{base_score:.2f}")
             if first_contact_target(target):
                 statuses.append(apply_first_contact_overlay_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
             if troll_postpass_enabled() and scene_contract_requests_easter_egg(contract):
@@ -4139,18 +4418,30 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
             score, notes = visual_audit_score(image_path=candidate_path, target=target) if visual_audit_enabled(target=target) else (0.0, [])
             statuses.extend(notes)
             statuses.append(f"visual_audit:score:{score:.2f}")
-            if score > best_score:
-                best_score = score
+            gate_failures = critical_visual_gate_failures(
+                target=target,
+                base_score=base_score,
+                base_notes=base_notes,
+                final_score=score,
+                final_notes=notes,
+            )
+            statuses.extend(gate_failures)
+            candidate_score = score + (base_score * 0.6) - (35.0 * len(gate_failures))
+            if candidate_score > best_score:
+                best_score = candidate_score
                 best_result = {"provider": result["provider"], "status": result["status"], "candidate_path": str(candidate_path)}
                 best_statuses = statuses
-                best_notes = notes
-            if variant_attempts > 1 and candidate_path != out_path and score < best_score:
+                best_notes = [*base_notes, *notes]
+                best_gate_failures = gate_failures
+            if variant_attempts > 1 and candidate_path != out_path and candidate_score < best_score:
                 try:
                     candidate_path.unlink()
                 except Exception:
                     pass
         if best_result is None:
             raise RuntimeError(f"render_failed_without_candidate:{target}")
+        if best_gate_failures:
+            raise RuntimeError(f"critical_visual_audit_failed:{target}:{','.join(best_gate_failures[:4])}")
         chosen_path = Path(str(best_result["candidate_path"]))
         if chosen_path != out_path:
             chosen_path.replace(out_path)

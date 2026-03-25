@@ -78,12 +78,16 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     canon = _load_module()
 
     hero = canon.asset_visual_profile("assets/hero/chummer6-hero.png")
+    readme = canon.asset_visual_profile("README.md")
     horizons = canon.asset_visual_profile("assets/pages/horizons-index.png")
     forge = canon.asset_visual_profile("assets/horizons/karma-forge.png")
 
     assert hero["visual_density_profile"] == "first_contact_hero"
     assert hero["required_person_count"] == "duo_or_team"
     assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
+    assert readme["visual_density_profile"] == "first_contact_hero"
+    assert readme["section_order"][:4] == ["pitch", "quick_nav", "current_posture", "hero"]
+    assert readme["max_front_page_updates"] == 0
     assert horizons["visual_density_profile"] == "page_index"
     assert horizons["required_overlay_density"] == "medium"
     assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()

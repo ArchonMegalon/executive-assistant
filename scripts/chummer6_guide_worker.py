@@ -480,9 +480,9 @@ def variation_guardrails_for(target: str, rows: list[dict[str, object]]) -> list
         rules.append(f"Do not reuse the most recent accepted composition family `{last}` for `{target}`.")
         safehouse_count = sum(1 for value in compositions if value == "safehouse_table")
         if safehouse_count >= 2:
-            rules.append("Safehouse-table grammar is already overserved. Use prop-led, solo-operator, dossier, workshop, transit, street, archive, or service-rack grammar instead.")
+            rules.append("Safehouse-table grammar is already overserved. Use prop-led, dossier, approval-rail, transit, street, archive, clinic, or service-rack grammar instead.")
     if target.endswith("README.md") or target.endswith("chummer6-hero.png"):
-        rules.append("The landing hero must show visible trust pressure in Shadowrun life, not a quiet lone-operator still or a generic meeting tableau.")
+        rules.append("The landing hero must show visible trust pressure in Shadowrun life through a streetdoc / runner / support-figure scene, not a quiet lone-operator still or a generic meeting tableau.")
     if target.endswith("what-chummer6-is.png"):
         rules.append("Prefer an inspectable trust moment or operator relationship, not a generic group huddle.")
     if target.endswith("core.png"):
@@ -1009,8 +1009,10 @@ def _boolish(value: object, *, default: bool) -> bool:
 def visual_density_profile_name_for_target(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     page_types = PAGE_REGISTRY.get("page_types") if isinstance(PAGE_REGISTRY.get("page_types"), dict) else {}
-    if normalized.endswith("assets/hero/chummer6-hero.png") or normalized.endswith("README.md"):
+    if normalized.endswith("assets/hero/chummer6-hero.png"):
         return str((page_types.get("root_story") or {}).get("visual_density_profile") or "first_contact_hero").strip()
+    if normalized.endswith("README.md"):
+        return str((page_types.get("root_story_github_readme") or {}).get("visual_density_profile") or "first_contact_hero").strip()
     if normalized.endswith("assets/pages/horizons-index.png"):
         return str((page_types.get("horizon_index") or {}).get("visual_density_profile") or "page_index").strip()
     if normalized.endswith("assets/horizons/karma-forge.png"):
@@ -1187,7 +1189,7 @@ def _critical_target_banned_compositions(target: str) -> set[str]:
     if target == "assets/pages/horizons-index.png":
         return base | {"city_edge", "transit_checkpoint", "service_rack"}
     if target == "assets/horizons/karma-forge.png":
-        return base | {"desk_still_life", "dossier_desk", "service_rack", "city_edge", "workshop"}
+        return base | {"desk_still_life", "dossier_desk", "service_rack", "city_edge", "workshop", "workshop_bench"}
     return base
 
 
@@ -5510,12 +5512,12 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             },
             "karma-forge": {
                 "subject": "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench",
-                "environment": "an industrial review bench lit by sodium spill, approval rails, rollback cassettes, and terminal glow",
+                "environment": "an industrial approval rail lit by sodium spill, rollback cassettes, provenance seals, and hard task light",
                 "action": "checking whether the latest experiment can be rolled back before it burns the table",
                 "metaphor": "governed rules evolution under pressure",
                 "props": ["rule lattice", "approval rail", "rollback cassette", "provenance seals"],
                 "overlays": ["compatibility markers", "rollback seals", "receipt traces", "approval state brackets"],
-                "composition": "workshop_bench",
+                "composition": "approval_rail",
                 "palette": "forge orange, audit green, midnight iron",
                 "mood": "volatile, expensive, and tightly governed",
                 "humor_policy": "forbid",
@@ -5709,8 +5711,8 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             composition = "service_rack"
         elif not locked_defaults and ("transit" in lowered or "checkpoint" in lowered or "route board" in lowered or "station" in lowered):
             composition = "transit_checkpoint"
-        elif not locked_defaults and ("workshop bench" in lowered or "forge" in lowered or "anvil" in lowered):
-            composition = "workshop_bench"
+        elif not locked_defaults and ("workshop bench" in lowered or "forge" in lowered or "anvil" in lowered or "approval rail" in lowered or "rollback cassette" in lowered):
+            composition = "approval_rail"
         elif not locked_defaults and ("operator" in lowered or "solo" in lowered or "kiosk" in lowered):
             composition = "solo_operator"
         elif not locked_defaults and ("team" in lowered or "group" in lowered):
@@ -5731,7 +5733,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "design": "conspiracy_wall",
             "nexus-pan": "van_interior",
             "alice": "simulation_lab",
-            "karma-forge": "workshop_bench",
+            "karma-forge": "approval_rail",
             "jackpoint": "dossier_desk",
             "runsite": "district_map",
             "runbook-press": "proof_room",
@@ -5749,7 +5751,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         elif any(token in lowered for token in ("nexus-pan", "data-jack", "fiber-optic", "signal", "connector", "lead")):
             props = ["fiber-optic lead", "rugged data-jack", "petrol cyan signal traces"]
             overlays = ["signal bars", "receipt traces", "hardware handshake glyphs"]
-        elif any(token in lowered for token in ("karma-forge", "rule-chip", "lattice", "rulesmith", "forge", "terminal")):
+        elif any(token in lowered for token in ("karma-forge", "rule-chip", "lattice", "rulesmith", "forge", "terminal", "approval rail", "rollback cassette")):
             props = ["rule lattice", "industrial terminal", "receipt traces"]
             overlays = ["compatibility markers", "receipt traces", "rollback seals"]
         elif any(token in lowered for token in ("jackpoint", "dossier", "archive", "evidence", "data-slab")):
@@ -5768,7 +5770,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             props = list(defaults.get("props") or ["dossier folders", "evidence chips", "rain-streaked window"])
             overlays = list(defaults.get("overlays") or ["provenance stamps", "dossier markers", "receipt traces"])
         elif asset_key == "karma-forge":
-            props = list(defaults.get("props") or ["rule lattice", "forge tools", "receipt traces"])
+            props = list(defaults.get("props") or ["rule lattice", "approval rail", "rollback cassette"])
             overlays = list(defaults.get("overlays") or ["compatibility markers", "rollback seals", "receipt traces"])
         return {
             "subject": subject,
@@ -5838,7 +5840,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "design": "conspiracy_wall",
             "nexus-pan": "van_interior",
             "alice": "simulation_lab",
-            "karma-forge": "workshop_bench",
+            "karma-forge": "approval_rail",
             "jackpoint": "dossier_desk",
             "runsite": "district_map",
             "runbook-press": "proof_room",

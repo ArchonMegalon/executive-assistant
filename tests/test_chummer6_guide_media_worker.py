@@ -974,6 +974,148 @@ def test_visual_audit_score_flags_dead_negative_space(tmp_path: Path) -> None:
     assert "visual_audit:dead_negative_space" in notes
 
 
+def test_visual_audit_score_uses_ffmpeg_fallback_when_pil_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    image_path = tmp_path / "empty.png"
+    image_path.write_bytes(b"png")
+
+    class _Completed:
+        stdout = bytes([0] * (48 * 36))
+
+    monkeypatch.setattr(media, "Image", None)
+    monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(media.subprocess, "run", lambda *args, **kwargs: _Completed())
+
+    score, notes = media.visual_audit_score(
+        image_path=image_path,
+        target="assets/pages/horizons-index.png",
+    )
+
+    assert score < 0
+    assert "visual_audit:dead_negative_space" in notes
+
+
+def test_visual_audit_enabled_uses_ffmpeg_fallback_when_pil_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "Image", None)
+    monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+
+    assert media.visual_audit_enabled(target="assets/hero/chummer6-hero.png") is True
+
+
+def test_visual_audit_score_accepts_gritty_flash_for_karma_forge(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "karma.png"
+    image_path.write_bytes(b"png")
+    width, height = 48, 36
+    tile_w, tile_h = 12, 12
+    raw: list[int] = []
+    tile_specs = {
+        (2, 0): (0, 170),
+        (3, 0): (10, 210),
+    }
+    for y in range(height):
+        tile_y = min(2, y // tile_h)
+        for x in range(width):
+            tile_x = min(3, x // tile_w)
+            low, high = tile_specs.get((tile_x, tile_y), (20, 80))
+            raw.append(high if (x + y) % 2 else low)
+
+    monkeypatch.setattr(media, "_visual_audit_grayscale_grid", lambda **kwargs: (width, height, raw))
+
+    score, notes = media.visual_audit_score(
+        image_path=image_path,
+        target="assets/horizons/karma-forge.png",
+    )
+
+    assert score > 0
+    assert "visual_audit:insufficient_flash" not in notes
+
+
+def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+    seen: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = list(command)
+        Path(command[-1]).write_bytes(b"png-overlay")
+        return type("Completed", (), {"stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(media, "Image", None)
+    monkeypatch.setattr(media, "ImageDraw", None)
+    monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(media, "_ffmpeg_overlay_fontfile", lambda: "/tmp/font.ttf")
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+
+    result = media.apply_first_contact_overlay_postpass(
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+        width=960,
+        height=540,
+    )
+
+    assert result == "first_contact_overlay:applied_ffmpeg"
+    assert "drawtext=" in seen["command"][7]
+    assert "UPGRADING" in seen["command"][7]
+
+
+def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
+    media = _load_module()
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/horizons/karma-forge.png",
+        width=960,
+        height=540,
+    )
+
+    assert len(layout["fills"]) == 3
+    assert len(layout["chips"]) == 4
+    assert any(int(fill["w"]) > 150 for fill in layout["fills"])
+
+
+def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/hero/chummer6-hero.png",
+        base_score=42.0,
+        base_notes=["visual_audit:low_semantic_density", "visual_audit:narrow_subject_cluster"],
+        final_score=61.0,
+        final_notes=["visual_audit:insufficient_flash"],
+    )
+
+    assert "critical_visual_gate:base_score<85" in failures
+    assert "critical_visual_gate:low_semantic_density" in failures
+    assert "critical_visual_gate:narrow_subject_cluster" in failures
+    assert "critical_visual_gate:insufficient_flash" in failures
+
+
+def test_scene_policy_for_target_uses_approval_rail_for_karma_forge() -> None:
+    media = _load_module()
+    specs = media.asset_specs()
+    forge = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
+    contract = forge["media_row"]["scene_contract"]
+
+    assert contract["composition"] == "approval_rail"
+
+
+def test_scene_policy_for_target_rebriefs_hero_as_active_triage() -> None:
+    media = _load_module()
+    specs = media.asset_specs()
+    hero = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
+    contract = hero["media_row"]["scene_contract"]
+
+    assert "reclined" in str(contract["environment"]).lower()
+    assert "patching" in str(contract["subject"]).lower()
+    assert "triage" in str(hero["prompt"]).lower()
+
+
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_PROMPT_REFINEMENT_REQUIRED", raising=False)

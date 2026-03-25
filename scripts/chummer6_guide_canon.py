@@ -136,8 +136,10 @@ def _media_sections() -> dict[str, dict[str, object]]:
 
 def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
     normalized = str(target_path or "").replace("\\", "/").strip()
-    if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
+    if normalized == "assets/hero/chummer6-hero.png":
         return ("root_story", "hero", "first_contact_hero")
+    if normalized == "README.md":
+        return ("root_story_github_readme", "hero", "first_contact_hero")
     if normalized == "assets/pages/horizons-index.png":
         return ("horizon_index", "coming_next", "page_index")
     if normalized == "assets/horizons/karma-forge.png":
