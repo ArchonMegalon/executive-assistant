@@ -197,6 +197,12 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     merged.update(asset_contract)
     merged.update(section)
     merged.update(page_profile)
+    world_marker_bucket = briefs.get("world_marker_bucket")
+    if isinstance(world_marker_bucket, list) and "world_marker_bucket" not in merged:
+        merged["world_marker_bucket"] = [str(entry).strip() for entry in world_marker_bucket if str(entry).strip()]
+    world_marker_minimum = briefs.get("world_marker_minimum")
+    if world_marker_minimum not in (None, "") and "world_marker_minimum" not in merged:
+        merged["world_marker_minimum"] = world_marker_minimum
     if profile_name:
         merged["visual_density_profile"] = profile_name
     anchors = _string_list(contract.get("must_show_semantic_anchors")) + _string_list(section.get("must_show_semantic_anchors")) + _string_list(page_profile.get("must_show_semantic_anchors"))

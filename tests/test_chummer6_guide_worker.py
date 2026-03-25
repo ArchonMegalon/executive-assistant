@@ -793,9 +793,11 @@ def test_critical_visual_findings_require_shadowrun_lore_markers_for_hero() -> N
     )
 
     assert "critical_lore:missing_metahuman_cue" in findings
+    assert "critical_cast:missing_troll_patient" in findings
     assert "critical_lore:missing_streetdoc_garage_clinic" in findings
     assert "critical_anchor_missing:cyberware" in findings
     assert "critical_scene:missing_cyberware_surgery" in findings
+    assert "critical_detail:missing_troll_microtexture" in findings
     assert "critical_overlay:missing_medscan_posture" in findings
 
 
@@ -974,12 +976,12 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
             "kicker": "See the upgrade pressure before it goes live.",
             "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
             "meta": "Idea stage | accidental public traces only",
-            "visual_prompt": "An ork streetdoc patches a wounded runner inside an improvised garage clinic with hacked med gear and visible BOD AGI REA ESS EDGE rails.",
+            "visual_prompt": "An ork streetdoc patches an ugly hairy troll runner inside an improvised garage clinic with hacked med gear and visible BOD AGI REA ESS EDGE rails.",
             "overlay_hint": "BOD AGI REA ESS EDGE UPGRADING",
             "visual_motifs": ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life"],
             "overlay_callouts": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
             "scene_contract": {
-                "subject": "an ork streetdoc patches a wounded runner while a teammate assists",
+                "subject": "an ork streetdoc patches an ugly hairy troll runner while a teammate assists",
                 "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, and extension cords",
                 "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
                 "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
@@ -987,15 +989,15 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
         },
         {},
     )
-    hero["visual_prompt"] = "An ork streetdoc patches a wounded runner inside an improvised garage clinic with hacked cyberware gear and visible BOD AGI REA ESS EDGE rails."
+    hero["visual_prompt"] = "An ork streetdoc patches an ugly hairy troll runner inside an improvised garage clinic with hacked cyberware gear, visible tusks, rough scarred skin, matted hair, and visible BOD AGI REA ESS EDGE rails."
     hero["overlay_hint"] = "medscan diagnostic rail with AGI/ESS upgrade markers, cyberlimb calibration, wound stabilization, and neural link resync"
     hero["visual_motifs"] = ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life", "cyberware surgery"]
     hero["overlay_callouts"] = ["Wound stabilized", "Cyberlimb calibration", "Neural link resync"]
     hero["scene_contract"].update(
         {
-            "subject": "an ork streetdoc and runner in a garage clinic while a teammate assists",
+            "subject": "an ork streetdoc and ugly hairy troll runner in a garage clinic while a teammate assists",
             "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, extension cords, and hacked cyberware gear",
-            "action": "stabilizing a wounded runner while calibrating a patched cyberlimb under pressure",
+            "action": "stabilizing an ugly hairy troll runner with tusks, rough scarred skin, dermal texture, and matted hair while calibrating a patched cyberlimb under pressure",
             "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
             "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
         }
