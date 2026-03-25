@@ -102,9 +102,13 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert diagnostics_body["plan"]["plan_key"] == "pilot"
     assert diagnostics_body["billing"]["billing_state"] == "trial"
     assert diagnostics_body["billing"]["support_tier"] == "guided"
+    assert diagnostics_body["billing"]["invoice_status"] in {"trial_active", "current", "upgrade_required"}
+    assert diagnostics_body["billing"]["billing_portal_path"]
     assert diagnostics_body["entitlements"]["principal_seats"] == 1
     assert "warnings" in diagnostics_body["commercial"]
     assert "blocked_actions" in diagnostics_body["commercial"]
+    assert "blocked_action_message" in diagnostics_body["commercial"]
+    assert "upgrade_path_label" in diagnostics_body["commercial"]
     assert "recommended_plan_key" in diagnostics_body["commercial"]
     assert diagnostics_body["usage"]["queue_items"] >= 1
     assert "risk_state" in diagnostics_body["providers"]
@@ -117,7 +121,10 @@ def test_product_api_projects_real_runtime_objects() -> None:
     plan_body = plan.json()
     assert plan_body["plan"]["plan_key"] == "pilot"
     assert plan_body["billing"]["support_tier"] == "guided"
+    assert plan_body["billing"]["invoice_window_label"]
+    assert plan_body["billing"]["billing_portal_state"]
     assert plan_body["entitlements"]["operator_seats"] == 1
+    assert "blocked_action_message" in plan_body["commercial"]
 
     usage = client.get("/app/api/usage")
     assert usage.status_code == 200
@@ -130,10 +137,12 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert support.status_code == 200
     support_body = support.json()
     assert support_body["plan"]["display_name"] == "Pilot"
+    assert support_body["billing"]["invoice_status"] in {"trial_active", "current", "upgrade_required"}
     assert "pending" in support_body["approvals"]
     assert isinstance(support_body["human_tasks"], list)
     assert "risk_state" in support_body["providers"]
     assert "load_score" in support_body["queue_health"]
+    assert "blocked_action_message" in support_body["commercial"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200

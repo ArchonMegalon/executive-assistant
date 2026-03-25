@@ -256,6 +256,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert plan_page.status_code == 200
     assert "Commercial boundary" in plan_page.text
     assert "What this workspace includes" in plan_page.text
+    assert "Billing and renewal controls" in plan_page.text
+    assert "Upgrade path" in plan_page.text
 
     usage_page = client.get("/app/settings/usage")
     assert usage_page.status_code == 200
@@ -266,6 +268,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert support_page.status_code == 200
     assert "Support bundle" in support_page.text
     assert "Pending review and recent decisions" in support_page.text
+    assert "Commercial escalation" in support_page.text
     assert "Runtime posture" in support_page.text
     assert "Provider risk" in support_page.text
     assert "Load score" in support_page.text

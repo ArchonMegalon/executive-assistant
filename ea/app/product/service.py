@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, Stakeholder
-from app.product.commercial import workspace_plan_for_mode
+from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -1192,19 +1192,9 @@ class ProductService:
         seats_used = len(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
         seat_overage = max(seats_used - seat_limit, 0)
-        selected_messaging = sorted({value for value in selected_channels if value in {"telegram", "whatsapp"}})
-        warnings: list[str] = []
-        if seat_overage:
-            warnings.append("Active operators exceed included seats.")
-        if selected_messaging and not plan.entitlements.messaging_channels_enabled:
-            warnings.append("Messaging channels are selected but not included in this plan.")
+        commercial_snapshot = workspace_commercial_snapshot(plan, seats_used=seats_used, selected_channels=selected_channels)
         return status, {
-            "billing": {
-                "billing_state": plan.billing_state,
-                "support_tier": plan.support_tier,
-                "renewal_owner_role": plan.renewal_owner_role,
-                "contract_note": plan.contract_note,
-            },
+            "billing": dict(commercial_snapshot.get("billing") or {}),
             "entitlements": {
                 "principal_seats": plan.entitlements.principal_seats,
                 "operator_seats": plan.entitlements.operator_seats,
@@ -1218,11 +1208,7 @@ class ProductService:
                 "seats_remaining": max(seat_limit - seats_used, 0),
                 "seat_overage": seat_overage,
             },
-            "commercial": {
-                "selected_messaging_channels": selected_messaging,
-                "messaging_scope_mismatch": bool(selected_messaging and not plan.entitlements.messaging_channels_enabled),
-                "warnings": warnings,
-            },
+            "commercial": dict(commercial_snapshot.get("commercial") or {}),
         }
 
     def list_rules(self, *, principal_id: str) -> tuple[RuleItem, ...]:
@@ -1781,15 +1767,10 @@ class ProductService:
         seat_limit = int(plan.entitlements.operator_seats or 0)
         seats_remaining = max(seat_limit - seats_used, 0)
         seat_overage = max(seats_used - seat_limit, 0)
-        selected_messaging = sorted({value for value in selected_channels if value in {"telegram", "whatsapp"}})
-        warnings: list[str] = []
-        blocked_actions: list[str] = []
-        if seat_overage:
-            warnings.append("Active operators exceed included seats.")
-            blocked_actions.append("operator_seat_overage")
-        if selected_messaging and not plan.entitlements.messaging_channels_enabled:
-            warnings.append("Messaging channels are selected but not included in this plan.")
-            blocked_actions.append("messaging_setup")
+        commercial_snapshot = workspace_commercial_snapshot(plan, seats_used=seats_used, selected_channels=selected_channels)
+        selected_messaging = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("selected_messaging_channels") or []) if str(value).strip()]
+        warnings = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("warnings") or []) if str(value).strip()]
+        blocked_actions = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("blocked_actions") or []) if str(value).strip()]
         if not readiness_ok:
             warnings.append(str(readiness_label or "Runtime readiness needs attention."))
             blocked_actions.append("runtime_readiness")
@@ -1826,12 +1807,7 @@ class ProductService:
                 "display_name": plan.display_name,
                 "unit_of_sale": plan.unit_of_sale,
             },
-            "billing": {
-                "billing_state": plan.billing_state,
-                "support_tier": plan.support_tier,
-                "renewal_owner_role": plan.renewal_owner_role,
-                "contract_note": plan.contract_note,
-            },
+            "billing": dict(commercial_snapshot.get("billing") or {}),
             "entitlements": {
                 "principal_seats": plan.entitlements.principal_seats,
                 "operator_seats": plan.entitlements.operator_seats,
@@ -1854,8 +1830,7 @@ class ProductService:
                 "active_operator_names": [str(row.display_name or row.operator_id or "") for row in operators if str(row.display_name or row.operator_id or "").strip()],
             },
             "commercial": {
-                "selected_messaging_channels": selected_messaging,
-                "messaging_scope_mismatch": bool(selected_messaging and not plan.entitlements.messaging_channels_enabled),
+                **dict(commercial_snapshot.get("commercial") or {}),
                 "warnings": warnings,
                 "blocked_actions": blocked_actions,
                 "recommended_plan_key": recommended_plan.plan_key,
