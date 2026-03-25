@@ -33,6 +33,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
     assert decision_detail.status_code == 200
     assert decision_detail.json()["title"] == "Choose board memo owner"
+    assert decision_detail.json()["decision_type"] == "owner_assignment"
+    assert decision_detail.json()["next_action"]
+    assert seeded["session_id"] in decision_detail.json()["linked_thread_ids"]
     assert decision_detail.json()["impact_summary"]
     assert decision_detail.json()["sla_status"] in {"due_now", "due_soon", "on_track", "unscheduled", "resolved"}
 
@@ -206,6 +209,10 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     assert decision_reopened.status_code == 200
     assert decision_reopened.json()["status"] == "open"
     assert decision_reopened.json()["resolution_reason"] == ""
+    decision_history = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}/history")
+    assert decision_history.status_code == 200
+    assert any(row["event_type"] == "decision_resolved" for row in decision_history.json())
+    assert any(row["event_type"] == "decision_reopened" for row in decision_history.json())
 
     deadline_closed = client.post(
         f"/app/api/queue/deadline:{seeded['deadline_window_id']}/resolve",

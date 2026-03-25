@@ -27,6 +27,9 @@ def decision_item_from_window(row: DecisionWindow) -> DecisionItem:
     related_commitments_raw = source.get("commitment_refs") or source.get("commitment_ids") or ()
     if not isinstance(related_commitments_raw, (list, tuple)):
         related_commitments_raw = ()
+    thread_refs_raw = source.get("thread_refs") or source.get("thread_ids") or ()
+    if not isinstance(thread_refs_raw, (list, tuple)):
+        thread_refs_raw = (thread_refs_raw,) if thread_refs_raw else ()
     related_people_raw = source.get("people") or source.get("stakeholders") or ()
     if not isinstance(related_people_raw, (list, tuple)):
         related_people_raw = ()
@@ -43,10 +46,19 @@ def decision_item_from_window(row: DecisionWindow) -> DecisionItem:
         else:
             impact_summary = "Keeps the office loop from stalling on an open choice."
     due_at = row.closes_at or row.opens_at
+    decision_type = str(source.get("decision_type") or source.get("kind") or source.get("category") or "office_decision").strip()
     rationale = compact_text(
         row.context or row.notes,
         fallback="Decision window is open and needs an explicit owner or choice.",
     )
+    next_action = str(source.get("next_action") or "").strip()
+    if not next_action:
+        if str(row.status or "").strip().lower() in {"decided", "closed", "completed"}:
+            next_action = "Review downstream commitments and confirm the office loop actually moved."
+        elif str(row.authority_required or "").strip().lower() in {"principal", "exec", "executive"}:
+            next_action = "Escalate the current recommendation to the principal and clear the blocking choice."
+        else:
+            next_action = "Resolve the choice, then confirm the affected commitments and threads were updated."
     return DecisionItem(
         id=f"decision:{row.decision_window_id}",
         title=row.title,
@@ -55,7 +67,9 @@ def decision_item_from_window(row: DecisionWindow) -> DecisionItem:
         owner_role=row.authority_required or "principal",
         due_at=due_at,
         status=row.status,
+        decision_type=decision_type,
         recommendation=recommendation,
+        next_action=next_action,
         rationale=rationale,
         options=options,
         evidence_refs=(
@@ -67,6 +81,7 @@ def decision_item_from_window(row: DecisionWindow) -> DecisionItem:
             ),
         ),
         related_commitment_ids=tuple(str(value).strip() for value in related_commitments_raw if str(value).strip()),
+        linked_thread_ids=tuple(str(value).strip() for value in thread_refs_raw if str(value).strip()),
         related_people=tuple(str(value).strip() for value in related_people_raw if str(value).strip()),
         impact_summary=impact_summary,
         sla_status=_decision_sla_status(row.status, due_at),

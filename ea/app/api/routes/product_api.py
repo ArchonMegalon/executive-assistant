@@ -99,6 +99,20 @@ def list_decisions(
     return DecisionResponse(generated_at=now_iso(), items=[decision_out(item) for item in items], total=len(items))
 
 
+@router.get("/decisions/{decision_ref:path}/history", response_model=list[HistoryEntryOut])
+def get_decision_history(
+    decision_ref: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[HistoryEntryOut]:
+    service = build_product_service(container)
+    found = service.get_decision(principal_id=context.principal_id, decision_ref=decision_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="decision_not_found")
+    return [history_out(item) for item in service.get_decision_history(principal_id=context.principal_id, decision_ref=decision_ref, limit=limit)]
+
+
 @router.get("/decisions/{decision_ref:path}", response_model=DecisionItemOut)
 def get_decision(
     decision_ref: str,

@@ -107,11 +107,14 @@ class DecisionItem:
     owner_role: str
     due_at: str | None
     status: str
+    decision_type: str = ""
     recommendation: str = ""
+    next_action: str = ""
     rationale: str = ""
     options: tuple[str, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = ()
     related_commitment_ids: tuple[str, ...] = ()
+    linked_thread_ids: tuple[str, ...] = ()
     related_people: tuple[str, ...] = ()
     impact_summary: str = ""
     sla_status: str = ""
