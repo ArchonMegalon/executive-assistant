@@ -1365,12 +1365,15 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
     assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
     assert any("clean scene plate" in part.lower() and "composited after the art render" in part.lower() for part in hero_parts)
+    assert any("overlay render strategy: verified post composite only" in part.lower() for part in hero_parts)
+    assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
     assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
     assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
     assert any("overlay posture to forge review ar" in part.lower() for part in forge_parts)
     assert any("approval state" in part.lower() and "rollback" in part.lower() for part in forge_parts)
+    assert any("attach overlays to rails" in part.lower() or "avoid floating torso or face coverage" in part.lower() for part in forge_parts)
 
 
 def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:

@@ -587,8 +587,15 @@ def target_visual_contract(target: str) -> dict[str, object]:
     normalized = str(target or "").replace("\\", "/").strip()
     briefs = _media_briefs()
     contracts = briefs.get("visual_contract") if isinstance(briefs.get("visual_contract"), dict) else {}
+    asset_overlay_contracts = (
+        briefs.get("asset_overlay_contracts") if isinstance(briefs.get("asset_overlay_contracts"), dict) else {}
+    )
     profile_name = visual_density_profile_name_for_target(normalized)
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
+    asset_contract = dict(asset_overlay_contracts.get(normalized) or {}) if isinstance(asset_overlay_contracts, dict) else {}
+    if not asset_contract and normalized == "README.md":
+        asset_contract = dict(asset_overlay_contracts.get("assets/hero/chummer6-hero.png") or {})
+    contract.update(asset_contract)
     if normalized in FIRST_CONTACT_TARGETS:
         critical_style = briefs.get("critical_asset_style_epoch")
         if isinstance(critical_style, dict):
@@ -3503,6 +3510,16 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     overlay_geometry = [compact_text(entry, limit=40 if compact else 76) for entry in _string_list(contract.get("overlay_geometry"))]
     overlay_priority_order = [compact_text(entry, limit=28 if compact else 52) for entry in _string_list(contract.get("overlay_priority_order"))]
     overlay_actionability_rule = compact_text(contract.get("overlay_actionability_rule") or "", limit=120 if compact else 220)
+    overlay_render_strategy = compact_text(
+        str(contract.get("overlay_render_strategy") or "").replace("_", " "),
+        limit=72 if compact else 132,
+    )
+    render_layers = [
+        compact_text(str(entry).replace("_", " "), limit=24 if compact else 44)
+        for entry in _string_list(contract.get("render_layers"))
+    ]
+    overlay_attachment_rule = compact_text(contract.get("overlay_attachment_rule") or "", limit=100 if compact else 220)
+    status_binding_rule = compact_text(contract.get("status_binding_rule") or "", limit=100 if compact else 220)
     parts: list[str] = []
     if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
         parts.append(
@@ -3578,6 +3595,32 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             overlay_actionability_rule.rstrip(".") + "."
             if not compact
             else overlay_actionability_rule
+        )
+    if overlay_render_strategy:
+        parts.append(
+            f"Overlay render strategy: {overlay_render_strategy}."
+            if not compact
+            else f"overlay strategy {overlay_render_strategy}"
+        )
+    if render_layers:
+        joined = ", ".join(entry for entry in render_layers if entry)
+        if joined:
+            parts.append(
+                f"Pipeline layers: {joined}."
+                if not compact
+                else f"layers {joined}"
+            )
+    if overlay_attachment_rule:
+        parts.append(
+            overlay_attachment_rule.rstrip(".") + "."
+            if not compact
+            else overlay_attachment_rule
+        )
+    if status_binding_rule:
+        parts.append(
+            status_binding_rule.rstrip(".") + "."
+            if not compact
+            else status_binding_rule
         )
     if negative_space_cap == "low":
         parts.append(

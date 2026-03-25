@@ -1102,6 +1102,18 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     overlay_actionability_rule = str(contract.get("overlay_actionability_rule") or "").strip()
     if overlay_actionability_rule:
         rules.append(overlay_actionability_rule.rstrip(".") + ".")
+    overlay_render_strategy = str(contract.get("overlay_render_strategy") or "").strip().replace("_", " ")
+    if overlay_render_strategy:
+        rules.append("Overlay render strategy: " + overlay_render_strategy.rstrip(".") + ".")
+    render_layers = [str(entry).replace("_", " ") for entry in _string_list(contract.get("render_layers"))]
+    if render_layers:
+        rules.append("Overlay pipeline layers: " + "; ".join(render_layers) + ".")
+    overlay_attachment_rule = str(contract.get("overlay_attachment_rule") or "").strip()
+    if overlay_attachment_rule:
+        rules.append(overlay_attachment_rule.rstrip(".") + ".")
+    status_binding_rule = str(contract.get("status_binding_rule") or "").strip()
+    if status_binding_rule:
+        rules.append(status_binding_rule.rstrip(".") + ".")
     anchors = _string_list(contract.get("must_show_semantic_anchors"))
     if anchors:
         rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
