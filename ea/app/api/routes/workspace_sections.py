@@ -402,6 +402,7 @@ def workspace_section_payload(
     provider_posture = dict(diagnostics.get("providers") or {})
     commercial = dict(diagnostics.get("commercial") or {})
     readiness = dict(diagnostics.get("readiness") or {})
+    assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
     stats = [
@@ -626,7 +627,28 @@ def workspace_section_payload(
                     "eyebrow": "Suggested next claims",
                     "title": "Suggested next claims",
                     "body": "Claim suggestions rank unclaimed work before it ages into a visible office miss.",
-                    "items": _handoff_rows(unclaimed_handoffs[:3], actionable=False, return_to="/app/activity")
+                    "items": [
+                        _row(
+                            str(item.get("summary") or item.get("id") or "Suggested claim"),
+                            " · ".join(
+                                part
+                                for part in (
+                                    str(item.get("owner") or "").strip() or "Unclaimed",
+                                    f"Due {str(item.get('due_time') or '')[:10]}" if str(item.get("due_time") or "").strip() else "",
+                                    str(item.get("escalation_status") or "").replace("_", " ").title(),
+                                )
+                                if part
+                            )
+                            or "Claim this handoff before it misses the office loop.",
+                            "Suggestion",
+                            href=f"/app/handoffs/{str(item.get('id') or '')}" if str(item.get("id") or "").strip() else "",
+                            action_href=f"/app/actions/handoffs/{str(item.get('id') or '')}/assign" if str(item.get("id") or "").strip() else "",
+                            action_label="Claim" if str(item.get("id") or "").strip() else "",
+                            action_value="assign" if str(item.get("id") or "").strip() else "",
+                            return_to="/app/activity" if str(item.get("id") or "").strip() else "",
+                        )
+                        for item in assignment_suggestions[:3]
+                    ]
                     or [_row("No claim suggestions", "The unclaimed operator lane is currently clear.", "Clear")],
                 },
                 {

@@ -1631,6 +1631,30 @@ def app_channel_resolve_queue_item(
     return RedirectResponse(return_to, status_code=303)
 
 
+@router.get("/app/channel/decisions/{decision_ref:path}/resolve")
+def app_channel_resolve_decision(
+    decision_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/channel-loop").strip() or "/app/channel-loop"
+    action = str(request.query_params.get("action") or "resolve").strip() or "resolve"
+    reason = str(request.query_params.get("reason") or "Resolved from inline loop.").strip() or "Resolved from inline loop."
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    updated = product.resolve_decision(
+        principal_id=context.principal_id,
+        decision_ref=decision_ref,
+        actor=actor,
+        action=action,
+        reason=reason,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="decision_not_found")
+    return RedirectResponse(return_to, status_code=303)
+
+
 @router.get("/app/channel/handoffs/{handoff_ref:path}/assign")
 def app_channel_assign_handoff(
     handoff_ref: str,

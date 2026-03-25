@@ -287,6 +287,7 @@ def test_channel_loop_get_actions_work() -> None:
     loop_page = client.get("/app/channel-loop")
     assert loop_page.status_code == 200
     assert "Inline loop" in loop_page.text
+    assert "Resolve now" in loop_page.text
 
     approved = client.get(
         f"/app/channel/drafts/approval:{seeded['approval_id']}/approve?return_to=/app/channel-loop",
@@ -303,6 +304,16 @@ def test_channel_loop_get_actions_work() -> None:
     assert closed.status_code == 303
     assert closed.headers["location"] == "/app/channel-loop"
     assert "Send board materials" not in client.get("/app/inbox").text
+
+    decision_resolved = client.get(
+        f"/app/channel/decisions/decision:{seeded['decision_window_id']}/resolve?action=resolve&return_to=/app/channel-loop",
+        follow_redirects=False,
+    )
+    assert decision_resolved.status_code == 303
+    assert decision_resolved.headers["location"] == "/app/channel-loop"
+    decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
+    assert decision_detail.status_code == 200
+    assert decision_detail.json()["status"] == "decided"
 
 
 def test_browser_commitment_capture_actions_work() -> None:
