@@ -1322,6 +1322,7 @@ def settings_usage_detail(
         object_sidebar_rows=[
             _object_detail_row("Active operators", str(operators.get("active_count") or 0), "Operators"),
             _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
+            _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Readiness", str(readiness.get("detail") or "Runtime posture not recorded."), "Runtime"),
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Support"),
@@ -1350,6 +1351,18 @@ def settings_usage_detail(
                     _object_detail_row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue"),
                     _object_detail_row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Provider"),
                     _object_detail_row("Support bundle opened", str(counts.get("support_bundle_opened") or 0), "Support"),
+                ],
+            },
+            {
+                "eyebrow": "Success metrics",
+                "title": "Adoption, closure, and correction signals",
+                "items": [
+                    _object_detail_row("Memo open rate", str(analytics.get("memo_open_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval action rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
+                    _object_detail_row("Correction rate", str(analytics.get("correction_rate") or 0), "Analytics"),
+                    _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
+                    _object_detail_row("Success summary", str(analytics.get("success_summary") or "No summary yet."), "Analytics"),
                 ],
             },
         ],
@@ -1403,6 +1416,7 @@ def settings_support_detail(
             _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
             _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
             _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
+            _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row(
@@ -1457,6 +1471,18 @@ def settings_support_detail(
                     _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
                     _object_detail_row("Seat pressure", str(commercial.get("seat_pressure_label") or "No seat pressure"), "Seats"),
                     _object_detail_row("Blocked action message", str(commercial.get("blocked_action_message") or "No current commercial blocks."), "Support"),
+                ],
+            },
+            {
+                "eyebrow": "Workspace health",
+                "title": "Success metrics and churn risk",
+                "items": [
+                    _object_detail_row("Memo open rate", str(bundle.get("analytics", {}).get("memo_open_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval action rate", str(bundle.get("analytics", {}).get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row("Commitment close rate", str(bundle.get("analytics", {}).get("commitment_close_rate") or 0), "Analytics"),
+                    _object_detail_row("Correction rate", str(bundle.get("analytics", {}).get("correction_rate") or 0), "Analytics"),
+                    _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
+                    _object_detail_row("Success summary", str(bundle.get("analytics", {}).get("success_summary") or "No summary yet."), "Analytics"),
                 ],
             },
             {

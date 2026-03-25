@@ -263,12 +263,15 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert usage_page.status_code == 200
     assert "Usage state" in usage_page.text
     assert "Product loop signals" in usage_page.text
+    assert "Success metrics" in usage_page.text
+    assert "Churn risk" in usage_page.text
 
     support_page = client.get("/app/settings/support")
     assert support_page.status_code == 200
     assert "Support bundle" in support_page.text
     assert "Pending review and recent decisions" in support_page.text
     assert "Commercial escalation" in support_page.text
+    assert "Workspace health" in support_page.text
     assert "Runtime posture" in support_page.text
     assert "Provider risk" in support_page.text
     assert "Load score" in support_page.text
