@@ -1099,7 +1099,10 @@ def test_build_safe_pollinations_prompt_adds_hero_and_map_specific_hard_blocks()
     )
 
     assert "no crate desk" in hero_prompt.lower()
+    assert "illustrated cover-grade shadowrun streetdoc poster scene" in hero_prompt.lower()
+    assert "overlay mode medscan diagnostic" in hero_prompt.lower()
     assert "no central signboard" in horizons_prompt.lower()
+    assert "ambient diegetic" in horizons_prompt.lower()
 
 
 def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
@@ -1137,7 +1140,19 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     )
 
     assert "garage clinic" in hero_prompt.lower() or "getaway-van triage" in hero_prompt.lower()
+    assert "illustrated cover-grade shadowrun streetdoc poster scene." in hero_prompt.lower()
+    assert "poster energy is welcome when it stays tied to a lived scene" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
+    assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
+
+
+def test_overlay_mode_for_target_maps_flagship_assets() -> None:
+    media = _load_module()
+
+    assert media.overlay_mode_for_target("assets/hero/chummer6-hero.png") == "medscan_diagnostic"
+    assert media.overlay_mode_for_target("assets/pages/horizons-index.png") == "ambient_diegetic"
+    assert media.overlay_mode_for_target("assets/horizons/karma-forge.png") == "forge_review_ar"
+    assert media.overlay_mode_for_target("assets/pages/start-here.png") == ""
 
 
 def test_page_media_row_does_not_literalize_page_id_as_metaphor() -> None:
@@ -1343,10 +1358,10 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("two to four people" in part.lower() for part in hero_parts)
     assert any("metahuman clinician" in part.lower() for part in hero_parts)
     assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
-    assert any("flagship_poster" in part.lower() or "illustrated promo-poster" in part.lower() for part in hero_parts)
+    assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
-    assert any("illustrated promo-poster" in part.lower() or "flagship_poster" in part.lower() for part in forge_parts)
+    assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
 
 
 def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:
@@ -1508,6 +1523,8 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     assert result == "first_contact_overlay:applied_ffmpeg"
     assert "drawtext=" in seen["command"][7]
     assert "UPGRADING" in seen["command"][7]
+    assert "TRUST CHECK" not in seen["command"][7]
+    assert "NEURAL LINK RESYNC" in seen["command"][7]
 
 
 def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
@@ -1522,7 +1539,7 @@ def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
     assert len(layout["fills"]) >= 5
     assert len(layout["chips"]) >= 7
     assert any(int(fill["w"]) > 150 for fill in layout["fills"])
-    assert any(chip["text"] == "COMPAT ARC" for chip in layout["chips"])
+    assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
 
 
 def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
