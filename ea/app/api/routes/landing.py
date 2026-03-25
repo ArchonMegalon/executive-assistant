@@ -17,129 +17,32 @@ from app.api.dependencies import (
     get_request_context,
     require_operator_context,
 )
+from app.api.routes.landing_content import (
+    ADMIN_NAV_GROUPS,
+    APP_NAV_GROUPS,
+    DOC_LINKS,
+    FEATURE_CARDS,
+    HOW_STEPS,
+    PERSONAS,
+    PRICING_TIERS,
+    PRODUCT_MODULES,
+    PUBLIC_NAV,
+    SIGN_IN_NOTES,
+    TRUST_CARDS,
+)
+from app.api.routes.landing_view_models import (
+    admin_section_payload as _admin_section_payload,
+    app_section_payload as _app_section_payload,
+    channel_cards as _channel_cards,
+    humanize as _humanize,
+    list_rows as _list_rows,
+)
 from app.container import AppContainer
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
-
-PUBLIC_NAV = (
-    {"href": "/product", "label": "Product", "key": "product"},
-    {"href": "/integrations", "label": "Integrations", "key": "integrations"},
-    {"href": "/security", "label": "Security", "key": "security"},
-    {"href": "/pricing", "label": "Pricing", "key": "pricing"},
-    {"href": "/docs", "label": "Docs", "key": "docs"},
-)
-
-APP_NAV_GROUPS = (
-    {
-        "label": "Workspace",
-        "items": (
-            {"href": "/app/today", "label": "Today", "key": "today"},
-            {"href": "/app/briefing", "label": "Briefing", "key": "briefing"},
-            {"href": "/app/inbox", "label": "Inbox", "key": "inbox"},
-            {"href": "/app/follow-ups", "label": "Follow-ups", "key": "follow-ups"},
-            {"href": "/app/memory", "label": "Memory", "key": "memory"},
-            {"href": "/app/contacts", "label": "Contacts", "key": "contacts"},
-        ),
-    },
-    {
-        "label": "Administration",
-        "items": (
-            {"href": "/app/channels", "label": "Channels", "key": "channels"},
-            {"href": "/app/automations", "label": "Automations", "key": "automations"},
-            {"href": "/app/activity", "label": "Activity", "key": "activity"},
-            {"href": "/app/settings", "label": "Settings", "key": "settings"},
-        ),
-    },
-)
-
-ADMIN_NAV_GROUPS = (
-    {
-        "label": "Operator control plane",
-        "items": (
-            {"href": "/admin/policies", "label": "Policies", "key": "policies"},
-            {"href": "/admin/providers", "label": "Providers", "key": "providers"},
-            {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
-            {"href": "/admin/operators", "label": "Team / Operators", "key": "operators"},
-            {"href": "/admin/api", "label": "API", "key": "api"},
-        ),
-    },
-)
-
-FEATURE_CARDS = (
-    {
-        "title": "Morning Brief",
-        "body": "Start with the ranked brief: what changed overnight, what is blocked, and what needs a reply first.",
-    },
-    {
-        "title": "Draft queue",
-        "body": "Prepare replies with the right context and keep review visible before anything leaves the workspace.",
-    },
-    {
-        "title": "Follow-ups",
-        "body": "Track promises, deadlines, and pending decisions without rebuilding your reminders manually.",
-    },
-    {
-        "title": "Contact memory",
-        "body": "Keep people, themes, commitments, and channel context attached to the right workspace over time.",
-    },
-    {
-        "title": "Approval controls",
-        "body": "Keep review explicit for sensitive sends, edits, and escalations.",
-    },
-    {
-        "title": "Honest channel support",
-        "body": "Connect only the channels you actually use and keep the support contract explicit.",
-    },
-)
-
-HOW_STEPS = (
-    {"title": "Choose the workspace fit", "body": "Pick the workspace shape that matches the daily workload, not the org chart."},
-    {"title": "Connect Google first", "body": "Start with Google Core so the assistant can produce a useful brief quickly."},
-    {"title": "Review one real loop", "body": "Use the first brief, one reviewed draft, and one follow-up as the product proof."},
-    {"title": "Add more only when it helps", "body": "Bring in Telegram, WhatsApp, and deeper settings only when they clearly improve the workflow."},
-)
-
-PERSONAS = (
-    {"title": "Founders", "body": "Stay ahead of investor, recruiting, vendor, and team follow-ups without losing context."},
-    {"title": "Chiefs of staff", "body": "Keep leadership communication, handoffs, and commitments visible across channels."},
-    {"title": "Executive teams", "body": "Organize shared channels, triage requests, and manage approvals in one assistant workspace."},
-)
-
-TRUST_CARDS = (
-    {"title": "Scoped workspace memory", "body": "Context belongs to the right workspace instead of floating around in stateless prompts."},
-    {"title": "Visible review points", "body": "Drafts and suggestions stay reviewable so the product feels safe in real work."},
-    {"title": "Clear channel boundaries", "body": "Each connection spells out what the assistant can really read, draft, verify, or import."},
-)
-
-PRODUCT_MODULES = (
-    {"title": "Morning Brief", "body": "See the day as a ranked set of actions instead of five disconnected inboxes."},
-    {"title": "Inbox Triage", "body": "Turn raw message traffic into reply recommendations, handoffs, and follow-up decisions."},
-    {"title": "Draft Queue", "body": "Prepare messages with context, approvals, and clear provenance before sending."},
-    {"title": "Follow-up Tracker", "body": "Keep commitments and promised next steps visible until they are actually closed."},
-    {"title": "Memory", "body": "Retain people, patterns, and context in a durable assistant workspace."},
-    {"title": "Approvals", "body": "Keep the user in control for outbound actions, edits, and high-trust workflows."},
-)
-
-SIGN_IN_NOTES = (
-    "Use the identity your workspace already trusts so the assistant opens in the right account context.",
-    "Company SSO or access-gateway deployments should hand you into the workspace without another setup loop.",
-    "Private deployments can still enforce host-level rules, but those checks should feel invisible when the deployment is configured correctly.",
-)
-
-PRICING_TIERS = (
-    {"title": "Starter", "price": "Pilot", "body": "One workspace, Google first, and the daily brief loop for one person or one executive workflow."},
-    {"title": "Growth", "price": "Core", "body": "Shared reviews, broader channel coverage, and a stronger operating loop for a small team."},
-    {"title": "Executive ops", "price": "Custom", "body": "Higher-trust review, admin visibility, and a heavier operating model for executive support."},
-)
-
-DOC_LINKS = (
-    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for teams integrating with the product."},
-    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "A technical route map for admins and developers who need implementation detail."},
-    {"title": "Repository overview", "href": "https://github.com/ArchonMegalon/executive-assistant", "body": "Source, deployment notes, and the broader implementation context."},
-)
 
 
 
@@ -159,23 +62,6 @@ def _token_required(container: AppContainer) -> bool:
 
 
 
-def _status_tone(value: str) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {"connected", "ready_to_connect", "ready_for_brief", "completed", "started", "available"}:
-        return "good"
-    if normalized in {"planned_business", "export_planned", "guided_manual", "bot_link_requested", "export_intake_complete", "import_acknowledged", "in_progress"}:
-        return "warn"
-    if normalized in {"credentials_missing", "planned_not_available", "not_selected", "anonymous"}:
-        return "muted"
-    return "muted"
-
-
-
-def _humanize(value: str) -> str:
-    return str(value or "").strip().replace("_", " ") or "unknown"
-
-
-
 def _form_value(form_data: dict[str, list[str]], key: str, default: str = "") -> str:
     values = form_data.get(key) or []
     return str(values[0] if values else default).strip()
@@ -184,21 +70,6 @@ def _form_value(form_data: dict[str, list[str]], key: str, default: str = "") ->
 
 def _form_values(form_data: dict[str, list[str]], key: str) -> tuple[str, ...]:
     return tuple(str(value).strip() for value in (form_data.get(key) or []) if str(value).strip())
-
-
-
-def _list_rows(values: object, fallback: tuple[str, ...]) -> list[str]:
-    rows: list[str] = []
-    if isinstance(values, (list, tuple, set)):
-        for value in values:
-            normalized = str(value or "").strip()
-            if normalized:
-                rows.append(normalized)
-    elif values:
-        normalized = str(values).strip()
-        if normalized:
-            rows.append(normalized)
-    return rows or [str(row) for row in fallback]
 
 
 
@@ -299,29 +170,6 @@ def _browser_form_context(
 
 
 
-def _channel_cards(channels: dict[str, Any]) -> list[dict[str, str]]:
-    ordered = (
-        ("google", "Google Core", "/integrations/google"),
-        ("telegram", "Telegram", "/integrations/telegram"),
-        ("whatsapp", "WhatsApp", "/integrations/whatsapp"),
-    )
-    cards: list[dict[str, str]] = []
-    for key, label, href in ordered:
-        channel = dict(channels.get(key) or {})
-        cards.append(
-            {
-                "label": label,
-                "href": href,
-                "status": _humanize(str(channel.get("status") or "not_selected")),
-                "tone": _status_tone(str(channel.get("status") or "not_selected")),
-                "detail": str(channel.get("detail") or "Not configured yet."),
-                "summary": str(channel.get("bundle_summary") or channel.get("history_import_posture") or ""),
-            }
-        )
-    return cards
-
-
-
 def _public_context(
     *,
     request: Request,
@@ -406,187 +254,6 @@ def _console_shell_context(
         "principal_id": context.principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
-    }
-
-
-
-def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, object]:
-    workspace = dict(status.get("workspace") or {})
-    privacy = dict(status.get("privacy") or {})
-    preview = dict(status.get("brief_preview") or {})
-    channels = dict(status.get("channels") or {})
-    channel_cards = _channel_cards(channels)
-    selected = [str(value) for value in (status.get("selected_channels") or []) if str(value).strip()]
-    status_label = _humanize(str(status.get("status") or "draft"))
-    stats = [
-        {"label": "Workspace mode", "value": _humanize(str(workspace.get("mode") or "personal"))},
-        {"label": "Selected channels", "value": str(len(selected))},
-        {"label": "Status", "value": status_label},
-        {"label": "Approvals", "value": "on" if privacy.get("allow_drafts") else "review first"},
-    ]
-    first_brief = _list_rows(preview.get("first_brief"), ("Connect Google Core to generate the first briefing.",))
-    suggested = _list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first brief.",))
-    trust_notes = _list_rows(preview.get("trust_notes"), ("Keep approvals and memory rules explicit.",))
-    contacts = _list_rows(preview.get("top_contacts"), ("No contacts surfaced yet.",))
-    themes = _list_rows(preview.get("top_themes"), ("No themes surfaced yet.",))
-    privacy_lines = [
-        f"Retention: {_humanize(str(privacy.get('retention_mode') or 'not set'))}",
-        f"Drafts: {'allowed' if privacy.get('allow_drafts') else 'manual only'}",
-        f"Action suggestions: {'allowed' if privacy.get('allow_action_suggestions') else 'off'}",
-        f"Automatic briefs: {'allowed' if privacy.get('allow_auto_briefs') else 'off'}",
-    ]
-    channel_lines = [f"{card['label']}: {card['status']} — {card['detail']}" for card in channel_cards]
-
-    mapping: dict[str, dict[str, object]] = {
-        "today": {
-            "title": "Today",
-            "summary": str(preview.get("headline") or status.get("next_step") or "Start with the brief, clear the review queue, and keep the day moving."),
-            "cards": [
-                {"eyebrow": "Morning brief", "title": "What matters first", "items": first_brief},
-                {"eyebrow": "Review queue", "title": "What to clear next", "items": suggested},
-                {"eyebrow": "Channels", "title": "What is shaping the day", "items": channel_lines},
-                {"eyebrow": "Why it is here", "title": "Visible trust cues", "items": trust_notes},
-            ],
-        },
-        "briefing": {
-            "title": "Briefing",
-            "summary": str(preview.get("headline") or "Read the day top-down: priorities first, people and themes second, next actions third."),
-            "cards": [
-                {"eyebrow": "Brief preview", "title": "What changed", "items": first_brief},
-                {"eyebrow": "Themes", "title": "Recurring topics", "items": themes},
-                {"eyebrow": "Contacts", "title": "People to watch", "items": contacts},
-                {"eyebrow": "Actions", "title": "What to do next", "items": suggested},
-            ],
-        },
-        "inbox": {
-            "title": "Inbox",
-            "summary": "Use this page to move replies forward, not just to reread the same threads in a prettier shell.",
-            "cards": [
-                {"eyebrow": "Draft queue", "title": "Replies ready for review", "items": suggested},
-                {"eyebrow": "Readiness", "title": "What the assistant can currently use", "items": channel_lines},
-                {"eyebrow": "Priorities", "title": "What would bubble up next", "items": first_brief},
-            ],
-        },
-        "follow-ups": {
-            "title": "Follow-ups",
-            "summary": "Keep promises, deadlines, and unanswered threads visible until they are actually closed.",
-            "cards": [
-                {"eyebrow": "Follow-up queue", "title": "What needs a nudge", "items": suggested},
-                {"eyebrow": "Why it is still open", "title": "Context around the queue", "items": trust_notes},
-                {"eyebrow": "Coverage", "title": "Where follow-ups can start", "items": channel_lines},
-            ],
-        },
-        "memory": {
-            "title": "Memory",
-            "summary": "Memory should feel like a useful workspace asset: people, themes, and commitments that survive beyond one session.",
-            "cards": [
-                {"eyebrow": "Top themes", "title": "What keeps recurring", "items": themes},
-                {"eyebrow": "Contacts", "title": "Who shows up most", "items": contacts},
-                {"eyebrow": "Retention policy", "title": "What EA is allowed to keep", "items": privacy_lines},
-            ],
-        },
-        "contacts": {
-            "title": "Contacts",
-            "summary": "Keep people, recent context, and follow-up pressure attached to the same working view.",
-            "cards": [
-                {"eyebrow": "People", "title": "Contacts in the current brief", "items": contacts},
-                {"eyebrow": "Themes", "title": "Topics around those contacts", "items": themes},
-                {"eyebrow": "Channels", "title": "Where those relationships live", "items": channel_lines},
-            ],
-        },
-        "channels": {
-            "title": "Channels",
-            "summary": "This page should make channel readiness and limits clear without turning into an admin console.",
-            "cards": [
-                {"eyebrow": "Google", "title": channel_cards[0]["label"], "items": [channel_cards[0]["detail"], channel_cards[0]["summary"] or "Google Core is the recommended first connection."]},
-                {"eyebrow": "Telegram", "title": channel_cards[1]["label"], "items": [channel_cards[1]["detail"], channel_cards[1]["summary"] or "Personal identity and bot install stay distinct." ]},
-                {"eyebrow": "WhatsApp", "title": channel_cards[2]["label"], "items": [channel_cards[2]["detail"], channel_cards[2]["summary"] or "Business onboarding and export intake stay separate." ]},
-            ],
-        },
-        "automations": {
-            "title": "Automations",
-            "summary": "Automation should stay explicit, review-aware, and easy to dial up only after the core workflow already works.",
-            "cards": [
-                {"eyebrow": "Assistant posture", "title": "Current automation rules", "items": privacy_lines},
-                {"eyebrow": "Suggested automations", "title": "What to unlock next", "items": suggested},
-                {"eyebrow": "Trust", "title": "Guardrails", "items": trust_notes},
-            ],
-        },
-        "activity": {
-            "title": "Activity",
-            "summary": "Use activity to understand what changed in the workspace without digging through low-level system detail.",
-            "cards": [
-                {"eyebrow": "Workspace", "title": "Current state", "items": [f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"]},
-                {"eyebrow": "Channels", "title": "Recent changes", "items": channel_lines},
-                {"eyebrow": "Trust", "title": "Why this feed matters", "items": trust_notes},
-            ],
-        },
-        "settings": {
-            "title": "Settings",
-            "summary": "Use settings to shape the workspace after the first real workflow is already working.",
-            "cards": [
-                {"eyebrow": "Workspace", "title": "Current workspace posture", "items": [f"Name: {workspace.get('name') or 'Executive Assistant'}", f"Mode: {_humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"]},
-                {"eyebrow": "Privacy", "title": "Assistant behavior", "items": privacy_lines},
-                {"eyebrow": "Channels", "title": "Selected integrations", "items": channel_lines},
-            ],
-        },
-    }
-    return {"stats": stats, **mapping[section]}
-
-
-
-def _admin_section_payload(section: str) -> dict[str, object]:
-    mapping: dict[str, dict[str, object]] = {
-        "policies": {
-            "title": "Policies",
-            "summary": "Operator-only controls for approval rules, task contracts, and promoted skills.",
-            "cards": [
-                {"eyebrow": "Policy", "title": "Runtime policy endpoints", "items": ["/v1/policy", "/v1/tasks/contracts", "/v1/skills"]},
-                {"eyebrow": "Why it matters", "title": "Keep the product shell separate", "items": ["Buyers should see the assistant workflow.", "Operators should see the policy plane."]},
-            ],
-        },
-        "providers": {
-            "title": "Providers",
-            "summary": "Bindings, 1min state, and operator-only control-plane views belong here, not in the main buyer navigation.",
-            "cards": [
-                {"eyebrow": "Provider APIs", "title": "Registry and health", "items": ["/v1/providers/registry", "/v1/providers/states", "/v1/providers/onemin/aggregate"]},
-                {"eyebrow": "Operational focus", "title": "What this surface is for", "items": ["Capacity admission", "Binding state", "Runway and burn"]},
-            ],
-        },
-        "audit-trail": {
-            "title": "Audit Trail",
-            "summary": "Evidence, telemetry, and delivery state should be visible to operators without leaking into the public marketing story.",
-            "cards": [
-                {"eyebrow": "Audit", "title": "Trace surfaces", "items": ["/v1/runtime/lanes/telemetry", "/v1/evidence", "/v1/delivery/pending"]},
-                {"eyebrow": "Goal", "title": "What the operator needs", "items": ["Receipts", "Execution state", "Delivery confirmations"]},
-            ],
-        },
-        "operators": {
-            "title": "Team / Operators",
-            "summary": "Operator identity, backlog, and approval work stay in the admin surface.",
-            "cards": [
-                {"eyebrow": "Human runtime", "title": "Operator endpoints", "items": ["/v1/human/operators", "/v1/human/tasks"]},
-                {"eyebrow": "Trust boundary", "title": "Why this is separate", "items": ["Operator identity is not a tenant-facing product setting.", "Audit trails depend on trusted operator records."]},
-            ],
-        },
-        "api": {
-            "title": "API",
-            "summary": "The control-plane contract is part of the operator surface, not the buyer homepage.",
-            "cards": [
-                {"eyebrow": "OpenAPI", "title": "Schemas and runtime entrypoints", "items": ["/openapi.json", "/v1/plans/compile", "/v1/rewrite", "/v1/responses"]},
-                {"eyebrow": "Docs", "title": "Reference material", "items": ["README", "ARCHITECTURE_MAP", "CI smoke suite"]},
-            ],
-        },
-    }
-    payload = mapping[section]
-    return {
-        "stats": [
-            {"label": "Surface", "value": "admin"},
-            {"label": "Access", "value": "operator-only"},
-            {"label": "Audience", "value": "operators"},
-            {"label": "Goal", "value": "control plane"},
-        ],
-        **payload,
     }
 
 

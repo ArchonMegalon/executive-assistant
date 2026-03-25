@@ -35,6 +35,27 @@ fail() {
   exit "${code}"
 }
 
+wait_for_session_status() {
+  local session_id="$1"
+  local expected_status="$2"
+  local attempts="${3:-20}"
+  local sleep_seconds="${4:-0.25}"
+  local body=""
+  local current_status=""
+  local i
+  for i in $(seq 1 "${attempts}"); do
+    body="$(curl -fsS "${BASE}/v1/rewrite/sessions/${session_id}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+    current_status="$(python3 -c "import json,sys; print(json.loads(sys.stdin.read() or '{}').get('status',''))" <<<"${body}")"
+    if [[ "${current_status}" == "${expected_status}" ]]; then
+      printf '%s' "${body}"
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+  printf '%s' "${body}"
+  return 1
+}
+
 curl_status_code() {
   local response_path="$1"
   shift
@@ -1190,7 +1211,14 @@ threshold = int(sys.argv[1])
 print("a" * (threshold + 10))
 PY
 )" > "${APPROVAL_PAYLOAD}"
-APPROVAL_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_approval_required_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
+APPROVAL_CODE=""
+for _ in $(seq 1 5); do
+  APPROVAL_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_approval_required_resp.json -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' --data-binary @"${APPROVAL_PAYLOAD}")"
+  if [[ "${APPROVAL_CODE}" == "202" ]]; then
+    break
+  fi
+  sleep 0.25
+done
 rm -f "${APPROVAL_PAYLOAD}"
 if [[ "${APPROVAL_CODE}" != "202" ]]; then
   echo "expected 202 for approval-required path; got ${APPROVAL_CODE}" >&2
@@ -1780,9 +1808,11 @@ if [[ "${GENERIC_APPROVAL_DECISION_FIELDS}" != "decision_brief_approval|decision
   echo "${GENERIC_APPROVAL_DECISION_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_APPROVAL_DONE_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', len(artifacts) >= 1))" )"
+GENERIC_APPROVAL_DONE_JSON="$(wait_for_session_status "${GENERIC_APPROVAL_SESSION_ID}" "completed")"
+GENERIC_APPROVAL_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', len(artifacts) >= 1))" <<<"${GENERIC_APPROVAL_DONE_JSON}")"
 if [[ "${GENERIC_APPROVAL_DONE_FIELDS}" != "completed|decision_brief|True" ]]; then
   echo "expected generic approval-backed task to resume to completion after approval; got ${GENERIC_APPROVAL_DONE_FIELDS}" >&2
+  echo "${GENERIC_APPROVAL_DONE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 GENERIC_APPROVAL_HISTORY_FIELDS="$(curl -fsS "${BASE}/v1/policy/approvals/history?session_id=${GENERIC_APPROVAL_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); approval_id='${GENERIC_APPROVAL_ID}'; row=next((row for row in rows if (row or {}).get('approval_id') == approval_id and (row or {}).get('decision') == 'approved'), {}); print('{}|{}'.format(row.get('task_key',''), row.get('deliverable_type','')))" )"
@@ -1841,9 +1871,11 @@ if [[ "${GENERIC_HUMAN_RETURN_FIELDS}" != "stakeholder_briefing_review|stakehold
   echo "${GENERIC_HUMAN_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_HUMAN_DONE_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_HUMAN_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', (artifacts[0] or {}).get('content','') if artifacts else ''))" )"
+GENERIC_HUMAN_DONE_JSON="$(wait_for_session_status "${GENERIC_HUMAN_SESSION_ID}" "completed")"
+GENERIC_HUMAN_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); artifacts=body.get('artifacts') or []; print('{}|{}|{}'.format(body.get('status',''), (artifacts[0] or {}).get('kind','') if artifacts else '', (artifacts[0] or {}).get('content','') if artifacts else ''))" <<<"${GENERIC_HUMAN_DONE_JSON}")"
 if [[ "${GENERIC_HUMAN_DONE_FIELDS}" != "completed|stakeholder_briefing|Stakeholder context for human-reviewed briefing, edited by reviewer." ]]; then
   echo "expected generic human-review task to resume to completion after packet return; got ${GENERIC_HUMAN_DONE_FIELDS}" >&2
+  echo "${GENERIC_HUMAN_DONE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 DISPATCH_BINDING_JSON="$(curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
@@ -1984,7 +2016,7 @@ if [[ "${DISPATCH_APPROVE_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing
   echo "${DISPATCH_APPROVE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_DONE_JSON="$(wait_for_session_status "${DISPATCH_SESSION_ID}" "completed")"
 DISPATCH_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(receipts) == 2, bool(dispatch.get('receipt_id','')), bool(dispatch.get('target_ref','')), dispatch.get('task_key','')))" <<<"${DISPATCH_DONE_JSON}")"
 if [[ "${DISPATCH_DONE_FIELDS}" != "completed|True|True|True|stakeholder_dispatch" ]]; then
   echo "expected completed dispatch workflow to emit connector.dispatch receipt and target ref; got ${DISPATCH_DONE_FIELDS}" >&2
@@ -2158,7 +2190,7 @@ if [[ "${DISPATCH_MEMORY_REVIEW_APPROVE_FIELDS}" != "stakeholder_review_dispatch
   echo "${DISPATCH_MEMORY_REVIEW_APPROVE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-DISPATCH_MEMORY_REVIEW_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_MEMORY_REVIEW_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+DISPATCH_MEMORY_REVIEW_DONE_JSON="$(wait_for_session_status "${DISPATCH_MEMORY_REVIEW_SESSION_ID}" "completed")"
 DISPATCH_MEMORY_REVIEW_DELIVERY_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('target_ref',''))" <<<"${DISPATCH_MEMORY_REVIEW_DONE_JSON}")"
 DISPATCH_MEMORY_REVIEW_CANDIDATE_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; print(((steps.get('step_memory_candidate_stage',{}).get('output_json') or {}).get('candidate_id','')))" <<<"${DISPATCH_MEMORY_REVIEW_DONE_JSON}")"
 DISPATCH_MEMORY_REVIEW_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; print('{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_connector_dispatch',{}).get('state',''), steps.get('step_memory_candidate_stage',{}).get('state',''), (steps.get('step_memory_candidate_stage',{}).get('output_json') or {}).get('candidate_category','')))" <<<"${DISPATCH_MEMORY_REVIEW_DONE_JSON}")"
@@ -2239,7 +2271,7 @@ if [[ "${HYBRID_APPROVE_FIELDS}" != "stakeholder_review_dispatch|stakeholder_bri
   echo "${HYBRID_APPROVE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HYBRID_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HYBRID_DONE_JSON="$(wait_for_session_status "${HYBRID_SESSION_ID}" "completed")"
 HYBRID_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print('{}|{}|{}|{}|{}'.format(body.get('status',''), len(receipts) == 2, bool(dispatch.get('receipt_id','')), bool(dispatch.get('target_ref','')), dispatch.get('task_key','')))" <<<"${HYBRID_DONE_JSON}")"
 if [[ "${HYBRID_DONE_FIELDS}" != "completed|True|True|True|stakeholder_review_dispatch" ]]; then
   echo "expected completed review-then-dispatch workflow to emit connector.dispatch receipt and target ref; got ${HYBRID_DONE_FIELDS}" >&2
@@ -2379,7 +2411,7 @@ if [[ "${HUMAN_REWRITE_RETURN_FIELDS}" != "human_task_returned|True|returned|rev
   echo "${HUMAN_REWRITE_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HUMAN_REWRITE_DONE_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HUMAN_REWRITE_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HUMAN_REWRITE_DONE_JSON="$(wait_for_session_status "${HUMAN_REWRITE_SESSION_ID}" "completed")"
 HUMAN_REWRITE_DONE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); events={e.get('name','') for e in (body.get('events') or [])}; queues=body.get('queue_items') or []; steps=body.get('steps') or []; artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(artifacts) >= 1, (artifacts[0] or {}).get('content','') if artifacts else '', 'human_task_step_started' in events, 'session_resumed_from_human_task' in events, len(queues) == 4 and all((q or {}).get('state','') == 'done' for q in queues), len(steps) == 4 and all((row or {}).get('state') == 'completed' for row in steps)))" <<<"${HUMAN_REWRITE_DONE_JSON}")"
 if [[ "${HUMAN_REWRITE_DONE_FIELDS}" != "completed|True|rewrite with human review, edited by reviewer|True|True|True|True" ]]; then
   echo "expected resumed human-review rewrite to complete with reviewer-edited artifact and fully drained queue; got ${HUMAN_REWRITE_DONE_FIELDS}" >&2
