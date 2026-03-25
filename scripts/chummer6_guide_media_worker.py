@@ -642,6 +642,63 @@ def cast_prompt_clause_for_target(target: str) -> str:
     return ""
 
 
+def overlay_mode_for_target(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png":
+        return "medscan_diagnostic"
+    if normalized == "assets/pages/horizons-index.png":
+        return "ambient_diegetic"
+    if normalized == "assets/horizons/karma-forge.png":
+        return "forge_review_ar"
+    return ""
+
+
+def overlay_mode_prompt_clause(*, target: str, compact: bool = False) -> str:
+    mode = overlay_mode_for_target(target)
+    if mode == "medscan_diagnostic":
+        return (
+            "overlay mode medscan diagnostic: slim stat rail, anchored calibration callouts, one or two status capsules, no face-covering panels"
+            if compact
+            else "Use medscan diagnostic overlays only: a slim stat rail, anchored calibration callouts, and one or two status capsules. No face-covering panels or floating generic rectangles."
+        )
+    if mode == "ambient_diegetic":
+        return (
+            "overlay mode ambient diegetic: subtle lane arcs, district markers, no big UI slabs"
+            if compact
+            else "Use ambient diegetic overlays only: subtle lane arcs, district markers, and path traces. No big UI slabs or city-wide diagnostic rectangles."
+        )
+    if mode == "forge_review_ar":
+        return (
+            "overlay mode forge review AR: edge-following rails, provenance seals, rollback vectors, no torso-covering boxes"
+            if compact
+            else "Use forge-review AR overlays only: edge-following rails, provenance seals, rollback vectors, and compact approval chips. No torso-covering boxes or generic floating HUD slabs."
+        )
+    return ""
+
+
+def flagship_prompt_intro(target: str, *, compact: bool = False, fallback: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png":
+        return (
+            "illustrated cover-grade Shadowrun streetdoc poster scene"
+            if compact
+            else "Illustrated cover-grade Shadowrun streetdoc poster scene. Poster energy is welcome when it stays tied to a lived scene."
+        )
+    if normalized == "assets/pages/horizons-index.png":
+        return (
+            "illustrated cover-grade cyberpunk futures crossroads poster scene"
+            if compact
+            else "Illustrated cover-grade cyberpunk futures crossroads poster scene. Poster energy is welcome when it stays tied to a lived scene."
+        )
+    if normalized == "assets/horizons/karma-forge.png":
+        return (
+            "illustrated cover-grade Shadowrun rules-forge poster scene"
+            if compact
+            else "Illustrated cover-grade Shadowrun rules-forge poster scene. Poster energy is welcome when it stays tied to a lived scene."
+        )
+    return fallback
+
+
 def load_json_file(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -2962,50 +3019,48 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
     if target == "assets/hero/chummer6-hero.png":
         return {
             "fills": [
-                {"x": int(width * 0.04), "y": int(height * 0.12), "w": int(width * 0.2), "h": int(height * 0.6), "color": (39, 212, 255, 74)},
-                {"x": int(width * 0.38), "y": int(height * 0.12), "w": int(width * 0.22), "h": int(height * 0.16), "color": (255, 166, 87, 86)},
-                {"x": int(width * 0.58), "y": int(height * 0.46), "w": int(width * 0.28), "h": int(height * 0.22), "color": (255, 166, 87, 74)},
-                {"x": int(width * 0.3), "y": int(height * 0.58), "w": int(width * 0.2), "h": int(height * 0.14), "color": (39, 212, 255, 56)},
+                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.015), "h": int(height * 0.52), "color": (39, 212, 255, 88)},
+                {"x": int(width * 0.055), "y": int(height * 0.14), "w": int(width * 0.16), "h": int(height * 0.52), "color": (39, 212, 255, 34)},
+                {"x": int(width * 0.57), "y": int(height * 0.44), "w": int(width * 0.18), "h": int(height * 0.09), "color": (255, 166, 87, 56)},
+                {"x": int(width * 0.31), "y": int(height * 0.58), "w": int(width * 0.17), "h": int(height * 0.08), "color": (39, 212, 255, 40)},
             ],
             "boxes": [
-                {"x": int(width * 0.04), "y": int(height * 0.12), "w": int(width * 0.2), "h": int(height * 0.6), "color": cyan},
-                {"x": int(width * 0.38), "y": int(height * 0.12), "w": int(width * 0.22), "h": int(height * 0.16), "color": amber},
-                {"x": int(width * 0.58), "y": int(height * 0.46), "w": int(width * 0.28), "h": int(height * 0.22), "color": amber},
-                {"x": int(width * 0.3), "y": int(height * 0.58), "w": int(width * 0.2), "h": int(height * 0.14), "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.12), "w": int(width * 0.18), "h": int(height * 0.58), "color": cyan},
+                {"x": int(width * 0.57), "y": int(height * 0.44), "w": int(width * 0.21), "h": int(height * 0.1), "color": amber},
+                {"x": int(width * 0.31), "y": int(height * 0.58), "w": int(width * 0.19), "h": int(height * 0.09), "color": cyan},
             ],
             "chips": [
                 {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.18), "text": "AGI 4", "color": cyan},
+                {"x": int(width * 0.05), "y": int(height * 0.18), "text": "AGI 4 / UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.23), "text": "REA 3", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.28), "text": "STR 6", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.33), "text": "CHA 2", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.38), "text": "INT 4", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.43), "text": "LOG 3", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8", "color": amber},
+                {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 / UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.39), "y": int(height * 0.05), "text": "UPGRADING", "color": amber},
-                {"x": int(width * 0.59), "y": int(height * 0.39), "text": "CYBERLIMB CALIBRATION", "color": amber},
-                {"x": int(width * 0.59), "y": int(height * 0.47), "text": "TRUST CHECK", "color": cyan},
-                {"x": int(width * 0.32), "y": int(height * 0.52), "text": "WOUND STABILIZED", "color": amber},
+                {"x": int(width * 0.59), "y": int(height * 0.4), "text": "CYBERLIMB CALIBRATION", "color": amber},
+                {"x": int(width * 0.32), "y": int(height * 0.53), "text": "WOUND STABILIZED", "color": amber},
+                {"x": int(width * 0.34), "y": int(height * 0.61), "text": "NEURAL LINK RESYNC", "color": cyan},
             ],
         }
     if target == "assets/pages/horizons-index.png":
         return {
             "fills": [
-                {"x": int(width * 0.08), "y": int(height * 0.18), "w": int(width * 0.14), "h": int(height * 0.12), "color": (255, 166, 87, 84)},
-                {"x": int(width * 0.18), "y": int(height * 0.62), "w": int(width * 0.16), "h": int(height * 0.16), "color": (255, 166, 87, 72)},
-                {"x": int(width * 0.42), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.18), "color": (39, 212, 255, 70)},
-                {"x": int(width * 0.66), "y": int(height * 0.18), "w": int(width * 0.18), "h": int(height * 0.12), "color": (39, 212, 255, 78)},
-                {"x": int(width * 0.7), "y": int(height * 0.6), "w": int(width * 0.16), "h": int(height * 0.16), "color": (255, 166, 87, 72)},
+                {"x": int(width * 0.09), "y": int(height * 0.2), "w": int(width * 0.13), "h": int(height * 0.05), "color": (255, 166, 87, 68)},
+                {"x": int(width * 0.28), "y": int(height * 0.63), "w": int(width * 0.14), "h": int(height * 0.05), "color": (255, 166, 87, 58)},
+                {"x": int(width * 0.43), "y": int(height * 0.56), "w": int(width * 0.15), "h": int(height * 0.05), "color": (39, 212, 255, 62)},
+                {"x": int(width * 0.66), "y": int(height * 0.2), "w": int(width * 0.14), "h": int(height * 0.05), "color": (39, 212, 255, 66)},
+                {"x": int(width * 0.71), "y": int(height * 0.61), "w": int(width * 0.14), "h": int(height * 0.05), "color": (255, 166, 87, 58)},
             ],
             "boxes": [
-                {"x": int(width * 0.18), "y": int(height * 0.62), "w": int(width * 0.16), "h": int(height * 0.16), "color": amber},
-                {"x": int(width * 0.42), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.18), "color": cyan},
-                {"x": int(width * 0.7), "y": int(height * 0.6), "w": int(width * 0.16), "h": int(height * 0.16), "color": amber},
+                {"x": int(width * 0.18), "y": int(height * 0.61), "w": int(width * 0.18), "h": int(height * 0.04), "color": amber},
+                {"x": int(width * 0.41), "y": int(height * 0.55), "w": int(width * 0.2), "h": int(height * 0.04), "color": cyan},
+                {"x": int(width * 0.68), "y": int(height * 0.6), "w": int(width * 0.18), "h": int(height * 0.04), "color": amber},
             ],
             "chips": [
-                {"x": int(width * 0.11), "y": int(height * 0.13), "text": "CLINIC LANE", "color": amber},
+                {"x": int(width * 0.11), "y": int(height * 0.13), "text": "CLINIC ARC", "color": amber},
                 {"x": int(width * 0.44), "y": int(height * 0.51), "text": "ARCHIVE STAIR", "color": cyan},
                 {"x": int(width * 0.68), "y": int(height * 0.13), "text": "ROOF ROUTE", "color": cyan},
                 {"x": int(width * 0.72), "y": int(height * 0.55), "text": "RAIL YARD", "color": amber},
@@ -3014,31 +3069,26 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
     if target == "assets/horizons/karma-forge.png":
         return {
             "fills": [
-                {"x": int(width * 0.02), "y": int(height * 0.08), "w": int(width * 0.18), "h": int(height * 0.14), "color": (255, 166, 87, 144)},
-                {"x": int(width * 0.04), "y": int(height * 0.58), "w": int(width * 0.28), "h": int(height * 0.24), "color": (255, 166, 87, 112)},
-                {"x": int(width * 0.28), "y": int(height * 0.48), "w": int(width * 0.26), "h": int(height * 0.22), "color": (39, 212, 255, 120)},
-                {"x": int(width * 0.6), "y": int(height * 0.08), "w": int(width * 0.28), "h": int(height * 0.22), "color": (255, 78, 78, 128)},
-                {"x": int(width * 0.58), "y": int(height * 0.48), "w": int(width * 0.22), "h": int(height * 0.18), "color": (39, 212, 255, 110)},
-                {"x": int(width * 0.43), "y": int(height * 0.68), "w": int(width * 0.26), "h": int(height * 0.2), "color": (255, 166, 87, 132)},
-                {"x": int(width * 0.7), "y": int(height * 0.68), "w": int(width * 0.16), "h": int(height * 0.12), "color": (255, 166, 87, 120)},
+                {"x": int(width * 0.05), "y": int(height * 0.14), "w": int(width * 0.18), "h": int(height * 0.04), "color": (255, 166, 87, 88)},
+                {"x": int(width * 0.66), "y": int(height * 0.12), "w": int(width * 0.18), "h": int(height * 0.04), "color": (255, 78, 78, 92)},
+                {"x": int(width * 0.09), "y": int(height * 0.72), "w": int(width * 0.18), "h": int(height * 0.04), "color": (39, 212, 255, 84)},
+                {"x": int(width * 0.44), "y": int(height * 0.74), "w": int(width * 0.22), "h": int(height * 0.04), "color": (255, 166, 87, 84)},
+                {"x": int(width * 0.56), "y": int(height * 0.46), "w": int(width * 0.18), "h": int(height * 0.04), "color": (39, 212, 255, 78)},
             ],
             "boxes": [
-                {"x": int(width * 0.02), "y": int(height * 0.08), "w": int(width * 0.18), "h": int(height * 0.14), "color": amber},
-                {"x": int(width * 0.08), "y": int(height * 0.64), "w": int(width * 0.18), "h": int(height * 0.16), "color": amber},
-                {"x": int(width * 0.33), "y": int(height * 0.56), "w": int(width * 0.2), "h": int(height * 0.17), "color": cyan},
-                {"x": int(width * 0.66), "y": int(height * 0.16), "w": int(width * 0.2), "h": int(height * 0.18), "color": red},
-                {"x": int(width * 0.6), "y": int(height * 0.5), "w": int(width * 0.18), "h": int(height * 0.14), "color": cyan},
-                {"x": int(width * 0.43), "y": int(height * 0.72), "w": int(width * 0.24), "h": int(height * 0.16), "color": amber},
-                {"x": int(width * 0.72), "y": int(height * 0.7), "w": int(width * 0.12), "h": int(height * 0.1), "color": amber},
+                {"x": int(width * 0.05), "y": int(height * 0.13), "w": int(width * 0.19), "h": int(height * 0.05), "color": amber},
+                {"x": int(width * 0.32), "y": int(height * 0.58), "w": int(width * 0.2), "h": int(height * 0.05), "color": cyan},
+                {"x": int(width * 0.64), "y": int(height * 0.1), "w": int(width * 0.21), "h": int(height * 0.06), "color": red},
+                {"x": int(width * 0.43), "y": int(height * 0.72), "w": int(width * 0.25), "h": int(height * 0.06), "color": amber},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.58), "text": "DIFF", "color": amber},
-                {"x": int(width * 0.33), "y": int(height * 0.5), "text": "APPROVAL", "color": cyan},
+                {"x": int(width * 0.08), "y": int(height * 0.12), "text": "DIFF", "color": amber},
+                {"x": int(width * 0.09), "y": int(height * 0.69), "text": "APPROVAL", "color": cyan},
                 {"x": int(width * 0.64), "y": int(height * 0.1), "text": "ROLLBACK", "color": red},
-                {"x": int(width * 0.58), "y": int(height * 0.38), "text": "PROVENANCE", "color": cyan},
-                {"x": int(width * 0.57), "y": int(height * 0.46), "text": "WITNESS LOCK", "color": amber},
-                {"x": int(width * 0.67), "y": int(height * 0.62), "text": "COMPAT ARC", "color": cyan},
-                {"x": int(width * 0.69), "y": int(height * 0.74), "text": "REVERT COST", "color": amber},
+                {"x": int(width * 0.58), "y": int(height * 0.41), "text": "PROVENANCE", "color": cyan},
+                {"x": int(width * 0.55), "y": int(height * 0.49), "text": "WITNESS LOCK", "color": amber},
+                {"x": int(width * 0.6), "y": int(height * 0.57), "text": "COMPATIBILITY ARC", "color": cyan},
+                {"x": int(width * 0.45), "y": int(height * 0.69), "text": "REVERT COST", "color": amber},
             ],
         }
     return {"boxes": [], "chips": []}
@@ -3141,35 +3191,35 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
         w, h = base.size
 
         if target == "assets/hero/chummer6-hero.png":
-            draw.rounded_rectangle((int(w * 0.04), int(h * 0.12), int(w * 0.24), int(h * 0.72)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 74), width=3, radius=8)
-            draw.rounded_rectangle((int(w * 0.38), int(h * 0.12), int(w * 0.6), int(h * 0.28)), outline=amber, fill=(amber[0], amber[1], amber[2], 86), width=3, radius=8)
-            draw.rounded_rectangle((int(w * 0.58), int(h * 0.46), int(w * 0.86), int(h * 0.68)), outline=amber, fill=(amber[0], amber[1], amber[2], 74), width=3, radius=8)
-            draw.rounded_rectangle((int(w * 0.3), int(h * 0.58), int(w * 0.5), int(h * 0.72)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 56), width=2, radius=8)
-            draw.line((int(w * 0.24), int(h * 0.36), int(w * 0.37), int(h * 0.42)), fill=cyan, width=3)
-            draw.line((int(w * 0.5), int(h * 0.28), int(w * 0.62), int(h * 0.42)), fill=amber, width=3)
-            draw.line((int(w * 0.72), int(h * 0.57), int(w * 0.52), int(h * 0.44)), fill=amber, width=3)
-            draw.line((int(w * 0.5), int(h * 0.65), int(w * 0.62), int(h * 0.59)), fill=cyan, width=3)
-            draw.arc((int(w * 0.44), int(h * 0.22), int(w * 0.64), int(h * 0.44)), start=208, end=336, fill=cyan, width=3)
+            draw.rounded_rectangle((int(w * 0.04), int(h * 0.12), int(w * 0.22), int(h * 0.7)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 28), width=2, radius=10)
+            draw.rounded_rectangle((int(w * 0.04), int(h * 0.14), int(w * 0.055), int(h * 0.66)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 88), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.57), int(h * 0.44), int(w * 0.78), int(h * 0.54)), outline=amber, fill=(amber[0], amber[1], amber[2], 42), width=2, radius=8)
+            draw.rounded_rectangle((int(w * 0.31), int(h * 0.58), int(w * 0.5), int(h * 0.67)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 32), width=2, radius=8)
+            draw.line((int(w * 0.22), int(h * 0.34), int(w * 0.36), int(h * 0.4)), fill=cyan, width=3)
+            draw.line((int(w * 0.22), int(h * 0.58), int(w * 0.3), int(h * 0.62)), fill=cyan, width=3)
+            draw.line((int(w * 0.5), int(h * 0.62), int(w * 0.61), int(h * 0.57)), fill=cyan, width=3)
+            draw.line((int(w * 0.78), int(h * 0.49), int(w * 0.69), int(h * 0.46)), fill=amber, width=3)
+            draw.arc((int(w * 0.42), int(h * 0.24), int(w * 0.66), int(h * 0.5)), start=205, end=330, fill=cyan, width=3)
+            draw.arc((int(w * 0.5), int(h * 0.34), int(w * 0.84), int(h * 0.72)), start=190, end=275, fill=amber, width=3)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.13), text="BOD 5", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.18), text="AGI 4", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.18), text="AGI 4 / UPGRADING", color=amber)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.23), text="REA 3", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.28), text="STR 6", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.33), text="CHA 2", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.38), text="INT 4", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.43), text="LOG 3", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.48), text="WIL 5", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.53), text="ESS 2.8", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.53), text="ESS 2.8 / UPGRADING", color=amber)
             _draw_overlay_chip(draw, x=int(w * 0.05), y=int(h * 0.58), text="EDGE 3", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.39), y=int(h * 0.05), text="UPGRADING", color=amber)
-            _draw_overlay_chip(draw, x=int(w * 0.59), y=int(h * 0.39), text="CYBERLIMB CALIBRATION", color=amber)
-            _draw_overlay_chip(draw, x=int(w * 0.59), y=int(h * 0.47), text="TRUST CHECK", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.32), y=int(h * 0.52), text="WOUND STABILIZED", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.59), y=int(h * 0.4), text="CYBERLIMB CALIBRATION", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.33), y=int(h * 0.53), text="WOUND STABILIZED", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.34), y=int(h * 0.61), text="NEURAL LINK RESYNC", color=cyan)
         elif target == "assets/pages/horizons-index.png":
-            draw.rounded_rectangle((int(w * 0.08), int(h * 0.18), int(w * 0.22), int(h * 0.3)), outline=amber, fill=(amber[0], amber[1], amber[2], 84), width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.18), int(h * 0.62), int(w * 0.34), int(h * 0.78)), outline=amber, fill=(amber[0], amber[1], amber[2], 72), width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.42), int(h * 0.56), int(w * 0.62), int(h * 0.74)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 70), width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.66), int(h * 0.18), int(w * 0.84), int(h * 0.3)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 78), width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.7), int(h * 0.6), int(w * 0.86), int(h * 0.76)), outline=amber, fill=(amber[0], amber[1], amber[2], 72), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.08), int(h * 0.19), int(w * 0.23), int(h * 0.24)), outline=amber, fill=(amber[0], amber[1], amber[2], 26), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.27), int(h * 0.62), int(w * 0.43), int(h * 0.67)), outline=amber, fill=(amber[0], amber[1], amber[2], 24), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.42), int(h * 0.55), int(w * 0.61), int(h * 0.6)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 24), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.65), int(h * 0.19), int(w * 0.8), int(h * 0.24)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 26), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.7), int(h * 0.6), int(w * 0.86), int(h * 0.65)), outline=amber, fill=(amber[0], amber[1], amber[2], 24), width=2, radius=6)
             for index, color in enumerate((amber, cyan, amber, cyan)):
                 offset = int(w * (0.12 + index * 0.18))
                 draw.arc((offset, int(h * 0.5), offset + int(w * 0.22), int(h * 1.06)), start=248, end=322, fill=color, width=3)
@@ -3177,53 +3227,29 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             draw.line((int(w * 0.38), int(h * 0.68), int(w * 0.52), int(h * 0.58)), fill=amber, width=3)
             draw.line((int(w * 0.52), int(h * 0.66), int(w * 0.72), int(h * 0.56)), fill=cyan, width=3)
             draw.line((int(w * 0.68), int(h * 0.68), int(w * 0.82), int(h * 0.6)), fill=amber, width=3)
-            _draw_overlay_chip(draw, x=int(w * 0.11), y=int(h * 0.13), text="CLINIC LANE", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.11), y=int(h * 0.13), text="CLINIC ARC", color=amber)
             _draw_overlay_chip(draw, x=int(w * 0.44), y=int(h * 0.51), text="ARCHIVE STAIR", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.68), y=int(h * 0.13), text="ROOF ROUTE", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.72), y=int(h * 0.55), text="RAIL YARD", color=amber)
         elif target == "assets/horizons/karma-forge.png":
-            draw.rounded_rectangle((int(w * 0.02), int(h * 0.08), int(w * 0.2), int(h * 0.22)), outline=amber, fill=(amber[0], amber[1], amber[2], 86), width=2, radius=6)
-            draw.rounded_rectangle(
-                (int(w * 0.04), int(h * 0.58), int(w * 0.32), int(h * 0.82)),
-                outline=amber,
-                fill=(amber[0], amber[1], amber[2], 86),
-                width=2,
-                radius=6,
-            )
-            draw.rounded_rectangle(
-                (int(w * 0.28), int(h * 0.48), int(w * 0.54), int(h * 0.7)),
-                outline=cyan,
-                fill=(cyan[0], cyan[1], cyan[2], 82),
-                width=2,
-                radius=6,
-            )
-            draw.rounded_rectangle(
-                (int(w * 0.6), int(h * 0.08), int(w * 0.88), int(h * 0.3)),
-                outline=red,
-                fill=(red[0], red[1], red[2], 88),
-                width=2,
-                radius=6,
-            )
-            draw.rounded_rectangle((int(w * 0.08), int(h * 0.64), int(w * 0.26), int(h * 0.8)), outline=amber, width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.33), int(h * 0.56), int(w * 0.53), int(h * 0.73)), outline=cyan, width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.66), int(h * 0.16), int(w * 0.86), int(h * 0.34)), outline=red, width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.6), int(h * 0.5), int(w * 0.78), int(h * 0.64)), outline=cyan, width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.43), int(h * 0.72), int(w * 0.67), int(h * 0.88)), outline=amber, fill=(amber[0], amber[1], amber[2], 76), width=2, radius=6)
-            draw.rounded_rectangle((int(w * 0.72), int(h * 0.7), int(w * 0.84), int(h * 0.8)), outline=amber, width=2, radius=6)
-            draw.line((int(w * 0.18), int(h * 0.18), int(w * 0.32), int(h * 0.3)), fill=amber, width=3)
-            draw.line((int(w * 0.26), int(h * 0.74), int(w * 0.34), int(h * 0.69)), fill=cyan, width=3)
-            draw.line((int(w * 0.53), int(h * 0.66), int(w * 0.66), int(h * 0.28)), fill=amber, width=3)
-            draw.line((int(w * 0.52), int(h * 0.58), int(w * 0.74), int(h * 0.56)), fill=cyan, width=3)
-            draw.line((int(w * 0.54), int(h * 0.74), int(w * 0.7), int(h * 0.78)), fill=amber, width=3)
-            draw.arc((int(w * 0.54), int(h * 0.16), int(w * 0.94), int(h * 0.56)), start=178, end=275, fill=red, width=4)
-            draw.arc((int(w * 0.42), int(h * 0.44), int(w * 0.88), int(h * 0.92)), start=210, end=302, fill=amber, width=3)
-            _draw_overlay_chip(draw, x=int(w * 0.08), y=int(h * 0.58), text="DIFF", color=amber)
-            _draw_overlay_chip(draw, x=int(w * 0.33), y=int(h * 0.5), text="APPROVAL", color=cyan)
+            draw.rounded_rectangle((int(w * 0.05), int(h * 0.13), int(w * 0.25), int(h * 0.18)), outline=amber, fill=(amber[0], amber[1], amber[2], 34), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.64), int(h * 0.1), int(w * 0.86), int(h * 0.17)), outline=red, fill=(red[0], red[1], red[2], 34), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.31), int(h * 0.58), int(w * 0.53), int(h * 0.64)), outline=cyan, fill=(cyan[0], cyan[1], cyan[2], 28), width=2, radius=6)
+            draw.rounded_rectangle((int(w * 0.43), int(h * 0.72), int(w * 0.69), int(h * 0.79)), outline=amber, fill=(amber[0], amber[1], amber[2], 30), width=2, radius=6)
+            draw.line((int(w * 0.23), int(h * 0.16), int(w * 0.35), int(h * 0.29)), fill=amber, width=3)
+            draw.line((int(w * 0.24), int(h * 0.74), int(w * 0.34), int(h * 0.68)), fill=cyan, width=3)
+            draw.line((int(w * 0.52), int(h * 0.61), int(w * 0.66), int(h * 0.53)), fill=cyan, width=3)
+            draw.line((int(w * 0.56), int(h * 0.76), int(w * 0.72), int(h * 0.74)), fill=amber, width=3)
+            draw.arc((int(w * 0.49), int(h * 0.12), int(w * 0.94), int(h * 0.56)), start=180, end=278, fill=red, width=4)
+            draw.arc((int(w * 0.41), int(h * 0.36), int(w * 0.9), int(h * 0.9)), start=214, end=300, fill=amber, width=3)
+            draw.arc((int(w * 0.18), int(h * 0.46), int(w * 0.72), int(h * 1.02)), start=232, end=310, fill=cyan, width=3)
+            _draw_overlay_chip(draw, x=int(w * 0.08), y=int(h * 0.12), text="DIFF", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.09), y=int(h * 0.69), text="APPROVAL", color=cyan)
             _draw_overlay_chip(draw, x=int(w * 0.64), y=int(h * 0.1), text="ROLLBACK", color=red)
-            _draw_overlay_chip(draw, x=int(w * 0.58), y=int(h * 0.38), text="PROVENANCE", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.57), y=int(h * 0.46), text="WITNESS LOCK", color=amber)
-            _draw_overlay_chip(draw, x=int(w * 0.67), y=int(h * 0.62), text="COMPAT ARC", color=cyan)
-            _draw_overlay_chip(draw, x=int(w * 0.69), y=int(h * 0.74), text="REVERT COST", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.58), y=int(h * 0.41), text="PROVENANCE", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.55), y=int(h * 0.49), text="WITNESS LOCK", color=amber)
+            _draw_overlay_chip(draw, x=int(w * 0.6), y=int(h * 0.57), text="COMPATIBILITY ARC", color=cyan)
+            _draw_overlay_chip(draw, x=int(w * 0.45), y=int(h * 0.69), text="REVERT COST", color=amber)
         else:
             return "first_contact_overlay:skipped"
 
@@ -3380,7 +3406,7 @@ def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
     target = str(spec.get("target") or "").strip()
     lowered = cleaned.lower()
     additions: list[str] = []
-    if "keep it as a lived moment, not a poster or title card" not in lowered:
+    if "not a static title card" not in lowered and "cover-grade framing" not in lowered:
         additions.append(scene_integrity_instruction_set(contract, target=target))
     if (
         media_row_requests_easter_egg(target=target, row=row)
@@ -3655,6 +3681,10 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     smartlink = compact_text(smartlink_overlay_clause(contract), limit=88)
     lore = compact_text(lore_background_clause(contract), limit=72)
     cast_clause = compact_text(cast_prompt_clause_for_target(target), limit=80)
+    overlay_clause = compact_text(overlay_mode_prompt_clause(target=target, compact=True), limit=110)
+    contract_clause = ""
+    if target and not first_contact_target(target):
+        contract_clause = ", ".join(visual_contract_prompt_parts(target=target, compact=True))
     hard_block = ""
     if target == "assets/hero/chummer6-hero.png":
         hard_block = (
@@ -3677,13 +3707,14 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
             "no glowing panel centerpiece, no readable text"
         )
     parts = [
-        "Grounded cinematic cyberpunk scene still",
+        flagship_prompt_intro(target, compact=True, fallback="Grounded cinematic cyberpunk scene still"),
+        hard_block,
+        overlay_clause if overlay_clause else "",
         subject,
         f"in {environment}",
         action,
         metaphor if metaphor else "",
-        hard_block,
-        ", ".join(visual_contract_prompt_parts(target=target, compact=True)),
+        contract_clause,
         mood,
         palette,
         cast_clause if cast_clause else "one focal subject",
@@ -3715,6 +3746,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     lore = compact_text(lore_background_clause(contract), limit=64)
     framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
     avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
+    overlay_clause = overlay_mode_prompt_clause(target=target)
     hard_block = ""
     if target in {
         "assets/hero/chummer6-hero.png",
@@ -3740,7 +3772,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The hero must show at least two people in the intake lane, with a metahuman streetdoc or support figure clearly present beside the focal runner. One body must be half-reclined, strapped into a prep chair, or braced against a visible prep rail while the streetdoc is actively calibrating gear, checking fit, or stabilizing post-run strain. The environment must read as an improvised garage clinic, patch-up bay, or getaway-van triage space with tool chest grime, work lamps, hacked med gear, and runner-life clutter. No crate, bench, tabletop, or waist-high counter can dominate the lower frame. No seated alley brood, no leaning over cards, no dominant face crop, no quiet side-profile portrait, no hallway symmetry, no back-facing idle pair, and no pristine hospital or dental-clinic energy."
+        hard_block += " The hero must show at least two people: a metahuman streetdoc or support figure beside a wounded runner in a prep chair or intake rail. The environment must read as an improvised garage clinic, patch-up bay, or getaway-van triage space with hacked med gear, tool-chest grime, work lamps, and runner clutter. No crate desk, bench, tabletop, seated brood, dominant face crop, hallway symmetry, or pristine hospital energy."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
@@ -3754,11 +3786,12 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     elif target == "assets/horizons/runbook-press.png":
         hard_block += " Keep sheets edge-on, clipped, or half-obscured inside the mechanism; never presented frontally like a readable page."
     parts = [
-        "Grounded cinematic Shadowrun scene still.",
+        flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
         f"Composition: {composition}." if composition else "",
         hard_block,
         compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
         " ".join(visual_contract_prompt_parts(target=target)) if target else "",
+        overlay_clause if overlay_clause else "",
         f"Subject: {subject}." if subject else "",
         f"Setting: {environment}." if environment else "",
         f"Moment: {action}." if action else "",
@@ -3773,7 +3806,11 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         "Human presence must be obvious; not props alone."
         if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
         else "",
-        "Ground the image in one believable Shadowrun place that matches the composition. Not abstract infographic. Not product poster.",
+        (
+            "Ground the image in one believable Shadowrun place that matches the composition. Poster energy is welcome when it stays tied to a lived scene; never drift into an abstract infographic or empty title card."
+            if first_contact_target(target)
+            else "Ground the image in one believable Shadowrun place that matches the composition. Not abstract infographic. Not product poster."
+        ),
         "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
         "No readable words or numbers anywhere.",
         "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
