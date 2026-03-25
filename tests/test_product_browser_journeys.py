@@ -38,6 +38,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert activity.status_code == 200
     assert "Operator Queue" in activity.text
     assert "Queue health" in activity.text
+    assert "Load score" in activity.text
+    assert "Provider posture" in activity.text
     assert "Suggested next claims" in activity.text
     assert "Prepare board follow-up handoff" in activity.text
 
@@ -261,6 +263,9 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert support_page.status_code == 200
     assert "Support bundle" in support_page.text
     assert "Pending review and recent decisions" in support_page.text
+    assert "Runtime posture" in support_page.text
+    assert "Provider risk" in support_page.text
+    assert "Load score" in support_page.text
 
     channel_loop = client.get("/app/channel-loop")
     assert channel_loop.status_code == 200

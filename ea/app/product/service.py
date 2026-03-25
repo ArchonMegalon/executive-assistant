@@ -51,6 +51,9 @@ _TEMPERATURE_BY_IMPORTANCE = {
     "low": "cool",
 }
 _COMMITMENT_KEY_RE = re.compile(r"[^a-z0-9]+")
+_READY_PROVIDER_STATES = {"ready", "healthy"}
+_DEGRADED_PROVIDER_STATES = {"degraded", "cooldown", "rate_limited", "quarantined", "quota_low", "throttled"}
+_FAILED_PROVIDER_STATES = {"error", "failed", "auth_failed", "revoked", "deleted", "expired", "unavailable", "missing"}
 
 
 def _now_iso() -> str:
@@ -72,6 +75,13 @@ def _is_past_due(value: str | None) -> bool:
     if when is None:
         return False
     return when <= datetime.now(timezone.utc)
+
+
+def _hours_since(value: str | None) -> int:
+    when = _parse_iso(value)
+    if when is None:
+        return 0
+    return max(int((datetime.now(timezone.utc) - when).total_seconds() // 3600), 0)
 
 
 def _action_label(action_json: dict[str, object]) -> str:
@@ -245,6 +255,67 @@ class ProductService:
 
     def _handoff_from_human_task(self, task: HumanTask) -> HandoffNote:
         return handoff_from_human_task(task)
+
+    def _provider_summary(self, registry: dict[str, object]) -> dict[str, object]:
+        provider_rows = [dict(row) for row in (registry.get("providers") or []) if isinstance(row, dict)]
+        lane_rows = [dict(row) for row in (registry.get("lanes") or []) if isinstance(row, dict)]
+        provider_state_by_key: dict[str, str] = {}
+        ready_keys: list[str] = []
+        degraded_keys: list[str] = []
+        failed_keys: list[str] = []
+        unknown_keys: list[str] = []
+        for row in provider_rows:
+            provider_key = str(row.get("provider_key") or "").strip()
+            state = str(row.get("state") or row.get("health_state") or "unknown").strip().lower() or "unknown"
+            if provider_key:
+                provider_state_by_key[provider_key] = state
+            if state in _READY_PROVIDER_STATES:
+                ready_keys.append(provider_key or state)
+            elif state in _DEGRADED_PROVIDER_STATES:
+                degraded_keys.append(provider_key or state)
+            elif state in _FAILED_PROVIDER_STATES:
+                failed_keys.append(provider_key or state)
+            else:
+                unknown_keys.append(provider_key or state)
+        lanes_with_fallback = 0
+        degraded_primary_lanes = 0
+        failover_ready_lanes = 0
+        for row in lane_rows:
+            hint_order = [str(value).strip() for value in (row.get("provider_hint_order") or []) if str(value).strip()]
+            if len(hint_order) > 1:
+                lanes_with_fallback += 1
+            primary_state = str(row.get("primary_state") or "unknown").strip().lower() or "unknown"
+            if primary_state in (_DEGRADED_PROVIDER_STATES | _FAILED_PROVIDER_STATES):
+                degraded_primary_lanes += 1
+                secondary_states = [provider_state_by_key.get(key, "unknown") for key in hint_order[1:]]
+                if any(state in (_READY_PROVIDER_STATES | _DEGRADED_PROVIDER_STATES) for state in secondary_states):
+                    failover_ready_lanes += 1
+        if failed_keys or (provider_rows and not ready_keys and not degraded_keys):
+            risk_state = "critical"
+            risk_detail = "At least one provider lane is failed or no ready provider remains bound for this workspace."
+        elif degraded_keys or degraded_primary_lanes:
+            risk_state = "watch"
+            risk_detail = "At least one provider or primary routing lane is degraded and needs operator attention."
+        elif not provider_rows:
+            risk_state = "attention"
+            risk_detail = "No providers are currently bound for this workspace."
+        else:
+            risk_state = "healthy"
+            risk_detail = "Provider routing and failover posture are stable for the current workspace."
+        return {
+            "ready_count": len(ready_keys),
+            "degraded_count": len(degraded_keys),
+            "failed_count": len(failed_keys),
+            "unknown_count": len(unknown_keys),
+            "ready_provider_keys": ready_keys[:8],
+            "degraded_provider_keys": degraded_keys[:8],
+            "failed_provider_keys": failed_keys[:8],
+            "lanes_with_fallback": lanes_with_fallback,
+            "degraded_primary_lanes": degraded_primary_lanes,
+            "failover_ready_lanes": failover_ready_lanes,
+            "risk_state": risk_state,
+            "risk_detail": risk_detail,
+        }
 
     def list_commitments(self, *, principal_id: str, limit: int = 50) -> tuple[CommitmentItem, ...]:
         stakeholders = self._stakeholder_lookup(principal_id)
@@ -1543,19 +1614,46 @@ class ProductService:
         sla_breaches = [task for task in visible_tasks if _is_past_due(task.sla_due_at)]
         approvals = list(self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=200))
         pending_delivery = list(self._container.channel_runtime.list_pending_delivery(limit=200, principal_id=principal_id))
+        retrying_delivery = [row for row in pending_delivery if str(getattr(row, "status", "") or "").strip() == "retry"]
+        delivery_errors = [row for row in pending_delivery if str(getattr(row, "last_error", "") or "").strip()]
+        oldest_pending_delivery_hours = max((_hours_since(str(getattr(row, "created_at", "") or "")) for row in pending_delivery), default=0)
+        highest_delivery_attempt_count = max((int(getattr(row, "attempt_count", 0) or 0) for row in pending_delivery), default=0)
         queue_items = self.list_queue(principal_id=principal_id, limit=100, operator_id=operator_id)
         waiting_on_principal = sum(1 for row in queue_items if row.requires_principal)
         at_risk_commitments = sum(1 for row in self.list_commitments(principal_id=principal_id, limit=100) if row.risk_level == "high")
+        oldest_handoff_hours = max(
+            (
+                _hours_since(
+                    str(
+                        getattr(task, "created_at", None)
+                        or getattr(task, "updated_at", None)
+                        or getattr(task, "last_transition_at", None)
+                        or ""
+                    )
+                )
+                for task in visible_tasks
+            ),
+            default=0,
+        )
         suggested_tasks = sorted(
             unclaimed_tasks,
             key=lambda row: (priority_weight(row.priority), due_bonus(row.sla_due_at), str(row.brief or "").lower()),
             reverse=True,
         )
         suggestion_rows = tuple(self._handoff_from_human_task(row) for row in suggested_tasks[:3])
-        if sla_breaches or len(approvals) >= 3 or waiting_on_principal >= 4:
+        load_score = (
+            (len(sla_breaches) * 5)
+            + (len(unclaimed_tasks) * 2)
+            + (len(approvals) * 2)
+            + waiting_on_principal
+            + at_risk_commitments
+            + (len(retrying_delivery) * 3)
+            + len(delivery_errors)
+        )
+        if sla_breaches or len(approvals) >= 3 or waiting_on_principal >= 4 or retrying_delivery:
             state = "critical"
             detail = "SLA breaches, approval backlog, or principal-gated work need active clearing."
-        elif unclaimed_tasks or at_risk_commitments >= 2 or pending_delivery:
+        elif unclaimed_tasks or at_risk_commitments >= 2 or pending_delivery or delivery_errors:
             state = "watch"
             detail = "The queue is stable, but there is visible backlog that should be cleared before the next memo cycle."
         else:
@@ -1573,6 +1671,12 @@ class ProductService:
                 "waiting_on_principal": waiting_on_principal,
                 "at_risk_commitments": at_risk_commitments,
                 "pending_delivery": len(pending_delivery),
+                "retrying_delivery": len(retrying_delivery),
+                "delivery_errors": len(delivery_errors),
+                "highest_delivery_attempt_count": highest_delivery_attempt_count,
+                "oldest_handoff_age_hours": oldest_handoff_hours,
+                "oldest_pending_delivery_age_hours": oldest_pending_delivery_hours,
+                "load_score": load_score,
                 "suggested_claims": len(suggestion_rows),
             },
             suggestion_rows,
@@ -1640,6 +1744,7 @@ class ProductService:
         queue_health, assignment_suggestions = self._queue_health(principal_id=principal_id)
         readiness_ok, readiness_label = self._container.readiness.check()
         registry = self._container.provider_registry.registry_read_model(principal_id=principal_id)
+        provider_summary = self._provider_summary(registry)
         operators = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
         product_events = [
             row
@@ -1674,12 +1779,35 @@ class ProductService:
         seat_overage = max(seats_used - seat_limit, 0)
         selected_messaging = sorted({value for value in selected_channels if value in {"telegram", "whatsapp"}})
         warnings: list[str] = []
+        blocked_actions: list[str] = []
         if seat_overage:
             warnings.append("Active operators exceed included seats.")
+            blocked_actions.append("operator_seat_overage")
         if selected_messaging and not plan.entitlements.messaging_channels_enabled:
             warnings.append("Messaging channels are selected but not included in this plan.")
+            blocked_actions.append("messaging_setup")
         if not readiness_ok:
             warnings.append(str(readiness_label or "Runtime readiness needs attention."))
+            blocked_actions.append("runtime_readiness")
+        if str(provider_summary.get("risk_state") or "") in {"attention", "watch", "critical"}:
+            warnings.append(str(provider_summary.get("risk_detail") or "Provider posture needs attention."))
+        recommended_plan = plan
+        if seat_overage or (selected_messaging and not plan.entitlements.messaging_channels_enabled):
+            recommended_plan = workspace_plan_for_mode("team" if plan.plan_key == "pilot" else "executive_ops")
+        health_score = 100
+        if not readiness_ok:
+            health_score -= 30
+        provider_risk = str(provider_summary.get("risk_state") or "healthy")
+        if provider_risk == "watch":
+            health_score -= 15
+        elif provider_risk in {"attention", "critical"}:
+            health_score -= 30
+        queue_state = str(queue_health.get("state") or "healthy")
+        if queue_state == "watch":
+            health_score -= 15
+        elif queue_state == "critical":
+            health_score -= 30
+        health_score = max(health_score - min(int(queue_health.get("delivery_errors") or 0) * 3, 15), 0)
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -1710,6 +1838,8 @@ class ProductService:
             "readiness": {
                 "ready": readiness_ok,
                 "detail": readiness_label,
+                "health_score": health_score,
+                "risk_state": "healthy" if health_score >= 85 else "watch" if health_score >= 60 else "critical",
             },
             "operators": {
                 "active_count": seats_used,
@@ -1723,10 +1853,14 @@ class ProductService:
                 "selected_messaging_channels": selected_messaging,
                 "messaging_scope_mismatch": bool(selected_messaging and not plan.entitlements.messaging_channels_enabled),
                 "warnings": warnings,
+                "blocked_actions": blocked_actions,
+                "recommended_plan_key": recommended_plan.plan_key,
+                "recommended_plan_label": recommended_plan.display_name,
             },
             "providers": {
                 "provider_count": int(registry.get("provider_count") or 0),
                 "lane_count": int(registry.get("lane_count") or 0),
+                **provider_summary,
             },
             "queue_health": {
                 **queue_health,
@@ -1812,7 +1946,7 @@ class ProductService:
                 }
                 for row in human_tasks
             ],
-            "providers": provider_registry,
+            "providers": {**provider_registry, **dict(diagnostics.get("providers") or {})},
             "queue_health": queue_health,
             "assignment_suggestions": list(queue_health.get("assignment_suggestions") or []),
             "pending_delivery": [

@@ -1256,6 +1256,8 @@ def settings_usage_detail(
     analytics = dict(diagnostics.get("analytics") or {})
     operators = dict(diagnostics.get("operators") or {})
     readiness = dict(diagnostics.get("readiness") or {})
+    queue_health = dict(diagnostics.get("queue_health") or {})
+    providers = dict(diagnostics.get("providers") or {})
     counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
     return _render_console_object_detail(
         request=request,
@@ -1280,6 +1282,8 @@ def settings_usage_detail(
             _object_detail_row("Active operators", str(operators.get("active_count") or 0), "Operators"),
             _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
             _object_detail_row("Readiness", str(readiness.get("detail") or "Runtime posture not recorded."), "Runtime"),
+            _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+            _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Support"),
         ],
         object_sections=[
             {
@@ -1300,6 +1304,10 @@ def settings_usage_detail(
                     _object_detail_row("Seats used", str(operators.get("seats_used") or 0), "Operators"),
                     _object_detail_row("Seats remaining", str(operators.get("seats_remaining") or 0), "Operators"),
                     _object_detail_row("Pending approvals", str(counts.get("approval_requested") or 0), "Approvals"),
+                    _object_detail_row("Load score", str(queue_health.get("load_score") or 0), "Queue"),
+                    _object_detail_row("Retrying delivery", str(queue_health.get("retrying_delivery") or 0), "Queue"),
+                    _object_detail_row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue"),
+                    _object_detail_row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Provider"),
                     _object_detail_row("Support bundle opened", str(counts.get("support_bundle_opened") or 0), "Support"),
                 ],
             },
@@ -1328,6 +1336,9 @@ def settings_support_detail(
     human_tasks = [dict(value) for value in (bundle.get("human_tasks") or [])]
     pending_delivery = [dict(value) for value in (bundle.get("pending_delivery") or [])]
     providers = dict(bundle.get("providers") or {})
+    queue_health = dict(bundle.get("queue_health") or {})
+    commercial = dict(bundle.get("commercial") or {})
+    readiness = dict(bundle.get("readiness") or {})
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1350,6 +1361,13 @@ def settings_support_detail(
         object_sidebar_rows=[
             _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
             _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+            _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
+            _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+            _object_detail_row(
+                "Blocked actions",
+                ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
+                "Support",
+            ),
             _object_detail_row("Export bundle", "Open the support-ready workspace bundle from Settings or Diagnostics export.", "Bundle"),
         ],
         object_sections=[
@@ -1387,6 +1405,18 @@ def settings_support_detail(
                     ]
                 )
                 or [_object_detail_row("Support surface is clear", "No human tasks or pending delivery are currently blocking the office loop.", "Clear")],
+            },
+            {
+                "eyebrow": "Runtime posture",
+                "title": "Queue, delivery, and failover pressure",
+                "items": [
+                    _object_detail_row("Queue state", str(queue_health.get("state") or "healthy"), "Queue"),
+                    _object_detail_row("Load score", str(queue_health.get("load_score") or 0), "Queue"),
+                    _object_detail_row("Retrying delivery", str(queue_health.get("retrying_delivery") or 0), "Queue"),
+                    _object_detail_row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue"),
+                    _object_detail_row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Provider"),
+                    _object_detail_row("Failover-ready lanes", str(providers.get("failover_ready_lanes") or 0), "Provider"),
+                ],
             },
         ],
     )

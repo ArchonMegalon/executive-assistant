@@ -101,7 +101,13 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert diagnostics_body["billing"]["support_tier"] == "guided"
     assert diagnostics_body["entitlements"]["principal_seats"] == 1
     assert "warnings" in diagnostics_body["commercial"]
+    assert "blocked_actions" in diagnostics_body["commercial"]
+    assert "recommended_plan_key" in diagnostics_body["commercial"]
     assert diagnostics_body["usage"]["queue_items"] >= 1
+    assert "risk_state" in diagnostics_body["providers"]
+    assert "lanes_with_fallback" in diagnostics_body["providers"]
+    assert "load_score" in diagnostics_body["queue_health"]
+    assert "retrying_delivery" in diagnostics_body["queue_health"]
 
     plan = client.get("/app/api/plan")
     assert plan.status_code == 200
@@ -123,6 +129,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert support_body["plan"]["display_name"] == "Pilot"
     assert "pending" in support_body["approvals"]
     assert isinstance(support_body["human_tasks"], list)
+    assert "risk_state" in support_body["providers"]
+    assert "load_score" in support_body["queue_health"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
