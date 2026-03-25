@@ -973,6 +973,108 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
     ]
 
 
+def test_onemin_provider_api_refresh_batches_after_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    calls: list[str] = []
+    sleep_calls: list[float] = []
+
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner-3@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "owner_email": "owner-4@example.com"},
+                ]
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        providers_route,
+        "_onemin_direct_api_quarantine_remaining",
+        lambda: (0.0, ""),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {
+                "account_name": "ONEMIN_AI_API_KEY",
+                "owner_email": "owner-1@example.com",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                "owner_email": "owner-2@example.com",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                "owner_email": "owner-3@example.com",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_3",
+                "owner_email": "owner-4@example.com",
+            },
+        ),
+    )
+
+    def fake_refresh_account(
+        *,
+        account_name: str,
+        owner_email: str,
+        include_members: bool,
+        timeout_seconds: int,
+        login_email: str = "",
+        login_password: str = "",
+    ):
+        calls.append(account_name)
+        if account_name == "ONEMIN_AI_API_KEY":
+            raise RuntimeError("onemin_login_http_429")
+        billing_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        member_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        return billing_result, member_result if include_members else None
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
+    monkeypatch.setenv("ONEMIN_DIRECT_API_BATCH_SIZE", "2")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_BATCH_BACKOFF_SECONDS", "0.5")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_MIN_ACCOUNT_DELAY_SECONDS", "0")
+    monkeypatch.setattr(providers_route.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    _, _, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+        include_members=True,
+        timeout_seconds=180,
+        all_accounts=True,
+        continue_on_rate_limit=True,
+    )
+
+    assert calls == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+    ]
+    assert attempted_count == 4
+    assert skipped_count == 0
+    assert rate_limited is True
+    assert errors[-1]["error"] == "onemin_login_http_429"
+    assert sleep_calls == [0.5]
+
+
 def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actual_credits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -688,6 +688,24 @@ def _onemin_direct_api_quarantine_seconds() -> float:
     return max(300.0, seconds)
 
 
+def _onemin_direct_api_batch_size() -> int:
+    raw = str(upstream._env("ONEMIN_DIRECT_API_BATCH_SIZE") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 0
+    except Exception:
+        value = 0
+    return value
+
+
+def _onemin_direct_api_batch_backoff_seconds() -> float:
+    raw = str(upstream._env("ONEMIN_DIRECT_API_BATCH_BACKOFF_SECONDS") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = float(raw) if raw else 0.0
+    except Exception:
+        value = 0.0
+    return max(0.0, value)
+
+
 def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
     remaining = max(0.0, _ONEMIN_DIRECT_API_QUARANTINED_UNTIL - time.time())
     return remaining, str(_ONEMIN_DIRECT_API_QUARANTINE_REASON or "").strip()
@@ -1047,6 +1065,13 @@ def _refresh_onemin_via_provider_api(
     except Exception:
         delay_seconds = 0.25
 
+    batch_size = _onemin_direct_api_batch_size()
+    if batch_size <= 0:
+        batch_size = max(1, min(4, max_accounts))
+    elif batch_size > max(1, max_accounts):
+        batch_size = max(1, max_accounts)
+
+    batch_backoff_seconds = _onemin_direct_api_batch_backoff_seconds()
     attempted_count = 0
     rate_limited = False
     quarantine_remaining, quarantine_reason = _onemin_direct_api_quarantine_remaining()
@@ -1066,48 +1091,59 @@ def _refresh_onemin_via_provider_api(
             True,
         )
 
-    for idx, row in enumerate(owner_rows):
-        if idx >= max_accounts:
+    rows = owner_rows[:max_accounts] if max_accounts > 0 else []
+    stop_processing = False
+    for batch_start in range(0, len(rows), batch_size):
+        batch_rows = rows[batch_start : batch_start + batch_size]
+        batch_rate_limited = False
+        for row in batch_rows:
+            account_name = str(row.get("account_name") or "").strip()
+            owner_email = str(row.get("owner_email") or "").strip()
+            if not account_name or not owner_email:
+                continue
+            attempted_count += 1
+            try:
+                credentials = dict(login_credentials.get(account_name) or {})
+                billing_result, member_result = _refresh_onemin_api_account(
+                    account_name=account_name,
+                    owner_email=owner_email,
+                    include_members=include_members,
+                    timeout_seconds=timeout_seconds,
+                    login_email=str(credentials.get("login_email") or owner_email).strip(),
+                    login_password=str(credentials.get("login_password") or "").strip(),
+                )
+                billing_results.append(billing_result)
+                if member_result is not None:
+                    member_results.append(member_result)
+            except Exception as exc:
+                error_text = str(exc or "onemin_api_refresh_failed")
+                errors.append(
+                    {
+                        "account_label": account_name,
+                        "owner_email": owner_email,
+                        "tool_name": "onemin.api.billing_refresh",
+                        "error": error_text,
+                    }
+                )
+                if (
+                    "onemin_login_http_429" in error_text
+                    or "onemin_api_http_429" in error_text
+                    or "error code: 1010" in error_text
+                    or "error code: 1015" in error_text
+                ):
+                    rate_limited = True
+                    batch_rate_limited = True
+                    _quarantine_onemin_direct_api(error_text)
+                    if not continue_on_rate_limit:
+                        stop_processing = True
+                        break
+        if stop_processing:
             break
-        account_name = str(row.get("account_name") or "").strip()
-        owner_email = str(row.get("owner_email") or "").strip()
-        if not account_name or not owner_email:
-            continue
-        attempted_count += 1
-        try:
-            credentials = dict(login_credentials.get(account_name) or {})
-            billing_result, member_result = _refresh_onemin_api_account(
-                account_name=account_name,
-                owner_email=owner_email,
-                include_members=include_members,
-                timeout_seconds=timeout_seconds,
-                login_email=str(credentials.get("login_email") or owner_email).strip(),
-                login_password=str(credentials.get("login_password") or "").strip(),
-            )
-            billing_results.append(billing_result)
-            if member_result is not None:
-                member_results.append(member_result)
-        except Exception as exc:
-            error_text = str(exc or "onemin_api_refresh_failed")
-            errors.append(
-                {
-                    "account_label": account_name,
-                    "owner_email": owner_email,
-                    "tool_name": "onemin.api.billing_refresh",
-                    "error": error_text,
-                }
-            )
-            if (
-                "onemin_login_http_429" in error_text
-                or "onemin_api_http_429" in error_text
-                or "error code: 1010" in error_text
-                or "error code: 1015" in error_text
-            ):
-                rate_limited = True
-                _quarantine_onemin_direct_api(error_text)
-                if not continue_on_rate_limit:
-                    break
-        if idx + 1 < min(len(owner_rows), max_accounts) and delay_seconds > 0:
+        if batch_start + batch_size >= len(rows):
+            break
+        if batch_rate_limited and batch_backoff_seconds > 0:
+            time.sleep(batch_backoff_seconds)
+        elif delay_seconds > 0:
             time.sleep(delay_seconds)
     if attempted_count <= len(owner_rows):
         skipped_count = max(0, len(owner_rows) - attempted_count)
