@@ -1,0 +1,298 @@
+product: chummer
+surface: chummer.run
+version: 1
+headline: Shadowrun rules truth, with receipts.
+subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
+proof_line: Preview product. Honest status. No mystery roadmap.
+no_provider_names: true
+no_ltd_names: true
+hero_ctas:
+  - label: Get preview build
+    href: /downloads
+    emphasis: primary
+  - label: See what works today
+    href: /now
+    emphasis: secondary
+guest_shell_actions:
+  - label: Sign in
+    href: /login?next=/home
+    emphasis: secondary
+  - label: Create account
+    href: /signup?next=/home
+    emphasis: primary
+secondary_highlights:
+  - Deterministic engine
+  - Rules receipts
+  - Local-first continuity
+product_proof_eyebrow: Real product proof
+product_proof_intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+product_proof_primary_label: Install the current preview
+product_proof_primary_href: /downloads
+product_proof_secondary_label: Inspect the proof trail
+product_proof_secondary_href: /now#real-rules-truth
+product_proof_topline_label: Current preview
+product_proof_result_title: Final pool 9
+product_proof_result_summary: Same inputs, same answer, with the trail and release posture still attached.
+product_proof_trail:
+  - Base 11
+  - Weather -1
+  - Wounds -1
+  - Recoil -1
+public_routes:
+  - path: /
+    title: Landing
+    audience: public
+    purpose: product_front_door
+    requires_auth: false
+    guest_fallback: /
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public product story only
+  - path: /what-is-chummer
+    title: Product
+    audience: public
+    purpose: product_story
+    requires_auth: false
+    guest_fallback: /what-is-chummer
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public product story only
+  - path: /now
+    title: What works today
+    audience: public
+    purpose: proof_shelf
+    requires_auth: false
+    guest_fallback: /now
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: proof shelf honesty only
+  - path: /horizons
+    title: Roadmap
+    audience: public
+    purpose: horizon_summary
+    requires_auth: false
+    guest_fallback: /horizons
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public horizon set only
+  - path: /downloads
+    title: Downloads
+    audience: public
+    purpose: release_shelf
+    requires_auth: false
+    guest_fallback: /downloads
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: proof shelf honesty only
+  - path: /help
+    title: Help
+    audience: public
+    purpose: support_entry
+    requires_auth: false
+    guest_fallback: /help
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public support framing only
+  - path: /faq
+    title: FAQ
+    audience: public
+    purpose: support_entry
+    requires_auth: false
+    guest_fallback: /faq
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public product questions only
+  - path: /privacy
+    title: Privacy
+    audience: public
+    purpose: trust_surface
+    requires_auth: false
+    guest_fallback: /privacy
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: current hosted data-handling posture only
+  - path: /terms
+    title: Terms
+    audience: public
+    purpose: trust_surface
+    requires_auth: false
+    guest_fallback: /terms
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: plain-language preview terms only
+  - path: /contact
+    title: Contact
+    audience: public
+    purpose: support_entry
+    requires_auth: false
+    guest_fallback: /contact
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: current public support/contact path only
+  - path: /progress
+    title: Progress report
+    audience: public
+    purpose: program_progress
+    requires_auth: false
+    guest_fallback: /progress
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: generated public progress report only
+  - path: /participate
+    title: Participate
+    audience: public
+    purpose: help_and_booster_entry
+    requires_auth: false
+    guest_fallback: /participate
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public explainer only
+  - path: /status
+    title: Public status
+    audience: public
+    purpose: status_summary
+    requires_auth: false
+    guest_fallback: /status
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public status only
+  - path: /artifacts
+    title: Featured artifacts
+    audience: public
+    purpose: teaser_gallery
+    requires_auth: false
+    guest_fallback: /artifacts
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: teaser gallery only
+auth_routes:
+  - path: /login
+    title: Sign in
+    audience: public
+    purpose: guest_auth_entry
+    requires_auth: false
+    guest_fallback: /login
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: first-wave auth entry
+  - path: /signup
+    title: Create account
+    audience: public
+    purpose: guest_auth_entry
+    requires_auth: false
+    guest_fallback: /signup
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: first-wave auth entry
+  - path: /logout
+    title: Sign out
+    audience: registered
+    purpose: session_exit
+    requires_auth: true
+    guest_fallback: /
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: session exit only
+  - path: /auth/email/start
+    title: Start email entry
+    audience: public
+    purpose: auth_operation
+    requires_auth: false
+    guest_fallback: /login
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: email entry start
+  - path: /auth/email/callback
+    title: Complete email entry
+    audience: public
+    purpose: auth_operation
+    requires_auth: false
+    guest_fallback: /login
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: email entry callback
+  - path: /auth/google/start
+    title: Start Google sign-in
+    audience: public
+    purpose: auth_operation
+    requires_auth: false
+    guest_fallback: /login
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: Google OIDC start route
+  - path: /auth/google/callback
+    title: Complete Google sign-in
+    audience: public
+    purpose: auth_operation
+    requires_auth: false
+    guest_fallback: /login
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: Google OIDC callback route
+registered_routes:
+  - path: /home
+    title: Home
+    audience: registered
+    purpose: signed_in_dashboard
+    requires_auth: true
+    guest_fallback: /login?next=/home
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in dashboard with honest empty states
+  - path: /account
+    title: Account
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: profile and linked-identity shell
+sections:
+  - id: hero
+    title: Shadowrun rules truth, with receipts.
+    audience: public
+    route: /
+  - id: product_proof
+    title: One concrete result, one visible trail, one current build
+    audience: public
+    route: /
+  - id: start_here
+    title: How Chummer helps at the table
+    audience: public
+    route: /
+  - id: why_trust_it
+    title: Why trust it
+    audience: public
+    route: /
+  - id: choose_your_lane
+    title: Who this is for
+    audience: public
+    route: /
+  - id: closing_cta
+    title: Early access
+    audience: public
+    route: /
+  - id: whats_real_now
+    title: What works today
+    audience: public
+    route: /now
+  - id: coming_next
+    title: Coming next
+    audience: public
+    route: /horizons
+  - id: featured_artifacts
+    title: Featured artifacts
+    audience: public
+    route: /artifacts
+registered_overlays:
+  - id: follow_horizons
+    path: /home
+    title: Follow horizons
+    summary: Track the futures you care about without turning advisory signals into canon.
+  - id: beta_interest
+    path: /home
+    title: Beta interest
+    summary: Raise your hand for future player, GM, or creator previews.
+footer_canonical_source: Chummer product front canon
+footer_generated_note: Projection compiled from the approved design mirror.

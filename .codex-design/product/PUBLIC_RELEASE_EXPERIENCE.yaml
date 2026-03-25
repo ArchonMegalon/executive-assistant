@@ -1,0 +1,24 @@
+product: chummer
+surface: chummer.run
+version: 1
+release_notes_summary: The current preview centers one obvious installer, a visible proof trail, cleaner account handoff, and account-aware install linking without changing the signed artifact.
+known_issues_label: Known issues and install help
+known_issues_href: /help#install-update
+install_help_label: Need install help?
+install_help_href: /help#install-update
+update_posture_summary: The release page is the source of truth for the current preview channel, the recommended installer, and whether you should expect a straightforward update or a manual handoff.
+install_steps:
+  - Download the recommended installer for your platform.
+  - Run the installer and launch Chummer.
+  - Sign in only if you want account-linked downloads, recovery, and install handoff.
+  - Use Devices and access later if you want to link a downloaded copy back to this account.
+windows_requirements:
+  - 64-bit Windows 10 or newer.
+  - Enough free disk space for the installed preview plus future updates.
+  - A normal user install path; no custom runtime selection needed for the recommended build.
+linux_requirements:
+  - 64-bit Linux with the currently published preview package support.
+  - Use the recommended package when available; use manual packages only for advanced or support-directed installs.
+macos_requirements:
+  - macOS publishing is not on the current preview shelf.
+  - Use the public roadmap and downloads page as the live source of truth before assuming a Mac build exists.

@@ -1,0 +1,325 @@
+group_id: chummer-vnext
+last_reviewed: 2026-03-25
+
+packages:
+  - id: Chummer.Engine.Contracts
+    owner_repo: chummer6-core
+    purpose: Deterministic engine/runtime/explain/reducer DTOs.
+    status: complete
+    versioning_policy: SemVer. Breaking runtime or explain payload meaning is major; additive DTO fields or projections are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations land in design and core first, remain supported for at least one promoted release cycle, and require milestone/blocker updates before removal.
+    consumers:
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-hub
+    forbidden_source_copies:
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-hub
+
+  - id: Chummer.Play.Contracts
+    owner_repo: chummer6-hub
+    purpose: Play/mobile/service seam for hosted play APIs, role-shell transport DTOs, replay checkpoints, and play-safe projections.
+    status: complete
+    versioning_policy: SemVer. Breaking play-shell API or transport semantics is major; additive projections or request fields are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be announced in design and hub first, keep replay-safe compatibility for at least one promoted release cycle, and update blockers before semantic removal.
+    consumers:
+      - chummer6-mobile
+      - chummer6-ui
+    forbidden_source_copies:
+      - chummer6-mobile
+      - chummer6-ui
+
+  - id: Chummer.Run.Contracts
+    owner_repo: chummer6-hub
+    purpose: Hosted orchestration contracts for identity, approvals, participation, run-specific ingestion/backup seams, delivery, and service policy.
+    status: complete
+    versioning_policy: SemVer. Breaking hosted orchestration or participation semantics is major; additive workflow fields are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be published in design and hub, dual-served for at least one promoted release cycle, and paired with milestone/blocker updates before removal.
+    consumers:
+      - chummer6-ui
+      - internal service clients
+    forbidden_source_copies:
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-core
+
+  - id: Chummer.Campaign.Contracts
+    owner_repo: chummer6-hub
+    purpose: Campaign continuity contracts for runner dossier, crew, campaign, run, scene, objective, recap, and replay-safe continuity projections.
+    status: in_progress
+    versioning_policy: SemVer. Breaking dossier identity, campaign continuity, or replay-safe lifecycle meaning is major; additive projections and linkage fields are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be staged in design and hub, preserve replay-safe continuity for at least one promoted release cycle, and publish migration guidance before removal.
+    consumers:
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-media-factory
+      - internal service clients
+    forbidden_source_copies:
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-media-factory
+
+  - id: Chummer.Control.Contracts
+    owner_repo: chummer6-hub
+    purpose: Product-control contracts for support intake, case status, clustered signal packets, decision routing, release-readiness, and closure truth.
+    status: in_progress
+    versioning_policy: SemVer. Breaking support-case, signal-packet, decision-routing, or closure semantics is major; additive packet fields or projections are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be staged in design and hub, dual-served for at least one promoted release cycle, and keep reporter-facing status semantics stable until replacement is live.
+    consumers:
+      - chummer6-ui
+      - fleet
+      - executive-assistant
+      - internal service clients
+    forbidden_source_copies:
+      - chummer6-ui
+      - fleet
+      - executive-assistant
+
+  - id: Chummer.Ui.Kit
+    owner_repo: chummer6-ui-kit
+    purpose: Shared design tokens, themes, primitives, shell chrome, and reusable Chummer UI patterns.
+    status: complete
+    versioning_policy: SemVer. Breaking token, primitive, or component contracts is major; additive reusable surfaces are minor; compatible visual fixes are patch.
+    deprecation_policy: Deprecations must name a replacement primitive or token, be reflected in design and package release notes, and stay available for at least one promoted UI/mobile release cycle before removal.
+    consumers:
+      - chummer6-ui
+      - chummer6-mobile
+    forbidden_source_copies:
+      - chummer6-ui
+      - chummer6-mobile
+
+  - id: Chummer.Hub.Registry.Contracts
+    owner_repo: chummer6-hub-registry
+    purpose: Immutable registry/publication/install/update/compatibility contracts.
+    status: complete
+    versioning_policy: SemVer. Breaking artifact, install, or release-feed schema meaning is major; additive publication and compatibility metadata is minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be staged in design and registry, dual-served for at least one promoted release cycle, and reflected in compatibility guidance before removal.
+    consumers:
+      - chummer6-hub
+      - chummer6-ui
+    forbidden_source_copies:
+      - chummer6-hub
+      - chummer6-ui
+
+  - id: Chummer.Media.Contracts
+    owner_repo: chummer6-media-factory
+    purpose: Media execution contracts for render jobs, manifests, previews, asset lifecycle, and media receipts.
+    status: complete
+    versioning_policy: SemVer. Breaking render-job, manifest, or receipt semantics is major; additive media metadata is minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations must be announced in design and media-factory, preserve preview/manifests for at least one promoted release cycle, and update affected blockers before removal.
+    consumers:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    forbidden_source_copies:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+
+contract_sets:
+  - id: runtime_dtos_vnext
+    canonical_package: Chummer.Engine.Contracts
+    semantic_owner: chummer6-core
+    status: complete
+    includes:
+      - runtime fingerprints
+      - runtime bundles
+      - ruleset/pack/profile provenance
+      - deterministic runtime payloads
+
+  - id: explain_trace_vnext
+    canonical_package: Chummer.Engine.Contracts
+    semantic_owner: chummer6-core
+    status: complete
+    includes:
+      - explain traces
+      - modifier provenance
+      - evidence pointers
+      - localization-safe explain keys
+
+  - id: session_events_vnext
+    canonical_package: Chummer.Engine.Contracts
+    semantic_owner: chummer6-core
+    consumer_wrappers:
+      - Chummer.Play.Contracts
+    status: complete
+    includes:
+      - semantic session mutation events
+      - causation and idempotency data
+      - actor and device identity
+      - scene revision and replay safety
+    rule: Consumer packages may wrap transport or projection concerns but may not redefine semantic event meaning.
+
+  - id: play_api_vnext
+    canonical_package: Chummer.Play.Contracts
+    semantic_owner: chummer6-hub
+    status: complete
+    includes:
+      - play bootstrap
+      - session profile catalog
+      - hosted play projections
+      - play-safe coach/spider projections
+
+  - id: run_orchestration_vnext
+    canonical_package: Chummer.Run.Contracts
+    semantic_owner: chummer6-hub
+    status: complete
+    includes:
+      - approvals
+      - memory
+      - delivery
+      - notifications
+      - orchestration receipts
+
+  - id: participation_workflow_vnext
+    canonical_package: Chummer.Run.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - sponsor request
+      - consent record
+      - device-auth session
+      - participant-lane state
+      - contribution receipt
+      - revoke request
+      - recognition projection
+    rule: Hub owns sponsor, consent, visibility, ledger, and recognition semantics; Fleet owns execution-side lifecycle and receipt signing; EA may project ownership telemetry but may not redefine the workflow family.
+
+  - id: campaign_spine_vnext
+    canonical_package: Chummer.Campaign.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - runner dossier identity
+      - crew and campaign refs
+      - run, scene, and objective refs
+      - continuity snapshots
+      - replay-safe recap linkage
+    rule: "Campaign continuity is first-class product truth. UI, mobile, media, Fleet, and EA may consume or project it, but they may not redefine runner, crew, campaign, or continuity semantics."
+
+  - id: living_dossier_vnext
+    canonical_package: Chummer.Campaign.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - build receipt linkage
+      - dossier lifecycle state
+      - recovery and recap refs
+      - publication-safe dossier projections
+    rule: "A living dossier is not just a build and not just a publication artifact. Engine receipts stay in `Chummer.Engine.Contracts`; long-lived dossier identity and continuity stay in `Chummer.Campaign.Contracts`."
+
+  - id: support_intake_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - crash envelope intake
+      - diagnostics attachment references
+      - structured bug reports
+      - lightweight feedback submissions
+      - support case and thread state
+      - knowledge article and public issue links
+    rule: "`chummer6-ui` owns local crash interception, diagnostics bundle creation, recovery UX, and redacted intake forwarding; `chummer6-hub` owns hosted support-case truth and intake normalization through `Chummer.Control.Contracts`; external tools may assist routing or docs/help but may not become the canonical crash or ticket system."
+
+  - id: support_status_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - case status events
+      - resolution notices
+      - fix-available notices
+      - follow-up survey invites
+      - reporter-channel availability state
+    rule: "Support closure follows Hub case truth plus Registry-backed channel availability. Merged code or drafted fixes are not enough to emit a user-facing fixed notice."
+
+  - id: feedback_signal_ooda_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - feedback clusters
+      - support and release signal packets
+      - routing decisions
+      - defer or reject reasons
+      - closure notices
+    rule: "Hub owns raw intake and closure, Fleet may synthesize clustered evidence packets, and product-governor or designer review may route the packet; raw signals do not become backlog or canon truth without synthesis."
+
+  - id: crash_automation_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - crash cluster projections
+      - crash work items
+      - crash fingerprint and regression metadata
+      - Fleet-facing repro and patch-prep refs
+    rule: "Fleet may consume normalized crash automation DTOs for triage, repro, test drafting, and patch proposal, but raw desktop client crash payloads must enter through Hub-owned intake first and user-visible repair still ships through the normal review/release/update path."
+
+  - id: account_aware_install_linking_vnext
+    canonical_package: Chummer.Hub.Registry.Contracts
+    semantic_owner: chummer6-hub-registry
+    status: in_progress
+    includes:
+      - download receipts
+      - install access class posture
+      - install claim tickets
+      - claimed installation records
+      - installation grants
+      - install-to-release compatibility projections
+    rule: "`chummer6-hub` owns account-linking UX and the person/install/support relationship, but `Chummer.Hub.Registry.Contracts` owns the install-facing DTO family for download receipts, claim/grant metadata, install access posture, and install/update compatibility truth."
+
+  - id: ui_system_vnext
+    canonical_package: Chummer.Ui.Kit
+    semantic_owner: chummer6-ui-kit
+    status: complete
+    includes:
+      - design tokens
+      - shell primitives
+      - accessibility primitives
+      - Chummer-specific reusable state patterns
+
+  - id: hub_registry_vnext
+    canonical_package: Chummer.Hub.Registry.Contracts
+    semantic_owner: chummer6-hub-registry
+    status: complete
+    includes:
+      - artifact metadata
+      - publication state
+      - install state
+      - install access class posture
+      - desktop release-head records
+      - update-feed projections
+      - review and compatibility projections
+
+  - id: desktop_update_vnext
+    canonical_package: Chummer.Hub.Registry.Contracts
+    semantic_owner: chummer6-hub-registry
+    status: in_progress
+    includes:
+      - install media records
+      - machine update payload metadata
+      - rollout, pause, and revoke state
+      - runtime-bundle head references
+      - desktop release-head and update-feed DTOs
+    rule: "`chummer6-ui` consumes and applies registry-published desktop update truth, but it must not redefine channel vocabulary, rollout posture, or promoted head identity."
+
+  - id: media_execution_vnext
+    canonical_package: Chummer.Media.Contracts
+    semantic_owner: chummer6-media-factory
+    status: complete
+    includes:
+      - media jobs
+      - asset manifests
+      - preview and thumbnail refs
+      - asset lifecycle
+      - media receipts
+
+compatibility_rules:
+  - Contract packages must version independently.
+  - Breaking changes require milestone and blocker updates in chummer6-design.
+  - No repo may source-copy a canonical contract family owned elsewhere.
+  - Repo-local mirrors must refer to canonical package ids, not legacy aliases.
+  - Local and CI restore for `Chummer.Engine.Contracts` and `Chummer.Ui.Kit` must use a canonical package feed or an explicit generated compatibility tree.
+  - Legacy consumers may not rely on ambient monorepo-relative source references as bootstrap truth.

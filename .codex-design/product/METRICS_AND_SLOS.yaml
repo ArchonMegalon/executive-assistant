@@ -1,0 +1,118 @@
+product: chummer
+version: 1
+last_reviewed: 2026-03-24
+purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
+
+scorecards:
+  - id: deterministic_rules_truth
+    owner_repo: chummer6-core
+    user_promise: Numbers and legality stay reproducible and explainable.
+    metrics:
+      - name: promoted_mechanics_receipt_coverage
+        target: 100%
+        measurement: Every promoted mechanics-affecting output exposes an explain or receipt pointer in repo verification and release signoff.
+      - name: release_blocking_math_regressions
+        target: 0
+        measurement: No open release blocker may remain for rules divergence on a promoted channel.
+
+  - id: session_continuity
+    owner_repo: chummer6-mobile
+    user_promise: A table can reconnect and resume without rebuilding truth by memory.
+    metrics:
+      - name: replay_reconnect_success
+        target: ">=99% before promotion"
+        measurement: Standard reconnect and replay verification must pass across supported device and session scenarios.
+      - name: silent_shared_state_drift
+        target: 0
+        measurement: Drift must surface explicit stale or conflict state with receipt-backed recovery cues. Silent merge or silent discard fails the gate.
+
+  - id: campaign_and_dossier_continuity
+    owner_repo: chummer6-hub
+    user_promise: A runner, crew, and campaign remain understandable across build, play, recap, and return.
+    metrics:
+      - name: living_dossier_history_linkage
+        target: 100%
+        measurement: The promoted dossier model must preserve explicit links between build receipts, campaign context, recovery state, and recap-ready history.
+      - name: replay_safe_campaign_snapshot_integrity
+        target: 100%
+        measurement: Campaign continuity projections must be reconstructable from replay-safe event or snapshot truth rather than ad hoc UI-only state.
+
+  - id: hosted_identity_and_participation
+    owner_repo: chummer6-hub
+    user_promise: Sign-in, participation, and recognition stay boring, honest, and receipt-backed.
+    metrics:
+      - name: visible_auth_route_honesty
+        target: 100%
+        measurement: Every visible auth route explains enabled, disabled, or fallback posture in the current build.
+      - name: recognition_from_signed_receipts
+        target: 100%
+        measurement: Recognition, rewards, or entitlement changes must derive from validated Fleet contribution receipts rather than raw time or auth completion.
+
+  - id: install_and_update_coherence
+    owner_repo: chummer6-hub-registry
+    user_promise: Downloads, installers, and updater truth point to one coherent record.
+    metrics:
+      - name: promoted_channel_to_public_shelf_freshness
+        target: "<=24h"
+        measurement: A promoted channel update must reach the public download shelf projection within one day.
+      - name: promoted_installer_metadata_completeness
+        target: 100%
+        measurement: Every promoted installer record includes channel, platform, architecture, runtime-bundle head, and compatibility data.
+
+  - id: artifact_publication_integrity
+    owner_repo: chummer6-media-factory
+    user_promise: Rich artifacts can feel finished without losing provenance.
+    metrics:
+      - name: published_artifact_manifest_linkage
+        target: 100%
+        measurement: Every published or preview artifact has a manifest, linked preview state, and provenance-bearing receipt chain.
+      - name: preview_first_policy_breaches
+        target: 0
+        measurement: No promoted render lane may skip required preview-first behavior where the canon says preview-first is mandatory.
+
+  - id: support_and_closure_honesty
+    owner_repo: chummer6-hub
+    user_promise: Users can report pain, follow status, and trust the meaning of fixed.
+    metrics:
+      - name: reporter_visible_closure_from_release_truth
+        target: 100%
+        measurement: User-facing fixed or resolved notices must be emitted from actual channel or release truth rather than merged-code events.
+      - name: unresolved_known_issue_without_guidance
+        target: 0
+        measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
+
+release_gates:
+  - id: public_surface_honesty
+    pass_conditions:
+      - PUBLIC_FEATURE_REGISTRY, RELEASE_EVIDENCE_PACK, and downstream public projections agree on available, preview, and horizon labels.
+      - Public auth routes and participation CTAs match the canonical guest and registered posture.
+
+  - id: deterministic_truth_gate
+    pass_conditions:
+      - Core verification proves deterministic mechanics and explain coverage for promoted surfaces.
+      - No release-blocking math or legality blocker remains open.
+
+  - id: continuity_and_conflict_recovery_gate
+    pass_conditions:
+      - Replay and reconnect flows pass the supported continuity scenarios.
+      - Shared-state drift is visible, receipt-backed, and recoverable without silent data loss.
+
+  - id: install_and_update_gate
+    pass_conditions:
+      - Registry promotion truth, Hub download UX, and UI installer outputs agree on channel and compatibility state.
+      - Update feeds never outrun registry truth.
+
+  - id: publication_and_provenance_gate
+    pass_conditions:
+      - Published artifacts preserve manifest, preview, and provenance links end to end.
+      - Registry publication state and media render state never become parallel authorities.
+
+  - id: campaign_and_closure_gate
+    pass_conditions:
+      - Build, campaign, recap, and replay flows preserve one living-dossier story instead of fragmenting into head-local truth.
+      - Reporter-facing closure only claims fixed when the user's channel or support posture actually changed.
+
+rules:
+  - These metrics are release gates, not dashboard decoration.
+  - If instrumentation is not live yet, the owning repo must enforce the metric through verification plus release-signoff evidence.
+  - A blocker that contradicts a gate condition automatically fails that gate.
