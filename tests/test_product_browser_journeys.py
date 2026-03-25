@@ -206,6 +206,21 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Conversation thread" in thread_page.text
     assert "sofia@example.com" in thread_page.text
 
+    assert f"/app/commitment-items/commitment:{seeded['commitment_id']}" in client.get("/app/follow-ups").text
+    commitment_page = client.get(f"/app/commitment-items/commitment:{seeded['commitment_id']}")
+    assert commitment_page.status_code == 200
+    assert "Commitment ledger" in commitment_page.text
+    assert "Recent ledger activity" in commitment_page.text
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    handoff_id = handoffs.json()[0]["id"]
+    assert handoff_id in client.get("/app/activity").text
+    handoff_page = client.get(f"/app/handoffs/{handoff_id}")
+    assert handoff_page.status_code == 200
+    assert "Handoffs" in handoff_page.text
+    assert "Recent assignment events" in handoff_page.text
+
     evidence = client.get("/app/api/evidence")
     assert evidence.status_code == 200
     evidence_id = evidence.json()["items"][0]["id"]
