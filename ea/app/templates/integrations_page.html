@@ -1,32 +1,39 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
-  .integration-hero {
+  .integration-hero,
+  .integration-card,
+  .integration-note,
+  .integration-use-case {
     padding: 18px;
   }
-  .integration-grid {
+  .integration-grid,
+  .integration-note-grid,
+  .integration-use-case-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
   }
-  .integration-card {
+  .integration-grid,
+  .integration-use-case-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .integration-note-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .integration-card,
+  .integration-note,
+  .integration-use-case {
     border: 1px solid var(--line);
     border-radius: 12px;
     background: rgba(255,255,255,0.02);
-    padding: 16px;
-  }
-  .integration-card .eyebrow {
-    color: var(--text-dim);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
   }
   .integration-card .pill {
     margin-bottom: 12px;
   }
   @media (max-width: 1080px) {
-    .integration-grid {
+    .integration-grid,
+    .integration-note-grid,
+    .integration-use-case-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -34,22 +41,49 @@
 
 <section class="section panel integration-hero">
   <div class="kicker">Integrations</div>
-  <h1>Connect the channels that shape the day.</h1>
-  <p class="lead">Google, Telegram, and WhatsApp are useful in different ways. The product should make those boundaries explicit so operators know what the assistant can read, draft, and track.</p>
+  <h1>Connect the channels that really shape the workday.</h1>
+  <p class="lead">Start with the channel that produces a useful brief quickly. For most customers, that is Google. Add Telegram or WhatsApp when those conversations genuinely need to show up in the same daily view.</p>
+</section>
+
+<section class="section integration-note-grid">
+  <section class="integration-note">
+    <div class="kicker">Recommended order</div>
+    <h2>Google first</h2>
+    <p class="copy">Google usually gives the fastest return: a better brief, better reply timing, and clearer people and calendar context.</p>
+  </section>
+  <section class="integration-note">
+    <div class="kicker">Product rule</div>
+    <h2>Be explicit about what each channel does</h2>
+    <p class="copy">Each connection should say clearly what the assistant can read, draft, verify, or import today. Trust drops when the UI implies more than the channel contract really allows.</p>
+  </section>
+</section>
+
+<section class="section integration-use-case-grid">
+  <section class="integration-use-case">
+    <strong>Google</strong>
+    Best when email, calendar, and contacts already drive the day.
+  </section>
+  <section class="integration-use-case">
+    <strong>Telegram</strong>
+    Best when important decisions or follow-ups regularly start in Telegram.
+  </section>
+  <section class="integration-use-case">
+    <strong>WhatsApp</strong>
+    Best when business messaging or imported chat context needs to stay in the same operating loop.
+  </section>
 </section>
 
 <section class="section">
   <div class="section-head">
     <div>
       <div class="kicker">Current channels</div>
-      <h2>One product, clear connector posture</h2>
+      <h2>Choose the next useful connection</h2>
     </div>
-    <p>These integrations should read like honest contracts: what is supported now, what is staged, and where the limits still are.</p>
+    <p>This page should make it obvious which channel to connect first, which one is guided, and where the current limits still are.</p>
   </div>
   <div class="integration-grid">
     {% for card in channel_cards %}
     <section class="integration-card">
-      <div class="eyebrow">{{ card.label }}</div>
       <div class="pill {{ card.tone }}">{{ card.status }}</div>
       <h2>{{ card.label }}</h2>
       <p class="copy">{{ card.detail }}</p>

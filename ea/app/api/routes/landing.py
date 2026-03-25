@@ -74,44 +74,44 @@ FEATURE_CARDS = (
         "body": "Start with the ranked brief: what changed overnight, what is blocked, and what needs a reply first.",
     },
     {
-        "title": "Draft Replies",
-        "body": "Generate source-aware drafts with approvals and receipts instead of generic assistant text.",
+        "title": "Draft queue",
+        "body": "Prepare replies with the right context and keep review visible before anything leaves the workspace.",
     },
     {
         "title": "Follow-ups",
         "body": "Track promises, deadlines, and pending decisions without rebuilding your reminders manually.",
     },
     {
-        "title": "Memory",
-        "body": "Keep people, themes, commitments, and channel context in a principal-scoped workspace.",
+        "title": "Contact memory",
+        "body": "Keep people, themes, commitments, and channel context attached to the right workspace over time.",
     },
     {
-        "title": "Approvals",
-        "body": "Human review stays explicit for sensitive sends, edits, and escalations.",
+        "title": "Approval controls",
+        "body": "Keep review explicit for sensitive sends, edits, and escalations.",
     },
     {
-        "title": "Integrations",
-        "body": "Connect only the channels you actually use and keep the support contract honest.",
+        "title": "Honest channel support",
+        "body": "Connect only the channels you actually use and keep the support contract explicit.",
     },
 )
 
 HOW_STEPS = (
-    {"title": "Create workspace", "body": "Choose the working mode, timezone, and operating posture for this assistant workspace."},
-    {"title": "Connect channels", "body": "Start with Google Core, then add Telegram or WhatsApp based on the real operating loop."},
-    {"title": "Set privacy & approvals", "body": "Decide what EA can store, draft, and automate before it starts acting on your behalf."},
-    {"title": "Get your first brief", "body": "Use the first briefing as the product proof instead of treating setup as the finish line."},
+    {"title": "Choose the workspace fit", "body": "Pick the workspace shape that matches the daily workload, not the org chart."},
+    {"title": "Connect Google first", "body": "Start with Google Core so the assistant can produce a useful brief quickly."},
+    {"title": "Review one real loop", "body": "Use the first brief, one reviewed draft, and one follow-up as the product proof."},
+    {"title": "Add more only when it helps", "body": "Bring in Telegram, WhatsApp, and deeper settings only when they clearly improve the workflow."},
 )
 
 PERSONAS = (
     {"title": "Founders", "body": "Stay ahead of investor, recruiting, vendor, and team follow-ups without losing context."},
     {"title": "Chiefs of staff", "body": "Keep leadership communication, handoffs, and commitments visible across channels."},
-    {"title": "Small teams", "body": "Organize shared channels, triage requests, and manage approvals in one assistant workspace."},
+    {"title": "Executive teams", "body": "Organize shared channels, triage requests, and manage approvals in one assistant workspace."},
 )
 
 TRUST_CARDS = (
-    {"title": "Principal-scoped memory", "body": "Context belongs to the right workspace instead of floating around in stateless prompts."},
-    {"title": "Receipts and reasoning", "body": "Drafts and suggestions keep their source trail so operators know why something surfaced."},
-    {"title": "Human approvals", "body": "Critical actions remain reviewable. The assistant supports execution without pretending to replace judgment."},
+    {"title": "Scoped workspace memory", "body": "Context belongs to the right workspace instead of floating around in stateless prompts."},
+    {"title": "Visible review points", "body": "Drafts and suggestions stay reviewable so the product feels safe in real work."},
+    {"title": "Clear channel boundaries", "body": "Each connection spells out what the assistant can really read, draft, verify, or import."},
 )
 
 PRODUCT_MODULES = (
@@ -120,25 +120,25 @@ PRODUCT_MODULES = (
     {"title": "Draft Queue", "body": "Prepare messages with context, approvals, and clear provenance before sending."},
     {"title": "Follow-up Tracker", "body": "Keep commitments and promised next steps visible until they are actually closed."},
     {"title": "Memory", "body": "Retain people, patterns, and context in a durable assistant workspace."},
-    {"title": "Approvals", "body": "Keep the operator in control for outbound actions, edits, and high-trust workflows."},
+    {"title": "Approvals", "body": "Keep the user in control for outbound actions, edits, and high-trust workflows."},
 )
 
 SIGN_IN_NOTES = (
-    "Use your normal workspace authentication path to open the product shell.",
-    "On Cloudflare Access deployments, the browser identity becomes the workspace principal automatically.",
-    "On local or operator hosts, browser setup remains bound to the configured token and principal rules.",
+    "Use the identity your workspace already trusts so the assistant opens in the right account context.",
+    "Company SSO or access-gateway deployments should hand you into the workspace without another setup loop.",
+    "Private deployments can still enforce host-level rules, but those checks should feel invisible when the deployment is configured correctly.",
 )
 
 PRICING_TIERS = (
-    {"title": "Starter", "price": "Pilot", "body": "Single workspace, Google Core first, and the daily brief loop for one operator."},
-    {"title": "Executive", "price": "Core", "body": "Inbox, follow-ups, approvals, and multi-channel operating rhythms for active leaders."},
-    {"title": "Team", "price": "Custom", "body": "Shared operators, policies, admin controls, and durable workspace memory across a team."},
+    {"title": "Starter", "price": "Pilot", "body": "One workspace, Google first, and the daily brief loop for one person or one executive workflow."},
+    {"title": "Growth", "price": "Core", "body": "Shared reviews, broader channel coverage, and a stronger operating loop for a small team."},
+    {"title": "Executive ops", "price": "Custom", "body": "Higher-trust review, admin visibility, and a heavier operating model for executive support."},
 )
 
 DOC_LINKS = (
-    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for the EA control plane."},
-    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "Route map, subsystems, and operator-facing boundaries."},
-    {"title": "Runtime overview", "href": "https://github.com/ArchonMegalon/executive-assistant", "body": "Repository overview, deployment notes, and current runtime framing."},
+    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for teams integrating with the product."},
+    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "A technical route map for admins and developers who need implementation detail."},
+    {"title": "Repository overview", "href": "https://github.com/ArchonMegalon/executive-assistant", "body": "Source, deployment notes, and the broader implementation context."},
 )
 
 
@@ -263,10 +263,10 @@ def _shared_browser_fields(
     if not browser_principal_override_allowed():
         return f"""
         {token_field}
-        <p class=\"helper-note\">This browser is currently setting up the default workspace for this server. A different workspace principal can only be chosen here when browser principal override is explicitly enabled.</p>
+        <p class=\"helper-note\">This browser can only finish setup for the default workspace on this deployment. Switching workspaces from the browser is disabled here.</p>
         """
     return f"""
-    <label for=\"principal_id\">Principal ID</label>
+    <label for=\"principal_id\">Workspace ID (advanced)</label>
     <input id=\"principal_id\" name=\"principal_id\" value=\"{html.escape(principal_id)}\" required>
     {token_field}
     """
@@ -368,8 +368,8 @@ def _public_context(
         "trust_notes": _list_rows(
             preview.get("trust_notes"),
             (
-                "The public product says what each channel can actually do today.",
-                "Approvals and principal-scoped memory are visible product features, not hidden operator facts.",
+                "Each channel says clearly what the assistant can actually do today.",
+                "Approvals and durable workspace memory are visible product features, not hidden implementation details.",
             ),
         ),
         "top_contacts": _list_rows(preview.get("top_contacts"), ("No contact memory yet.",)),
@@ -440,45 +440,45 @@ def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, o
     mapping: dict[str, dict[str, object]] = {
         "today": {
             "title": "Today",
-            "summary": str(preview.get("headline") or status.get("next_step") or "Your operating day starts with the morning brief."),
+            "summary": str(preview.get("headline") or status.get("next_step") or "Start with the brief, clear the review queue, and keep the day moving."),
             "cards": [
                 {"eyebrow": "Morning brief", "title": "What matters first", "items": first_brief},
-                {"eyebrow": "Suggested actions", "title": "Next moves", "items": suggested},
-                {"eyebrow": "Channels", "title": "Connected posture", "items": channel_lines},
-                {"eyebrow": "Trust", "title": "Why the system surfaced this", "items": trust_notes},
+                {"eyebrow": "Review queue", "title": "What to clear next", "items": suggested},
+                {"eyebrow": "Channels", "title": "What is shaping the day", "items": channel_lines},
+                {"eyebrow": "Why it is here", "title": "Visible trust cues", "items": trust_notes},
             ],
         },
         "briefing": {
             "title": "Briefing",
-            "summary": str(preview.get("headline") or "Briefings summarize priorities, drafts, and follow-ups from the channels you actually connected."),
+            "summary": str(preview.get("headline") or "Read the day top-down: priorities first, people and themes second, next actions third."),
             "cards": [
-                {"eyebrow": "Brief preview", "title": "Morning brief", "items": first_brief},
+                {"eyebrow": "Brief preview", "title": "What changed", "items": first_brief},
                 {"eyebrow": "Themes", "title": "Recurring topics", "items": themes},
-                {"eyebrow": "Contacts", "title": "People in the loop", "items": contacts},
-                {"eyebrow": "Actions", "title": "Recommended next steps", "items": suggested},
+                {"eyebrow": "Contacts", "title": "People to watch", "items": contacts},
+                {"eyebrow": "Actions", "title": "What to do next", "items": suggested},
             ],
         },
         "inbox": {
             "title": "Inbox",
-            "summary": "This surface should lead with drafts, reply priorities, and channel-aware follow-up suggestions.",
+            "summary": "Use this page to move replies forward, not just to reread the same threads in a prettier shell.",
             "cards": [
-                {"eyebrow": "Draft queue", "title": "Operator review posture", "items": ["Drafts are explicit when approvals are enabled.", "Source-aware replies belong here instead of on the marketing homepage."]},
-                {"eyebrow": "Readiness", "title": "What the assistant can currently see", "items": channel_lines},
+                {"eyebrow": "Draft queue", "title": "Replies ready for review", "items": suggested},
+                {"eyebrow": "Readiness", "title": "What the assistant can currently use", "items": channel_lines},
                 {"eyebrow": "Priorities", "title": "What would bubble up next", "items": first_brief},
             ],
         },
         "follow-ups": {
             "title": "Follow-ups",
-            "summary": "Follow-ups turn commitments and missed responses into a visible operating list.",
+            "summary": "Keep promises, deadlines, and unanswered threads visible until they are actually closed.",
             "cards": [
                 {"eyebrow": "Follow-up queue", "title": "What needs a nudge", "items": suggested},
-                {"eyebrow": "Why this works", "title": "Memory + approvals", "items": trust_notes},
-                {"eyebrow": "Channel coverage", "title": "Where follow-ups can start", "items": channel_lines},
+                {"eyebrow": "Why it is still open", "title": "Context around the queue", "items": trust_notes},
+                {"eyebrow": "Coverage", "title": "Where follow-ups can start", "items": channel_lines},
             ],
         },
         "memory": {
             "title": "Memory",
-            "summary": "Memory should feel like a workspace asset, not a hidden implementation detail.",
+            "summary": "Memory should feel like a useful workspace asset: people, themes, and commitments that survive beyond one session.",
             "cards": [
                 {"eyebrow": "Top themes", "title": "What keeps recurring", "items": themes},
                 {"eyebrow": "Contacts", "title": "Who shows up most", "items": contacts},
@@ -487,7 +487,7 @@ def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, o
         },
         "contacts": {
             "title": "Contacts",
-            "summary": "Contacts should organize people, thread history, and follow-up posture around the real operator loop.",
+            "summary": "Keep people, recent context, and follow-up pressure attached to the same working view.",
             "cards": [
                 {"eyebrow": "People", "title": "Contacts in the current brief", "items": contacts},
                 {"eyebrow": "Themes", "title": "Topics around those contacts", "items": themes},
@@ -496,7 +496,7 @@ def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, o
         },
         "channels": {
             "title": "Channels",
-            "summary": "Integrations belong in the product, but they should read like contracts and readiness, not a developer admin page.",
+            "summary": "This page should make channel readiness and limits clear without turning into an admin console.",
             "cards": [
                 {"eyebrow": "Google", "title": channel_cards[0]["label"], "items": [channel_cards[0]["detail"], channel_cards[0]["summary"] or "Google Core is the recommended first connection."]},
                 {"eyebrow": "Telegram", "title": channel_cards[1]["label"], "items": [channel_cards[1]["detail"], channel_cards[1]["summary"] or "Personal identity and bot install stay distinct." ]},
@@ -505,7 +505,7 @@ def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, o
         },
         "automations": {
             "title": "Automations",
-            "summary": "Automations should stay explicit, approval-aware, and scoped by the privacy posture you already saved.",
+            "summary": "Automation should stay explicit, review-aware, and easy to dial up only after the core workflow already works.",
             "cards": [
                 {"eyebrow": "Assistant posture", "title": "Current automation rules", "items": privacy_lines},
                 {"eyebrow": "Suggested automations", "title": "What to unlock next", "items": suggested},
@@ -514,16 +514,16 @@ def _app_section_payload(section: str, status: dict[str, object]) -> dict[str, o
         },
         "activity": {
             "title": "Activity",
-            "summary": "Activity should summarize the operator-visible state changes without exposing the runtime internals to buyers.",
+            "summary": "Use activity to understand what changed in the workspace without digging through low-level system detail.",
             "cards": [
-                {"eyebrow": "Onboarding", "title": "Current state", "items": [f"Status: {status_label}", f"Onboarding id: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"]},
-                {"eyebrow": "Channels", "title": "Recent surface state", "items": channel_lines},
-                {"eyebrow": "Trust", "title": "Why activity matters", "items": trust_notes},
+                {"eyebrow": "Workspace", "title": "Current state", "items": [f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"]},
+                {"eyebrow": "Channels", "title": "Recent changes", "items": channel_lines},
+                {"eyebrow": "Trust", "title": "Why this feed matters", "items": trust_notes},
             ],
         },
         "settings": {
             "title": "Settings",
-            "summary": "Workspace settings should stay in the authenticated product shell, not in the public marketing layer.",
+            "summary": "Use settings to shape the workspace after the first real workflow is already working.",
             "cards": [
                 {"eyebrow": "Workspace", "title": "Current workspace posture", "items": [f"Name: {workspace.get('name') or 'Executive Assistant'}", f"Mode: {_humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"]},
                 {"eyebrow": "Privacy", "title": "Assistant behavior", "items": privacy_lines},
@@ -1090,7 +1090,6 @@ async def google_connect_browser(
     result = container.onboarding.start_google(
         principal_id=principal_id,
         scope_bundle=_form_value(form_data, "scope_bundle", "core"),
-        redirect_uri_override=str(request.url_for("google_oauth_browser_callback")),
     )
     google_start = dict(result.get("google_start") or {})
     if bool(google_start.get("ready")) and str(google_start.get("auth_url") or "").strip():

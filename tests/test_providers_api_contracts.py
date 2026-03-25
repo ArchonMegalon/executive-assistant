@@ -344,9 +344,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "An assistant for email, calendar, and follow-ups." in landing.text
+    assert "Walk into the day with a ranked brief, reviewed drafts, and follow-ups that stay visible." in landing.text
     assert "Get started" in landing.text
-    assert "What the product should make easy" in landing.text
+    assert "What should feel real in the first few days" in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
@@ -355,14 +355,14 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
     assert "Set up the workspace once, then let the assistant settle into your day." in setup.text
-    assert "Choose how this workspace should behave." in setup.text
+    assert "Choose the kind of work this workspace will carry." in setup.text
     assert "Connect Google first." in setup.text
-    assert "Founder / chief of staff ops" in setup.text
+    assert "Executive support" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Open the assistant from your normal workspace identity." in sign_in.text
+    assert "Use the account tied to your workspace and continue where the work already lives." in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
@@ -371,7 +371,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "Reviewable actions, explicit channel boundaries, and durable workspace context." in privacy.text
+    assert "Trust should show up in the product before it shows up on a policy page." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
@@ -393,7 +393,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     parsed = urllib.parse.urlparse(location)
     query = urllib.parse.parse_qs(parsed.query)
     state = query["state"][0]
-    assert query["redirect_uri"][0].endswith("/google/callback")
+    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
 
     from app.services import google_oauth as google_service
 
@@ -419,7 +419,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google is now linked to this assistant" in callback.text
+    assert "Google is connected. The next step is to use it." in callback.text
     assert "browser@gmail.example" in callback.text
     assert "gmail.send" in callback.text
 
@@ -456,7 +456,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     landing = owner.get("/")
     assert landing.status_code == 200
     assert "Open app" in landing.text
-    assert "principal-scoped" in landing.text
+    assert "durable context" in landing.text
     assert "browser@gmail.com" not in landing.text
 
     started = owner.post(
@@ -467,7 +467,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert started.status_code == 303
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0].endswith("/google/callback")
+    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
     state = query["state"][0]
 
     from app.services import google_oauth as google_service
@@ -494,8 +494,9 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
-    assert "Google is now linked to this assistant" in callback.text
-    assert "cf-email:browser@gmail.com" in callback.text
+    assert "Google is connected. The next step is to use it." in callback.text
+    assert "browser@gmail.com" in callback.text
+    assert "cf-email:browser@gmail.com" not in callback.text
 
 
 def test_browser_shell_routes_and_nav_links_resolve() -> None:
@@ -1146,7 +1147,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
 
     page = client.get(f"/tours/{slug}")
     assert page.status_code == 200
-    assert "EA Property Tour" in page.text
+    assert "Property Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
 
     payload = client.get(f"/tours/{slug}.json")

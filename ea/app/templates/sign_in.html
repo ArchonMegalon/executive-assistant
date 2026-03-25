@@ -8,18 +8,27 @@
     min-height: 0;
     gap: 18px;
   }
-  .sign-in-panel {
+  .sign-in-panel,
+  .sign-in-proof {
     padding: 24px;
     display: grid;
     gap: 14px;
     align-content: start;
   }
-  .sign-in-panel .eyebrow {
-    color: var(--text-dim);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
+  .sign-in-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .sign-in-proof {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  @media (max-width: 1080px) {
+    .sign-in-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 
@@ -27,40 +36,47 @@
   <div class="panel hero-copy">
     <div>
       <div class="kicker">Sign in</div>
-      <h1>Open the assistant from your normal workspace identity.</h1>
-      <p class="lead">The public site stays separate from the app. Sign in through the workspace path configured on this deployment, then continue in the product surface.</p>
+      <h1>Use the account tied to your workspace and continue where the work already lives.</h1>
+      <p class="lead">Sign in should feel like a short handoff into the product, not another setup project. Once you are in, the next stop should be the brief, the draft queue, or the follow-up list.</p>
     </div>
     <div class="summary-strip">
       <div class="summary">
-        <div class="label">Identity first</div>
-        <strong>Use the workspace identity your deployment expects.</strong>
+        <div class="label">Sign-in path</div>
+        <strong>Use the account your workspace already trusts.</strong>
       </div>
       <div class="summary">
-        <div class="label">Then workspace</div>
-        <strong>Open the app only after the identity boundary is clear.</strong>
+        <div class="label">After sign-in</div>
+        <strong>Open the brief, review drafts, and continue working.</strong>
       </div>
       <div class="summary">
-        <div class="label">Need setup?</div>
-        <strong>Review the guided onboarding and configure the first channel.</strong>
+        <div class="label">New workspace?</div>
+        <strong>Start with guided setup and connect Google first.</strong>
       </div>
     </div>
     <div class="cta-row">
       <a class="btn primary" href="/app/today">Open app</a>
-      <a class="btn ghost" href="/get-started">Review setup</a>
+      <a class="btn ghost" href="/get-started">Start guided setup</a>
     </div>
   </div>
 
   <section class="panel sign-in-panel">
-    <div>
-      <div class="eyebrow">What to expect</div>
-      <h2>Identity, then workspace.</h2>
+    <div class="kicker">What to expect</div>
+    <h2>Fast path into the workspace.</h2>
+    <div class="sign-in-grid">
+      <section class="sign-in-proof">
+        <strong>Normal company sign-in</strong>
+        <p class="copy">If your deployment uses company SSO or an access gateway, sign in there and the workspace will open with the right identity.</p>
+      </section>
+      <section class="sign-in-proof">
+        <strong>Private or local deployments</strong>
+        <p class="copy">Private hosts can still enforce host-level access rules. Those checks should be invisible when everything is configured correctly.</p>
+      </section>
     </div>
     <ul class="muted-list">
       {% for note in sign_in_notes %}
       <li>{{ note }}</li>
       {% endfor %}
     </ul>
-    <div class="callout">If this browser is not already trusted by the deployment, the app will keep enforcing the configured authentication and principal rules.</div>
   </section>
 </section>
 {% endblock %}
