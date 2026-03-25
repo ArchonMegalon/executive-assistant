@@ -150,6 +150,9 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Support tier" in diagnostics.text
     assert "Renewal owner" in diagnostics.text
     assert "Configured providers" in diagnostics.text
+    assert "Queue state" in diagnostics.text
+    assert "SLA breaches" in diagnostics.text
+    assert "Unclaimed handoffs" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
     assert "Open bundle" in diagnostics.text
     assert "Recent product events" in diagnostics.text

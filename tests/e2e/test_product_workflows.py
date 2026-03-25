@@ -556,6 +556,8 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
         response = page.goto(f"{base_url}/app/activity", wait_until="networkidle")
         assert response is not None and response.ok
         assert "Operator Queue" in page.content()
+        assert "Queue health" in page.content()
+        assert "Suggested next claims" in page.content()
         assert "Prepare board follow-up handoff" in page.content()
 
         response = page.goto(f"{base_url}/admin/audit-trail", wait_until="networkidle")
@@ -570,6 +572,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
         assert "Diagnostics" in page.content()
         assert "Commercial boundary" in page.content()
         assert "Workspace diagnostics bundle" in page.content()
+        assert "SLA breaches" in page.content()
     finally:
         context.close()
 

@@ -195,6 +195,7 @@ class WorkspaceDiagnosticsOut(BaseModel):
     readiness: dict[str, object]
     operators: dict[str, object]
     providers: dict[str, object]
+    queue_health: dict[str, object]
     usage: dict[str, int]
     analytics: dict[str, object]
 
@@ -231,6 +232,8 @@ class WorkspaceSupportBundleOut(BaseModel):
     approvals: dict[str, object]
     human_tasks: list[dict[str, object]]
     providers: dict[str, object]
+    queue_health: dict[str, object]
+    assignment_suggestions: list[dict[str, object]]
     pending_delivery: list[dict[str, object]]
 
 

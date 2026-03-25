@@ -57,6 +57,23 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _is_past_due(value: str | None) -> bool:
+    when = _parse_iso(value)
+    if when is None:
+        return False
+    return when <= datetime.now(timezone.utc)
+
+
 def _action_label(action_json: dict[str, object]) -> str:
     raw = str(action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
     return raw or "review"
@@ -1390,6 +1407,60 @@ class ProductService:
         )
         return self._handoff_from_human_task(updated)
 
+    def _queue_health(
+        self,
+        *,
+        principal_id: str,
+        operator_id: str = "",
+    ) -> tuple[dict[str, object], tuple[HandoffNote, ...]]:
+        operator_key = str(operator_id or "").strip()
+        pending_tasks = list(self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200))
+        visible_tasks: list[HumanTask] = []
+        for task in pending_tasks:
+            assigned = str(task.assigned_operator_id or "").strip()
+            if operator_key and assigned and assigned != operator_key:
+                continue
+            visible_tasks.append(task)
+        unclaimed_tasks = [task for task in visible_tasks if not str(task.assigned_operator_id or "").strip()]
+        assigned_tasks = [task for task in visible_tasks if str(task.assigned_operator_id or "").strip()]
+        sla_breaches = [task for task in visible_tasks if _is_past_due(task.sla_due_at)]
+        approvals = list(self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=200))
+        pending_delivery = list(self._container.channel_runtime.list_pending_delivery(limit=200, principal_id=principal_id))
+        queue_items = self.list_queue(principal_id=principal_id, limit=100, operator_id=operator_id)
+        waiting_on_principal = sum(1 for row in queue_items if row.requires_principal)
+        at_risk_commitments = sum(1 for row in self.list_commitments(principal_id=principal_id, limit=100) if row.risk_level == "high")
+        suggested_tasks = sorted(
+            unclaimed_tasks,
+            key=lambda row: (priority_weight(row.priority), due_bonus(row.sla_due_at), str(row.brief or "").lower()),
+            reverse=True,
+        )
+        suggestion_rows = tuple(self._handoff_from_human_task(row) for row in suggested_tasks[:3])
+        if sla_breaches or len(approvals) >= 3 or waiting_on_principal >= 4:
+            state = "critical"
+            detail = "SLA breaches, approval backlog, or principal-gated work need active clearing."
+        elif unclaimed_tasks or at_risk_commitments >= 2 or pending_delivery:
+            state = "watch"
+            detail = "The queue is stable, but there is visible backlog that should be cleared before the next memo cycle."
+        else:
+            state = "healthy"
+            detail = "The operator lane is clear enough to trust the current office loop."
+        return (
+            {
+                "state": state,
+                "detail": detail,
+                "pending_handoffs": len(visible_tasks),
+                "assigned_handoffs": len(assigned_tasks),
+                "unclaimed_handoffs": len(unclaimed_tasks),
+                "sla_breaches": len(sla_breaches),
+                "pending_approvals": len(approvals),
+                "waiting_on_principal": waiting_on_principal,
+                "at_risk_commitments": at_risk_commitments,
+                "pending_delivery": len(pending_delivery),
+                "suggested_claims": len(suggestion_rows),
+            },
+            suggestion_rows,
+        )
+
     def workspace_snapshot(self, *, principal_id: str, operator_id: str = "") -> ProductSnapshot:
         brief_items = self.list_brief_items(principal_id=principal_id, limit=8, operator_id=operator_id)
         queue_items = self.list_queue(principal_id=principal_id, limit=10, operator_id=operator_id)
@@ -1406,6 +1477,7 @@ class ProductService:
             operator_id=operator_id,
             status="returned",
         )
+        queue_health, _suggestions = self._queue_health(principal_id=principal_id, operator_id=operator_id)
         evidence = self.list_evidence(principal_id=principal_id, limit=8, operator_id=operator_id)
         rules = self.list_rules(principal_id=principal_id)
         return ProductSnapshot(
@@ -1432,6 +1504,11 @@ class ProductService:
                 "people": len(people),
                 "handoffs": len(handoffs),
                 "completed_handoffs": len(completed_handoffs),
+                "sla_breaches": int(queue_health.get("sla_breaches") or 0),
+                "unclaimed_handoffs": int(queue_health.get("unclaimed_handoffs") or 0),
+                "pending_approvals": int(queue_health.get("pending_approvals") or 0),
+                "pending_delivery": int(queue_health.get("pending_delivery") or 0),
+                "waiting_on_principal": int(queue_health.get("waiting_on_principal") or 0),
                 "evidence": len(evidence),
                 "rules": len(rules),
             },
@@ -1443,6 +1520,7 @@ class ProductService:
         selected_channels = tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip())
         plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
         snapshot = self.workspace_snapshot(principal_id=principal_id)
+        queue_health, assignment_suggestions = self._queue_health(principal_id=principal_id)
         readiness_ok, readiness_label = self._container.readiness.check()
         registry = self._container.provider_registry.registry_read_model(principal_id=principal_id)
         operators = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=25)
@@ -1533,6 +1611,19 @@ class ProductService:
                 "provider_count": int(registry.get("provider_count") or 0),
                 "lane_count": int(registry.get("lane_count") or 0),
             },
+            "queue_health": {
+                **queue_health,
+                "assignment_suggestions": [
+                    {
+                        "id": row.id,
+                        "summary": row.summary,
+                        "owner": row.owner,
+                        "due_time": row.due_time,
+                        "escalation_status": row.escalation_status,
+                    }
+                    for row in assignment_suggestions
+                ],
+            },
             "usage": dict(snapshot.stats_json or {}),
             "analytics": {
                 "counts": analytics_counts,
@@ -1554,6 +1645,7 @@ class ProductService:
 
     def workspace_support_bundle(self, *, principal_id: str) -> dict[str, object]:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        queue_health = dict(diagnostics.get("queue_health") or {})
         approvals = self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=25)
         approval_history = self._container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=25)
         human_tasks = self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=25)
@@ -1604,6 +1696,8 @@ class ProductService:
                 for row in human_tasks
             ],
             "providers": provider_registry,
+            "queue_health": queue_health,
+            "assignment_suggestions": list(queue_health.get("assignment_suggestions") or []),
             "pending_delivery": [
                 {
                     "delivery_id": row.delivery_id,

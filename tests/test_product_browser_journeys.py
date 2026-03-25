@@ -37,6 +37,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     activity = client.get("/app/activity")
     assert activity.status_code == 200
     assert "Operator Queue" in activity.text
+    assert "Queue health" in activity.text
+    assert "Suggested next claims" in activity.text
     assert "Prepare board follow-up handoff" in activity.text
 
     settings = client.get("/app/settings")
