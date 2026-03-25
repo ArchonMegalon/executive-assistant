@@ -297,6 +297,17 @@ Target outcomes:
 * GM tool unlocks
 * reserved vanity handles or similar social perks
 
+### HUB-P2-03
+
+Task: build first-class organizer and campaign operator surfaces on top of the same group, campaign, and entitlement substrate.
+
+Target outcomes:
+
+* campaign workspace and roster authority
+* GM circles and campaign operator dashboards
+* runboards, readiness checks, and rule-environment health
+* group-owned feature posture without a second authority model
+
 ### FLEET-P2-01
 
 Task: support group-owned premium burst quotas only after Hub entitlements are mature.

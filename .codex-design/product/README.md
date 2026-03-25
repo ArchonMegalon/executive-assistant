@@ -15,7 +15,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 1. Public/product story:
    `VISION.md` -> `PUBLIC_LANDING_POLICY.md` -> `PUBLIC_NAVIGATION.yaml` -> `PUBLIC_LANDING_MANIFEST.yaml` -> `PUBLIC_FEATURE_REGISTRY.yaml` -> `PUBLIC_PROGRESS_PARTS.yaml` -> `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml` -> `PUBLIC_USER_MODEL.md` -> `PUBLIC_AUTH_FLOW.md`
 2. Product middle and control loop:
-   `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `USER_JOURNEYS.md` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
+   `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `USER_JOURNEYS.md` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
 3. Repo and contract boundaries:
    `ARCHITECTURE.md` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
@@ -73,24 +73,26 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 46. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 47. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 48. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-49. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
-50. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-51. `USER_JOURNEYS.md`
-52. `EXPERIENCE_SUCCESS_METRICS.md`
-53. `PUBLIC_NAVIGATION.yaml`
-54. `PUBLIC_PROGRESS_PARTS.yaml`
-55. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
-56. `PUBLIC_RELEASE_EXPERIENCE.yaml`
-57. `BUILD_LAB_PRODUCT_MODEL.md`
-58. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
-59. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
-60. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+49. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+50. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
+51. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+52. `USER_JOURNEYS.md`
+53. `EXPERIENCE_SUCCESS_METRICS.md`
+54. `PUBLIC_NAVIGATION.yaml`
+55. `PUBLIC_PROGRESS_PARTS.yaml`
+56. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
+57. `PUBLIC_RELEASE_EXPERIENCE.yaml`
+58. `BUILD_LAB_PRODUCT_MODEL.md`
+59. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
+60. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
+61. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
 `CAMPAIGN_SPINE_AND_CREW_MODEL.md` is the missing-middle canon for the campaign-scale product: runner dossier, crew, campaign, run, scene, objective, continuity, and replay-safe event memory.
 `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` is the canonical bridge from deterministic build truth into the long-lived dossier a player, GM, campaign, and artifact lane actually carry forward.
 `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` defines how claimed installs restore person, campaign, and entitlement-shaped workspace truth across devices without mutating signed artifacts, syncing secrets, or hiding conflict semantics.
+`CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` defines the next visible product layer on top of roaming workspace: the home cockpit, campaign workspace, what-changed-for-me packet, and install-local device roles such as workstation, play tablet, observer screen, travel cache, and preview scout.
 `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` defines the product-control plane as a first-class middle layer instead of leaving whole-product steering implicit in support notes or operator habit.
 `SUPPORT_AND_SIGNAL_OODA_LOOP.md` defines how support, crash, feedback, release, and public-promise signals become governed packets that can actually change design, docs, queue, or release posture.
 `USER_JOURNEYS.md` is the top-level product map for Build, Explain, Run, Publish, and Improve, with the detailed happy-path/failure-mode canon still living under `journeys/*.md`.

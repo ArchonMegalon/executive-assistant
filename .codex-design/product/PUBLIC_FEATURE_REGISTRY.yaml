@@ -178,7 +178,7 @@ cards:
     image_family: streetfront
     detail_route: /roadmap/nexus-pan
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the NEXUS-PAN brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -194,7 +194,7 @@ cards:
     image_family: simulation_bench
     detail_route: /roadmap/alice
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the ALICE brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -210,7 +210,7 @@ cards:
     image_family: archive_stair
     detail_route: /roadmap/knowledge-fabric
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the KNOWLEDGE FABRIC brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -226,7 +226,7 @@ cards:
     image_family: boulevard_of_futures
     detail_route: /roadmap/karma-forge
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the KARMA FORGE brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -242,7 +242,7 @@ cards:
     image_family: dossier_desk
     detail_route: /roadmap/jackpoint
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the JACKPOINT brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -258,12 +258,14 @@ cards:
     image_family: facility_exterior
     detail_route: /roadmap/runsite
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the RUNSITE brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Spatial prep is tedious and scattered.
     payoff: The venue becomes a visible, inspectable run surface.
+    proof_note: "Proof: RUNSITE already has a named horizon, a first-party detail page, and a concrete user payoff instead of a vague teaser."
+    microproof: Named horizon|First-party detail|Inspectable venue prep
   - id: horizon_runbook_press
     bucket: coming_next
     title: RUNBOOK PRESS
@@ -274,7 +276,7 @@ cards:
     image_family: prop_cluster
     detail_route: /roadmap/runbook-press
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the RUNBOOK PRESS brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -290,7 +292,7 @@ cards:
     image_family: boulevard_of_futures
     detail_route: /roadmap/ghostwire
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the GHOSTWIRE brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -306,7 +308,7 @@ cards:
     image_family: solo_operator
     detail_route: /roadmap/local-co-processor
     render_mode: external_explainer
-    action_label: Open the roadmap detail
+    action_label: Read the LOCAL CO-PROCESSOR brief
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -322,7 +324,11 @@ cards:
     image_family: facility_exterior
     asset_slot: release_current_build
     detail_route: /artifacts/current-preview-build
-    action_label: Open the artifact detail
+    action_label: Inspect the preview build
+    pain: Early-access products stop feeling real when the current build is vague or hard to verify.
+    payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
+    proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
+    microproof: Installer shelf|Preview channel|Account-aware handoff
   - id: artifact_rules_receipt
     bucket: featured_artifacts
     title: Explanation receipt trail
@@ -333,7 +339,7 @@ cards:
     image_family: simulation_bench
     asset_slot: capability_check_rules
     detail_route: /artifacts/explanation-receipt-trail
-    action_label: Open the artifact detail
+    action_label: Inspect the receipt trail
   - id: artifact_runsite_pack
     bucket: featured_artifacts
     title: Runsite pack
@@ -343,7 +349,7 @@ cards:
     audience: public
     image_family: facility_exterior
     detail_route: /artifacts/runsite-pack
-    action_label: Open the artifact detail
+    action_label: Inspect the runsite pack
   - id: artifact_dossier_brief
     bucket: featured_artifacts
     title: Dossier brief
@@ -353,7 +359,7 @@ cards:
     audience: public
     image_family: dossier_desk
     detail_route: /artifacts/dossier-brief
-    action_label: Open the artifact detail
+    action_label: Inspect the dossier brief
   - id: artifact_campaign_primer
     bucket: featured_artifacts
     title: Campaign primer
@@ -363,7 +369,7 @@ cards:
     audience: public
     image_family: prop_cluster
     detail_route: /artifacts/campaign-primer
-    action_label: Open the artifact detail
+    action_label: Inspect the campaign primer
   - id: artifact_after_action
     bucket: featured_artifacts
     title: Replay and after-action
@@ -373,7 +379,7 @@ cards:
     audience: public
     image_family: boulevard_of_futures
     detail_route: /artifacts/replay-after-action
-    action_label: Open the artifact detail
+    action_label: Inspect the after-action preview
   - id: participate_feedback
     bucket: participate
     title: Report a problem

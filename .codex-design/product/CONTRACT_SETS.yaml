@@ -231,6 +231,9 @@ contract_sets:
     includes:
       - person workspace preferences
       - pinned runner and recent campaign refs
+      - campaign workspace summaries
+      - device-role posture refs
+      - next-safe-action projections
       - artifact-shelf refs
       - claimed-install restore projections
       - workspace conflict summaries

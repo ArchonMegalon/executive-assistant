@@ -28,6 +28,7 @@ Read:
 5. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 6. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 7. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+8. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
 
 ### Reviewer or release owner
 
@@ -55,12 +56,13 @@ Read:
 3. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
 4. `BUILD_LAB_PRODUCT_MODEL.md`
 5. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-6. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
-7. `PRODUCT_HEALTH_SCORECARD.yaml`
-8. `USER_JOURNEYS.md`
-9. `EXPERIENCE_SUCCESS_METRICS.md`
-10. `METRICS_AND_SLOS.yaml`
-11. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+6. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+7. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
+8. `PRODUCT_HEALTH_SCORECARD.yaml`
+9. `USER_JOURNEYS.md`
+10. `EXPERIENCE_SUCCESS_METRICS.md`
+11. `METRICS_AND_SLOS.yaml`
+12. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
 
 ## Fast path by question
 
@@ -69,6 +71,7 @@ Read:
 * What just closed and what is next? -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` and `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+* How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
 * What is the public release and install trust surface? -> `PUBLIC_RELEASE_EXPERIENCE.yaml`, `PUBLIC_DOWNLOADS_POLICY.md`, and `PUBLIC_AUTO_UPDATE_POLICY.md`
 * What is Build Lab supposed to become? -> `BUILD_LAB_PRODUCT_MODEL.md`
 * Who owns what? -> `ARCHITECTURE.md` and `OWNERSHIP_MATRIX.md`
