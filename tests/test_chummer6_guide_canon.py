@@ -84,15 +84,19 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
 
     assert hero["visual_density_profile"] == "first_contact_hero"
     assert hero["required_person_count"] == "duo_or_team"
+    assert hero["required_overlay_mode"] == "medscan_diagnostic"
+    assert "illustrated cover-grade promo poster" in hero["critical_style_anchor"].lower()
     assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
     assert readme["visual_density_profile"] == "first_contact_hero"
     assert readme["section_order"][:4] == ["pitch", "quick_nav", "current_posture", "hero"]
     assert readme["max_front_page_updates"] == 0
     assert horizons["visual_density_profile"] == "page_index"
     assert horizons["required_overlay_density"] == "medium"
+    assert horizons["required_overlay_mode"] == "ambient_diegetic"
     assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()
     assert forge["visual_density_profile"] == "flagship_horizon"
     assert forge["required_person_count"] == "duo_preferred"
+    assert forge["required_overlay_mode"] == "forge_review_ar"
     assert "reviewer" in " ".join(forge["must_show_semantic_anchors"]).lower()
 
 

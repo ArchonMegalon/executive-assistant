@@ -1031,6 +1031,38 @@ def visual_contract_for_target(target: str) -> dict[str, object]:
     return dict(contracts.get(profile) or {}) if profile else {}
 
 
+def overlay_mode_for_target(target: str) -> str:
+    contract = visual_contract_for_target(target)
+    normalized_mode = (
+        str(contract.get("required_overlay_mode") or "")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    if normalized_mode:
+        return normalized_mode
+    normalized_target = str(target or "").replace("\\", "/").strip()
+    if normalized_target in {"assets/hero/chummer6-hero.png", "README.md"}:
+        return "medscan_diagnostic"
+    if normalized_target == "assets/pages/horizons-index.png":
+        return "ambient_diegetic"
+    if normalized_target == "assets/horizons/karma-forge.png":
+        return "forge_review_ar"
+    return ""
+
+
+def fallback_finish_clause_for_target(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
+        return "illustrated cover-grade Shadowrun streetdoc poster, gritty garage-clinic props, metahuman runner-life pressure, dense practical clutter"
+    if normalized == "assets/pages/horizons-index.png":
+        return "illustrated cover-grade cyberpunk futures crossroads poster, branching districts, dense clue clusters, readable plurality"
+    if normalized == "assets/horizons/karma-forge.png":
+        return "illustrated cover-grade Shadowrun rules-forge poster, industrial approval machinery, dangerous motion, provenance pressure"
+    return "cinematic 35mm, grounded prop-led still"
+
+
 def visual_contract_guardrails_for_target(target: str) -> list[str]:
     contract = visual_contract_for_target(target)
     if not contract:
@@ -1040,6 +1072,9 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     flash = str(contract.get("flash_level") or "").strip().lower()
     negative_space = str(contract.get("negative_space_cap") or "").strip().lower()
     person_count = str(contract.get("person_count_target") or "").strip().lower()
+    overlay_mode = overlay_mode_for_target(target)
+    if str(contract.get("critical_style_anchor") or "").strip():
+        rules.append("Use the flagship poster style epoch here: illustrated cover-grade promo energy, Shadowrun street-life specificity, and lived-in grime instead of a tasteful editorial still.")
     if density == "high":
         rules.append("Keep this frame packed and layered with grounded clues in foreground, midground, and background.")
     if flash == "bold":
@@ -1050,6 +1085,12 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
         rules.append("Prefer two to four people with a visible operator relationship instead of one isolated figure.")
     elif person_count == "duo_preferred":
         rules.append("Prefer a visible reviewer, witness, or second active figure instead of one isolated operator.")
+    if overlay_mode == "medscan_diagnostic":
+        rules.append("Overlay OODA mode: medscan_diagnostic. Use a slim attribute rail, subsystem-bound status chips, and cyberware calibration/stability callouts instead of vague trust labels or torso-covering boxes.")
+    elif overlay_mode == "ambient_diegetic":
+        rules.append("Overlay OODA mode: ambient_diegetic. Use lane arcs, district markers, and path traces only; avoid city-wide diagnostic slabs or big floating boxes.")
+    elif overlay_mode == "forge_review_ar":
+        rules.append("Overlay OODA mode: forge_review_ar. Use edge-following approval rails, provenance seals, rollback vectors, and compact witness chips instead of generic workshop HUD rectangles.")
     anchors = _string_list(contract.get("must_show_semantic_anchors"))
     if anchors:
         rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
@@ -1060,6 +1101,8 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
         rules.append("Do not solve this asset with a sparse humor beat or cute visual joke.")
     if not _boolish(contract.get("pseudo_text_allowed"), default=True):
         rules.append("Do not invent pseudo-text, readable signboards, or fake lettering.")
+    if overlay_mode:
+        rules.append("Overlay geometry should prefer rails, brackets, spline traces, halos, seam-following markers, and capsule chips over large translucent rectangles.")
     return rules
 
 
@@ -1296,6 +1339,7 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
     if normalized not in CRITICAL_VISUAL_TARGETS or not isinstance(row, dict):
         return []
     contract = visual_contract_for_target(normalized)
+    overlay_mode = overlay_mode_for_target(normalized)
     scene = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
     composition = str(scene.get("composition") or "").strip().lower().replace("-", "_")
     props = _dedupe_casefolded(_string_list(scene.get("props")))
@@ -1309,6 +1353,27 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
         for entry in (
             _string_list(contract.get("required_overlay_schema"))
             + _string_list(contract.get("required_status_labels"))
+            + (
+                [
+                    "Wound stabilized",
+                    "Cyberlimb calibration",
+                    "Neural link resync",
+                ]
+                if normalized == "assets/hero/chummer6-hero.png"
+                else []
+            )
+            + (
+                [
+                    "Approval rail",
+                    "Provenance seal",
+                    "Rollback vector",
+                    "Witness lock",
+                    "Revert cost",
+                    "Compatibility arc",
+                ]
+                if normalized == "assets/horizons/karma-forge.png"
+                else []
+            )
         )
         if str(entry).strip()
     }
@@ -1337,8 +1402,15 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_lore:missing_streetdoc_garage_clinic")
         if not any(token in combined for token in ("streetdoc", "clinician", "stabilizing", "triage", "patch-up", "calibrating cyberware")):
             findings.append("critical_scene:missing_clinical_action")
+        if not any(token in combined for token in ("cyberware", "cyberlimb", "implant", "augment", "calibration", "surgery", "med-gel")):
+            findings.append("critical_scene:missing_cyberware_surgery")
         if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
             findings.append("critical_overlay:missing_attribute_rail")
+        if overlay_mode == "medscan_diagnostic" and not any(
+            token in combined
+            for token in ("medscan", "diagnostic rail", "wound stabilized", "cyberlimb calibration", "neural link resync", "stability indicator")
+        ):
+            findings.append("critical_overlay:missing_medscan_posture")
     if normalized == "assets/horizons/karma-forge.png":
         if "table" in combined and any(token in combined for token in ("sitting", "seated", "paperwork")):
             findings.append("critical_scene:tableau_not_forge")
@@ -1346,6 +1418,15 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_lore:missing_forge_semantics")
         if not any(token in combined for token in ("pressure", "danger", "volatile", "consequence", "rollback", "witness lock")):
             findings.append("critical_scene:missing_pressure")
+        if any(token in combined for token in ("quiet workshop", "workshop bench", "workbench", "paperwork workshop", "generic workshop")):
+            findings.append("critical_scene:generic_workshop_drift")
+        if not any(token in combined for token in ("standing", "in motion", "forcing", "feeding", "locking", "active motion", "reconciling")):
+            findings.append("critical_scene:missing_action_posture")
+        if overlay_mode == "forge_review_ar" and not any(
+            token in combined
+            for token in ("approval rail", "provenance seal", "rollback vector", "witness lock", "revert cost", "compatibility arc")
+        ):
+            findings.append("critical_overlay:missing_forge_review_ar")
     if not _boolish(contract.get("humor_allowed"), default=True) and str(scene.get("humor") or "").strip():
         findings.append("critical_humor:forbidden")
     if not _boolish(contract.get("pseudo_text_allowed"), default=True):
@@ -5191,7 +5272,14 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             return True
         return False
 
-    def infer_overlay_hint(*, asset_key: str, scene_contract: dict[str, object], item_title: str) -> str:
+    def infer_overlay_hint(*, target: str, asset_key: str, scene_contract: dict[str, object], item_title: str) -> str:
+        overlay_mode = overlay_mode_for_target(target)
+        if overlay_mode == "medscan_diagnostic":
+            return "medscan diagnostic rail with AGI/ESS upgrade markers, cyberlimb calibration, wound stabilization, and neural link resync"
+        if overlay_mode == "ambient_diegetic":
+            return "ambient lane arcs with district markers and branching path traces"
+        if overlay_mode == "forge_review_ar":
+            return "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
         lowered_asset_key = str(asset_key or "").strip().lower()
         if lowered_asset_key == "hero":
             return "build-state provenance traces and trust markers"
@@ -5948,7 +6036,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 break
         return deduped or ["contextual scene", "diegetic overlays", "grounded prop cluster"]
 
-    def infer_overlay_callouts(*, scene_contract: dict[str, object], overlay_hint: str) -> list[str]:
+    def infer_overlay_callouts(*, target: str, scene_contract: dict[str, object], overlay_hint: str) -> list[str]:
         callouts: list[str] = []
         for entry in scene_contract.get("overlays", []):
             cleaned_entry = str(entry).strip()
@@ -5966,7 +6054,52 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             deduped.append(callout)
             if len(deduped) >= 4:
                 break
-        return deduped or ["diegetic HUD traces", "receipt markers"]
+        overlay_mode = overlay_mode_for_target(target)
+        if overlay_mode == "medscan_diagnostic":
+            curated = [
+                entry
+                for entry in deduped
+                if any(
+                    token in entry.casefold()
+                    for token in ("wound", "cyberlimb", "neural", "calibration", "stabil", "implant", "augment")
+                )
+            ]
+            for fallback in ("Wound stabilized", "Cyberlimb calibration", "Neural link resync"):
+                if fallback.casefold() not in {entry.casefold() for entry in curated}:
+                    curated.append(fallback)
+                if len(curated) >= 4:
+                    break
+            return curated[:4]
+        if overlay_mode == "ambient_diegetic":
+            curated = [
+                entry
+                for entry in deduped
+                if any(token in entry.casefold() for token in ("lane", "district", "path", "route", "arc"))
+            ]
+            for fallback in ("Lane arc", "District marker", "Path trace"):
+                if fallback.casefold() not in {entry.casefold() for entry in curated}:
+                    curated.append(fallback)
+                if len(curated) >= 4:
+                    break
+            return curated[:4]
+        if overlay_mode == "forge_review_ar":
+            curated = [
+                entry
+                for entry in deduped
+                if any(
+                    token in entry.casefold()
+                    for token in ("approval", "provenance", "rollback", "witness", "revert", "compatibility")
+                )
+            ]
+            for fallback in ("Approval rail", "Provenance seal", "Rollback vector", "Witness lock"):
+                if fallback.casefold() not in {entry.casefold() for entry in curated}:
+                    curated.append(fallback)
+                if len(curated) >= 4:
+                    break
+            return curated[:4]
+        if deduped:
+            return deduped
+        return ["diegetic HUD traces", "receipt markers"]
 
     normalized = dict(cleaned)
     if kind == "hero":
@@ -6007,7 +6140,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             f"{normalized['scene_contract'].get('subject')}, "
             f"{normalized['scene_contract'].get('action')}, "
             f"{normalized['scene_contract'].get('environment')}, "
-            f"{normalized['scene_contract'].get('palette')}, cinematic 35mm, grounded prop-led still. "
+            f"{normalized['scene_contract'].get('palette')}, {fallback_finish_clause_for_target(hero_target)}. "
             f"{hero_contract_clause}"
         ).strip()
         normalized["visual_prompt"] = sanitize_visual_prompt_text(
@@ -6018,6 +6151,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             normalized["visual_prompt"] = fallback_visual_prompt
         if asset_scene_defaults("hero") or contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
             normalized["overlay_hint"] = infer_overlay_hint(
+                target=hero_target,
                 asset_key="hero",
                 scene_contract=normalized["scene_contract"],
                 item_title="hero",
@@ -6095,6 +6229,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         if asset_scene_defaults("hero"):
             callouts = []
         normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
+            target=hero_target,
             scene_contract=normalized["scene_contract"],
             overlay_hint=str(normalized["overlay_hint"]),
         )
@@ -6182,7 +6317,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         f"{normalized['scene_contract'].get('subject')}, "
         f"{normalized['scene_contract'].get('action')}, "
         f"{normalized['scene_contract'].get('environment')}, "
-        f"{normalized['scene_contract'].get('palette')}, cinematic 35mm. "
+        f"{normalized['scene_contract'].get('palette')}, {fallback_finish_clause_for_target(media_target)}. "
         f"{contract_clause}"
     ).strip()
     normalized["visual_prompt"] = sanitize_visual_prompt_text(
@@ -6194,6 +6329,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     locked_scene_defaults = bool(asset_scene_defaults(asset_key))
     if locked_scene_defaults or contains_machine_overlay_language(str(normalized["overlay_hint"])) or looks_like_status_label(str(normalized["overlay_hint"])):
         normalized["overlay_hint"] = infer_overlay_hint(
+            target=media_target,
             asset_key=asset_key,
             scene_contract=normalized["scene_contract"],
             item_title=str(item.get("title", item.get("slug", kind))),
@@ -6255,6 +6391,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     if locked_scene_defaults:
         callouts = []
     normalized["overlay_callouts"] = callouts or infer_overlay_callouts(
+        target=media_target,
         scene_contract=normalized["scene_contract"],
         overlay_hint=str(normalized["overlay_hint"]),
     )

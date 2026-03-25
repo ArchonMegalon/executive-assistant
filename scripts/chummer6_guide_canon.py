@@ -147,6 +147,17 @@ def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
     return ("", "", "")
 
 
+def _critical_overlay_mode(target_path: str) -> str:
+    normalized = str(target_path or "").replace("\\", "/").strip()
+    if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
+        return "medscan_diagnostic"
+    if normalized == "assets/pages/horizons-index.png":
+        return "ambient_diegetic"
+    if normalized == "assets/horizons/karma-forge.png":
+        return "forge_review_ar"
+    return ""
+
+
 def page_visual_profile(page_type: str) -> dict[str, object]:
     registry = load_page_registry()
     page_types = registry.get("page_types") if isinstance(registry.get("page_types"), dict) else {}
@@ -167,9 +178,10 @@ def page_visual_profile(page_type: str) -> dict[str, object]:
 
 
 def asset_visual_profile(target_path: str) -> dict[str, object]:
+    briefs = load_media_briefs()
     page_type, section_id, fallback_profile = _critical_asset_target(target_path)
     page_profile = page_visual_profile(page_type) if page_type else {}
-    contracts = load_media_briefs().get("visual_contract") if isinstance(load_media_briefs().get("visual_contract"), dict) else {}
+    contracts = briefs.get("visual_contract") if isinstance(briefs.get("visual_contract"), dict) else {}
     section = dict(_media_sections().get(section_id) or {}) if section_id else {}
     profile_name = str(page_profile.get("visual_density_profile") or fallback_profile or "").strip()
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
@@ -193,6 +205,22 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
         merged["negative_space_max"] = merged.get("negative_space_cap")
     if "person_count_target" in merged:
         merged["required_person_count"] = merged.get("person_count_target")
+    overlay_mode = _critical_overlay_mode(target_path)
+    if overlay_mode:
+        merged["required_overlay_mode"] = overlay_mode
+    if str(target_path or "").replace("\\", "/").strip() in {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
+    }:
+        critical_style = briefs.get("critical_asset_style_epoch")
+        if isinstance(critical_style, dict):
+            if str(critical_style.get("mode") or "").strip():
+                merged["critical_style_mode"] = str(critical_style.get("mode") or "").strip()
+            if str(critical_style.get("style_anchor") or "").strip():
+                merged["critical_style_anchor"] = str(critical_style.get("style_anchor") or "").strip()
+            if str(critical_style.get("negative_prompt") or "").strip():
+                merged["critical_negative_prompt"] = str(critical_style.get("negative_prompt") or "").strip()
     return merged
 
 

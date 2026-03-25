@@ -761,9 +761,11 @@ def test_variation_guardrails_include_visual_contract_requirements_for_hero() ->
     rules = worker.variation_guardrails_for("assets/hero/chummer6-hero.png", [])
     joined = "\n".join(rules).lower()
 
+    assert "flagship poster style epoch" in joined
     assert "packed and layered" in joined
     assert "two to four people" in joined
     assert "garage clinic" in joined or "getaway-van triage" in joined
+    assert "overlay ooda mode: medscan_diagnostic" in joined
     assert "pseudo-text" in joined or "fake lettering" in joined
 
 
@@ -793,6 +795,40 @@ def test_critical_visual_findings_require_shadowrun_lore_markers_for_hero() -> N
     assert "critical_lore:missing_metahuman_cue" in findings
     assert "critical_lore:missing_streetdoc_garage_clinic" in findings
     assert "critical_anchor_missing:cyberware" in findings
+    assert "critical_scene:missing_cyberware_surgery" in findings
+    assert "critical_overlay:missing_medscan_posture" in findings
+
+
+def test_critical_visual_findings_require_actionful_forge_review_scene() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.critical_visual_findings_for_target(
+        "assets/horizons/karma-forge.png",
+        {
+            "visual_motifs": ["generic workshop", "quiet paperwork", "approval drift", "orange glow"],
+            "overlay_callouts": ["receipt traces", "quiet review"],
+            "scene_contract": {
+                "composition": "approval_rail",
+                "subject": "two operators talk quietly in a generic workshop",
+                "environment": "a quiet workshop bench with paperwork and diffuse orange glow",
+                "action": "reviewing the packet in place",
+                "props": ["paperwork stack", "workbench", "soft glow"],
+                "overlays": ["receipt traces", "quiet review", "approval drift"],
+            },
+        },
+    )
+
+    assert "critical_scene:generic_workshop_drift" in findings
+    assert "critical_scene:missing_action_posture" in findings
+    assert "critical_overlay:missing_forge_review_ar" in findings
+
+
+def test_overlay_mode_for_target_tracks_flagship_assets() -> None:
+    worker = _load_worker_module()
+
+    assert worker.overlay_mode_for_target("assets/hero/chummer6-hero.png") == "medscan_diagnostic"
+    assert worker.overlay_mode_for_target("assets/pages/horizons-index.png") == "ambient_diegetic"
+    assert worker.overlay_mode_for_target("assets/horizons/karma-forge.png") == "forge_review_ar"
 
 
 def test_normalize_media_override_biases_hero_and_karma_forge_away_from_quiet_solo_defaults() -> None:
@@ -952,13 +988,14 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
         {},
     )
     hero["visual_prompt"] = "An ork streetdoc patches a wounded runner inside an improvised garage clinic with hacked cyberware gear and visible BOD AGI REA ESS EDGE rails."
-    hero["overlay_hint"] = "BOD AGI REA ESS EDGE UPGRADING"
+    hero["overlay_hint"] = "medscan diagnostic rail with AGI/ESS upgrade markers, cyberlimb calibration, wound stabilization, and neural link resync"
     hero["visual_motifs"] = ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life", "cyberware surgery"]
-    hero["overlay_callouts"] = ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"]
+    hero["overlay_callouts"] = ["Wound stabilized", "Cyberlimb calibration", "Neural link resync"]
     hero["scene_contract"].update(
         {
             "subject": "an ork streetdoc and runner in a garage clinic while a teammate assists",
             "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, extension cords, and hacked cyberware gear",
+            "action": "stabilizing a wounded runner while calibrating a patched cyberlimb under pressure",
             "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
             "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
         }
@@ -986,13 +1023,14 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
         {"slug": "karma-forge", "title": "KARMA FORGE"},
     )
     forge["visual_prompt"] = "A rulesmith and reviewer stand at an industrial rules lab approval rail with DIFF APPROVAL PROVENANCE and ROLLBACK overlays."
-    forge["overlay_hint"] = "DIFF APPROVAL PROVENANCE ROLLBACK"
+    forge["overlay_hint"] = "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
     forge["visual_motifs"] = ["rules lab", "approval rail", "rollback rig", "review witness"]
-    forge["overlay_callouts"] = ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"]
+    forge["overlay_callouts"] = ["Approval rail", "Provenance seal", "Rollback vector", "Witness lock"]
     forge["scene_contract"].update(
         {
             "subject": "a rulesmith and reviewer reconcile a forged rules packet",
             "environment": "an industrial rules lab with an approval rail, rollback rig, provenance seals, and rule cassettes",
+            "action": "forcing unstable rule cassettes through the approval rail while a reviewer locks witness control",
             "props": ["rule cassette", "approval seal", "diff strip", "rollback rig"],
             "overlays": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"],
         }
@@ -1148,7 +1186,7 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
     assert normalized["kicker"] == "house rules with rollback dreams"
     assert normalized["note"] == "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature."
     assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
-    assert normalized["overlay_hint"] == "compatibility seals and rollback markers"
+    assert normalized["overlay_hint"] == "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
     assert normalized["scene_contract"]["subject"] == "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench"
     assert normalized["scene_contract"]["environment"] == "an industrial approval rail lit by sodium spill, rollback cassettes, provenance seals, and hard task light"
     assert normalized["scene_contract"]["composition"] == "approval_rail"
@@ -1210,8 +1248,14 @@ def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hint
     assert normalized["badge"] == "Trust Check"
     assert normalized["note"] == "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support."
     assert "metadata hud" not in normalized["overlay_hint"].lower()
+    assert "medscan diagnostic rail" in normalized["overlay_hint"].lower()
+    assert "trust check" not in normalized["overlay_hint"].lower()
     assert "concept" in normalized["meta"].lower()
-    assert normalized["overlay_hint"]
+    assert normalized["overlay_callouts"] == [
+        "Wound stabilized",
+        "Cyberlimb calibration",
+        "Neural link resync",
+    ]
     assert "runner" in normalized["scene_contract"]["subject"].lower()
     assert "receipt" in normalized["scene_contract"]["action"].lower() or "trust" in normalized["scene_contract"]["action"].lower()
     assert normalized["scene_contract"]["composition"] == "clinic_intake"
