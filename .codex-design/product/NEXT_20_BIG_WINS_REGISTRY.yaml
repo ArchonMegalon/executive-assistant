@@ -144,7 +144,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - rule environments exist for personal, campaign, and group scopes
       - compatibility fingerprints and approval states are visible
@@ -181,7 +181,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - campaign roster, run state, objectives, recap, and continuity are visible in one workspace
       - campaign return is coherent and not fragmented across unrelated screens
@@ -280,7 +280,7 @@ milestones:
       - chummer6-hub
       - executive-assistant
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - explicit community/operator roles and campaign permissions are available
       - organizer-facing surfaces are first-class and controlled by same account model
