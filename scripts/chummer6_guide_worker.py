@@ -1335,6 +1335,8 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_lore:missing_metahuman_cue")
         if not any(token in combined for token in ("garage", "tool chest", "lift bay", "tarp", "extension cord", "work lamp", "van")):
             findings.append("critical_lore:missing_streetdoc_garage_clinic")
+        if not any(token in combined for token in ("streetdoc", "clinician", "stabilizing", "triage", "patch-up", "calibrating cyberware")):
+            findings.append("critical_scene:missing_clinical_action")
         if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
             findings.append("critical_overlay:missing_attribute_rail")
     if normalized == "assets/horizons/karma-forge.png":
@@ -1342,6 +1344,8 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_scene:tableau_not_forge")
         if not any(token in combined for token in ("approval rail", "rollback rig", "provenance seal", "rules lab", "consequence bench")):
             findings.append("critical_lore:missing_forge_semantics")
+        if not any(token in combined for token in ("pressure", "danger", "volatile", "consequence", "rollback", "witness lock")):
+            findings.append("critical_scene:missing_pressure")
     if not _boolish(contract.get("humor_allowed"), default=True) and str(scene.get("humor") or "").strip():
         findings.append("critical_humor:forbidden")
     if not _boolish(contract.get("pseudo_text_allowed"), default=True):
