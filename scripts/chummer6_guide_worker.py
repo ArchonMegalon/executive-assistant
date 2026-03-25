@@ -5336,7 +5336,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 " ".join(str(entry).strip() for entry in (scene_contract.get("overlays") or []) if str(entry).strip()),
             ]
         ).lower()
-        if any(token in tokens for token in ("hero", "intake tray", "trust marker", "build-state", "clinic intake", "streetdoc")):
+        if any(token in tokens for token in ("hero", "intake tray", "build-state", "clinic intake", "streetdoc", "medscan", "cyberware calibration")):
             return "medscan diagnostic rail with cyberware calibration, wound stabilization, and upgrade-state chips"
         if any(token in tokens for token in ("design", "route string", "scope bracket", "planning corner", "surface callout")):
             return "route strings and scope brackets"
