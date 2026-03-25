@@ -1,0 +1,142 @@
+{% extends "base_console.html" %}
+{% block content %}
+<style>
+  .object-grid,
+  .object-meta,
+  .object-sections,
+  .object-list {
+    display: grid;
+    gap: 14px;
+  }
+  .object-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  }
+  .object-panel,
+  .object-section,
+  .object-meta-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+    padding: 18px;
+  }
+  .object-kicker {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .object-copy {
+    color: var(--text-soft);
+  }
+  .object-meta {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .object-meta-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .object-meta-card strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.05rem;
+  }
+  .object-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+  .object-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .object-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .object-row strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 3px;
+  }
+  .object-row small {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .object-tag {
+    white-space: nowrap;
+    height: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  @media (max-width: 1080px) {
+    .object-grid,
+    .object-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="object-grid">
+  <section class="object-panel">
+    <div class="object-kicker">{{ object_kind }}</div>
+    <h1>{{ object_title }}</h1>
+    <p class="object-copy">{{ object_summary }}</p>
+    <div class="object-meta">
+      {% for item in object_meta %}
+      <div class="object-meta-card">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <aside class="object-panel">
+    <div class="object-kicker">Why it matters now</div>
+    <h2>{{ object_sidebar_title }}</h2>
+    <p class="object-copy">{{ object_sidebar_copy }}</p>
+    <div class="object-list">
+      {% for item in object_sidebar_rows %}
+      <div class="object-row">
+        <div>
+          <strong>{{ item.title }}</strong>
+          <small>{{ item.detail }}</small>
+        </div>
+        <div class="object-tag">{{ item.tag }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </aside>
+</section>
+
+<section class="object-sections">
+  {% for section in object_sections %}
+  <section class="object-section">
+    <div class="object-kicker">{{ section["eyebrow"] }}</div>
+    <h2>{{ section["title"] }}</h2>
+    <div class="object-list">
+      {% for item in section["items"] %}
+      <div class="object-row">
+        <div>
+          <strong>{{ item.title }}</strong>
+          <small>{{ item.detail }}</small>
+        </div>
+        <div class="object-tag">{{ item.tag }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

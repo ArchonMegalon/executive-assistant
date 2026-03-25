@@ -520,7 +520,8 @@ def test_session_step_dependency_projection_is_covered_by_smoke_runtime() -> Non
     assert "dependency_states') == {'step_input_prepare': 'completed'}" in smoke_script
     assert "save_step.get('state',''), policy_step.get('dependency_states') == {'step_input_prepare': 'completed'}" in smoke_script
     assert "save_step.get('blocked_dependency_keys') == ['step_human_review']" in smoke_script
-    assert "decision_brief_approval|awaiting_approval|waiting_approval|True|True|True|True|True" in smoke_script
+    assert 'GENERIC_APPROVAL_TASK_KEY="decision_brief_approval_${SMOKE_RUN_TOKEN}"' in smoke_script
+    assert '${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True' in smoke_script
     assert "stakeholder_briefing_review|awaiting_human|waiting_human|True|True|True|True|queued|True|True|True" in smoke_script
 
 
@@ -3357,6 +3358,7 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     assert "inspect paused approval-backed session dependency projection" in http_examples
     assert "inspect paused human-review-backed session dependency projection" in http_examples
     assert "GENERIC_APPROVAL_JSON" in smoke_api
+    assert "GENERIC_APPROVAL_TASK_KEY" in smoke_api
     assert "GENERIC_HUMAN_JSON" in smoke_api
     assert "generic task async contracts ok" in smoke_api
     assert "test_generic_task_execution_supports_async_approval_and_human_contracts" in smoke_runtime

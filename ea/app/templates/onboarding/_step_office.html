@@ -1,0 +1,83 @@
+<section class="panel wizard-panel" data-step-panel="1">
+  <div class="wizard-panel-header">
+    <div>
+      <div class="eyebrow">Step 1</div>
+      <h2>Choose the office shape this product will support.</h2>
+    </div>
+    <p class="step-context">Pick the option that matches the real daily rhythm. The right choice is about how commitments, approvals, and handoffs behave, not what the org chart says.</p>
+  </div>
+
+  <div class="mode-grid">
+    <div class="mode-card">
+      <strong>Personal</strong>
+      <p class="copy">Best when one person wants a memo, a decision queue, and visible commitments across their own tools.</p>
+      <button class="btn ghost" type="button" data-set-mode="personal">Use solo workspace</button>
+    </div>
+    <div class="mode-card">
+      <strong>Shared workspace</strong>
+      <p class="copy">Best when a small team shares the same incoming work, the same review queue, or the same follow-up list.</p>
+      <button class="btn ghost" type="button" data-set-mode="team">Use shared workspace</button>
+    </div>
+    <div class="mode-card">
+      <strong>Executive support</strong>
+      <p class="copy">Best when one executive needs heavier review, more context, and more explicit follow-up management around stakeholder work.</p>
+      <button class="btn ghost" type="button" data-set-mode="executive_ops">Use executive support</button>
+    </div>
+  </div>
+
+  <form class="wizard-form" method="post" action="/setup/start" data-next-step="2">
+    {{ shared_browser_fields|safe }}
+    <div class="field-grid two">
+      <div>
+        <label for="workspace_name">Workspace name</label>
+        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
+      </div>
+      <div>
+      <label for="workspace_mode">Workspace type</label>
+      <select id="workspace_mode" name="workspace_mode">
+          <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
+          <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
+          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Executive support</option>
+      </select>
+        <div class="field-help">You can change this later. It helps the product start with the right memo and review posture.</div>
+      </div>
+    </div>
+    <div class="field-grid two">
+      <div>
+        <label for="timezone">Timezone</label>
+        <input id="timezone" name="timezone" value="{{ workspace.timezone or '' }}" placeholder="Europe/Vienna">
+      </div>
+      <div>
+        <label for="region">Region</label>
+        <input id="region" name="region" value="{{ workspace.region or '' }}" placeholder="AT">
+      </div>
+    </div>
+    <div class="field-grid two">
+      <div>
+        <label for="language">Language</label>
+        <input id="language" name="language" value="{{ workspace.language or '' }}" placeholder="en">
+      </div>
+      <div>
+        <label>Activation path</label>
+        <div class="field-help">Keep the first loop narrow: workspace, Google, first memo, first review. Messaging can wait until value is obvious.</div>
+      </div>
+    </div>
+    <input type="hidden" name="selected_channels" value="google">
+    <div class="finish-grid">
+      <div class="finish-card">
+        <strong>Google is the default first connection</strong>
+        Email, calendar, and contacts are enough to prove whether the memo, draft queue, and commitment loop are useful.
+      </div>
+      <div class="finish-card">
+        <strong>Messaging comes later</strong>
+        Telegram and WhatsApp are post-activation decisions, not required setup before the product has earned trust.
+      </div>
+    </div>
+    <div class="wizard-actions">
+      <div class="callout">If you are unsure, choose personal, keep Google checked, and move on. The first useful memo matters more than perfect setup.</div>
+      <div class="right">
+        <button class="btn primary" type="submit">Save workspace and continue</button>
+      </div>
+    </div>
+  </form>
+</section>

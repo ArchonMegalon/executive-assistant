@@ -1,0 +1,500 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field
+
+from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
+
+
+class EvidenceRefOut(BaseModel):
+    ref_id: str
+    label: str
+    href: str = ""
+    source_type: str = ""
+    note: str = ""
+
+
+class BriefItemOut(BaseModel):
+    id: str
+    workspace_id: str
+    kind: str
+    title: str
+    summary: str
+    score: float
+    why_now: str
+    evidence_refs: list[EvidenceRefOut]
+    related_people: list[str]
+    related_commitment_ids: list[str]
+    recommended_action: str
+    status: str
+
+
+class DecisionQueueItemOut(BaseModel):
+    id: str
+    queue_kind: str
+    title: str
+    summary: str
+    priority: str
+    deadline: str | None = None
+    owner_role: str = ""
+    requires_principal: bool = False
+    evidence_refs: list[EvidenceRefOut]
+    resolution_state: str
+
+
+class DecisionItemOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    priority: str
+    owner_role: str
+    due_at: str | None = None
+    status: str
+    recommendation: str = ""
+    rationale: str = ""
+    options: list[str]
+    evidence_refs: list[EvidenceRefOut]
+    related_commitment_ids: list[str]
+    related_people: list[str]
+
+
+class CommitmentOut(BaseModel):
+    id: str
+    source_type: str
+    source_ref: str
+    statement: str
+    owner: str
+    counterparty: str
+    due_at: str | None = None
+    status: str
+    last_activity_at: str | None = None
+    risk_level: str
+    proof_refs: list[EvidenceRefOut]
+
+
+class CommitmentCandidateOut(BaseModel):
+    candidate_id: str = ""
+    title: str
+    details: str
+    source_text: str
+    confidence: float
+    suggested_due_at: str | None = None
+    counterparty: str = ""
+    status: str = "pending"
+
+
+class DraftCandidateOut(BaseModel):
+    id: str
+    thread_ref: str
+    recipient_summary: str
+    intent: str
+    draft_text: str
+    tone: str
+    requires_approval: bool
+    approval_status: str
+    provenance_refs: list[EvidenceRefOut]
+    send_channel: str
+
+
+class PersonProfileOut(BaseModel):
+    id: str
+    display_name: str
+    role_or_company: str
+    importance_score: int
+    relationship_temperature: str
+    open_loops_count: int
+    latest_touchpoint_at: str | None = None
+    preferred_tone: str
+    themes: list[str]
+    risks: list[str]
+
+
+class HandoffNoteOut(BaseModel):
+    id: str
+    queue_item_ref: str
+    summary: str
+    owner: str
+    due_time: str | None = None
+    escalation_status: str
+    status: str
+    evidence_refs: list[EvidenceRefOut]
+
+
+class HistoryEntryOut(BaseModel):
+    event_type: str
+    created_at: str | None = None
+    source_id: str = ""
+    actor: str = ""
+    detail: str = ""
+
+
+class PersonDetailOut(BaseModel):
+    profile: PersonProfileOut
+    commitments: list[CommitmentOut]
+    drafts: list[DraftCandidateOut]
+    queue_items: list[DecisionQueueItemOut]
+    handoffs: list[HandoffNoteOut]
+    evidence_refs: list[EvidenceRefOut]
+    history: list[HistoryEntryOut]
+
+
+class ThreadItemOut(BaseModel):
+    id: str
+    title: str
+    channel: str
+    status: str
+    last_activity_at: str | None = None
+    summary: str
+    counterparties: list[str]
+    draft_ids: list[str]
+    related_commitment_ids: list[str]
+    related_decision_ids: list[str]
+    evidence_refs: list[EvidenceRefOut]
+
+
+class EvidenceItemOut(BaseModel):
+    id: str
+    label: str
+    source_type: str
+    summary: str
+    href: str = ""
+    related_object_refs: list[str]
+
+
+class RuleItemOut(BaseModel):
+    id: str
+    label: str
+    scope: str
+    status: str
+    summary: str
+    current_value: str
+    impact: str
+    requires_approval: bool = False
+    simulated_effect: str = ""
+
+
+class WorkspaceDiagnosticsOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    readiness: dict[str, object]
+    operators: dict[str, object]
+    providers: dict[str, object]
+    usage: dict[str, int]
+    analytics: dict[str, object]
+
+
+class WorkspaceSupportBundleOut(BaseModel):
+    workspace: dict[str, object]
+    selected_channels: list[str]
+    plan: dict[str, object]
+    billing: dict[str, object]
+    entitlements: dict[str, object]
+    commercial: dict[str, object]
+    readiness: dict[str, object]
+    usage: dict[str, object]
+    analytics: dict[str, object]
+    approvals: dict[str, object]
+    human_tasks: list[dict[str, object]]
+    providers: dict[str, object]
+    pending_delivery: list[dict[str, object]]
+
+
+class BriefResponse(BaseModel):
+    generated_at: str
+    items: list[BriefItemOut]
+    total: int
+
+
+class QueueResponse(BaseModel):
+    generated_at: str
+    items: list[DecisionQueueItemOut]
+    total: int
+
+
+class DecisionResponse(BaseModel):
+    generated_at: str
+    items: list[DecisionItemOut]
+    total: int
+
+
+class ThreadResponse(BaseModel):
+    generated_at: str
+    items: list[ThreadItemOut]
+    total: int
+
+
+class EvidenceResponse(BaseModel):
+    generated_at: str
+    items: list[EvidenceItemOut]
+    total: int
+
+
+class RuleResponse(BaseModel):
+    generated_at: str
+    items: list[RuleItemOut]
+    total: int
+
+
+class DraftApproveIn(BaseModel):
+    reason: str = "Approved from product draft queue."
+
+
+class QueueResolveIn(BaseModel):
+    action: str = Field(min_length=1)
+    reason: str = ""
+    due_at: str | None = None
+
+
+class CommitmentCreateIn(BaseModel):
+    title: str = Field(min_length=1)
+    details: str = ""
+    due_at: str | None = None
+    priority: str = "medium"
+    counterparty: str = ""
+    owner: str = "office"
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+    channel_hint: str = "email"
+
+
+class CommitmentExtractIn(BaseModel):
+    text: str = Field(min_length=1)
+    counterparty: str = ""
+    due_at: str | None = None
+
+
+class CommitmentCandidateStageIn(BaseModel):
+    text: str = Field(min_length=1)
+    counterparty: str = ""
+    due_at: str | None = None
+    kind: str = "commitment"
+    stakeholder_id: str = ""
+
+
+class CommitmentCandidateReviewIn(BaseModel):
+    reviewer: str = Field(min_length=1)
+    title: str = ""
+    details: str = ""
+    due_at: str | None = None
+    counterparty: str = ""
+    kind: str = ""
+    stakeholder_id: str = ""
+
+
+class HandoffAssignIn(BaseModel):
+    operator_id: str = Field(min_length=1)
+
+
+class HandoffCompleteIn(BaseModel):
+    operator_id: str = Field(min_length=1)
+    resolution: str = "completed"
+
+
+class PersonCorrectionIn(BaseModel):
+    preferred_tone: str = ""
+    add_theme: str = ""
+    remove_theme: str = ""
+    add_risk: str = ""
+    remove_risk: str = ""
+
+
+class RuleSimulateIn(BaseModel):
+    proposed_value: str = Field(min_length=1)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def evidence_out(values: tuple[EvidenceRef, ...]) -> list[EvidenceRefOut]:
+    return [EvidenceRefOut(**value.__dict__) for value in values]
+
+
+def brief_out(value: BriefItem) -> BriefItemOut:
+    return BriefItemOut(
+        id=value.id,
+        workspace_id=value.workspace_id,
+        kind=value.kind,
+        title=value.title,
+        summary=value.summary,
+        score=value.score,
+        why_now=value.why_now,
+        evidence_refs=evidence_out(value.evidence_refs),
+        related_people=list(value.related_people),
+        related_commitment_ids=list(value.related_commitment_ids),
+        recommended_action=value.recommended_action,
+        status=value.status,
+    )
+
+
+def queue_out(value: DecisionQueueItem) -> DecisionQueueItemOut:
+    return DecisionQueueItemOut(
+        id=value.id,
+        queue_kind=value.queue_kind,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        deadline=value.deadline,
+        owner_role=value.owner_role,
+        requires_principal=value.requires_principal,
+        evidence_refs=evidence_out(value.evidence_refs),
+        resolution_state=value.resolution_state,
+    )
+
+
+def decision_out(value: DecisionItem) -> DecisionItemOut:
+    return DecisionItemOut(
+        id=value.id,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        owner_role=value.owner_role,
+        due_at=value.due_at,
+        status=value.status,
+        recommendation=value.recommendation,
+        rationale=value.rationale,
+        options=list(value.options),
+        evidence_refs=evidence_out(value.evidence_refs),
+        related_commitment_ids=list(value.related_commitment_ids),
+        related_people=list(value.related_people),
+    )
+
+
+def commitment_out(value: CommitmentItem) -> CommitmentOut:
+    return CommitmentOut(
+        id=value.id,
+        source_type=value.source_type,
+        source_ref=value.source_ref,
+        statement=value.statement,
+        owner=value.owner,
+        counterparty=value.counterparty,
+        due_at=value.due_at,
+        status=value.status,
+        last_activity_at=value.last_activity_at,
+        risk_level=value.risk_level,
+        proof_refs=evidence_out(value.proof_refs),
+    )
+
+
+def commitment_candidate_out(value: CommitmentCandidate) -> CommitmentCandidateOut:
+    return CommitmentCandidateOut(
+        candidate_id=value.candidate_id,
+        title=value.title,
+        details=value.details,
+        source_text=value.source_text,
+        confidence=value.confidence,
+        suggested_due_at=value.suggested_due_at,
+        counterparty=value.counterparty,
+        status=value.status,
+    )
+
+
+def draft_out(value: DraftCandidate) -> DraftCandidateOut:
+    return DraftCandidateOut(
+        id=value.id,
+        thread_ref=value.thread_ref,
+        recipient_summary=value.recipient_summary,
+        intent=value.intent,
+        draft_text=value.draft_text,
+        tone=value.tone,
+        requires_approval=value.requires_approval,
+        approval_status=value.approval_status,
+        provenance_refs=evidence_out(value.provenance_refs),
+        send_channel=value.send_channel,
+    )
+
+
+def person_out(value: PersonProfile) -> PersonProfileOut:
+    return PersonProfileOut(
+        id=value.id,
+        display_name=value.display_name,
+        role_or_company=value.role_or_company,
+        importance_score=value.importance_score,
+        relationship_temperature=value.relationship_temperature,
+        open_loops_count=value.open_loops_count,
+        latest_touchpoint_at=value.latest_touchpoint_at,
+        preferred_tone=value.preferred_tone,
+        themes=list(value.themes),
+        risks=list(value.risks),
+    )
+
+
+def handoff_out(value: HandoffNote) -> HandoffNoteOut:
+    return HandoffNoteOut(
+        id=value.id,
+        queue_item_ref=value.queue_item_ref,
+        summary=value.summary,
+        owner=value.owner,
+        due_time=value.due_time,
+        escalation_status=value.escalation_status,
+        status=value.status,
+        evidence_refs=evidence_out(value.evidence_refs),
+    )
+
+
+def thread_out(value: ThreadItem) -> ThreadItemOut:
+    return ThreadItemOut(
+        id=value.id,
+        title=value.title,
+        channel=value.channel,
+        status=value.status,
+        last_activity_at=value.last_activity_at,
+        summary=value.summary,
+        counterparties=list(value.counterparties),
+        draft_ids=list(value.draft_ids),
+        related_commitment_ids=list(value.related_commitment_ids),
+        related_decision_ids=list(value.related_decision_ids),
+        evidence_refs=evidence_out(value.evidence_refs),
+    )
+
+
+def evidence_item_out(value: EvidenceItem) -> EvidenceItemOut:
+    return EvidenceItemOut(
+        id=value.id,
+        label=value.label,
+        source_type=value.source_type,
+        summary=value.summary,
+        href=value.href,
+        related_object_refs=list(value.related_object_refs),
+    )
+
+
+def rule_out(value: RuleItem) -> RuleItemOut:
+    return RuleItemOut(
+        id=value.id,
+        label=value.label,
+        scope=value.scope,
+        status=value.status,
+        summary=value.summary,
+        current_value=value.current_value,
+        impact=value.impact,
+        requires_approval=value.requires_approval,
+        simulated_effect=value.simulated_effect,
+    )
+
+
+def history_out(value: HistoryEntry) -> HistoryEntryOut:
+    return HistoryEntryOut(
+        event_type=value.event_type,
+        created_at=value.created_at,
+        source_id=value.source_id,
+        actor=value.actor,
+        detail=value.detail,
+    )
+
+
+def person_detail_out(value: PersonDetail) -> PersonDetailOut:
+    return PersonDetailOut(
+        profile=person_out(value.profile),
+        commitments=[commitment_out(item) for item in value.commitments],
+        drafts=[draft_out(item) for item in value.drafts],
+        queue_items=[queue_out(item) for item in value.queue_items],
+        handoffs=[handoff_out(item) for item in value.handoffs],
+        evidence_refs=evidence_out(value.evidence_refs),
+        history=[history_out(item) for item in value.history],
+    )

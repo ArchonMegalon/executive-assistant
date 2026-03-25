@@ -21,6 +21,15 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert any(item["id"] == f"approval:{seeded['approval_id']}" for item in queue_body["items"])
     assert any(item["id"] == f"commitment:{seeded['commitment_id']}" for item in queue_body["items"])
 
+    decisions = client.get("/app/api/decisions")
+    assert decisions.status_code == 200
+    decisions_body = decisions.json()
+    assert decisions_body["total"] >= 1
+    assert any(item["id"] == f"decision:{seeded['decision_window_id']}" for item in decisions_body["items"])
+    decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
+    assert decision_detail.status_code == 200
+    assert decision_detail.json()["title"] == "Choose board memo owner"
+
     commitments = client.get("/app/api/commitments")
     assert commitments.status_code == 200
     commitment_rows = commitments.json()
@@ -32,6 +41,16 @@ def test_product_api_projects_real_runtime_objects() -> None:
     draft_rows = drafts.json()
     assert draft_rows[0]["id"] == f"approval:{seeded['approval_id']}"
     assert draft_rows[0]["send_channel"] == "email"
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    threads_body = threads.json()
+    assert threads_body["total"] >= 1
+    assert any(item["title"] == "sofia@example.com" for item in threads_body["items"])
+    thread_ref = threads_body["items"][0]["id"]
+    thread_detail = client.get(f"/app/api/threads/{thread_ref}")
+    assert thread_detail.status_code == 200
+    assert thread_detail.json()["channel"] == "email"
 
     people = client.get("/app/api/people")
     assert people.status_code == 200
@@ -51,6 +70,22 @@ def test_product_api_projects_real_runtime_objects() -> None:
     handoff_rows = handoffs.json()
     assert handoff_rows[0]["id"] == f"human_task:{seeded['human_task_id']}"
 
+    evidence = client.get("/app/api/evidence")
+    assert evidence.status_code == 200
+    evidence_body = evidence.json()
+    assert evidence_body["total"] >= 1
+    evidence_detail = client.get(f"/app/api/evidence/{evidence_body['items'][0]['id']}")
+    assert evidence_detail.status_code == 200
+
+    rules = client.get("/app/api/rules")
+    assert rules.status_code == 200
+    rules_body = rules.json()
+    assert rules_body["total"] >= 4
+    assert any(item["id"] == "rule:draft_approval" for item in rules_body["items"])
+    simulated = client.post("/app/api/rules/rule:messaging_scope/simulate", json={"proposed_value": "telegram"})
+    assert simulated.status_code == 200
+    assert "Upgrade" in simulated.json()["simulated_effect"]
+
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
     diagnostics_body = diagnostics.json()
@@ -59,6 +94,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert diagnostics_body["billing"]["billing_state"] == "trial"
     assert diagnostics_body["billing"]["support_tier"] == "guided"
     assert diagnostics_body["entitlements"]["principal_seats"] == 1
+    assert "warnings" in diagnostics_body["commercial"]
     assert diagnostics_body["usage"]["queue_items"] >= 1
 
 
@@ -102,11 +138,11 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     assert created.json()["statement"] == "Share revised board packet"
 
     decision_resolved = client.post(
-        f"/app/api/queue/decision:{seeded['decision_window_id']}/resolve",
+        f"/app/api/decisions/decision:{seeded['decision_window_id']}/resolve",
         json={"action": "resolve", "reason": "Principal chose the owner"},
     )
     assert decision_resolved.status_code == 200
-    assert decision_resolved.json()["resolution_state"] == "decided"
+    assert decision_resolved.json()["status"] == "decided"
 
     deadline_closed = client.post(
         f"/app/api/queue/deadline:{seeded['deadline_window_id']}/resolve",

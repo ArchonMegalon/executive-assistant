@@ -183,6 +183,49 @@ def test_browser_handoff_and_people_memory_actions_work() -> None:
     assert "Memory Corrected" in person_page.text
 
 
+def test_object_detail_routes_render_core_product_objects() -> None:
+    principal_id = "exec-browser-object-details"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    decisions = client.get("/app/api/decisions")
+    assert decisions.status_code == 200
+    decision_id = decisions.json()["items"][0]["id"]
+    assert f"/app/decisions/{decision_id}" in client.get("/app/briefing").text
+    decision_page = client.get(f"/app/decisions/{decision_id}")
+    assert decision_page.status_code == 200
+    assert "Choose board memo owner" in decision_page.text
+    assert "Decision queue" in decision_page.text
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = threads.json()["items"][0]["id"]
+    assert f"/app/threads/{thread_id}" in client.get("/app/inbox").text
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Conversation thread" in thread_page.text
+    assert "sofia@example.com" in thread_page.text
+
+    evidence = client.get("/app/api/evidence")
+    assert evidence.status_code == 200
+    evidence_id = evidence.json()["items"][0]["id"]
+    assert f"/app/evidence/{evidence_id}" in client.get("/app/contacts").text
+    evidence_page = client.get(f"/app/evidence/{evidence_id}")
+    assert evidence_page.status_code == 200
+    assert "Evidence" in evidence_page.text
+    assert "Objects linked to this evidence" in evidence_page.text
+
+    rules = client.get("/app/api/rules")
+    assert rules.status_code == 200
+    rule_id = rules.json()["items"][0]["id"]
+    assert f"/app/rules/{rule_id}" in client.get("/app/settings").text
+    rule_page = client.get(f"/app/rules/{rule_id}")
+    assert rule_page.status_code == 200
+    assert "Rules" in rule_page.text
+    assert "Expected effect" in rule_page.text
+    assert seeded["decision_window_id"] in decisions.text
+
+
 def test_browser_commitment_capture_actions_work() -> None:
     principal_id = "exec-browser-capture"
     client = build_product_client(principal_id=principal_id)

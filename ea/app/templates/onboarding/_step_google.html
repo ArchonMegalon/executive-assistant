@@ -1,0 +1,68 @@
+<section class="panel wizard-panel" data-step-panel="2">
+  <div class="wizard-panel-header">
+    <div>
+      <div class="eyebrow">Step 2</div>
+      <h2>Connect Google first.</h2>
+    </div>
+    <p class="step-context">For most customers, Google is where the product becomes useful first: email context, calendar pressure, contacts, and a real morning memo.</p>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-card">
+      <div class="kicker">Current status</div>
+      <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
+      <p class="copy">This shows where the Google connection stands today.</p>
+    </div>
+      <div class="status-card">
+        <div class="kicker">Recommended choice</div>
+        <strong>Google Core</strong>
+      <p class="copy">Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.</p>
+    </div>
+  </div>
+
+  <div class="bundle-grid">
+    <div class="bundle-card">
+      <strong>Google Core</strong>
+      <p class="copy">Read email metadata, calendar, and contacts, and support drafting and verification where needed.</p>
+      <button class="btn ghost" type="button" data-set-google-bundle="core">Select Google Core</button>
+    </div>
+    <div class="bundle-card">
+      <strong>Full Workspace</strong>
+      <p class="copy">Use this only when the office loop genuinely needs broader Google coverage from the beginning.</p>
+      <button class="btn ghost" type="button" data-set-google-bundle="full_workspace">Select Full Workspace</button>
+    </div>
+  </div>
+
+  <form class="wizard-form" method="post" action="/google/connect" data-next-step="3">
+    {{ shared_browser_fields|safe }}
+      <div>
+        <label for="scope_bundle">Google access level</label>
+        <select id="scope_bundle" name="scope_bundle">
+        <option value="core">Google Core (recommended)</option>
+        <option value="full_workspace">Google Full Workspace</option>
+        <option value="verify">Advanced Gmail verify</option>
+        <option value="send">Send only</option>
+      </select>
+      <div class="field-help">Google will ask for the Gmail, calendar, and contacts access needed for the selected bundle. After that, the product can start building a real memo from your workspace.</div>
+    </div>
+    <div class="status-grid">
+      <div class="status-card">
+        <div class="kicker">What Google is for</div>
+        <strong>Better memos and better timing</strong>
+        <p class="copy">Calendar pressure, contacts context, and Gmail signals help the product decide what matters first.</p>
+      </div>
+      <div class="status-card">
+        <div class="kicker">Why the permissions look broad</div>
+        <strong>They support real drafting and delivery checks</strong>
+        <p class="copy">Drafts, send, delivery verification, and connected-mail behavior require more than a single lightweight scope.</p>
+      </div>
+    </div>
+    <div class="wizard-actions">
+      <button class="btn ghost" type="button" data-step-back="1">Back</button>
+      <div class="right">
+        <button class="btn ghost" type="button" data-step-next="3">Skip for now</button>
+        <button class="btn primary" type="submit">Connect Google</button>
+      </div>
+    </div>
+  </form>
+</section>

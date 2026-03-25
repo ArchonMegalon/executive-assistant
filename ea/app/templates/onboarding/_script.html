@@ -1,0 +1,53 @@
+<script>
+(() => {
+  const root = document.querySelector('[data-onboarding-wizard]');
+  if (!root) return;
+  const panels = Array.from(root.querySelectorAll('[data-step-panel]'));
+  const triggers = Array.from(root.querySelectorAll('[data-step-trigger]'));
+  const modeSelect = document.getElementById('workspace_mode');
+  const bundleSelect = document.getElementById('scope_bundle');
+  const storageKey = 'ea_onboarding_step';
+
+  const render = (step) => {
+    const safeStep = panels.some((panel) => Number(panel.dataset.stepPanel) === step) ? step : 1;
+    panels.forEach((panel) => panel.classList.toggle('active', Number(panel.dataset.stepPanel) === safeStep));
+    triggers.forEach((trigger) => trigger.classList.toggle('active', Number(trigger.dataset.stepTrigger) === safeStep));
+    try { window.localStorage.setItem(storageKey, String(safeStep)); } catch (_) {}
+  };
+
+  let currentStep = 1;
+  try {
+    currentStep = Number(window.localStorage.getItem(storageKey) || '1');
+  } catch (_) {
+    currentStep = 1;
+  }
+  render(currentStep);
+
+  triggers.forEach((trigger) => {
+    trigger.addEventListener('click', () => render(Number(trigger.dataset.stepTrigger)));
+  });
+  root.querySelectorAll('[data-step-next]').forEach((button) => {
+    button.addEventListener('click', () => render(Number(button.dataset.stepNext)));
+  });
+  root.querySelectorAll('[data-step-back]').forEach((button) => {
+    button.addEventListener('click', () => render(Number(button.dataset.stepBack)));
+  });
+  root.querySelectorAll('form[data-next-step]').forEach((form) => {
+    form.addEventListener('submit', () => {
+      try { window.localStorage.setItem(storageKey, form.dataset.nextStep || '1'); } catch (_) {}
+    });
+  });
+  root.querySelectorAll('[data-set-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (modeSelect) modeSelect.value = button.dataset.setMode;
+      render(1);
+    });
+  });
+  root.querySelectorAll('[data-set-google-bundle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (bundleSelect) bundleSelect.value = button.dataset.setGoogleBundle;
+      render(2);
+    });
+  });
+})();
+</script>

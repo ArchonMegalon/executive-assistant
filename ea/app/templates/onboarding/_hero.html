@@ -1,0 +1,73 @@
+<section class="section hero onboarding-hero">
+  <div class="panel hero-copy">
+    <div>
+      <div class="kicker">Get started</div>
+      <h1>Get to the first memo, first draft approval, and first visible follow-up quickly.</h1>
+      <p class="lead">Do not over-configure the product on day one. Choose the office shape, connect Google, prove one real loop, and only then widen channels or rules.</p>
+    </div>
+    <div class="summary-strip">
+      <div class="summary">
+        <div class="label">Step 1</div>
+        <strong>Choose the office shape</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Step 2</div>
+        <strong>Connect Google</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Step 3</div>
+        <strong>Review rules and open the memo</strong>
+      </div>
+    </div>
+    <p class="copy">Add channels later. The first activation goal is a useful memo, a visible queue, and one real follow-up.</p>
+  </div>
+
+  <aside class="panel onboarding-side">
+    <div>
+      <div class="kicker">Recommended path</div>
+      <h2>Start simple.</h2>
+      <p class="copy">Most workspaces should start with Google, one operator-friendly review posture, and no more channel complexity than they actually need in the first week.</p>
+    </div>
+    <div class="callout">
+      <strong>Solo workspace</strong>
+      One person, one memo, one commitment loop.
+    </div>
+    <div class="callout">
+      <strong>Shared workspace</strong>
+      A small team sharing the same queue, reviews, or follow-ups.
+    </div>
+    <div class="callout">
+      <strong>Executive support</strong>
+      Heavier stakeholder traffic, more approvals, and more follow-up pressure around one executive.
+    </div>
+    <div class="callout">
+      <strong>Current plan posture</strong>
+      <div class="copy">{{ activation_plan.display_name or 'Pilot' }} · {{ activation_billing.billing_state or 'trial' }} · {{ activation_billing.support_tier or 'guided' }} support</div>
+      <div class="copy">
+        {% if activation_entitlements.messaging_channels_enabled %}
+        Messaging can be added later, but it is already included in this plan.
+        {% else %}
+        Messaging is not included in this plan yet. Prove the Google loop first, then widen scope only if needed.
+        {% endif %}
+      </div>
+    </div>
+    <div class="callout">
+      <strong>What the first useful loop should reveal</strong>
+      {% if activation_preview.brief %}
+      <div class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Memo: connect Google, surface the first three items, and keep the scope narrow.</div>
+      {% endif %}
+      {% if activation_preview.queue %}
+      <div class="copy">Queue: {{ activation_preview.queue|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Queue: get to one approval or decision that feels real.</div>
+      {% endif %}
+      {% if activation_preview.commitments %}
+      <div class="copy">Commitments: {{ activation_preview.commitments|join(' · ') }}</div>
+      {% else %}
+      <div class="copy">Commitments: make one promise or follow-up visible before widening setup.</div>
+      {% endif %}
+    </div>
+  </aside>
+</section>
