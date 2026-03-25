@@ -172,11 +172,13 @@ cards:
     bucket: coming_next
     title: NEXUS-PAN
     summary: Shared state survives device churn without the table losing trust.
-    href: /horizons#horizon-nexus-pan
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
     badge: Horizon
     audience: public
     image_family: streetfront
+    detail_route: /roadmap/nexus-pan
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -186,11 +188,13 @@ cards:
     bucket: coming_next
     title: ALICE
     summary: Builders get grounded what-if analysis without trusting fuzzy assistants.
-    href: /horizons#horizon-alice
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     badge: Horizon
     audience: public
     image_family: simulation_bench
+    detail_route: /roadmap/alice
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -200,11 +204,13 @@ cards:
     bucket: coming_next
     title: KNOWLEDGE FABRIC
     summary: Ask a rules question and get a grounded answer with citations and receipts.
-    href: /horizons#horizon-knowledge-fabric
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     badge: Horizon
     audience: public
     image_family: archive_stair
+    detail_route: /roadmap/knowledge-fabric
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -214,11 +220,13 @@ cards:
     bucket: coming_next
     title: KARMA FORGE
     summary: Governed rules evolution without unreadable fork chaos.
-    href: /horizons#horizon-karma-forge
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     badge: Booster first
     audience: public
     image_family: boulevard_of_futures
+    detail_route: /roadmap/karma-forge
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -228,11 +236,13 @@ cards:
     bucket: coming_next
     title: JACKPOINT
     summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
-    href: /horizons#horizon-jackpoint
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
     badge: Horizon
     audience: public
     image_family: dossier_desk
+    detail_route: /roadmap/jackpoint
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -242,11 +252,13 @@ cards:
     bucket: coming_next
     title: RUNSITE
     summary: Walk the job before the team walks into it.
-    href: /horizons#horizon-runsite
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
     badge: Horizon
     audience: public
     image_family: facility_exterior
+    detail_route: /roadmap/runsite
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -256,11 +268,13 @@ cards:
     bucket: coming_next
     title: RUNBOOK PRESS
     summary: Bring new players in without the two-hour lecture.
-    href: /horizons#horizon-runbook-press
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
     badge: Horizon
     audience: public
     image_family: prop_cluster
+    detail_route: /roadmap/runbook-press
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -270,11 +284,13 @@ cards:
     bucket: coming_next
     title: GHOSTWIRE
     summary: Replay and after-action truth that survives memory drift.
-    href: /horizons#horizon-ghostwire
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     badge: Horizon
     audience: public
     image_family: boulevard_of_futures
+    detail_route: /roadmap/ghostwire
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -284,11 +300,13 @@ cards:
     bucket: coming_next
     title: LOCAL CO-PROCESSOR
     summary: Optional local acceleration without turning the product into a black box.
-    href: /horizons#horizon-local-co-processor
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     badge: Horizon
     audience: public
     image_family: solo_operator
+    detail_route: /roadmap/local-co-processor
     render_mode: external_explainer
+    action_label: Open the roadmap detail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -303,8 +321,8 @@ cards:
     audience: public
     image_family: facility_exterior
     asset_slot: release_current_build
-    detail_route: /downloads
-    action_label: Open the installer shelf
+    detail_route: /artifacts/current-preview-build
+    action_label: Open the artifact detail
   - id: artifact_rules_receipt
     bucket: featured_artifacts
     title: Explanation receipt trail
@@ -314,56 +332,57 @@ cards:
     audience: public
     image_family: simulation_bench
     asset_slot: capability_check_rules
-    detail_route: /now#real-rules-truth
-    action_label: Inspect the proof trail
+    detail_route: /artifacts/explanation-receipt-trail
+    action_label: Open the artifact detail
   - id: artifact_runsite_pack
     bucket: featured_artifacts
     title: Runsite pack
     summary: Walk the job before the team walks into it.
-    href: /horizons#horizon-runsite
+    href: /roadmap/runsite
     badge: Preview
     audience: public
     image_family: facility_exterior
-    detail_route: /horizons#horizon-runsite
+    detail_route: /artifacts/runsite-pack
+    action_label: Open the artifact detail
   - id: artifact_dossier_brief
     bucket: featured_artifacts
     title: Dossier brief
     summary: Turn notes into a credible mission packet.
-    href: /horizons#horizon-jackpoint
+    href: /roadmap/jackpoint
     badge: Preview
     audience: public
     image_family: dossier_desk
-    detail_route: /horizons#horizon-jackpoint
+    detail_route: /artifacts/dossier-brief
+    action_label: Open the artifact detail
   - id: artifact_campaign_primer
     bucket: featured_artifacts
     title: Campaign primer
     summary: Bring new players in without the two-hour lecture.
-    href: /horizons#horizon-runbook-press
+    href: /roadmap/runbook-press
     badge: Preview
     audience: public
     image_family: prop_cluster
-    detail_route: /horizons#horizon-runbook-press
+    detail_route: /artifacts/campaign-primer
+    action_label: Open the artifact detail
   - id: artifact_after_action
     bucket: featured_artifacts
     title: Replay and after-action
     summary: See what happened, not just what people remember.
-    href: /horizons#horizon-ghostwire
+    href: /roadmap/ghostwire
     badge: Preview
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /horizons#horizon-ghostwire
+    detail_route: /artifacts/replay-after-action
+    action_label: Open the artifact detail
   - id: participate_feedback
     bucket: participate
     title: Report a problem
     summary: Use the public support path when you want to flag a bug, confusing copy, or a concrete improvement.
-    href: /participate#report-a-problem
+    href: /contact#support-intake
     badge: Public
     audience: public
     image_family: archive_stair
-    render_mode: external_explainer
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/issues
-    fallback_label: Open the public issue tracker
-    external_ok: true
+    action_label: Open support intake
   - id: participate_future
     bucket: participate
     title: Suggest a future

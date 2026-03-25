@@ -1,2 +1,4 @@
-mode: prepend
-items: []
+mode: append
+items:
+- Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context.
+source_queue_fingerprint: 97d170e1550eee4afc0af065b78cda302a97674c
