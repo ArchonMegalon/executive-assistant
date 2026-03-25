@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import threading
+import time
 import uuid
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
@@ -30,6 +32,9 @@ class OneminManagerService:
     def __init__(self, *, repo: OneminManagerRepository) -> None:
         self._repo = repo
         self._lock = threading.Lock()
+        self._billing_refresh_lock = threading.Lock()
+        self._billing_refresh_next_allowed_monotonic = 0.0
+        self._billing_refresh_in_flight = False
 
     def _env_float(self, name: str, default: float) -> float:
         raw = str(os.environ.get(name) or "").strip()
@@ -47,6 +52,38 @@ class OneminManagerService:
 
     def _lease_ttl_seconds(self) -> int:
         return max(30, self._env_int("EA_ONEMIN_LEASE_TTL_SECONDS", 300))
+
+    def _billing_refresh_min_interval_seconds(self) -> float:
+        return max(0.0, self._env_float("EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS", 60.0))
+
+    def _billing_refresh_jitter_seconds(self) -> float:
+        return max(0.0, self._env_float("EA_ONEMIN_BILLING_REFRESH_JITTER_SECONDS", 5.0))
+
+    def _next_billing_refresh_interval_seconds(self) -> float:
+        base = self._billing_refresh_min_interval_seconds()
+        jitter = self._billing_refresh_jitter_seconds()
+        if jitter <= 0:
+            return base
+        return base + random.uniform(0.0, jitter)
+
+    def begin_billing_refresh(self) -> tuple[bool, float, str]:
+        interval_seconds = self._billing_refresh_min_interval_seconds()
+        if interval_seconds <= 0:
+            return True, 0.0, ""
+        now = time.monotonic()
+        with self._billing_refresh_lock:
+            remaining = max(0.0, self._billing_refresh_next_allowed_monotonic - now)
+            if self._billing_refresh_in_flight:
+                return False, max(remaining, 1.0), "in_flight"
+            if remaining > 0:
+                return False, remaining, "cadence"
+            self._billing_refresh_next_allowed_monotonic = now + self._next_billing_refresh_interval_seconds()
+            self._billing_refresh_in_flight = True
+            return True, 0.0, ""
+
+    def finish_billing_refresh(self) -> None:
+        with self._billing_refresh_lock:
+            self._billing_refresh_in_flight = False
 
     def _core_floor_ratio(self) -> float:
         return min(0.95, max(0.0, self._env_float("EA_ONEMIN_CORE_FLOOR_RATIO", 0.50)))

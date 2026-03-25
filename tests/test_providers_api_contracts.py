@@ -769,6 +769,66 @@ def test_onemin_billing_refresh_forwards_full_provider_api_flags(
     assert observed["continue_on_rate_limit"] is True
 
 
+def test_onemin_billing_refresh_is_throttled_to_one_run_per_minute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    from app.api.routes import providers as providers_route
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {
+                "account_name": "ONEMIN_AI_API_KEY",
+                "owner_email": "owner@example.com",
+            },
+        ),
+    )
+
+    begin_states = iter([(True, 0.0, ""), (False, 40.0, "cadence")])
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: next(begin_states))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+
+    call_count = 0
+
+    def fake_refresh(**_kwargs):
+        nonlocal call_count
+        call_count += 1
+        return (
+            [{"refresh_backend": "onemin_api", "account_label": "ONEMIN_AI_API_KEY"}],
+            [{"refresh_backend": "onemin_api", "account_label": "ONEMIN_AI_API_KEY"}],
+            [],
+            1,
+            0,
+            False,
+        )
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    first = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "provider_api_all_accounts": True},
+    )
+    assert first.status_code == 200
+    assert first.json()["billing_refresh_count"] == 1
+    assert first.json()["refresh_throttled"] is False
+
+    second = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "provider_api_all_accounts": True},
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert call_count == 1
+    assert second_body["refresh_throttled"] is True
+    assert second_body["refresh_throttle_seconds_remaining"] == 40
+    assert second_body["billing_refresh_count"] == 0
+    assert second_body["member_reconciliation_count"] == 0
+    assert second_body["api_account_attempted"] == 0
+    assert second_body["api_account_skipped"] == 1
+    assert "throttled to one run per minute" in second_body["note"]
+
+
 def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
