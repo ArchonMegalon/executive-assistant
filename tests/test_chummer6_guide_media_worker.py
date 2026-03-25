@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -187,6 +189,301 @@ def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.
     assert released[0] == ("lease-1", "released", 900, "")
 
 
+def test_run_onemin_api_provider_uses_local_manager_fallback_when_http_manager_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_23", "key": "key-23"},
+        ],
+    )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot", lambda **kwargs: None)
+    local_manager = object()
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot_locally",
+        lambda **kwargs: (
+            {
+                "lease_id": "lease-local",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_23",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_23",
+            },
+            local_manager,
+        ),
+    )
+    released_http: list[tuple[str, str, int | None, str]] = []
+    released_local: list[tuple[object | None, str, str, int | None, str]] = []
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot",
+        lambda *, lease_id, status, actual_credits_delta=None, error="": released_http.append(
+            (lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot_locally",
+        lambda *, manager, lease_id, status, actual_credits_delta=None, error="": released_local.append(
+            (manager, lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda: ["gpt-image-1-mini"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda model, **kwargs: [{"type": "IMAGE_GENERATOR", "model": model, "promptObject": {"size": "1024x1024"}}],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="onemin": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    class _Response:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"url": "https://example.test/image.png"}).encode("utf-8")
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", lambda request, timeout=0: _Response())
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert released_http[0] == ("lease-local", "released", 900, "")
+    assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
+
+
+def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reservation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_RESOLVED_SLOT_1", "key": "empty-key"},
+            {"env_name": "ONEMIN_RESOLVED_SLOT_2", "key": "good-key"},
+        ],
+    )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot", lambda **kwargs: None)
+    local_manager = object()
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot_locally",
+        lambda **kwargs: (
+            {
+                "lease_id": "lease-local",
+                "secret_env_name": "ONEMIN_RESOLVED_SLOT_1",
+                "account_id": "ONEMIN_RESOLVED_SLOT_1",
+            },
+            local_manager,
+        ),
+    )
+    released_http: list[tuple[str, str, int | None, str]] = []
+    released_local: list[tuple[object | None, str, str, int | None, str]] = []
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot",
+        lambda *, lease_id, status, actual_credits_delta=None, error="": released_http.append(
+            (lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot_locally",
+        lambda *, manager, lease_id, status, actual_credits_delta=None, error="": released_local.append(
+            (manager, lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda: ["gpt-image-1-mini"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda model, **kwargs: [{"type": "IMAGE_GENERATOR", "model": model, "promptObject": {"size": "1024x1024"}}],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="onemin": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    class _SuccessResponse:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"url": "https://example.test/image.png"}).encode("utf-8")
+
+    seen_api_keys: list[str] = []
+
+    def fake_urlopen(request, timeout=0):
+        headers = {str(key).lower(): value for key, value in request.header_items()}
+        api_key = str(headers.get("api-key", ""))
+        seen_api_keys.append(api_key)
+        if api_key == "empty-key":
+            raise media.urllib.error.HTTPError(
+                request.full_url,
+                406,
+                "Not Acceptable",
+                hdrs={},
+                fp=__import__("io").BytesIO(b'{"errorCode":"INSUFFICIENT_CREDITS","message":"empty"}'),
+            )
+        return _SuccessResponse()
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_api_keys == ["empty-key", "good-key"]
+    assert released_http[0] == ("lease-local", "released", 900, "")
+    assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
+
+
+def test_reserve_onemin_image_slot_locally_synthesizes_candidates_when_provider_health_has_no_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = _load_module()
+
+    class _FakeManager:
+        def __init__(self, repo=None) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def _candidates_from_provider_health(self, *, provider_health):
+            return []
+
+        def reserve_for_candidates(
+            self,
+            *,
+            candidates,
+            lane,
+            capability,
+            principal_id,
+            request_id,
+            estimated_credits,
+            allow_reserve,
+        ):
+            self.calls.append(
+                {
+                    "candidates": [dict(candidate) for candidate in candidates],
+                    "lane": lane,
+                    "capability": capability,
+                    "principal_id": principal_id,
+                    "request_id": request_id,
+                    "estimated_credits": estimated_credits,
+                    "allow_reserve": allow_reserve,
+                }
+            )
+            if estimated_credits:
+                return None
+            chosen = candidates[0]
+            return {
+                "lease_id": "lease-synth",
+                "secret_env_name": str(chosen.get("secret_env_name") or ""),
+                "account_id": str(chosen.get("account_id") or chosen.get("account_name") or ""),
+            }
+
+    fake_manager_holder: dict[str, object] = {}
+
+    def _build_repo(settings):
+        return object()
+
+    def _build_settings():
+        return object()
+
+    def _with_backend(settings, backend):
+        return settings
+
+    services_pkg = types.ModuleType("app.services")
+    responses_upstream_mod = types.ModuleType("app.services.responses_upstream")
+    responses_upstream_mod._provider_health_report = lambda: {"providers": {"onemin": {"slots": []}}}
+    responses_upstream_mod._env = lambda name: {
+        "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS": "ONEMIN_AI_API_KEY",
+        "EA_RESPONSES_ONEMIN_RESERVE_SLOTS": "ONEMIN_AI_API_KEY_FALLBACK_1",
+    }.get(name, "")
+    responses_upstream_mod._csv_values = lambda value: [item.strip() for item in str(value or "").split(",") if item.strip()]
+    services_pkg.responses_upstream = responses_upstream_mod
+
+    onemin_manager_mod = types.ModuleType("app.services.onemin_manager")
+
+    def _manager_factory(repo=None):
+        manager = _FakeManager(repo=repo)
+        fake_manager_holder["manager"] = manager
+        return manager
+
+    onemin_manager_mod.OneminManagerService = _manager_factory
+
+    repositories_mod = types.ModuleType("app.repositories.onemin_manager")
+    repositories_mod.build_onemin_manager_service_repo = _build_repo
+
+    settings_mod = types.ModuleType("app.settings")
+    settings_mod.get_settings = _build_settings
+    settings_mod.settings_with_storage_backend = _with_backend
+
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_AI_API_KEY", "key": "primary"},
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "key": "fallback"},
+        ],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setitem(sys.modules, "app.services", services_pkg)
+    monkeypatch.setitem(sys.modules, "app.services.responses_upstream", responses_upstream_mod)
+    monkeypatch.setitem(sys.modules, "app.services.onemin_manager", onemin_manager_mod)
+    monkeypatch.setitem(sys.modules, "app.repositories.onemin_manager", repositories_mod)
+    monkeypatch.setitem(sys.modules, "app.settings", settings_mod)
+
+    lease, manager = media._reserve_onemin_image_slot_locally(
+        width=1024,
+        height=1024,
+        principal_id="ea-chummer6",
+        allow_reserve=True,
+        request_id="req-1",
+    )
+
+    assert lease == {
+        "lease_id": "lease-synth",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_1",
+    }
+    assert manager is fake_manager_holder["manager"]
+    assert [call["estimated_credits"] for call in fake_manager_holder["manager"].calls[:2]] == [900, 0]
+    assert [candidate["secret_env_name"] for candidate in fake_manager_holder["manager"].calls[-1]["candidates"]] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1"
+    ]
+
+
 def test_onemin_model_candidates_prefers_flux_schnell_before_openai(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
@@ -197,6 +494,31 @@ def test_onemin_model_candidates_prefers_flux_schnell_before_openai(monkeypatch:
         "black-forest-labs/flux-schnell",
         "gpt-image-1-mini",
         "gpt-image-1",
+    ]
+
+
+def test_resolve_onemin_image_slots_assigns_stable_names_to_script_only_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    fake_root = Path("/tmp/fake_ea_root")
+    fake_script = fake_root / "scripts" / "resolve_onemin_ai_key.sh"
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+    monkeypatch.setattr(media, "EA_ROOT", fake_root)
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-key")
+
+    def fake_check_output(command, text=True):
+        assert command == ["bash", str(fake_script), "--all"]
+        return "primary-key\nfallback-a\nfallback-b\n"
+
+    monkeypatch.setattr(media.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(type(fake_script), "exists", lambda self: str(self) == str(fake_script))
+
+    slots = media.resolve_onemin_image_slots()
+
+    assert slots == [
+        {"env_name": "ONEMIN_AI_API_KEY", "key": "primary-key"},
+        {"env_name": "ONEMIN_RESOLVED_SLOT_1", "key": "fallback-a"},
+        {"env_name": "ONEMIN_RESOLVED_SLOT_2", "key": "fallback-b"},
     ]
 
 
@@ -383,8 +705,13 @@ def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(mo
     assert media.resolve_onemin_image_keys() == ["primary", "fallback-1", "fallback-2"]
 
 
-def test_render_with_ooda_rejects_forbidden_fallback_providers(tmp_path: Path) -> None:
+def test_render_with_ooda_rejects_forbidden_fallback_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     media = _load_module()
+    monkeypatch.delenv("CHUMMER6_IMAGE_PROVIDER_ORDER", raising=False)
+    media.LOCAL_ENV.pop("CHUMMER6_IMAGE_PROVIDER_ORDER", None)
+    media.POLICY_ENV.pop("CHUMMER6_IMAGE_PROVIDER_ORDER", None)
 
     with pytest.raises(RuntimeError, match="scene_contract_renderer:forbidden_fallback"):
         media.render_with_ooda(
@@ -418,6 +745,39 @@ def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monke
 
     assert result["provider"] == "media_factory"
     assert result["status"] == "media_factory:rendered"
+
+
+def test_render_with_ooda_treats_explicit_provider_order_as_a_strict_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_IMAGE_PROVIDER_ORDER", "onemin")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    attempted_commands: list[str] = []
+
+    def fake_run_command_provider(name: str, template: list[str], **kwargs):
+        attempted_commands.append(name)
+        return False, f"{name}:should_not_run"
+
+    monkeypatch.setattr(media, "run_command_provider", fake_run_command_provider)
+    monkeypatch.setattr(media, "run_onemin_api_provider", lambda **kwargs: (False, "onemin:manager_unavailable"))
+
+    with pytest.raises(RuntimeError, match="onemin:manager_unavailable"):
+        media.render_with_ooda(
+            prompt="bounded runsite scene",
+            output_path=tmp_path / "out.png",
+            width=1600,
+            height=900,
+            spec={
+                "target": "assets/hero/chummer6-hero.png",
+                "media_row": {"scene_contract": {}},
+                "providers": ["media_factory", "onemin", "browseract_prompting_systems"],
+            },
+        )
+
+    assert attempted_commands == []
 
 
 def test_canonical_horizon_visual_contract_uses_canon_not_bespoke_fallback_map() -> None:
@@ -728,7 +1088,7 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
         },
     )
 
-    assert "no seated alley brood" in hero_prompt.lower()
+    assert "garage clinic" in hero_prompt.lower() or "getaway-van triage" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
 
 
@@ -916,9 +1276,12 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     contract = media.target_visual_contract("assets/horizons/karma-forge.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
+    assert "improvised garage clinic" in hero_contract["required_setting_markers"]
+    assert "BOD" in hero_contract["required_overlay_schema"]
     assert contract["density_target"] == "high"
     assert contract["overlay_density"] == "high"
     assert contract["person_count_target"] == "duo_preferred"
+    assert "DIFF" in contract["required_overlay_schema"]
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
 
@@ -930,7 +1293,10 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     forge_parts = media.visual_contract_prompt_parts(target="assets/horizons/karma-forge.png")
 
     assert any("two to four people" in part.lower() for part in hero_parts)
+    assert any("metahuman clinician" in part.lower() for part in hero_parts)
+    assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
+    assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
 
 
 def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:
@@ -1074,9 +1440,10 @@ def test_karma_forge_overlay_layout_adds_flash_fills() -> None:
         height=540,
     )
 
-    assert len(layout["fills"]) == 3
-    assert len(layout["chips"]) == 4
+    assert len(layout["fills"]) >= 5
+    assert len(layout["chips"]) >= 7
     assert any(int(fill["w"]) > 150 for fill in layout["fills"])
+    assert any(chip["text"] == "COMPAT ARC" for chip in layout["chips"])
 
 
 def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
@@ -1111,9 +1478,9 @@ def test_scene_policy_for_target_rebriefs_hero_as_active_triage() -> None:
     hero = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
     contract = hero["media_row"]["scene_contract"]
 
-    assert "reclined" in str(contract["environment"]).lower()
-    assert "patching" in str(contract["subject"]).lower()
-    assert "triage" in str(hero["prompt"]).lower()
+    assert "garage clinic" in str(contract["environment"]).lower()
+    assert "stabilizing" in str(contract["subject"]).lower()
+    assert "triage" in str(hero["prompt"]).lower() or "garage clinic" in str(hero["prompt"]).lower()
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:

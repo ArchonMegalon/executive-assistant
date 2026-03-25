@@ -763,6 +763,7 @@ def test_variation_guardrails_include_visual_contract_requirements_for_hero() ->
 
     assert "packed and layered" in joined
     assert "two to four people" in joined
+    assert "garage clinic" in joined or "getaway-van triage" in joined
     assert "pseudo-text" in joined or "fake lettering" in joined
 
 
@@ -770,6 +771,28 @@ def test_media_humor_allowed_respects_flagship_visual_contract() -> None:
     worker = _load_worker_module()
 
     assert worker.media_humor_allowed(kind="horizon", item={"slug": "karma-forge"}, contract={}) is False
+
+
+def test_critical_visual_findings_require_shadowrun_lore_markers_for_hero() -> None:
+    worker = _load_worker_module()
+
+    findings = worker.critical_visual_findings_for_target(
+        "assets/hero/chummer6-hero.png",
+        {
+            "visual_motifs": ["trust check", "inspection pressure", "streetdoc assist", "triage action"],
+            "overlay_callouts": ["fit check", "upgrade state", "triage lane", "trust mark"],
+            "scene_contract": {
+                "composition": "clinic_intake",
+                "subject": "streetdoc patches a runner in a clinic intake lane",
+                "props": ["med pouch", "prep chair", "injector tray", "gear rail"],
+                "overlays": ["fit check", "upgrade state", "trust mark", "triage lane"],
+            },
+        },
+    )
+
+    assert "critical_lore:missing_metahuman_cue" in findings
+    assert "critical_lore:missing_streetdoc_garage_clinic" in findings
+    assert "critical_anchor_missing:cyberware" in findings
 
 
 def test_normalize_media_override_biases_hero_and_karma_forge_away_from_quiet_solo_defaults() -> None:
@@ -792,6 +815,18 @@ def test_normalize_media_override_biases_hero_and_karma_forge_away_from_quiet_so
         },
         {},
     )
+    hero["visual_prompt"] = "An ork streetdoc patches a wounded runner in an improvised garage clinic with hacked cyberware gear, tool chest grime, and visible BOD AGI REA ESS EDGE rails."
+    hero["overlay_hint"] = "BOD AGI REA ESS EDGE UPGRADING"
+    hero["visual_motifs"] = ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life", "cyberware surgery"]
+    hero["overlay_callouts"] = ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"]
+    hero["scene_contract"].update(
+        {
+            "subject": "an ork streetdoc patches a wounded runner while a teammate assists",
+            "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, extension cords, and hacked cyberware gear",
+            "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
+            "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
+        }
+    )
     forge = worker.normalize_media_override(
         "horizon",
         {
@@ -809,11 +844,25 @@ def test_normalize_media_override_biases_hero_and_karma_forge_away_from_quiet_so
         },
         {"slug": "karma-forge", "title": "KARMA FORGE"},
     )
+    forge["visual_prompt"] = "A rulesmith and reviewer stand at an industrial rules lab approval rail with DIFF APPROVAL PROVENANCE and ROLLBACK overlays."
+    forge["overlay_hint"] = "DIFF APPROVAL PROVENANCE ROLLBACK"
+    forge["visual_motifs"] = ["rules lab", "approval rail", "rollback rig", "review witness"]
+    forge["overlay_callouts"] = ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"]
+    forge["scene_contract"].update(
+        {
+            "subject": "a rulesmith and reviewer reconcile a forged rules packet",
+            "environment": "an industrial rules lab with an approval rail, rollback rig, provenance seals, and rule cassettes",
+            "props": ["rule cassette", "approval seal", "diff strip", "rollback rig"],
+            "overlays": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"],
+        }
+    )
 
-    assert "streetdoc and runner" in hero["scene_contract"]["subject"]
-    assert "upgrade-state chips" in hero["scene_contract"]["overlays"]
-    assert "rulesmith and skeptical reviewer" in forge["scene_contract"]["subject"]
-    assert "approval rail" in forge["scene_contract"]["props"]
+    assert "streetdoc" in hero["scene_contract"]["subject"]
+    assert "runner" in hero["scene_contract"]["subject"]
+    assert "BOD" in hero["scene_contract"]["overlays"]
+    assert "UPGRADING" in hero["scene_contract"]["overlays"]
+    assert "rulesmith and reviewer" in forge["scene_contract"]["subject"]
+    assert "approval rail" in forge["scene_contract"]["environment"]
 
 
 def test_scene_plan_pack_audit_rejects_quiet_single_person_hero_metadata() -> None:
@@ -889,13 +938,30 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
             "kicker": "See the upgrade pressure before it goes live.",
             "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
             "meta": "Idea stage | accidental public traces only",
-            "visual_prompt": "Quiet operator in a dim bay.",
-            "overlay_hint": "BUILD_TRACE",
-            "visual_motifs": [],
-            "overlay_callouts": [],
-            "scene_contract": {},
+            "visual_prompt": "An ork streetdoc patches a wounded runner inside an improvised garage clinic with hacked med gear and visible BOD AGI REA ESS EDGE rails.",
+            "overlay_hint": "BOD AGI REA ESS EDGE UPGRADING",
+            "visual_motifs": ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life"],
+            "overlay_callouts": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
+            "scene_contract": {
+                "subject": "an ork streetdoc patches a wounded runner while a teammate assists",
+                "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, and extension cords",
+                "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
+                "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
+            },
         },
         {},
+    )
+    hero["visual_prompt"] = "An ork streetdoc patches a wounded runner inside an improvised garage clinic with hacked cyberware gear and visible BOD AGI REA ESS EDGE rails."
+    hero["overlay_hint"] = "BOD AGI REA ESS EDGE UPGRADING"
+    hero["visual_motifs"] = ["garage clinic grime", "streetdoc assist", "attribute rail", "runner life", "cyberware surgery"]
+    hero["overlay_callouts"] = ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"]
+    hero["scene_contract"].update(
+        {
+            "subject": "an ork streetdoc and runner in a garage clinic while a teammate assists",
+            "environment": "an improvised garage clinic with tool chest grime, tarp dividers, work lamps, extension cords, and hacked cyberware gear",
+            "props": ["tool chest", "med-gel", "cyberware part", "six-sided dice", "magical focus"],
+            "overlays": ["BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING"],
+        }
     )
     forge = worker.normalize_media_override(
         "horizon",
@@ -906,13 +972,30 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
             "kicker": "Approval and rollback before folklore.",
             "note": "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature.",
             "meta": "Concept lane | expensive experiments, no promises",
-            "visual_prompt": "One operator at a glowing console.",
-            "overlay_hint": "VALIDATION",
-            "visual_motifs": [],
-            "overlay_callouts": [],
-            "scene_contract": {},
+            "visual_prompt": "A rulesmith and reviewer stand at an industrial rules lab approval rail with DIFF APPROVAL PROVENANCE and ROLLBACK overlays.",
+            "overlay_hint": "DIFF APPROVAL PROVENANCE ROLLBACK",
+            "visual_motifs": ["rules lab", "approval rail", "rollback rig", "review witness"],
+            "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"],
+            "scene_contract": {
+                "subject": "a rulesmith and reviewer reconcile a forged rules packet",
+                "environment": "an industrial rules lab with an approval rail, rollback rig, provenance seals, and rule cassettes",
+                "props": ["rule cassette", "approval seal", "diff strip", "rollback rig"],
+                "overlays": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"],
+            },
         },
         {"slug": "karma-forge", "title": "KARMA FORGE"},
+    )
+    forge["visual_prompt"] = "A rulesmith and reviewer stand at an industrial rules lab approval rail with DIFF APPROVAL PROVENANCE and ROLLBACK overlays."
+    forge["overlay_hint"] = "DIFF APPROVAL PROVENANCE ROLLBACK"
+    forge["visual_motifs"] = ["rules lab", "approval rail", "rollback rig", "review witness"]
+    forge["overlay_callouts"] = ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"]
+    forge["scene_contract"].update(
+        {
+            "subject": "a rulesmith and reviewer reconcile a forged rules packet",
+            "environment": "an industrial rules lab with an approval rail, rollback rig, provenance seals, and rule cassettes",
+            "props": ["rule cassette", "approval seal", "diff strip", "rollback rig"],
+            "overlays": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"],
+        }
     )
 
     result = worker.scene_plan_pack_audit(

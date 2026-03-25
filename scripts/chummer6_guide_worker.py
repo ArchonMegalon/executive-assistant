@@ -482,13 +482,13 @@ def variation_guardrails_for(target: str, rows: list[dict[str, object]]) -> list
         if safehouse_count >= 2:
             rules.append("Safehouse-table grammar is already overserved. Use prop-led, dossier, approval-rail, transit, street, archive, clinic, or service-rack grammar instead.")
     if target.endswith("README.md") or target.endswith("chummer6-hero.png"):
-        rules.append("The landing hero must show visible trust pressure in Shadowrun life through a streetdoc / runner / support-figure scene, not a quiet lone-operator still or a generic meeting tableau.")
+        rules.append("The landing hero must show visible trust pressure in Shadowrun life through a metahuman streetdoc / wounded runner / support-figure scene inside an improvised garage clinic, triage bay, getaway van, or patch-up space; not a quiet lone-operator still, clean hospital room, or generic meeting tableau.")
     if target.endswith("what-chummer6-is.png"):
         rules.append("Prefer an inspectable trust moment or operator relationship, not a generic group huddle.")
     if target.endswith("core.png"):
         rules.append("Core should be evidence-first: hands, dice, sheets, traces, and proof beat faces.")
     if target.endswith("horizons-index.png"):
-        rules.append("Horizons index must show multiple future lanes, grounded clue clusters, and branching plurality; do not solve it with atmosphere alone, a single corridor, or a central sign.")
+        rules.append("Horizons index must show multiple future lanes, grounded street-level cyberpunk clue clusters, and branching plurality; do not solve it with atmosphere alone, a single corridor, a sparse road, or a central sign.")
     rules.extend(visual_contract_guardrails_for_target(target))
     return rules
 
@@ -1163,33 +1163,46 @@ def _looks_like_statusish_overlay_signal(text: str) -> bool:
 def _critical_target_phrase_groups(target: str) -> tuple[tuple[str, ...], ...]:
     if target == "assets/hero/chummer6-hero.png":
         return (
-            ("streetdoc", "clinic", "triage", "intake", "prep cage", "prep rail"),
-            ("runner", "support figure", "assistant", "teammate"),
-            ("trust", "build-state", "provenance", "fit check", "receipt", "upgrade"),
+            ("streetdoc", "garage clinic", "patch-up bay", "triage bench", "getaway van triage"),
+            ("runner", "wounded runner", "support figure", "assistant", "teammate"),
+            ("cyberware", "med-gel", "tool chest", "jury-rigged med rig", "work lamp"),
+            ("BOD", "AGI", "REA", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION"),
         )
     if target == "assets/pages/horizons-index.png":
         return (
-            ("branch", "branching", "split", "interchange"),
-            ("lane", "future lane", "route", "district"),
-            ("multiple", "several", "stacked", "plurality"),
+            ("multiple lanes", "branching futures", "district split", "market of futures", "interchange"),
+            ("street-level cyberpunk", "wet street", "wires", "crowd clue", "district"),
+            ("multiple clues", "plurality", "different paths", "differentiated domains", "branching"),
         )
     if target == "assets/horizons/karma-forge.png":
         return (
-            ("rulesmith", "reviewer", "witness", "approval"),
-            ("rollback", "provenance", "compatibility", "consequence"),
-            ("diff", "bench", "rail", "cassette", "seal", "control"),
+            ("rules lab", "approval rail", "consequence bench", "rollback rig", "rulesmith"),
+            ("reviewer", "witness", "approval", "provenance"),
+            ("DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK"),
+            ("cassette", "seal", "compatibility arc", "forged rules packet"),
         )
     return ()
 
 
 def _critical_target_banned_compositions(target: str) -> set[str]:
-    base = {"single_protagonist", "solo_operator"}
+    base = {
+        "single_protagonist",
+        "solo_operator",
+        "single_person_dim_bay",
+        "brooding_profile",
+        "generic_console_tinkering",
+        "empty_road_ambience",
+        "sparse_corridor_single_marker",
+        "quiet_desk_still_life",
+        "glow_void_operator",
+        "paperwork_tableau",
+    }
     if target == "assets/hero/chummer6-hero.png":
-        return base | {"city_edge", "service_rack", "desk_still_life", "dossier_desk"}
+        return base | {"city_edge", "service_rack", "desk_still_life", "dossier_desk", "clean_exam_room"}
     if target == "assets/pages/horizons-index.png":
         return base | {"city_edge", "transit_checkpoint", "service_rack"}
     if target == "assets/horizons/karma-forge.png":
-        return base | {"desk_still_life", "dossier_desk", "service_rack", "city_edge", "workshop", "workshop_bench"}
+        return base | {"desk_still_life", "dossier_desk", "service_rack", "city_edge", "workshop", "workshop_bench", "group_table", "safehouse_table"}
     return base
 
 
@@ -1291,6 +1304,14 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
     callouts = _dedupe_casefolded(_string_list(row.get("overlay_callouts")))
     overlay_signals = _dedupe_casefolded(overlays + callouts)
     combined = _row_text_bundle(row)
+    allowed_overlay_tokens = {
+        str(entry).strip().casefold()
+        for entry in (
+            _string_list(contract.get("required_overlay_schema"))
+            + _string_list(contract.get("required_status_labels"))
+        )
+        if str(entry).strip()
+    }
     findings: list[str] = []
 
     if not composition:
@@ -1307,13 +1328,25 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
     if person_target in {"duo_or_team", "duo_preferred"} and not _has_visible_relationship_signal(combined):
         findings.append("critical_cast:missing_visible_relationship")
     for token_group in _critical_target_phrase_groups(normalized):
-        if not any(token in combined for token in token_group):
+        if not any(str(token).casefold() in combined for token in token_group):
             findings.append(f"critical_anchor_missing:{token_group[0]}")
+    if normalized == "assets/hero/chummer6-hero.png":
+        if not any(token in combined for token in ("orc", "ork", "troll", "elf", "dwarf", "metahuman")):
+            findings.append("critical_lore:missing_metahuman_cue")
+        if not any(token in combined for token in ("garage", "tool chest", "lift bay", "tarp", "extension cord", "work lamp", "van")):
+            findings.append("critical_lore:missing_streetdoc_garage_clinic")
+        if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
+            findings.append("critical_overlay:missing_attribute_rail")
+    if normalized == "assets/horizons/karma-forge.png":
+        if "table" in combined and any(token in combined for token in ("sitting", "seated", "paperwork")):
+            findings.append("critical_scene:tableau_not_forge")
+        if not any(token in combined for token in ("approval rail", "rollback rig", "provenance seal", "rules lab", "consequence bench")):
+            findings.append("critical_lore:missing_forge_semantics")
     if not _boolish(contract.get("humor_allowed"), default=True) and str(scene.get("humor") or "").strip():
         findings.append("critical_humor:forbidden")
     if not _boolish(contract.get("pseudo_text_allowed"), default=True):
         offending = next((entry for entry in overlay_signals if _looks_like_statusish_overlay_signal(entry)), "")
-        if offending:
+        if offending and offending.casefold() not in allowed_overlay_tokens:
             findings.append(f"critical_pseudo_text:{offending}")
     return findings
 WEAK_COPY_PHRASES: tuple[str, ...] = (
