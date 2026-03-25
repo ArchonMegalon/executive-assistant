@@ -29,8 +29,10 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert counts.get("plan_opened", 0) >= 1
     assert counts.get("usage_opened", 0) >= 1
     assert counts.get("support_opened", 0) >= 1
+    assert payload["billing"]["invoice_status"] in {"trial_active", "current", "upgrade_required"}
     assert "risk_state" in payload["providers"]
     assert "blocked_actions" in payload["commercial"]
+    assert "blocked_action_message" in payload["commercial"]
     assert "load_score" in payload["queue_health"]
     assert "retrying_delivery" in payload["queue_health"]
 
@@ -43,6 +45,7 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     body = export.json()
     assert body["plan"]["display_name"] == "Executive Ops"
     assert body["billing"]["support_tier"] == "priority"
+    assert body["billing"]["billing_portal_state"] in {"guided", "self_serve", "account_managed"}
     assert body["entitlements"]["operator_seats"] >= 1
     assert body["analytics"]["counts"].get("support_bundle_opened", 0) >= 1
     assert "queue_health" in body
@@ -52,6 +55,7 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert "load_score" in body["queue_health"]
     assert "retrying_delivery" in body["queue_health"]
     assert "risk_state" in body["providers"]
+    assert "blocked_action_message" in body["commercial"]
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
 

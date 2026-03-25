@@ -1225,6 +1225,7 @@ def settings_plan_detail(
         object_meta=[
             {"label": "Plan unit", "value": str(plan.get("unit_of_sale") or "workspace")},
             {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
+            {"label": "Invoice status", "value": str(billing.get("invoice_status") or "unknown")},
             {"label": "Support tier", "value": str(billing.get("support_tier") or "standard")},
             {"label": "Seats remaining", "value": str(operators.get("seats_remaining") or 0)},
         ],
@@ -1233,6 +1234,7 @@ def settings_plan_detail(
         object_sidebar_rows=[
             _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
             _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
+            _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
             _object_detail_row("Warnings", "; ".join(warnings) or "No current commercial warnings", "Support"),
         ],
         object_sections=[
@@ -1242,7 +1244,9 @@ def settings_plan_detail(
                 "items": [
                     _object_detail_row("Workspace plan", str(plan.get("display_name") or "Pilot"), "Plan"),
                     _object_detail_row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan"),
+                    _object_detail_row("Price label", str(billing.get("price_label") or "Custom"), "Billing"),
                     _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+                    _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
                     _object_detail_row("Renewal owner", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing"),
                     _object_detail_row("Contract note", str(billing.get("contract_note") or "No contract note recorded."), "Contract"),
                 ],
@@ -1255,6 +1259,18 @@ def settings_plan_detail(
                     _object_detail_row("Operator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
                     _object_detail_row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Retention"),
                     _object_detail_row("Feature flags", ", ".join(feature_flags) or "No enabled features", "Flags"),
+                ],
+            },
+            {
+                "eyebrow": "Billing and renewal controls",
+                "title": "Invoice window, portal, and upgrade path",
+                "items": [
+                    _object_detail_row("Billing cadence", str(billing.get("billing_cadence") or "custom").replace("_", " "), "Billing"),
+                    _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
+                    _object_detail_row("Renewal window", str(billing.get("renewal_window_label") or "Not recorded"), "Billing"),
+                    _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Portal"),
+                    _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
+                    _object_detail_row("Blocked action message", str(commercial.get("blocked_action_message") or "No current commercial blocks."), "Commercial"),
                 ],
             },
         ],
@@ -1386,6 +1402,7 @@ def settings_support_detail(
         object_sidebar_rows=[
             _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
             _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
+            _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row(
@@ -1430,6 +1447,17 @@ def settings_support_detail(
                     ]
                 )
                 or [_object_detail_row("Support surface is clear", "No human tasks or pending delivery are currently blocking the office loop.", "Clear")],
+            },
+            {
+                "eyebrow": "Commercial escalation",
+                "title": "Billing path, upgrade path, and customer-facing blockers",
+                "items": [
+                    _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
+                    _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
+                    _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
+                    _object_detail_row("Seat pressure", str(commercial.get("seat_pressure_label") or "No seat pressure"), "Seats"),
+                    _object_detail_row("Blocked action message", str(commercial.get("blocked_action_message") or "No current commercial blocks."), "Support"),
+                ],
             },
             {
                 "eyebrow": "Runtime posture",
