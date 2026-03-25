@@ -344,7 +344,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Walk into the day with a ranked brief, reviewed drafts, and follow-ups that stay visible." in landing.text
+    assert "Start the day with a morning memo, a decision queue, and commitments that stay visible." in landing.text
     assert "Get started" in landing.text
     assert "What should feel real in the first few days" in landing.text
     for href in _internal_links(landing.text):
@@ -354,8 +354,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/get-started")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Set up the workspace once, then let the assistant settle into your day." in setup.text
-    assert "Choose the kind of work this workspace will carry." in setup.text
+    assert "Get to the first memo, first draft approval, and first visible follow-up quickly." in setup.text
+    assert "Choose the office shape this product will support." in setup.text
     assert "Connect Google first." in setup.text
     assert "Executive support" in setup.text
 
@@ -1096,6 +1096,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
     slug = "kahlenberg-layout-first"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -1164,6 +1165,7 @@ def test_public_results_no_longer_shadow_tour_routes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "1")
     result_dir = tmp_path / "results"
     result_bundle = result_dir / "movie-demo"
     result_bundle.mkdir(parents=True)
@@ -1196,6 +1198,19 @@ def test_public_results_no_longer_shadow_tour_routes(
     missing_tour = client.get("/tours/movie-demo")
     assert missing_tour.status_code == 404
     assert missing_tour.json()["error"]["code"] == "tour_not_found"
+
+
+def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "0")
+    client = _client(principal_id="exec-public-disabled")
+
+    tour = client.get("/tours/example-tour")
+    assert tour.status_code == 404
+    assert tour.json() == {"detail": "Not Found"}
+
+    result_page = client.get("/results/example-result")
+    assert result_page.status_code == 404
+    assert result_page.json() == {"detail": "Not Found"}
 
 
 def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> None:

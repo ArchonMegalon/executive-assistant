@@ -128,12 +128,21 @@
 {% macro rows(items, tag='Open', helper='Keep the next action clear and easy to review.') -%}
 <div class="console-list">
   {% for item in items %}
+  {% if item is mapping %}
+  {% set title = item.get('title') or item.get('label') or 'Open item' %}
+  {% set detail = item.get('detail') or helper %}
+  {% set row_tag = item.get('tag') or tag %}
+  {% else %}
+  {% set title = item %}
+  {% set detail = helper %}
+  {% set row_tag = tag %}
+  {% endif %}
   <div class="console-row">
     <div>
-      <strong>{{ item }}</strong>
-      <small>{{ helper }}</small>
+      <strong>{{ title }}</strong>
+      <small>{{ detail }}</small>
     </div>
-    <div class="console-tag">{{ tag }}</div>
+    <div class="console-tag">{{ row_tag }}</div>
   </div>
   {% endfor %}
 </div>

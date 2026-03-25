@@ -607,7 +607,7 @@
       <div class="workspace-card">
         <div class="label">Workspace</div>
         <strong>{{ workspace_label }}</strong>
-        <div>{{ principal_id }}</div>
+        <div>Assistant workspace</div>
       </div>
 
       {% for group in nav_groups %}
@@ -626,7 +626,9 @@
     <main class="console-main">
       <div class="console-topbar">
         <div class="console-title">
-          <div class="context">{{ access_email or principal_id }}{% if operator_id %} · {{ operator_id }}{% endif %}</div>
+          <div class="context">
+            {% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Workspace overview{% endif %}
+          </div>
           <h1>{{ page_heading or console_title or page_title }}</h1>
           {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
         </div>

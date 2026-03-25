@@ -37,12 +37,13 @@ def create_app() -> FastAPI:
     from app.api.routes.task_contracts import router as task_contracts_router
     from app.api.routes.tools import router as tools_router
 
-    app = FastAPI(title=s.app_name, version=s.app_version)
+    app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     app.include_router(landing_router)
-    app.include_router(public_results_router)
-    app.include_router(public_tours_router)
+    if s.public_side_surfaces_enabled:
+        app.include_router(public_results_router)
+        app.include_router(public_tours_router)
     app.include_router(health_router)
     auth_dependency = [Depends(require_request_auth)]
     app.include_router(channels_router, dependencies=auth_dependency)
