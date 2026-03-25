@@ -1,13 +1,15 @@
 # Chummer next 20 big wins execution plan
 
 ## Framing
-The previous wave is materially advanced, but not yet canonically closed end-to-end.
+The previous Account-Aware Front Door wave is materially closed end-to-end, and the next sequence starts here with campaign-middleness and trust surfaces.
 
 The next wave should execute in this order:
 
 1. kill drift between design truth and public/product truth,
 2. make the campaign middle executable,
 3. turn Build / Explain / Run / Publish / Improve into the lived product.
+
+The machine-readable status spine for this wave lives in `NEXT_20_BIG_WINS_REGISTRY.yaml`.
 
 ## Wave 0 — close truth drift and make the steering loop real
 
