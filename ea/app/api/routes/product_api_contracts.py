@@ -243,6 +243,26 @@ class WorkspaceSupportBundleOut(BaseModel):
     pending_delivery: list[dict[str, object]]
 
 
+class ChannelLoopItemOut(BaseModel):
+    title: str
+    detail: str
+    tag: str
+    href: str = ""
+    action_href: str = ""
+    action_label: str = ""
+    action_method: str = "get"
+    secondary_action_href: str = ""
+    secondary_action_label: str = ""
+    secondary_action_method: str = "get"
+
+
+class ChannelLoopOut(BaseModel):
+    headline: str
+    summary: str
+    items: list[ChannelLoopItemOut]
+    stats: dict[str, int]
+
+
 class BriefResponse(BaseModel):
     generated_at: str
     items: list[BriefItemOut]
