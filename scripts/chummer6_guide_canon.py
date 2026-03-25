@@ -215,6 +215,10 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     }:
         critical_style = briefs.get("critical_asset_style_epoch")
         if isinstance(critical_style, dict):
+            if isinstance(critical_style.get("overrides_shared_prompt_scaffold"), bool):
+                merged["critical_style_overrides_shared_prompt_scaffold"] = bool(
+                    critical_style.get("overrides_shared_prompt_scaffold")
+                )
             if str(critical_style.get("mode") or "").strip():
                 merged["critical_style_mode"] = str(critical_style.get("mode") or "").strip()
             if str(critical_style.get("style_anchor") or "").strip():

@@ -968,7 +968,7 @@ def test_scene_plan_pack_audit_accepts_dense_hero_and_karma_forge_defaults() -> 
     hero = worker.normalize_media_override(
         "hero",
         {
-            "badge": "Trust Check",
+            "badge": "Streetdoc Scan",
             "title": "Chummer6",
             "subtitle": "Let the build show its work before the table improvises trust.",
             "kicker": "See the upgrade pressure before it goes live.",
@@ -1106,7 +1106,7 @@ def test_normalize_media_override_strips_overliteralized_weapon_diagnostics_and_
     assert "damage modifiers" not in lowered_prompt
     assert "link verified" not in normalized["overlay_hint"].lower()
     assert normalized["scene_contract"]["composition"] == "clinic_intake"
-    assert "build-state provenance traces" in normalized["scene_contract"]["overlays"]
+    assert "cyberlimb calibration" in " ".join(normalized["scene_contract"]["overlays"]).lower()
 
 
 def test_normalize_media_override_reanchors_generic_horizon_scene_contract_and_status_labels() -> None:
@@ -1245,19 +1245,19 @@ def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hint
         {},
     )
 
-    assert normalized["badge"] == "Trust Check"
+    assert normalized["badge"] == "Streetdoc Scan"
     assert normalized["note"] == "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support."
     assert "metadata hud" not in normalized["overlay_hint"].lower()
     assert "medscan diagnostic rail" in normalized["overlay_hint"].lower()
     assert "trust check" not in normalized["overlay_hint"].lower()
     assert "concept" in normalized["meta"].lower()
     assert normalized["overlay_callouts"] == [
-        "Wound stabilized",
-        "Cyberlimb calibration",
+        "cyberlimb calibration",
+        "wound stabilized",
         "Neural link resync",
     ]
     assert "runner" in normalized["scene_contract"]["subject"].lower()
-    assert "receipt" in normalized["scene_contract"]["action"].lower() or "trust" in normalized["scene_contract"]["action"].lower()
+    assert "calibrating" in normalized["scene_contract"]["action"].lower() or "upgrade" in normalized["scene_contract"]["action"].lower()
     assert normalized["scene_contract"]["composition"] == "clinic_intake"
 
 

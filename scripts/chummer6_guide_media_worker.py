@@ -592,6 +592,11 @@ def target_visual_contract(target: str) -> dict[str, object]:
     if normalized in FIRST_CONTACT_TARGETS:
         critical_style = briefs.get("critical_asset_style_epoch")
         if isinstance(critical_style, dict):
+            if isinstance(critical_style.get("overrides_shared_prompt_scaffold"), bool):
+                contract.setdefault(
+                    "critical_style_overrides_shared_prompt_scaffold",
+                    bool(critical_style.get("overrides_shared_prompt_scaffold")),
+                )
             contract.setdefault("critical_style_mode", str(critical_style.get("mode") or "").strip())
             contract.setdefault("critical_style_anchor", str(critical_style.get("style_anchor") or "").strip())
             contract.setdefault("critical_negative_prompt", str(critical_style.get("negative_prompt") or "").strip())
@@ -3489,7 +3494,17 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     critical_style_mode = str(contract.get("critical_style_mode") or "").strip().lower().replace("_", " ")
     critical_style_anchor = compact_text(contract.get("critical_style_anchor") or "", limit=180 if compact else 420)
     critical_negative_prompt = compact_text(contract.get("critical_negative_prompt") or "", limit=160 if compact else 320)
+    required_overlay_mode = str(contract.get("required_overlay_mode") or "").strip().lower().replace("_", " ")
+    overlay_geometry = [compact_text(entry, limit=40 if compact else 76) for entry in _string_list(contract.get("overlay_geometry"))]
+    overlay_priority_order = [compact_text(entry, limit=28 if compact else 52) for entry in _string_list(contract.get("overlay_priority_order"))]
+    overlay_actionability_rule = compact_text(contract.get("overlay_actionability_rule") or "", limit=120 if compact else 220)
     parts: list[str] = []
+    if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
+        parts.append(
+            "Let the flagship poster epoch override the softer shared guide-still scaffold."
+            if not compact
+            else "override shared still scaffold"
+        )
     if critical_style_mode:
         parts.append(
             f"For this flagship asset, favor {critical_style_mode} energy over restrained editorial still-photography."
@@ -3525,6 +3540,34 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             "Include visible diegetic overlay traces that clarify the scene instead of decorative glow."
             if not compact
             else "visible semantic overlays"
+        )
+    if required_overlay_mode:
+        parts.append(
+            f"Lock the overlay posture to {required_overlay_mode}."
+            if not compact
+            else f"overlay posture {required_overlay_mode}"
+        )
+    if overlay_geometry:
+        joined = ", ".join(entry for entry in overlay_geometry if entry)
+        if joined:
+            parts.append(
+                f"Overlay geometry should prefer {joined}."
+                if not compact
+                else f"geometry {joined}"
+            )
+    if overlay_priority_order:
+        joined = ", ".join(entry for entry in overlay_priority_order if entry)
+        if joined:
+            parts.append(
+                f"Overlay priority order: {joined}."
+                if not compact
+                else f"overlay priority {joined}"
+            )
+    if overlay_actionability_rule:
+        parts.append(
+            overlay_actionability_rule.rstrip(".") + "."
+            if not compact
+            else overlay_actionability_rule
         )
     if negative_space_cap == "low":
         parts.append(

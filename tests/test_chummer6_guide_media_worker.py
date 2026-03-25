@@ -1341,10 +1341,13 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     assert hero_contract["person_count_target"] == "duo_or_team"
     assert any("improvised garage clinic" in marker for marker in hero_contract["required_setting_markers"])
     assert "BOD" in hero_contract["required_overlay_schema"]
+    assert hero_contract["required_overlay_mode"] == "medscan_diagnostic"
+    assert hero_contract["critical_style_overrides_shared_prompt_scaffold"] is True
     assert contract["density_target"] == "high"
     assert contract["overlay_density"] == "high"
     assert contract["person_count_target"] == "duo_preferred"
     assert "DIFF" in contract["required_overlay_schema"]
+    assert contract["required_overlay_mode"] == "forge_review_ar"
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
 
@@ -1359,9 +1362,14 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("metahuman clinician" in part.lower() for part in hero_parts)
     assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
     assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
+    assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
+    assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
+    assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
     assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
+    assert any("overlay posture to forge review ar" in part.lower() for part in forge_parts)
+    assert any("approval state" in part.lower() and "rollback" in part.lower() for part in forge_parts)
 
 
 def test_infer_cast_signature_recognizes_duo_operator_relationships() -> None:
