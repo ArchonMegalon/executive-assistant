@@ -362,6 +362,15 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: profile and linked-identity shell
+  - path: /participate/codex
+    title: Guided contribution
+    audience: registered
+    purpose: signed_in_participation
+    requires_auth: true
+    guest_fallback: /login?next=/participate/codex
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in participation flow
 sections:
   - id: hero
     eyebrow: Explainable Shadowrun

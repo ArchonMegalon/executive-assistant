@@ -441,6 +441,7 @@ cards:
     cta_kind: explainer
     guest_href: /login?next=/participate/codex
     registered_href: /participate/codex
+    action_label: Open guided contribution
   - id: participate_beta
     bucket: participate
     title: Join the beta waitlist
@@ -452,6 +453,7 @@ cards:
     cta_kind: signup
     guest_href: /signup?next=/home
     registered_href: /home#beta-interest
+    action_label: Join beta waitlist
   - id: release_latest
     bucket: release_shelf
     title: Current preview build
