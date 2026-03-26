@@ -20,6 +20,8 @@ This document defines how Chummer may use those tools for:
 
 without allowing any external tool to become canonical product truth.
 
+`PROVIDER_AND_ROUTE_STEWARDSHIP.md` defines the standing review, canary, promotion, and rollback loop for provider and model defaults inside those bounded routes.
+
 ## Core rule
 
 External tools may assist, route, render, summarize, visualize, archive, notify, or project. They may not become the canonical source of rules truth, session truth, approval truth, registry truth, media truth, or canon truth.

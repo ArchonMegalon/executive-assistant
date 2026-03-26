@@ -17,7 +17,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 2. Product middle and control loop:
    `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `USER_JOURNEYS.md` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
 3. Repo and contract boundaries:
-   `ARCHITECTURE.md` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
+   `ARCHITECTURE.md` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `PROVIDER_AND_ROUTE_STEWARDSHIP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
    `RELEASE_PIPELINE.md` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
@@ -93,6 +93,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 66. `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md`
 67. `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml`
 68. `INTEROP_AND_PORTABILITY_MODEL.md`
+69. `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
@@ -195,7 +196,7 @@ The foundational closure wave is materially finished. The Account-Aware Front Do
 
 `COMMUNITY_SPONSORSHIP_BACKLOG.md` is the implementation-ordered source for the Hub-first community/accounting wave. It distinguishes what already landed in Hub/Fleet/EA from the remaining durable-storage, convergence, and product-depth deltas.
 
-`PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`, `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`, and `PRODUCT_HEALTH_SCORECARD.yaml` are the operating loop for turning product reality into governed course correction instead of leaving that work as scattered feedback notes.
+`PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`, `PROVIDER_AND_ROUTE_STEWARDSHIP.md`, `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`, and `PRODUCT_HEALTH_SCORECARD.yaml` are the operating loop for turning product reality into governed course correction instead of leaving that work as scattered feedback notes.
 
 `CAMPAIGN_SPINE_AND_CREW_MODEL.md`, `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`, `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`, `SUPPORT_AND_SIGNAL_OODA_LOOP.md`, and `BUILD_LAB_PRODUCT_MODEL.md` are the now-closed additive center-of-gravity wave record: the executable middle between build truth and campaign reality, plus the flagship Build and Explain surfaces that made that middle visible to real users. They are now the baseline for follow-on campaign breadth and promotion work rather than still-open canon debt.
 

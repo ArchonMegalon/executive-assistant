@@ -70,6 +70,18 @@ Owns:
 * queue and package proposals
 * grounded audit/jury execution aids
 
+### Standing provider and route stewardship
+
+Provider and model defaults are not ad hoc operator taste.
+They follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`.
+
+That means:
+
+* EA produces challenger briefs and runtime telemetry
+* Hub owns lane-route maps and default settings
+* Fleet runs evals, canaries, and rollback packets
+* the product governor approves default changes that materially affect reliability, cost posture, support burden, or public trust
+
 ### Groundwork and jury worker lane
 
 The machine counterpart to the product governor is not "more coding workers."
