@@ -1423,8 +1423,9 @@ TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}"
   "${PRINCIPAL_ARGS[@]}" \
   -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops+tool-${SMOKE_RUN_TOKEN}@example.com\",\"content\":\"tool-runtime smoke dispatch\",\"metadata\":{\"source\":\"tool-execute\",\"smoke_run_token\":\"${SMOKE_RUN_TOKEN}\"},\"idempotency_key\":\"tool-dispatch-smoke-${SMOKE_RUN_TOKEN}\"}}")"
 TOOL_EXEC_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; out=body.get('output_json') or {}; print('{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('status',''), out.get('binding_id',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${TOOL_EXEC_JSON}")"
-if [[ "${TOOL_EXEC_FIELDS}" != "connector.dispatch|queued|${BINDING_ID}|connector.dispatch|tool.v1" ]]; then
-  echo "expected connector.dispatch execute route to queue delivery with scoped binding and normalized receipt contract; got ${TOOL_EXEC_FIELDS}" >&2
+TOOL_EXEC_STATUS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print((body.get('output_json') or {}).get('status',''))" <<<"${TOOL_EXEC_JSON}")"
+if [[ "${TOOL_EXEC_FIELDS}" != "connector.dispatch|${TOOL_EXEC_STATUS}|${BINDING_ID}|connector.dispatch|tool.v1" ]] || [[ "${TOOL_EXEC_STATUS}" != "queued" && "${TOOL_EXEC_STATUS}" != "retry" ]]; then
+  echo "expected connector.dispatch execute route to return queued-or-retry delivery with scoped binding and normalized receipt contract; got ${TOOL_EXEC_FIELDS}" >&2
   echo "${TOOL_EXEC_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

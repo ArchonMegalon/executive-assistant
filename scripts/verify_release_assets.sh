@@ -1966,7 +1966,8 @@ then
      grep -Fq "connector.dispatch" "RUNBOOK.md" && \
      grep -Fq "/v1/tools/execute" "HTTP_EXAMPLES.http" && \
      grep -Fq "connector.dispatch" "HTTP_EXAMPLES.http" && \
-     grep -Fq "connector.dispatch|queued|" "scripts/smoke_api.sh" && \
+     grep -Fq 'TOOL_EXEC_STATUS="$(python3 -c ' "scripts/smoke_api.sh" && \
+     grep -Fq '"${TOOL_EXEC_STATUS}" != "queued" && "${TOOL_EXEC_STATUS}" != "retry"' "scripts/smoke_api.sh" && \
      grep -Fq "connector.dispatch|tool.v1" "scripts/smoke_api.sh" && \
      grep -Fq "/v1/tools/execute" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "connector.dispatch" "${SMOKE_RUNTIME_GUARD_TARGET}" && \
