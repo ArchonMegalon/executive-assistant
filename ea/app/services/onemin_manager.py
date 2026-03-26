@@ -213,7 +213,7 @@ class OneminManagerService:
         return "mixed"
 
     def _candidate_remaining_credits(self, candidate: dict[str, object]) -> float:
-        for key in ("billing_remaining_credits", "estimated_remaining_credits", "remaining_credits"):
+        for key in ("estimated_remaining_credits", "billing_remaining_credits", "remaining_credits"):
             parsed = self._parse_float(candidate.get(key))
             if parsed is not None:
                 return max(0.0, parsed)
@@ -524,8 +524,13 @@ class OneminManagerService:
             credit_rollup = self._account_credit_rollup(slots)
             burn_rollup = self._account_burn_rollup(slots)
             billing_remaining = self._parse_float(credit_rollup.get("actual_remaining_credits"))
-            estimated_remaining = self._parse_float(credit_rollup.get("estimated_remaining_credits")) or 0.0
-            remaining_credits = billing_remaining if billing_remaining is not None else estimated_remaining
+            estimated_remaining_value = self._parse_float(credit_rollup.get("estimated_remaining_credits"))
+            estimated_remaining = estimated_remaining_value or 0.0
+            remaining_credits = (
+                estimated_remaining_value
+                if estimated_remaining_value is not None
+                else billing_remaining if billing_remaining is not None else 0.0
+            )
             max_credits = sum((self._parse_float(slot.get("billing_max_credits")) or self._parse_float(slot.get("max_credits")) or 0.0) for slot in slots)
             core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
             states = {str(slot.get("state") or "").strip().lower() for slot in slots}
@@ -579,7 +584,7 @@ class OneminManagerService:
                     owner_email=owner_email,
                     active_role=self._slot_role(slot),
                     state=str(slot.get("state") or "unknown"),
-                    remaining_credits=self._parse_float(slot.get("billing_remaining_credits") or slot.get("estimated_remaining_credits")),
+                    remaining_credits=self._parse_float(slot.get("estimated_remaining_credits") or slot.get("billing_remaining_credits")),
                     max_credits=self._parse_float(slot.get("billing_max_credits") or slot.get("max_credits")),
                     last_probe_at=self._epoch_to_iso(slot.get("last_probe_at")),
                     last_success_at=self._epoch_to_iso(slot.get("last_success_at")),
