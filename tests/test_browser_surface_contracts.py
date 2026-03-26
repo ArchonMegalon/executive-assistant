@@ -73,6 +73,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     landing = client.get("/")
     assert "Start the day with a morning memo" in landing.text
     assert "Get started" in landing.text
+    assert "Workspace access" in landing.text
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")

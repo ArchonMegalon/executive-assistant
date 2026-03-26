@@ -100,9 +100,10 @@ PRODUCT_MODULES = (
 )
 
 SIGN_IN_NOTES = (
-    "Use the identity your workspace already trusts so the assistant opens in the right account context.",
-    "Company SSO or access-gateway deployments should hand you into the workspace without another setup loop.",
-    "Private deployments can still enforce host-level rules, but those checks should feel invisible when the deployment is configured correctly.",
+    "Executive Assistant does not create a separate email-and-password account inside the product.",
+    "Workspace access should come from company SSO, an access gateway, or another deployment-level identity layer.",
+    "Google connection happens after access is established; it binds Gmail, Calendar, and contacts to the workspace rather than acting as app login.",
+    "API tokens are for API and operator automation flows, not a browser sign-in screen.",
 )
 
 PRICING_TIERS = (

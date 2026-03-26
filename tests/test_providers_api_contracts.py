@@ -362,7 +362,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Use the account tied to your workspace and continue where the work already lives." in sign_in.text
+    assert "Executive Assistant does not create a separate email-and-password account inside the app." in sign_in.text
+    assert "Google OAuth is for binding Gmail, Calendar, and contacts to the workspace after access is established." in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
