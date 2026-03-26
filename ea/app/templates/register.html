@@ -1,0 +1,527 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .register-stage {
+    display: grid;
+    gap: 18px;
+  }
+  .register-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .register-hero,
+  .register-wizard,
+  .register-step,
+  .register-preview,
+  .register-note {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
+  }
+  .register-hero,
+  .register-wizard,
+  .register-step,
+  .register-preview,
+  .register-note {
+    padding: 24px;
+  }
+  .register-hero {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+  }
+  .register-progress {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .register-pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 10px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    background: rgba(255,255,255,0.02);
+  }
+  .register-pill.active,
+  .register-pill.done {
+    color: var(--text);
+    border-color: rgba(138, 164, 255, 0.24);
+    background: rgba(138, 164, 255, 0.12);
+  }
+  .register-wizard {
+    display: grid;
+    gap: 14px;
+  }
+  .register-step {
+    display: none;
+    gap: 14px;
+  }
+  .register-step.active {
+    display: grid;
+  }
+  .register-form,
+  .register-grid,
+  .register-preview-grid,
+  .register-milestones {
+    display: grid;
+    gap: 12px;
+  }
+  .register-grid,
+  .register-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .register-field {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .register-field span {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .register-field input,
+  .register-field select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 11px 12px;
+    font: inherit;
+  }
+  .register-choice {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    background: rgba(11, 14, 19, 0.58);
+  }
+  .register-choice strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+  .register-milestone {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .register-milestone.done {
+    border-color: rgba(122, 197, 155, 0.24);
+    background: rgba(122, 197, 155, 0.08);
+  }
+  .register-status,
+  .register-error,
+  .register-inline {
+    min-height: 20px;
+    font-size: 13px;
+  }
+  .register-status,
+  .register-inline { color: var(--text-soft); }
+  .register-error { color: #f0b7b7; }
+  .register-preview {
+    display: grid;
+    gap: 14px;
+  }
+  .register-preview ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  .register-preview li + li {
+    margin-top: 6px;
+  }
+  .register-hidden {
+    display: none;
+  }
+  @media (max-width: 1080px) {
+    .register-shell,
+    .register-grid,
+    .register-preview-grid,
+    .register-progress {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="register-stage" data-register-app>
+  <div class="register-shell">
+    <section class="register-hero">
+      <div class="kicker">Personal workspace</div>
+      <h1>Create a personal workspace before you add anything else.</h1>
+      <p class="lead">Start with one email, one Google connection, one first brief, and one clear queue. Team review and extra channels can wait until later.</p>
+      <div class="register-note">
+        We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.
+      </div>
+      <div class="summary-strip">
+        <div class="summary">
+          <div class="label">Default mode</div>
+          <strong>Personal workspace</strong>
+        </div>
+        <div class="summary">
+          <div class="label">Recommended connection</div>
+          <strong>Google Core</strong>
+        </div>
+        <div class="summary">
+          <div class="label">Expansion later</div>
+          <strong>Add an operator from Settings when the workflow earns it.</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="register-wizard">
+      <div class="register-progress">
+        <div class="register-pill" data-step-pill="1">1. Email</div>
+        <div class="register-pill" data-step-pill="2">2. Basics</div>
+        <div class="register-pill" data-step-pill="3">3. Google</div>
+        <div class="register-pill" data-step-pill="4">4. Build</div>
+        <div class="register-pill" data-step-pill="5">5. Success</div>
+      </div>
+
+      <section class="register-step" data-step="1">
+        <div>
+          <div class="kicker">Step 1</div>
+          <h2>Email</h2>
+          <p class="copy">We’ll use this to create your workspace and let you come back.</p>
+        </div>
+        <form class="register-form" data-form="start">
+          <label class="register-field">
+            <span>Email</span>
+            <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+          </label>
+          <div class="register-status" data-start-status></div>
+          <div class="register-error" data-start-error></div>
+          <div class="cta-row">
+            <button class="btn primary" type="submit">Continue</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="register-step" data-step="2">
+        <div>
+          <div class="kicker">Step 2</div>
+          <h2>Workspace basics</h2>
+          <p class="copy">Workspace mode stays personal here. No plan, tenant, or operator decisions yet.</p>
+        </div>
+        <form class="register-form" data-form="verify">
+          <div class="register-grid">
+            <label class="register-field">
+              <span>Verification code</span>
+              <input type="text" name="verification_code" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code">
+            </label>
+            <label class="register-field">
+              <span>Workspace name</span>
+              <input type="text" name="workspace_name" required>
+            </label>
+            <label class="register-field">
+              <span>Timezone</span>
+              <input type="text" name="timezone" required>
+            </label>
+            <label class="register-field">
+              <span>Language</span>
+              <input type="text" name="language" placeholder="Optional">
+            </label>
+          </div>
+          <div class="register-inline" data-verify-inline></div>
+          <div class="register-error" data-verify-error></div>
+          <div class="cta-row">
+            <button class="btn primary" type="submit">Create workspace</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="register-step" data-step="3">
+        <div>
+          <div class="kicker">Step 3</div>
+          <h2>Connect Google</h2>
+          <p class="copy">Start with the narrowest useful bundle. Google is workspace data, not app login.</p>
+        </div>
+        <div class="register-choice">
+          <strong>Google Core</strong>
+          <p class="copy">Recommended for the first brief, queue, calendar pressure, and visible follow-ups.</p>
+        </div>
+        <details class="register-note">
+          <summary>Advanced options</summary>
+          <p class="copy">Broader bundles still exist, but they stay out of the default path until the personal workspace has already shown value.</p>
+        </details>
+        <div class="register-inline" data-google-inline></div>
+        <div class="register-error" data-google-error></div>
+        <div class="cta-row">
+          <button class="btn primary" type="button" data-action="google-consent">Open Google consent</button>
+          <button class="btn" type="button" data-action="build-brief">Build first brief</button>
+        </div>
+      </section>
+
+      <section class="register-step" data-step="4">
+        <div>
+          <div class="kicker">Step 4</div>
+          <h2>Build first brief</h2>
+          <p class="copy">Show progress clearly so the first useful workspace feels like a product moment, not a setup blur.</p>
+        </div>
+        <div class="register-milestones">
+          <div class="register-milestone" data-milestone="calendar"><span>Connecting calendar</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="email"><span>Reading recent email signals</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="queue"><span>Building first queue</span><strong>Pending</strong></div>
+          <div class="register-milestone" data-milestone="commitments"><span>Finding open commitments</span><strong>Pending</strong></div>
+        </div>
+        <div class="register-inline" data-build-inline></div>
+      </section>
+
+      <section class="register-step" data-step="5">
+        <div>
+          <div class="kicker">Step 5</div>
+          <h2>Your personal workspace is ready.</h2>
+          <p class="copy">Start with the first brief, the first queue, and the first visible follow-up loop. Shared review can come later.</p>
+        </div>
+        <div class="register-preview-grid">
+          <section class="register-preview">
+            <strong>First brief items</strong>
+            <ul data-preview-brief></ul>
+          </section>
+          <section class="register-preview">
+            <strong>First queue items</strong>
+            <ul data-preview-queue></ul>
+          </section>
+        </div>
+        <div class="register-note">Add an operator later from Settings if you need shared review.</div>
+        <div class="cta-row">
+          <a class="btn primary" href="/app/today">Open my workspace</a>
+        </div>
+      </section>
+    </section>
+  </div>
+</section>
+
+<script>
+(() => {
+  const app = document.querySelector('[data-register-app]');
+  if (!app) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const storageKey = 'ea-register-state';
+  const saved = (() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(storageKey) || 'null') || {};
+    } catch (_error) {
+      return {};
+    }
+  })();
+  const state = {
+    step: 1,
+    start: saved.start || null,
+    verified: saved.verified || null,
+    preview: saved.preview || { brief: [], queue: [] },
+  };
+
+  if (params.get('token')) {
+    state.start = Object.assign({}, state.start || {}, {
+      verification_token: params.get('token'),
+      verification_code: params.get('code') || '',
+    });
+  }
+  if (params.get('ready') === '1' && state.verified) {
+    state.step = 3;
+  }
+
+  const pills = [...document.querySelectorAll('[data-step-pill]')];
+  const steps = [...document.querySelectorAll('[data-step]')];
+  const startForm = document.querySelector('[data-form="start"]');
+  const verifyForm = document.querySelector('[data-form="verify"]');
+  const startStatus = document.querySelector('[data-start-status]');
+  const startError = document.querySelector('[data-start-error]');
+  const verifyInline = document.querySelector('[data-verify-inline]');
+  const verifyError = document.querySelector('[data-verify-error]');
+  const googleInline = document.querySelector('[data-google-inline]');
+  const googleError = document.querySelector('[data-google-error]');
+  const buildInline = document.querySelector('[data-build-inline]');
+  const briefList = document.querySelector('[data-preview-brief]');
+  const queueList = document.querySelector('[data-preview-queue]');
+
+  const setState = () => {
+    window.localStorage.setItem(storageKey, JSON.stringify({
+      start: state.start,
+      verified: state.verified,
+      preview: state.preview,
+    }));
+  };
+
+  const setStep = (step) => {
+    state.step = step;
+    steps.forEach((node) => node.classList.toggle('active', Number(node.dataset.step) === step));
+    pills.forEach((node) => {
+      const current = Number(node.dataset.stepPill);
+      node.classList.toggle('active', current === step);
+      node.classList.toggle('done', current < step);
+    });
+  };
+
+  const setList = (node, values, fallback) => {
+    node.innerHTML = '';
+    const rows = values && values.length ? values : fallback;
+    rows.slice(0, 3).forEach((value) => {
+      const li = document.createElement('li');
+      li.textContent = value;
+      node.appendChild(li);
+    });
+  };
+
+  const markMilestones = async () => {
+    const milestones = ['calendar', 'email', 'queue', 'commitments'];
+    for (const key of milestones) {
+      const row = document.querySelector(`[data-milestone="${key}"]`);
+      if (!row) continue;
+      row.classList.add('done');
+      const strong = row.querySelector('strong');
+      if (strong) strong.textContent = 'Done';
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+    }
+  };
+
+  const applyPrefill = () => {
+    if (!state.start || !verifyForm) return;
+    verifyForm.elements.workspace_name.value = state.start.workspace_name || '';
+    verifyForm.elements.timezone.value = state.start.suggested_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    verifyForm.elements.language.value = state.start.suggested_language || (navigator.language || 'en').split('-')[0];
+    verifyForm.elements.verification_code.value = state.start.verification_code || '';
+  };
+
+  const syncStep = () => {
+    applyPrefill();
+    if (!state.start) {
+      setStep(1);
+      return;
+    }
+    if (!state.verified) {
+      setStep(2);
+      return;
+    }
+    if (state.preview.brief.length || state.preview.queue.length) {
+      setList(briefList, state.preview.brief, ['Your first brief items will appear here.']);
+      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
+      setStep(5);
+      return;
+    }
+    setStep(3);
+  };
+
+  startForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    startError.textContent = '';
+    startStatus.textContent = 'Preparing verification…';
+    const email = String(startForm.elements.email.value || '').trim();
+    try {
+      const response = await fetch('/v1/register/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error((body.detail || 'Could not start registration').toString());
+      state.start = body;
+      setState();
+      startStatus.textContent = body.email_delivery_status === 'sent'
+        ? `Verification email sent to ${body.email}. Open the magic link or enter the 6-digit code from that message.`
+        : (body.email_delivery_status === 'failed'
+          ? (body.verification_code
+            ? `Email delivery is not configured cleanly on this host. Use code ${body.verification_code} to continue locally.`
+            : `Email delivery is not configured cleanly on this host yet. A verified sender is required before this flow can send mail.`)
+          : (body.verification_code
+            ? `Verification ready. Use code ${body.verification_code} or the magic link for ${body.email}.`
+            : `Verification ready for ${body.email}. Continue with the code or magic link.`));
+      syncStep();
+    } catch (error) {
+      startStatus.textContent = '';
+      startError.textContent = error instanceof Error ? error.message : 'Could not start registration.';
+    }
+  });
+
+  verifyForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    verifyError.textContent = '';
+    verifyInline.textContent = 'Creating your workspace…';
+    try {
+      const payload = {
+        verification_token: state.start?.verification_token || '',
+        verification_code: String(verifyForm.elements.verification_code.value || '').trim(),
+        workspace_name: String(verifyForm.elements.workspace_name.value || '').trim(),
+        timezone: String(verifyForm.elements.timezone.value || '').trim(),
+        language: String(verifyForm.elements.language.value || '').trim(),
+        scope_bundle: 'core',
+      };
+      const response = await fetch('/v1/register/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error((body.detail || 'Could not verify registration').toString());
+      state.verified = body;
+      setState();
+      verifyInline.textContent = 'Workspace created. Establishing workspace access…';
+      const returnTo = encodeURIComponent('/register?ready=1');
+      window.location.assign(`${body.access_url}?return_to=${returnTo}`);
+    } catch (error) {
+      verifyInline.textContent = '';
+      verifyError.textContent = error instanceof Error ? error.message : 'Could not verify registration.';
+    }
+  });
+
+  document.querySelector('[data-action="google-consent"]')?.addEventListener('click', () => {
+    googleError.textContent = '';
+    const startUrl = String(((state.verified || {}).google_start || {}).start_url || '').trim();
+    if (!startUrl) {
+      const errorMessage = String(((state.verified || {}).google_start || {}).error || 'Google consent is not configured on this host yet.').trim();
+      googleError.textContent = errorMessage;
+      return;
+    }
+    googleInline.textContent = 'Google consent opened in a new tab. Return here when you are ready to build the first brief.';
+    window.open(startUrl, '_blank', 'noopener');
+  });
+
+  document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
+    buildInline.textContent = 'Building your first brief…';
+    setStep(4);
+    await markMilestones();
+    try {
+      const [briefResponse, queueResponse] = await Promise.all([
+        fetch('/app/api/brief'),
+        fetch('/app/api/queue'),
+      ]);
+      const briefBody = await briefResponse.json();
+      const queueBody = await queueResponse.json();
+      const briefItems = (briefBody.items || []).map((row) => row.title).filter(Boolean);
+      const queueItems = (queueBody.items || []).map((row) => row.title).filter(Boolean);
+      state.preview = {
+        brief: briefItems.length ? briefItems : ['Your morning brief will start with the first live signals from Google.'],
+        queue: queueItems.length ? queueItems : ['Your queue will show decisions, drafts, and commitments as they become visible.'],
+      };
+      setState();
+      setList(briefList, state.preview.brief, ['Your morning brief will appear here.']);
+      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
+      buildInline.textContent = 'First brief ready.';
+      setStep(5);
+    } catch (_error) {
+      state.preview = {
+        brief: ['Your morning brief will appear after Google signals are available.'],
+        queue: ['Your queue will show decisions, drafts, and commitments in one review surface.'],
+      };
+      setState();
+      setList(briefList, state.preview.brief, ['Your morning brief will appear here.']);
+      setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
+      buildInline.textContent = 'Workspace ready. Open the app to continue the first loop.';
+      setStep(5);
+    }
+  });
+
+  syncStep();
+})();
+</script>
+{% endblock %}

@@ -1,32 +1,20 @@
 from __future__ import annotations
 
 PUBLIC_NAV = (
-    {"href": "/product", "label": "Product", "key": "product"},
-    {"href": "/integrations", "label": "Integrations", "key": "integrations"},
+    {"href": "/", "label": "Product", "key": "product"},
     {"href": "/security", "label": "Security", "key": "security"},
     {"href": "/pricing", "label": "Pricing", "key": "pricing"},
-    {"href": "/docs", "label": "Docs", "key": "docs"},
+    {"href": "/sign-in", "label": "Sign in", "key": "sign-in"},
 )
 
 APP_NAV_GROUPS = (
     {
-        "label": "Core workflow",
+        "label": "Workspace",
         "items": (
-            {"href": "/app/today", "label": "Morning memo", "key": "today"},
-            {"href": "/app/briefing", "label": "Decision queue", "key": "briefing"},
-            {"href": "/app/inbox", "label": "Commitments", "key": "inbox"},
-            {"href": "/app/follow-ups", "label": "Handoffs", "key": "follow-ups"},
-            {"href": "/app/memory", "label": "People graph", "key": "memory"},
-            {"href": "/app/contacts", "label": "Evidence", "key": "contacts"},
-        ),
-    },
-    {
-        "label": "Controls",
-        "items": (
-            {"href": "/app/channels", "label": "Channels", "key": "channels"},
-            {"href": "/app/automations", "label": "Policies", "key": "automations"},
-            {"href": "/app/activity", "label": "Audit", "key": "activity"},
-            {"href": "/app/settings", "label": "Rules", "key": "settings"},
+            {"href": "/app/today", "label": "Today", "key": "today"},
+            {"href": "/app/queue", "label": "Queue", "key": "queue"},
+            {"href": "/app/people", "label": "People", "key": "people"},
+            {"href": "/app/settings", "label": "Settings", "key": "settings"},
         ),
     },
 )
@@ -46,74 +34,75 @@ ADMIN_NAV_GROUPS = (
 
 FEATURE_CARDS = (
     {
-        "title": "Morning memo",
-        "body": "Start the day with a compiled operating memo: what changed, what is blocked, and what demands attention first.",
+        "title": "See what changed",
+        "body": "Start with one morning brief that explains what moved overnight and where today already feels tight.",
     },
     {
-        "title": "Decision queue",
-        "body": "Turn approvals, assignments, memory changes, and choices into one bounded queue instead of scattering them across inboxes.",
+        "title": "Decide what matters next",
+        "body": "Turn inbox noise into a bounded queue of decisions, drafts, and follow-ups that can actually be cleared.",
     },
     {
-        "title": "Commitment ledger",
-        "body": "Every message, meeting, or note either updates a commitment, creates a decision, or is discarded.",
-    },
-    {
-        "title": "People graph",
-        "body": "Keep stakeholders, relationship context, open loops, and recurring pressure visible in one durable graph.",
-    },
-    {
-        "title": "Handoffs",
-        "body": "Support one executive and one operator with a clean lane for drafts, follow-ups, and unresolved decisions.",
-    },
-    {
-        "title": "Rules",
-        "body": "Make reading, drafting, sending, remembering, and approval rules explicit instead of leaving them buried in safety copy.",
+        "title": "Keep commitments visible",
+        "body": "Make every promise and open loop visible until it is closed, deferred, or deliberately dropped.",
     },
 )
 
 HOW_STEPS = (
-    {"title": "Choose the office shape", "body": "Start with one executive, one operator, or one personal loop. Do not overfit the org chart on day one."},
-    {"title": "Connect Google first", "body": "Use Google Core to unlock the first useful memo, the first draft, and the first visible follow-up."},
-    {"title": "Prove one loop", "body": "Generate the first memo, approve one draft, and close one commitment before adding more channel complexity."},
-    {"title": "Add more only when it earns its keep", "body": "Bring in Telegram, WhatsApp, and deeper rules only when they clearly improve the daily operating loop."},
+    {"title": "Connect Google", "body": "Start with the narrowest useful Google bundle so the product can read calendar pressure and recent email signals."},
+    {"title": "Get your first brief", "body": "Build a morning brief, a review queue, and a visible follow-up list before introducing more setup complexity."},
+    {"title": "Review drafts and follow-ups", "body": "Prove one useful daily loop before adding operators, messaging channels, or broader workspace rules."},
 )
 
 PERSONAS = (
-    {"title": "One executive + one operator", "body": "The cleanest wedge: one person making decisions and one person keeping the office loop tight."},
-    {"title": "Chiefs of staff", "body": "Keep leadership communication, commitments, and handoffs visible without babysitting a generic dashboard."},
-    {"title": "Founders", "body": "Run stakeholder follow-ups, recruiting loops, and vendor pressure through one commitment system."},
+    {"title": "Personal workspace first", "body": "Start alone, prove value quickly, and add shared review only when the office actually needs it."},
+    {"title": "Executive support later", "body": "Operator review and team workflows stay available, but they should not be the first thing a new customer has to learn."},
+    {"title": "Product before control plane", "body": "The first screens should sell clarity, queue discipline, and follow-through, not system posture."},
 )
 
 TRUST_CARDS = (
-    {"title": "Scoped workspace memory", "body": "Context belongs to the right workspace instead of floating around in stateless prompts."},
-    {"title": "Visible review points", "body": "Drafts and suggestions stay reviewable so the product feels safe in real work."},
-    {"title": "Clear channel boundaries", "body": "Each connection spells out what the assistant can really read, draft, verify, or import."},
+    {"title": "Review before send", "body": "Nothing sends without your review, so the first useful loop stays safe and explainable."},
+    {"title": "Clear permissions", "body": "Google is a workspace data connection with visible scope choices, not a hidden identity shortcut."},
+    {"title": "Exportable workspace history", "body": "The office loop stays legible because decisions, follow-ups, and history remain visible and exportable."},
+)
+
+LANDING_FAQS = (
+    {
+        "question": "What does it connect to?",
+        "answer": "Start with Gmail and Calendar. Add broader channels and team workflows only after the personal workspace is already useful.",
+    },
+    {
+        "question": "Does it send anything automatically?",
+        "answer": "No. The personal-first loop is review-first. Drafts and suggested actions stay visible until you approve them.",
+    },
+    {
+        "question": "Can I start alone and add others later?",
+        "answer": "Yes. Start with a personal workspace, then add an operator or move into a shared setup from Settings after first value.",
+    },
 )
 
 PRODUCT_MODULES = (
-    {"title": "Morning memo", "body": "Compile changes, pressure, commitments, and decisions into one memo that deserves the executive attention first."},
-    {"title": "Decision queue", "body": "Route approvals, assignments, memory updates, and next moves through one bounded review surface."},
-    {"title": "Commitment ledger", "body": "Keep every promise, deadline, and open loop visible until it is either closed or explicitly deferred."},
-    {"title": "People graph", "body": "Store stakeholder temperature, context, and recurring pressure as a durable relationship system."},
-    {"title": "Handoffs", "body": "Support operator review, executive approval, and office collaboration without turning the product into a control-plane catalog."},
-    {"title": "Rules", "body": "Expose reading, drafting, sending, memory, and approval boundaries as first-class product behavior."},
+    {"title": "Morning brief", "body": "Show the day as a clear brief instead of a wall of messages and half-remembered obligations."},
+    {"title": "Queue", "body": "Keep decisions, drafts, and commitments inside one review lane instead of spreading them across separate product nouns."},
+    {"title": "People", "body": "Keep relationship memory, recent context, and open loops visible where the office actually needs them."},
+    {"title": "Settings", "body": "Move rules, connections, exports, and expansion controls behind the first useful workflow instead of ahead of it."},
 )
 
 SIGN_IN_NOTES = (
-    "Executive Assistant does not create a separate email-and-password account inside the product.",
-    "Workspace access should come from company SSO, an access gateway, or another deployment-level identity layer.",
-    "Google connection happens after access is established; it binds Gmail, Calendar, and contacts to the workspace rather than acting as app login.",
-    "API tokens are for API and operator automation flows, not a browser sign-in screen.",
+    "Use sign in only if you already have a workspace access link, a trusted deployment identity, or an existing session.",
+    "Create a personal workspace from /register if you are starting fresh.",
+    "Google connection is workspace data setup, not the primary app identity method.",
+    "Operator invites, shared review, and broader workspace controls come later from Settings.",
 )
 
 PRICING_TIERS = (
-    {"title": "One executive", "price": "Pilot", "body": "One principal, one memo, one decision queue, and one commitment loop."},
-    {"title": "Executive + operator", "price": "Core", "body": "Shared review, handoffs, and stronger rules for one executive office pair."},
-    {"title": "Office team", "price": "Custom", "body": "Broader review, audit, and channel policy for a multi-operator executive support model."},
+    {"title": "Personal workspace", "price": "Starter", "body": "One person, one morning brief, one queue, and one follow-up loop to prove value quickly."},
+    {"title": "Shared review", "price": "Growth", "body": "Add operator review and shared workflow after the personal workspace is already working."},
+    {"title": "Executive office", "price": "Custom", "body": "Expand into broader office support, audit posture, and team workflow only when the product has earned it."},
 )
 
 DOC_LINKS = (
-    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for teams integrating with the runtime and product surfaces."},
-    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "A technical route map for admins and developers who need implementation detail."},
-    {"title": "Product brief v2", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/PRODUCT_BRIEF_V2.md", "body": "The narrower product promise: one executive, one operator, one memo, one decision queue, one commitment system."},
+    {"title": "Docs", "href": "/docs", "body": "Product and runtime references for teams who need implementation detail after the first visit."},
+    {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google and other channels once the personal workspace is already underway."},
+    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for product and runtime integrations."},
+    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
 )

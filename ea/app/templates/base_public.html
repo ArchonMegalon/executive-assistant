@@ -609,8 +609,8 @@
         {% endfor %}
       </nav>
       <div class="actions">
-        <a class="btn ghost" href="{% if access_identity %}/app{% else %}/sign-in{% endif %}">{% if access_identity %}Open app{% else %}Workspace access{% endif %}</a>
-        <a class="btn primary" href="/get-started">Get started</a>
+        <a class="btn ghost" href="{% if access_identity %}/app{% else %}/sign-in{% endif %}">{% if access_identity %}Open workspace{% else %}Sign in{% endif %}</a>
+        <a class="btn primary" href="/register">Create personal workspace</a>
       </div>
     </div>
   </header>
@@ -628,6 +628,10 @@
         {% for item in public_nav %}
         <a href="{{ item.href }}">{{ item.label }}</a>
         {% endfor %}
+        <a href="/docs">Docs</a>
+        <a href="/integrations">Integrations</a>
+        <a href="/openapi.json">API</a>
+        <a href="https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md">Architecture</a>
       </nav>
     </div>
   </footer>

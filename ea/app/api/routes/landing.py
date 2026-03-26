@@ -23,6 +23,7 @@ from app.api.routes.landing_content import (
     DOC_LINKS,
     FEATURE_CARDS,
     HOW_STEPS,
+    LANDING_FAQS,
     PERSONAS,
     PRICING_TIERS,
     PRODUCT_MODULES,
@@ -329,33 +330,17 @@ def landing(
             extra={
                 "feature_cards": FEATURE_CARDS,
                 "how_steps": HOW_STEPS,
-                "personas": PERSONAS,
                 "trust_cards": TRUST_CARDS,
+                "landing_faqs": LANDING_FAQS,
+                "doc_links": DOC_LINKS,
             },
         ),
     )
 
 
 @router.get("/product", response_class=HTMLResponse)
-def product_page(
-    request: Request,
-    container: AppContainer = Depends(get_container),
-    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
-    return _render_public_template(
-        request,
-        "product_page.html",
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title="Executive Assistant Product",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={"product_modules": PRODUCT_MODULES, "app_nav_groups": APP_NAV_GROUPS},
-        ),
-    )
+def product_page() -> RedirectResponse:
+    return RedirectResponse("/", status_code=307)
 
 
 @router.get("/integrations", response_class=HTMLResponse)
@@ -535,12 +520,39 @@ def sign_in_page(
         "sign_in.html",
         **_public_context(
             request=request,
-            current_nav="docs",
+            current_nav="sign-in",
             page_title="Sign in to Executive Assistant",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
             extra={"sign_in_notes": SIGN_IN_NOTES},
+        ),
+    )
+
+
+@router.get("/register", response_class=HTMLResponse)
+def register_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    if principal_id:
+        build_product_service(container).record_surface_event(
+            principal_id=principal_id,
+            event_type="activation_opened",
+            surface="register",
+        )
+    return _render_public_template(
+        request,
+        "register.html",
+        **_public_context(
+            request=request,
+            current_nav="product",
+            page_title="Create personal workspace",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
         ),
     )
 
@@ -622,6 +634,11 @@ def workspace_invite_accept(
         raise
     if invite is None:
         raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    access_url = str(invite.get("access_url") or "").strip()
+    if access_url:
+        response = RedirectResponse(access_url, status_code=303)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return response
     body = f"""<!doctype html>
 <html lang="en">
   <head>
@@ -643,93 +660,8 @@ def workspace_invite_accept(
 
 
 @router.get("/get-started", response_class=HTMLResponse)
-def get_started(
-    request: Request,
-    container: AppContainer = Depends(get_container),
-    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
-    channels = dict(status.get("channels") or {})
-    workspace = dict(status.get("workspace") or {})
-    privacy = dict(status.get("privacy") or {})
-    selected_channels = {str(value) for value in (status.get("selected_channels") or []) if str(value).strip()}
-    google = dict(channels.get("google") or {})
-    activation_plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
-    activation_diagnostics: dict[str, object] = {
-        "plan": {
-            "display_name": activation_plan.display_name,
-            "unit_of_sale": activation_plan.unit_of_sale,
-        },
-        "billing": {
-            "billing_state": activation_plan.billing_state,
-            "support_tier": activation_plan.support_tier,
-            "renewal_owner_role": activation_plan.renewal_owner_role,
-            "contract_note": activation_plan.contract_note,
-        },
-        "entitlements": {
-            "principal_seats": activation_plan.entitlements.principal_seats,
-            "operator_seats": activation_plan.entitlements.operator_seats,
-            "messaging_channels_enabled": activation_plan.entitlements.messaging_channels_enabled,
-            "audit_retention": activation_plan.entitlements.audit_retention,
-            "feature_flags": list(activation_plan.entitlements.feature_flags),
-        },
-        "operators": {
-            "active_count": 0,
-            "seats_used": 0,
-            "seats_remaining": activation_plan.entitlements.operator_seats,
-        },
-        "analytics": {
-            "counts": {},
-        },
-    }
-    activation_preview = {
-        "brief": (),
-        "queue": (),
-        "commitments": (),
-    }
-    if principal_id:
-        product = build_product_service(container)
-        snapshot = product.workspace_snapshot(principal_id=principal_id)
-        activation_diagnostics = product.workspace_diagnostics(principal_id=principal_id)
-        product.record_surface_event(
-            principal_id=principal_id,
-            event_type="activation_opened",
-            surface="get_started",
-        )
-        activation_preview = {
-            "brief": tuple(item.title for item in snapshot.brief_items[:3]),
-            "queue": tuple(item.title for item in snapshot.queue_items[:3]),
-            "commitments": tuple(item.statement for item in snapshot.commitments[:3]),
-        }
-    return _render_public_template(
-        request,
-        "get_started.html",
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title="Get started with Executive Assistant",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "workspace": workspace,
-                "privacy": privacy,
-                "channels": channels,
-                "selected_channels": selected_channels,
-                "google": google,
-                "activation_preview": activation_preview,
-                "activation_diagnostics": activation_diagnostics,
-                "activation_plan": dict(activation_diagnostics.get("plan") or {}),
-                "activation_billing": dict(activation_diagnostics.get("billing") or {}),
-                "activation_entitlements": dict(activation_diagnostics.get("entitlements") or {}),
-                "shared_browser_fields": _shared_browser_fields(
-                    principal_id=principal_id,
-                    access_identity=access_identity,
-                    container=container,
-                ),
-            },
-        ),
-    )
+def get_started() -> RedirectResponse:
+    return RedirectResponse("/register", status_code=307)
 
 
 @router.get("/app", response_class=HTMLResponse)
@@ -738,8 +670,12 @@ def app_root() -> RedirectResponse:
 
 
 @router.get("/app/people", response_class=HTMLResponse)
-def people_root() -> RedirectResponse:
-    return RedirectResponse("/app/memory", status_code=307)
+def people_root(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    return app_shell("people", request, container, context)
 
 
 def _object_detail_row(title: str, detail: str, tag: str) -> dict[str, str]:
@@ -841,7 +777,7 @@ def person_detail(
             **_console_shell_context(
                 request=request,
                 page_title=f"Executive Assistant {detail.profile.display_name}",
-                current_nav="memory",
+                current_nav="people",
                 context=context,
                 console_title=detail.profile.display_name,
                 console_summary="Relationship context, open loops, current drafts, and evidence tied to one person.",
@@ -886,7 +822,7 @@ def commitment_detail(
         context=context,
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title=f"Executive Assistant {commitment.statement}",
-        current_nav="follow-ups",
+        current_nav="queue",
         console_title=commitment.statement,
         console_summary="Commitment source, owner, due date, risk, and recent ledger activity.",
         object_kind="Commitment ledger",
@@ -952,7 +888,7 @@ def decision_detail(
         context=context,
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title=f"Executive Assistant {decision.title}",
-        current_nav="briefing",
+        current_nav="queue",
         console_title=decision.title,
         console_summary="Decision context, ownership, deadline pressure, and supporting evidence.",
         object_kind="Decision queue",
@@ -1051,7 +987,7 @@ def handoff_detail(
         context=context,
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title=f"Executive Assistant {handoff.summary}",
-        current_nav="activity",
+        current_nav="settings",
         console_title=handoff.summary,
         console_summary="Assignment state, escalation pressure, evidence, and recent handoff routing history.",
         object_kind="Handoffs",
@@ -1124,7 +1060,7 @@ def thread_detail(
         context=context,
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title=f"Executive Assistant {thread.title}",
-        current_nav="inbox",
+        current_nav="queue",
         console_title=thread.title,
         console_summary="Conversation state, related drafts, linked commitments, and decision context.",
         object_kind="Conversation thread",
@@ -1191,7 +1127,7 @@ def evidence_detail(
         context=context,
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title=f"Executive Assistant {evidence.label}",
-        current_nav="contacts",
+        current_nav="people",
         console_title=evidence.label,
         console_summary="Evidence provenance, source type, and the objects that currently depend on it.",
         object_kind="Evidence",
@@ -1614,12 +1550,26 @@ def app_shell(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
-    allowed = {row["key"] for group in APP_NAV_GROUPS for row in group["items"]}
-    allowed.add("channel-loop")
+    allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in APP_NAV_GROUPS for item in group["items"]}
+    allowed.update({"channel-loop", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "channels", "automations"})
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
+    resolved_section = {
+        "queue": "briefing",
+        "people": "memory",
+    }.get(section, section)
+    current_nav = {
+        "briefing": "queue",
+        "inbox": "queue",
+        "follow-ups": "queue",
+        "memory": "people",
+        "contacts": "people",
+        "activity": "settings",
+        "channels": "settings",
+        "automations": "settings",
+    }.get(section, section)
     status = container.onboarding.status(principal_id=context.principal_id)
-    if section == "channel-loop":
+    if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
         product = build_product_service(container)
         pack = product.channel_loop_pack(
@@ -1679,7 +1629,7 @@ def app_shell(
             ),
         )
     core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "settings"}
-    if section in core_sections:
+    if resolved_section in core_sections:
         product = build_product_service(container)
         surface_event = {
             "today": "memo_opened",
@@ -1690,17 +1640,17 @@ def app_shell(
             "contacts": "evidence_opened",
             "activity": "operator_queue_opened",
             "settings": "rules_opened",
-        }.get(section)
+        }.get(resolved_section)
         if surface_event:
             product.record_surface_event(
                 principal_id=context.principal_id,
                 event_type=surface_event,
-                surface=section,
+                surface=resolved_section,
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
         diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
         payload = _workspace_section_payload(
-            section,
+            resolved_section,
             product.workspace_snapshot(
                 principal_id=context.principal_id,
                 operator_id=str(context.operator_id or "").strip(),
@@ -1710,7 +1660,7 @@ def app_shell(
         )
     else:
         payload = _app_section_payload(
-            section,
+            resolved_section,
             status,
             live_feed=_app_live_feed(container, principal_id=context.principal_id),
         )
@@ -1721,7 +1671,7 @@ def app_shell(
         **_console_shell_context(
             request=request,
             page_title=f"Executive Assistant {payload['title']}",
-            current_nav=section,
+            current_nav=current_nav,
             context=context,
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
@@ -2286,7 +2236,7 @@ def admin_shell(
 
 @router.get("/setup")
 def legacy_setup_redirect() -> RedirectResponse:
-    return RedirectResponse("/get-started", status_code=307)
+    return RedirectResponse("/register", status_code=307)
 
 
 @router.get("/privacy")
@@ -2331,7 +2281,7 @@ async def setup_start(
         timezone=_form_value(form_data, "timezone", ""),
         selected_channels=_form_values(form_data, "selected_channels"),
     )
-    return RedirectResponse("/get-started", status_code=303)
+    return RedirectResponse("/register", status_code=303)
 
 
 @router.post("/setup/telegram")
@@ -2351,7 +2301,7 @@ async def setup_telegram(
         history_mode=_form_value(form_data, "history_mode", "future_only"),
         assistant_surfaces=_form_values(form_data, "assistant_surfaces"),
     )
-    return RedirectResponse("/get-started", status_code=303)
+    return RedirectResponse("/register", status_code=303)
 
 
 @router.post("/setup/telegram/link-bot")
@@ -2370,7 +2320,7 @@ async def setup_telegram_link_bot(
         install_surfaces=_form_values(form_data, "install_surfaces"),
         default_chat_ref=_form_value(form_data, "default_chat_ref", ""),
     )
-    return RedirectResponse("/get-started", status_code=303)
+    return RedirectResponse("/register", status_code=303)
 
 
 @router.post("/setup/whatsapp/business")
@@ -2389,7 +2339,7 @@ async def setup_whatsapp_business(
         business_name=_form_value(form_data, "business_name", ""),
         import_history_now=_form_value(form_data, "import_history_now", "").lower() == "true",
     )
-    return RedirectResponse("/get-started", status_code=303)
+    return RedirectResponse("/register", status_code=303)
 
 
 @router.post("/setup/whatsapp/export")
@@ -2409,7 +2359,7 @@ async def setup_whatsapp_export(
         selected_chat_labels=chats,
         include_media=_form_value(form_data, "include_media", "").lower() == "true",
     )
-    return RedirectResponse("/get-started", status_code=303)
+    return RedirectResponse("/register", status_code=303)
 
 
 @router.post("/setup/finalize")
@@ -2524,7 +2474,7 @@ def commitment_candidate_review(
             **_console_shell_context(
                 request=request,
                 page_title=f"Executive Assistant Review {candidate.title}",
-                current_nav="inbox",
+                current_nav="queue",
                 context=context,
                 console_title="Review extracted commitment",
                 console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",

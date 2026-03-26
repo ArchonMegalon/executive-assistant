@@ -24,7 +24,7 @@ def create_app() -> FastAPI:
     from app.api.routes.landing import router as landing_router
     from app.api.routes.memory import router as memory_router
     from app.api.routes.observations import router as observations_router
-    from app.api.routes.onboarding import router as onboarding_router
+    from app.api.routes.onboarding import register_router, router as onboarding_router
     from app.api.routes.plans import router as plans_router
     from app.api.routes.policy import router as policy_router
     from app.api.routes.providers import router as providers_router
@@ -49,6 +49,7 @@ def create_app() -> FastAPI:
 
         app.include_router(public_tours_router)
     app.include_router(health_router)
+    app.include_router(register_router)
     auth_dependency = [Depends(require_request_auth)]
     app.include_router(channels_router, dependencies=auth_dependency)
     app.include_router(human_router, dependencies=auth_dependency)

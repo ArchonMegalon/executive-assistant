@@ -1,83 +1,83 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
-  .sign-in-hero {
-    align-items: start;
-  }
-  .sign-in-hero .hero-copy {
-    min-height: 0;
+  .access-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.92fr);
     gap: 18px;
   }
-  .sign-in-panel,
-  .sign-in-proof {
-    padding: 24px;
-    display: grid;
-    gap: 14px;
-    align-content: start;
+  .access-panel,
+  .access-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
   }
-  .sign-in-grid {
+  .access-panel,
+  .access-card {
+    padding: 24px;
+  }
+  .access-card-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
   }
-  .sign-in-proof {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.02);
+  .access-card strong {
+    display: block;
+    margin-bottom: 6px;
   }
   @media (max-width: 1080px) {
-    .sign-in-grid {
+    .access-grid,
+    .access-card-grid {
       grid-template-columns: 1fr;
     }
   }
 </style>
 
-<section class="section hero sign-in-hero">
-  <div class="panel hero-copy">
-    <div>
-      <div class="kicker">Workspace access</div>
-      <h1>Open the workspace through the identity layer your deployment already trusts.</h1>
-      <p class="lead">Executive Assistant does not create a separate email-and-password account inside the app. Use company SSO, an access gateway, or your deployment access rules first. Connect Google later as workspace data, not as app login.</p>
+<section class="access-grid">
+  <section class="access-panel">
+    <div class="kicker">Existing workspace</div>
+    <h1>Sign in if you already have workspace access.</h1>
+    <p class="lead">Use this page only if you already have a trusted deployment identity, an access link, or an existing session. New customers should create a personal workspace first.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="/app/today">Open workspace</a>
+      <a class="btn" href="/register">Create personal workspace</a>
     </div>
     <div class="summary-strip">
       <div class="summary">
-        <div class="label">Primary identity path</div>
-        <strong>Company SSO or access gateway.</strong>
+        <div class="label">Returning users</div>
+        <strong>Open the workspace through your existing access path.</strong>
       </div>
       <div class="summary">
-        <div class="label">After access</div>
-        <strong>Open the brief, review drafts, and continue working.</strong>
+        <div class="label">New users</div>
+        <strong>Start at /register and prove value with a personal workspace first.</strong>
       </div>
       <div class="summary">
-        <div class="label">Google is separate</div>
-        <strong>Connect Gmail and Calendar after workspace access is already working.</strong>
+        <div class="label">Google</div>
+        <strong>Google is a workspace connection, not the app sign-in method.</strong>
       </div>
     </div>
-    <div class="cta-row">
-      <a class="btn primary" href="/app/today">Open workspace</a>
-      <a class="btn ghost" href="/get-started">Start guided setup</a>
-    </div>
-  </div>
+  </section>
 
-  <section class="panel sign-in-panel">
-    <div class="kicker">What to expect</div>
-    <h2>Identity first, Google second.</h2>
-    <div class="sign-in-grid">
-      <section class="sign-in-proof">
-        <strong>Workspace identity</strong>
-        <p class="copy">If your deployment uses company SSO or an access gateway, authenticate there first and the workspace should open with the right identity.</p>
+  <section class="access-panel">
+    <div class="kicker">What this page is for</div>
+    <h2>Existing-user access only.</h2>
+    <div class="access-card-grid">
+      <section class="access-card">
+        <strong>Trusted identity</strong>
+        <p class="copy">If your deployment uses SSO or an access gateway, come through that identity layer and continue into the workspace.</p>
       </section>
-      <section class="sign-in-proof">
-        <strong>Google connection</strong>
-        <p class="copy">Google OAuth is for binding Gmail, Calendar, and contacts to the workspace after access is established. It is not the primary app login.</p>
+      <section class="access-card">
+        <strong>Access links</strong>
+        <p class="copy">Workspace invitations and delivered channel actions can both issue secure links that reopen the right workspace directly.</p>
       </section>
-      <section class="sign-in-proof">
-        <strong>API tokens</strong>
-        <p class="copy">API tokens protect programmatic access and operator automations. They are not a browser registration or password flow.</p>
+      <section class="access-card">
+        <strong>Personal-first setup</strong>
+        <p class="copy">If you do not already have access, the right next step is /register, not a support ticket or a deeper settings page.</p>
       </section>
-      <section class="sign-in-proof">
-        <strong>Private deployments</strong>
-        <p class="copy">Private hosts can still enforce host-level access rules. Those checks should feel invisible when the deployment is configured correctly.</p>
+      <section class="access-card">
+        <strong>Shared review later</strong>
+        <p class="copy">Add operators, invites, and broader review only after the personal workspace is already useful.</p>
       </section>
     </div>
     <ul class="muted-list">

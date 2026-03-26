@@ -1,160 +1,230 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
-  .home-proof-grid,
-  .home-detail-grid,
-  .home-persona-grid,
-  .home-proof-strip {
+  .landing-grid,
+  .landing-outcomes,
+  .landing-steps,
+  .landing-trust,
+  .landing-faq {
+    display: grid;
+    gap: 16px;
+  }
+  .landing-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+    align-items: stretch;
+  }
+  .hero-panel,
+  .mockup-panel,
+  .outcome-card,
+  .step-card,
+  .trust-card,
+  .faq-card,
+  .resource-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
+  }
+  .hero-panel,
+  .mockup-panel {
+    padding: 28px;
+  }
+  .hero-panel {
+    display: grid;
+    gap: 20px;
+    align-content: start;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(138, 164, 255, 0.12);
+    border: 1px solid rgba(138, 164, 255, 0.2);
+    color: var(--text-soft);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .hero-panel h1 {
+    max-width: 11ch;
+    font-size: clamp(2.4rem, 4.8vw, 4.2rem);
+    line-height: 0.98;
+    margin: 0;
+  }
+  .hero-panel .lead {
+    max-width: 34rem;
+    font-size: 1.02rem;
+  }
+  .microcopy {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .mockup-panel {
     display: grid;
     gap: 14px;
+    background:
+      radial-gradient(circle at top right, rgba(138, 164, 255, 0.16), transparent 20rem),
+      rgba(255,255,255,0.03);
   }
-  .home-proof-grid {
+  .mockup-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(11, 14, 19, 0.72);
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+  }
+  .mockup-card header,
+  .faq-card summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .mockup-card strong {
+    font-size: 15px;
+  }
+  .mockup-card ul,
+  .step-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  .mockup-card li + li,
+  .step-card li + li {
+    margin-top: 6px;
+  }
+  .landing-outcomes,
+  .landing-steps,
+  .landing-trust {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .home-proof-strip,
-  .home-detail-grid,
-  .home-persona-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .proof-card,
-  .detail-card,
-  .persona-card,
-  .proof-strip-card {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.02);
+  .outcome-card,
+  .step-card,
+  .trust-card,
+  .resource-card {
     padding: 18px;
   }
-  .proof-card strong,
-  .detail-card strong,
-  .persona-card strong,
-  .proof-strip-card strong {
+  .section-kicker {
+    margin-bottom: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .landing-faq {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .faq-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  .faq-card summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 18px;
+    font-weight: 600;
+  }
+  .faq-card summary::-webkit-details-marker { display: none; }
+  .faq-card p {
+    padding: 0 18px 18px;
+    color: var(--text-soft);
+  }
+  .resource-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .resource-card strong {
     display: block;
-    color: var(--text);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+  }
+  .resource-card p {
+    color: var(--text-soft);
+    margin-bottom: 10px;
+  }
+  .resource-card a {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
   }
   @media (max-width: 1080px) {
-    .home-proof-grid,
-    .home-detail-grid,
-    .home-persona-grid,
-    .home-proof-strip {
+    .landing-grid,
+    .landing-outcomes,
+    .landing-steps,
+    .landing-trust,
+    .landing-faq,
+    .resource-grid {
       grid-template-columns: 1fr;
     }
   }
 </style>
 
-<section class="hero">
-  <section class="panel hero-copy">
+<section class="landing-grid">
+  <section class="hero-panel">
+    <div class="eyebrow">Personal workspace</div>
     <div>
-      <div class="kicker">Executive Assistant</div>
-      <h1>Start the day with a morning memo, a decision queue, and commitments that stay visible.</h1>
-      <p class="lead">Executive Assistant is the operating system for one executive office: what changed, who needs an answer, which commitment is drifting, which draft needs review, and what the operator should clear next.</p>
-      <div class="cta-row">
-        <a class="btn primary" href="/get-started">Get started</a>
-        <a class="btn" href="/product">See how it works</a>
-        <a class="btn ghost" href="/security">Trust and security</a>
-      </div>
+      <h1>Wake up to a clear brief, not a wall of inbox noise.</h1>
+      <p class="lead">Executive Assistant turns your email and calendar into a morning brief, a decision queue, and visible follow-ups.</p>
     </div>
-
-    <div class="summary-strip">
-      <div class="summary">
-        <div class="label">Best first result</div>
-        <strong>{{ brief_headline }}</strong>
-      </div>
-      <div class="summary">
-        <div class="label">First proof loop</div>
-        <strong>Memo → draft → follow-up</strong>
-      </div>
-      <div class="summary">
-        <div class="label">Recommended first channel</div>
-        <strong>Google</strong>
-      </div>
+    <div class="cta-row">
+      <a class="btn primary" href="/register">Create personal workspace</a>
+      <a class="btn" href="#sample-brief">See sample brief</a>
     </div>
+    <div class="microcopy">Nothing sends without your review.</div>
   </section>
 
-  <section class="panel preview">
-    <div class="preview-top">
-      <div class="preview-title">Morning memo</div>
-      <div class="pill">{{ selected_channels_label }}</div>
+  <section class="mockup-panel" id="sample-brief">
+    <div class="mockup-card">
+      <header>
+        <strong>Morning Brief</strong>
+        <span class="pill good">3 now</span>
+      </header>
+      <ul>
+        <li>Board packet deadline moved forward by one day.</li>
+        <li>Two investor replies need a decision before noon.</li>
+        <li>Calendar pressure is clustered around one stakeholder meeting.</li>
+      </ul>
     </div>
-
-    <div class="preview-grid">
-      <aside class="nav-card">
-        <div class="group">Core workflow</div>
-        <a class="active" href="/app/today">Morning memo</a>
-        <a href="/app/briefing">Decision queue</a>
-        <a href="/app/inbox">Commitments</a>
-        <a href="/app/follow-ups">Handoffs</a>
-        <a href="/app/memory">People graph</a>
-        <div class="group">Controls</div>
-        <a href="/app/channels">Channels</a>
-        <a href="/app/activity">Audit</a>
-        <a href="/app/settings">Rules</a>
-      </aside>
-
-      <div class="preview-main">
-        <section>
-          <header>
-            <h3>Morning memo</h3>
-            <span>What deserves attention first</span>
-          </header>
-          <div class="list">
-            {% for item in first_brief_items[:3] %}
-            <div class="row">
-              <div>
-                <strong>{{ item }}</strong>
-                <span>Surfaced in one place so the user does not have to rebuild the day manually.</span>
-              </div>
-              <div class="state">Now</div>
-            </div>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section>
-          <header>
-            <h3>Decision queue</h3>
-            <span>Approvals, drafts, and assignments</span>
-          </header>
-          <div class="list">
-            {% for item in suggested_actions[:2] %}
-            <div class="row">
-              <div>
-                <strong>{{ item }}</strong>
-                <small>Prepared as a clear next move instead of another hidden reminder.</small>
-              </div>
-              <div class="state">Review</div>
-            </div>
-            {% endfor %}
-          </div>
-        </section>
-      </div>
+    <div class="mockup-card">
+      <header>
+        <strong>Queue</strong>
+        <span class="pill warn">5 review</span>
+      </header>
+      <ul>
+        <li>Approve draft reply to investor follow-up.</li>
+        <li>Choose next step for vendor renewal thread.</li>
+        <li>Confirm deadline owner for recruiting loop.</li>
+      </ul>
     </div>
-  </section>
-</section>
-
-<section class="section home-proof-strip">
-  <section class="proof-strip-card">
-    <strong>What customers buy first</strong>
-    One useful morning memo, one clear decision queue, and one commitment system that stops dropped balls.
-  </section>
-  <section class="proof-strip-card">
-    <strong>Why the product feels safe</strong>
-    Rules stay explicit, review stays visible, and channels widen coverage without becoming the main story of the product.
+    <div class="mockup-card">
+      <header>
+        <strong>Follow-ups</strong>
+        <span class="pill">4 open</span>
+      </header>
+      <ul>
+        <li>Close the finance handoff after approval.</li>
+        <li>Re-open one commitment drifting past its due date.</li>
+        <li>Keep the next stakeholder reply visible until it lands.</li>
+      </ul>
+    </div>
   </section>
 </section>
 
 <section class="section">
   <div class="section-head">
     <div>
-      <div class="kicker">Week one</div>
-      <h2>What should feel real in the first few days</h2>
+      <div class="section-kicker">Outcome</div>
+      <h2>Sell the day, not the system design.</h2>
     </div>
-    <p>You should not need a long rollout before the product feels useful. The first week should already reduce triage, surface commitment pressure, and make office handoffs easier to manage.</p>
+    <p>The first visit should make the product feel calm, narrow, and useful before it asks for any shared-office complexity.</p>
   </div>
-  <div class="home-proof-grid">
+  <div class="landing-outcomes">
     {% for feature in feature_cards %}
-    <section class="proof-card">
+    <section class="outcome-card">
       <strong>{{ feature.title }}</strong>
       <p class="copy">{{ feature.body }}</p>
     </section>
@@ -162,34 +232,77 @@
   </div>
 </section>
 
-<section class="section home-detail-grid">
-  <section class="detail-card">
-    <div class="kicker">How the first week works</div>
-    <h2>Prove one loop, then widen only when it helps</h2>
-    <ul class="muted-list">
-      {% for step in how_steps %}
-      <li><strong>{{ step.title }}.</strong> {{ step.body }}</li>
-      {% endfor %}
-    </ul>
-  </section>
-  <section class="detail-card">
-    <div class="kicker">What builds trust</div>
-    <h2>Decision clarity and durable context</h2>
-    <ul class="muted-list">
-      {% for item in trust_notes %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-  </section>
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">How it works</div>
+      <h2>Connect Google, get the first brief, review one real loop.</h2>
+    </div>
+    <p>Keep setup narrow until the user has seen one useful brief, one queue, and one visible follow-up system.</p>
+  </div>
+  <div class="landing-steps">
+    {% for step in how_steps %}
+    <section class="step-card">
+      <div class="section-kicker">Step {{ loop.index }}</div>
+      <strong>{{ step.title }}</strong>
+      <p class="copy">{{ step.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
 </section>
 
-<section class="section home-persona-grid">
-  {% for persona in personas %}
-  <section class="persona-card">
-    <div class="kicker">Who it fits</div>
-    <h2>{{ persona.title }}</h2>
-    <p class="copy">{{ persona.body }}</p>
-  </section>
-  {% endfor %}
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Trust</div>
+      <h2>Make the product feel safe before it feels powerful.</h2>
+    </div>
+    <p>Trust language should stay short, concrete, and visible to a first-time visitor.</p>
+  </div>
+  <div class="landing-trust">
+    {% for card in trust_cards %}
+    <section class="trust-card">
+      <strong>{{ card.title }}</strong>
+      <p class="copy">{{ card.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">FAQ</div>
+      <h2>First-visit questions only.</h2>
+    </div>
+    <p>Keep the front door focused on what the product connects to, how review works, and whether a user can start alone.</p>
+  </div>
+  <div class="landing-faq">
+    {% for row in landing_faqs %}
+    <details class="faq-card">
+      <summary>{{ row.question }}</summary>
+      <p>{{ row.answer }}</p>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Resources</div>
+      <h2>Keep technical detail secondary.</h2>
+    </div>
+    <p>Docs, integrations, API, and architecture still exist. They just belong below the product story, not in front of it.</p>
+  </div>
+  <div class="resource-grid">
+    {% for link in doc_links %}
+    <section class="resource-card">
+      <strong>{{ link.title }}</strong>
+      <p>{{ link.body }}</p>
+      <a href="{{ link.href }}">Open</a>
+    </section>
+    {% endfor %}
+  </div>
 </section>
 {% endblock %}

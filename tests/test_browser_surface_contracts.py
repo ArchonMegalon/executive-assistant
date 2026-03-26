@@ -12,24 +12,16 @@ from fastapi.testclient import TestClient
 PUBLIC_ROUTES = (
     "/",
     "/product",
-    "/integrations",
     "/security",
     "/pricing",
-    "/docs",
-    "/get-started",
+    "/register",
     "/sign-in",
 )
 
 APP_ROUTES = (
     "/app/today",
-    "/app/briefing",
-    "/app/inbox",
-    "/app/follow-ups",
-    "/app/memory",
-    "/app/contacts",
-    "/app/channels",
-    "/app/automations",
-    "/app/activity",
+    "/app/queue",
+    "/app/people",
     "/app/settings",
 )
 
@@ -71,9 +63,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = client.get("/")
-    assert "Start the day with a morning memo" in landing.text
-    assert "Get started" in landing.text
-    assert "Workspace access" in landing.text
+    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
+    assert "Create personal workspace" in landing.text
+    assert "Nothing sends without your review." in landing.text
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")
@@ -99,14 +91,13 @@ def test_app_surface_routes_render_without_product_drift() -> None:
 
     today = client.get("/app/today")
     assert "Morning Memo" in today.text
-    assert "Next to clear" in today.text
-    assert "Assistant workspace" in today.text
-    assert "Workspace overview" in today.text
+    assert "Today" in today.text
+    assert "What is most likely to slip" in today.text
 
-    briefing = client.get("/app/briefing")
-    assert "Decision Queue" in briefing.text
-    assert "Context that shapes the day" in briefing.text
+    queue = client.get("/app/queue")
+    assert "Decision Queue" in queue.text
+    assert "What must be resolved next" in queue.text
 
-    inbox = client.get("/app/inbox")
-    assert "Commitments" in inbox.text
-    assert "Channel readiness" in inbox.text
+    people = client.get("/app/people")
+    assert "People Graph" in people.text
+    assert "What still hangs off those relationships" in people.text

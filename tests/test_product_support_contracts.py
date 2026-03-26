@@ -13,7 +13,7 @@ def _seed(principal_id: str = "exec-support-contracts"):
 def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     client, _seeded = _seed("exec-diagnostics-events")
 
-    assert client.get("/get-started").status_code == 200
+    assert client.get("/register").status_code == 200
     assert client.get("/app/today").status_code == 200
     assert client.get("/app/settings").status_code == 200
     assert client.get("/app/api/plan").status_code == 200

@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "")
+    monkeypatch.setenv("EA_RUNTIME_MODE", "dev")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    from app.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_register_start_returns_magic_link_and_local_code_without_email_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+
+    response = client.post("/v1/register/start", json={"email": "Tibor.Girschele@Gmail.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "tibor.girschele@gmail.com"
+    assert len(body["verification_code"]) == 6
+    assert body["magic_link_url"].startswith("/register?token=")
+    assert body["workspace_name"] == "Tibor Girschele"
+    assert body["email_delivery_status"] == ""
+
+
+def test_register_start_uses_absolute_magic_link_when_email_delivery_is_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+
+    from app.api.routes import onboarding as onboarding_route
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: dict[str, object] = {}
+
+    def _fake_send_registration_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="emailit-message-1",
+            accepted_at="2026-03-26T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(onboarding_route, "send_registration_email", _fake_send_registration_email)
+
+    response = client.post("/v1/register/start", json={"email": "exec@example.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email_delivery_status"] == "sent"
+    assert body["email_delivery_provider"] == "emailit"
+    assert body["email_delivery_id"] == "emailit-message-1"
+    assert observed["recipient_email"] == "exec@example.com"
+    assert str(observed["magic_link_url"]).startswith("https://myexternalbrain.com/register?token=")
+
+
+def test_register_start_reports_email_delivery_failure_without_aborting_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+
+    from app.api.routes import onboarding as onboarding_route
+
+    monkeypatch.setattr(
+        onboarding_route,
+        "send_registration_email",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("registration_email_send_failed:422:Domain not verified")),
+    )
+
+    response = client.post("/v1/register/start", json={"email": "broken@example.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "broken@example.com"
+    assert body["email_delivery_status"] == "failed"
+    assert "Domain not verified" in body["email_delivery_error"]
+    assert len(body["verification_code"]) == 6
+
+
+def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+
+    started = client.post("/v1/register/start", json={"email": "verify@example.com"})
+    assert started.status_code == 200
+    body = started.json()
+
+    missing_code = client.post(
+        "/v1/register/verify",
+        json={
+            "verification_token": body["verification_token"],
+            "verification_code": "",
+            "workspace_name": "Verify Example",
+            "timezone": "Europe/Vienna",
+            "language": "en",
+        },
+    )
+    assert missing_code.status_code == 400
+    assert missing_code.json()["error"]["code"] == "registration_verification_code_invalid"
+
+    verified = client.post(
+        "/v1/register/verify",
+        json={
+            "verification_token": body["verification_token"],
+            "verification_code": body["verification_code"],
+            "workspace_name": "Verify Example",
+            "timezone": "Europe/Vienna",
+            "language": "en",
+        },
+    )
+    assert verified.status_code == 200
+    assert verified.json()["access_url"].startswith("/workspace-access/")
+
+
+def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@myexternalbrain.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-live-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_registration_email(
+        recipient_email="tibor.girschele@gmail.com",
+        verification_code="654321",
+        magic_link_url="https://myexternalbrain.com/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "Kleinhirn <kleinhirn@myexternalbrain.com>"
+    assert payload["subject"] == "Verify your email for Executive Assistant"
+    assert "Use this verification code to create your Executive Assistant workspace" in payload["text"]
+    assert "Google is connected after sign-up as a workspace data source." in payload["text"]
+    assert "https://myexternalbrain.com/register?token=test&code=654321" in payload["text"]
+    assert receipt.message_id == "emailit-live-1"
