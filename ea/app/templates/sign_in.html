@@ -35,41 +35,49 @@
 <section class="section hero sign-in-hero">
   <div class="panel hero-copy">
     <div>
-      <div class="kicker">Sign in</div>
-      <h1>Use the account tied to your workspace and continue where the work already lives.</h1>
-      <p class="lead">Sign in should feel like a short handoff into the product, not another setup project. Once you are in, the next stop should be the brief, the draft queue, or the follow-up list.</p>
+      <div class="kicker">Workspace access</div>
+      <h1>Open the workspace through the identity layer your deployment already trusts.</h1>
+      <p class="lead">Executive Assistant does not create a separate email-and-password account inside the app. Use company SSO, an access gateway, or your deployment access rules first. Connect Google later as workspace data, not as app login.</p>
     </div>
     <div class="summary-strip">
       <div class="summary">
-        <div class="label">Sign-in path</div>
-        <strong>Use the account your workspace already trusts.</strong>
+        <div class="label">Primary identity path</div>
+        <strong>Company SSO or access gateway.</strong>
       </div>
       <div class="summary">
-        <div class="label">After sign-in</div>
+        <div class="label">After access</div>
         <strong>Open the brief, review drafts, and continue working.</strong>
       </div>
       <div class="summary">
-        <div class="label">New workspace?</div>
-        <strong>Start with guided setup and connect Google first.</strong>
+        <div class="label">Google is separate</div>
+        <strong>Connect Gmail and Calendar after workspace access is already working.</strong>
       </div>
     </div>
     <div class="cta-row">
-      <a class="btn primary" href="/app/today">Open app</a>
+      <a class="btn primary" href="/app/today">Open workspace</a>
       <a class="btn ghost" href="/get-started">Start guided setup</a>
     </div>
   </div>
 
   <section class="panel sign-in-panel">
     <div class="kicker">What to expect</div>
-    <h2>Fast path into the workspace.</h2>
+    <h2>Identity first, Google second.</h2>
     <div class="sign-in-grid">
       <section class="sign-in-proof">
-        <strong>Normal company sign-in</strong>
-        <p class="copy">If your deployment uses company SSO or an access gateway, sign in there and the workspace will open with the right identity.</p>
+        <strong>Workspace identity</strong>
+        <p class="copy">If your deployment uses company SSO or an access gateway, authenticate there first and the workspace should open with the right identity.</p>
       </section>
       <section class="sign-in-proof">
-        <strong>Private or local deployments</strong>
-        <p class="copy">Private hosts can still enforce host-level access rules. Those checks should be invisible when everything is configured correctly.</p>
+        <strong>Google connection</strong>
+        <p class="copy">Google OAuth is for binding Gmail, Calendar, and contacts to the workspace after access is established. It is not the primary app login.</p>
+      </section>
+      <section class="sign-in-proof">
+        <strong>API tokens</strong>
+        <p class="copy">API tokens protect programmatic access and operator automations. They are not a browser registration or password flow.</p>
+      </section>
+      <section class="sign-in-proof">
+        <strong>Private deployments</strong>
+        <p class="copy">Private hosts can still enforce host-level access rules. Those checks should feel invisible when the deployment is configured correctly.</p>
       </section>
     </div>
     <ul class="muted-list">
