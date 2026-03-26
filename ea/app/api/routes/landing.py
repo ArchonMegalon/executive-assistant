@@ -1649,6 +1649,31 @@ def app_channel_approve_draft(
     return RedirectResponse(return_to, status_code=303)
 
 
+@router.get("/app/channel-loop/{digest_key}/plain", response_class=HTMLResponse)
+def app_channel_digest_plain(
+    digest_key: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    product = build_product_service(container)
+    text = product.channel_digest_text(
+        principal_id=context.principal_id,
+        digest_key=digest_key,
+        operator_id=str(context.operator_id or "").strip(),
+        base_url=str(request.base_url),
+    )
+    if not text:
+        raise HTTPException(status_code=404, detail="channel_digest_not_found")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="channel_digest_plain_opened",
+        surface=f"channel_digest_{digest_key}_plain",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return HTMLResponse(text, media_type="text/plain; charset=utf-8")
+
+
 @router.get("/app/channel-loop/{digest_key}", response_class=HTMLResponse)
 def app_channel_digest(
     digest_key: str,

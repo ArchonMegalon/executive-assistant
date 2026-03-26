@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
@@ -734,6 +735,31 @@ def get_channel_loop(
             operator_id=str(context.operator_id or "").strip(),
         )
     )
+
+
+@router.get("/channel-loop/{digest_key}/plain", response_class=PlainTextResponse)
+def get_channel_digest_plain(
+    digest_key: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PlainTextResponse:
+    service = build_product_service(container)
+    text = service.channel_digest_text(
+        principal_id=context.principal_id,
+        digest_key=digest_key,
+        operator_id=str(context.operator_id or "").strip(),
+        base_url=str(request.base_url),
+    )
+    if not text:
+        raise HTTPException(status_code=404, detail="channel_digest_not_found")
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="channel_digest_plain_opened",
+        surface=f"channel_digest_{digest_key}_plain_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return PlainTextResponse(text)
 
 @router.get("/people/{person_id}/detail/history", response_model=list[HistoryEntryOut])
 def get_person_detail_history(
