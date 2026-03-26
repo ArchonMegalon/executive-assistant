@@ -123,7 +123,7 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `journeys/*.md` defines the top end-to-end user flows and failure-mode recoveries that multiple repos must preserve.
 `BUILD_LAB_PRODUCT_MODEL.md` defines Build Lab as a flagship Build plus Explain surface rather than leaving it as a downstream milestone label without a canonical product promise.
 `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` records the just-closed install, update, support, and operator-control wave so roadmap and milestone language does not lag the public-main implementation.
-`NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is preserved as the prior plan, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` is the active follow-on narrative plan, and `NEXT_20_BIG_WINS_REGISTRY.yaml` is the machine-readable milestone registry that validators and downstream mirrors can consume directly.
+`NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is preserved as the older prior plan, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` is the preserved additive-wave closeout plan, and `NEXT_20_BIG_WINS_REGISTRY.yaml` is the machine-readable closeout registry that validators and downstream mirrors can consume directly.
 
 ## Active Chummer repos
 
@@ -185,7 +185,7 @@ These inform the program but are not part of the main release train:
 8. Keep release/build/install/update truth split cleanly: Core emits runtime bundles, UI emits installer-ready desktop heads plus updater apply logic, Fleet orchestrates the release lane, Registry owns promoted channel truth and feed metadata, and Hub renders downloads from registry state.
 9. Keep installs claimable rather than personalized: Hub may bind an install to an account, but shipped desktop artifacts remain canonical signed builds for their release target.
 
-The foundational closure wave is materially finished. The Account-Aware Front Door wave is also materially closed on public `main`, with the closeout record in `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`. Campaign workspace / GM runboard, rule-environment posture, and the first organizer/operator layer are now shipped enough to count as real product surfaces instead of only design intent. Remaining growth tracks such as broader package-only campaign-contract adoption, roaming sync depth, Build Lab depth, broader participation, and public-surface expansion now sit on top of finished release-governance and boundary truth instead of reopening it.
+The foundational closure wave is materially finished. The Account-Aware Front Door wave and the Next 20 additive wave are both materially closed on public `main`, with their closeout records in `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`, and `NEXT_20_BIG_WINS_REGISTRY.yaml`. Campaign workspace / GM runboard, rule-environment posture, package-owned campaign contracts, roaming restore, Build Lab handoff UX, Rules Navigator, creator publication posture, and the first organizer/operator layer now count as shipped product surfaces instead of only design intent. Remaining growth tracks such as broader campaign breadth, estate-wide promotion, live production cadence, and broader public-surface adoption now sit on top of finished release-governance and boundary truth instead of reopening it.
 
 `PARTICIPATION_AND_BOOSTER_WORKFLOW.md` is the first-class canon for user language, ownership, state transitions, receipts, recognition, and package/bootstrap truth for the bounded participation lane.
 
@@ -193,7 +193,7 @@ The foundational closure wave is materially finished. The Account-Aware Front Do
 
 `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`, `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`, and `PRODUCT_HEALTH_SCORECARD.yaml` are the operating loop for turning product reality into governed course correction instead of leaving that work as scattered feedback notes.
 
-`CAMPAIGN_SPINE_AND_CREW_MODEL.md`, `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`, `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`, `SUPPORT_AND_SIGNAL_OODA_LOOP.md`, and `BUILD_LAB_PRODUCT_MODEL.md` are the current additive center-of-gravity wave: the executable middle between build truth and campaign reality, plus the flagship Build and Explain surfaces that make that middle visible to real users.
+`CAMPAIGN_SPINE_AND_CREW_MODEL.md`, `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`, `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`, `SUPPORT_AND_SIGNAL_OODA_LOOP.md`, and `BUILD_LAB_PRODUCT_MODEL.md` are the now-closed additive center-of-gravity wave record: the executable middle between build truth and campaign reality, plus the flagship Build and Explain surfaces that made that middle visible to real users. They are now the baseline for follow-on campaign breadth and promotion work rather than still-open canon debt.
 
 ## Non-goal
 

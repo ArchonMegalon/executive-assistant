@@ -10,6 +10,7 @@ The next wave should execute in this order:
 3. turn Build / Explain / Run / Publish / Improve into the lived product.
 
 The machine-readable status spine for this wave lives in `NEXT_20_BIG_WINS_REGISTRY.yaml`.
+Status on 2026-03-26: materially closed on public `main`; this plan remains the preserved closeout record until a successor registry is published.
 
 ## Wave 0 — close truth drift and make the steering loop real
 

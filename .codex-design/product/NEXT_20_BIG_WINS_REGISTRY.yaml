@@ -1,9 +1,9 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-25
+last_reviewed: 2026-03-26
 program_wave: next_20_big_wins
 goal: Make the campaign center-of-gravity executable and then expand into the Build/Explain and trust surfaces.
-status: in_progress
+status: complete
 
 waves:
   - id: W0
@@ -24,7 +24,7 @@ waves:
       - 9
       - 10
       - 11
-    status: in_progress
+    status: complete
   - id: W2
     name: "Build the first moat: Build and Explain"
     milestone_ids:
@@ -33,7 +33,7 @@ waves:
       - 14
       - 15
       - 16
-    status: in_progress
+    status: complete
   - id: W3
     name: Trust and support as first-class surfaces
     milestone_ids:
@@ -41,7 +41,7 @@ waves:
       - 18
       - 19
       - 20
-    status: in_progress
+    status: complete
 
 milestones:
   - id: 1
@@ -119,7 +119,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - package-owned campaign contracts are consumed instead of local shadow shapes
       - verification proves package-only consumption in UI, mobile, and media-factory
@@ -157,7 +157,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - dossiers, campaigns, environments, artifacts, and entitlements restore on a claimed second device
       - explicit conflict handling replaces silent last-write-wins
@@ -202,7 +202,7 @@ milestones:
     owners:
       - chummer6-ui
       - chummer6-hub
-    status: in_progress
+    status: complete
     exit_criteria:
       - concept intake and candidate comparison are real user flows
       - tradeoff and progression views are grounded
@@ -215,7 +215,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - rule lookup and provenance are user-facing and explainable
       - answer paths return evidence-backed before/after explanations
@@ -240,7 +240,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - imports land in living dossier and campaign spines
       - migration receipts identify safe, risky, and blocked fields
@@ -293,7 +293,7 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - publication flow is coherent and governed
       - creator outputs have shared provenance and discovery rules
