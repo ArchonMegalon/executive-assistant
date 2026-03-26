@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import uuid
+
 from tests.smoke_runtime_api_support import build_client as _client
 from tests.smoke_runtime_api_support import build_headers as _headers
+from tests.product_test_helpers import start_workspace
 
 
 def test_human_task_priority_summary_for_matching_operator_profile() -> None:
-    client = _client(storage_backend="memory", operator=True)
+    run_suffix = uuid.uuid4().hex[:8]
+    principal_id = f"exec-priority-summary-{run_suffix}"
+    client = _client(storage_backend="memory", operator=True, principal_id=principal_id)
+    start_workspace(client, mode="executive_ops", workspace_name="Priority Summary Office")
     create = client.post("/v1/rewrite/artifact", json={"text": "operator-matched priority summary seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -17,7 +23,7 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
     specialist = client.post(
         "/v1/human/tasks/operators",
         json={
-            "operator_id": "operator-specialist-summary",
+            "operator_id": f"operator-specialist-summary-{run_suffix}",
             "display_name": "Senior Comms Reviewer",
             "roles": ["communications_reviewer"],
             "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
@@ -29,7 +35,7 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
     junior = client.post(
         "/v1/human/tasks/operators",
         json={
-            "operator_id": "operator-junior-summary",
+            "operator_id": f"operator-junior-summary-{run_suffix}",
             "display_name": "Junior Reviewer",
             "roles": ["communications_reviewer"],
             "skill_tags": ["tone"],
@@ -41,7 +47,7 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
     scheduler = client.post(
         "/v1/human/tasks/operators",
         json={
-            "operator_id": "operator-scheduler-summary",
+            "operator_id": f"operator-scheduler-summary-{run_suffix}",
             "display_name": "Scheduler",
             "roles": ["schedule_coordinator"],
             "skill_tags": ["calendar"],
@@ -89,12 +95,12 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
         params={
             "status": "pending",
             "assignment_state": "unassigned",
-            "operator_id": "operator-specialist-summary",
+            "operator_id": f"operator-specialist-summary-{run_suffix}",
         },
     )
     assert specialist_summary.status_code == 200
     specialist_body = specialist_summary.json()
-    assert specialist_body["operator_id"] == "operator-specialist-summary"
+    assert specialist_body["operator_id"] == f"operator-specialist-summary-{run_suffix}"
     assert specialist_body["total"] == 2
     assert specialist_body["highest_priority"] == "urgent"
     assert specialist_body["counts_json"]["urgent"] == 1
@@ -106,12 +112,12 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
         params={
             "status": "pending",
             "assignment_state": "unassigned",
-            "operator_id": "operator-junior-summary",
+            "operator_id": f"operator-junior-summary-{run_suffix}",
         },
     )
     assert junior_summary.status_code == 200
     junior_body = junior_summary.json()
-    assert junior_body["operator_id"] == "operator-junior-summary"
+    assert junior_body["operator_id"] == f"operator-junior-summary-{run_suffix}"
     assert junior_body["total"] == 0
     assert junior_body["highest_priority"] == ""
     assert junior_body["counts_json"]["urgent"] == 0
@@ -123,12 +129,12 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
         params={
             "status": "pending",
             "assignment_state": "unassigned",
-            "operator_id": "operator-scheduler-summary",
+            "operator_id": f"operator-scheduler-summary-{run_suffix}",
         },
     )
     assert scheduler_summary.status_code == 200
     scheduler_body = scheduler_summary.json()
-    assert scheduler_body["operator_id"] == "operator-scheduler-summary"
+    assert scheduler_body["operator_id"] == f"operator-scheduler-summary-{run_suffix}"
     assert scheduler_body["total"] == 1
     assert scheduler_body["highest_priority"] == "normal"
     assert scheduler_body["counts_json"]["urgent"] == 0
@@ -137,7 +143,10 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
 
 
 def test_human_task_priority_summary_for_assignment_source() -> None:
-    client = _client(storage_backend="memory", operator=True)
+    run_suffix = uuid.uuid4().hex[:8]
+    principal_id = f"exec-assignment-summary-{run_suffix}"
+    client = _client(storage_backend="memory", operator=True, principal_id=principal_id)
+    start_workspace(client, mode="executive_ops", workspace_name="Assignment Summary Office")
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -183,6 +192,18 @@ def test_human_task_priority_summary_for_assignment_source() -> None:
         },
     )
     assert operator_profile.status_code == 200
+    manual_operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-manual-summary",
+            "display_name": "Manual Reviewer",
+            "roles": ["manual_source_filter_reviewer"],
+            "skill_tags": ["tone", "accuracy"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert manual_operator_profile.status_code == 200
 
     create = client.post("/v1/rewrite/artifact", json={"text": "rewrite with pending auto-preselected review"})
     assert create.status_code == 202
@@ -1063,7 +1084,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         headers=_headers(principal_id="exec-2"),
     )
     assert execute_mismatch.status_code == 403
-    assert execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+    assert execute_mismatch.json()["error"]["code"] == "operator_scope_required"
 
     execute_bad_channel = client.post(
         "/v1/tools/execute",
@@ -1139,7 +1160,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
         },
     )
     assert browseract_execute_mismatch.status_code == 403
-    assert browseract_execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+    assert browseract_execute_mismatch.json()["error"]["code"] == "operator_scope_required"
 
     browseract_binding = client.post(
         "/v1/connectors/bindings",
@@ -1198,7 +1219,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert browseract_unsigned_request_principal_mismatch.status_code == 403
     assert (
         browseract_unsigned_request_principal_mismatch.json()["error"]["code"]
-        == "principal_scope_mismatch"
+        == "operator_scope_required"
     )
 
     foreign_status = client.post(

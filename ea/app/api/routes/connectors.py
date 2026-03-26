@@ -34,6 +34,14 @@ class ConnectorBindingOut(BaseModel):
     updated_at: str
 
 
+def _redacted_auth_metadata(auth_metadata_json: dict[str, object] | None) -> dict[str, object]:
+    payload = dict(auth_metadata_json or {})
+    return {
+        "redacted": bool(payload),
+        "field_count": len(payload),
+    }
+
+
 def _is_browseract_connector(connector_name: str) -> bool:
     return str(connector_name or "").strip().lower() == "browseract"
 
@@ -72,7 +80,7 @@ def upsert_binding(
         connector_name=row.connector_name,
         external_account_ref=row.external_account_ref,
         scope_json=row.scope_json,
-        auth_metadata_json=row.auth_metadata_json,
+        auth_metadata_json=_redacted_auth_metadata(row.auth_metadata_json),
         status=row.status,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -100,7 +108,7 @@ def list_bindings(
             connector_name=r.connector_name,
             external_account_ref=r.external_account_ref,
             scope_json=r.scope_json,
-            auth_metadata_json=r.auth_metadata_json,
+            auth_metadata_json=_redacted_auth_metadata(r.auth_metadata_json),
             status=r.status,
             created_at=r.created_at,
             updated_at=r.updated_at,
@@ -134,7 +142,7 @@ def set_binding_status(
         connector_name=row.connector_name,
         external_account_ref=row.external_account_ref,
         scope_json=row.scope_json,
-        auth_metadata_json=row.auth_metadata_json,
+        auth_metadata_json=_redacted_auth_metadata(row.auth_metadata_json),
         status=row.status,
         created_at=row.created_at,
         updated_at=row.updated_at,

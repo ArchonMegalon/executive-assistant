@@ -611,6 +611,8 @@ def _decode_signed_state(state: str, *, secret: str) -> dict[str, Any]:
 def _encrypt_secret(value: str, *, key: str) -> str:
     if not value:
         return ""
+    env = dict(os.environ)
+    env["EA_GOOGLE_OAUTH_ENCRYPTION_KEY"] = key
     proc = subprocess.run(
         [
             "openssl",
@@ -621,11 +623,12 @@ def _encrypt_secret(value: str, *, key: str) -> str:
             "-A",
             "-salt",
             "-pass",
-            f"pass:{key}",
+            "env:EA_GOOGLE_OAUTH_ENCRYPTION_KEY",
         ],
         input=value.encode("utf-8"),
         capture_output=True,
         check=False,
+        env=env,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"google_oauth_encrypt_failed:{proc.stderr.decode('utf-8', errors='ignore').strip()}")
@@ -633,6 +636,8 @@ def _encrypt_secret(value: str, *, key: str) -> str:
 
 
 def _decrypt_secret(value: str, *, key: str) -> str:
+    env = dict(os.environ)
+    env["EA_GOOGLE_OAUTH_ENCRYPTION_KEY"] = key
     proc = subprocess.run(
         [
             "openssl",
@@ -644,11 +649,12 @@ def _decrypt_secret(value: str, *, key: str) -> str:
             "-d",
             "-salt",
             "-pass",
-            f"pass:{key}",
+            "env:EA_GOOGLE_OAUTH_ENCRYPTION_KEY",
         ],
         input=value.encode("utf-8"),
         capture_output=True,
         check=False,
+        env=env,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"google_oauth_decrypt_failed:{proc.stderr.decode('utf-8', errors='ignore').strip()}")

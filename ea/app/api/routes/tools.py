@@ -123,7 +123,7 @@ def get_tool(
     )
 
 
-@router.post("/execute")
+@router.post("/execute", dependencies=[Depends(require_operator_context)])
 def execute_tool(
     body: ToolExecuteIn,
     container: AppContainer = Depends(get_container),

@@ -46,14 +46,23 @@ def _reset_responses_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_fleet_jury_cache()
 
 
-def _client(*, principal_id: str) -> TestClient:
+def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+    if operator:
+        os.environ["EA_API_TOKEN"] = "test-token"
+        os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+    else:
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+        os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    if operator:
+        client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
 
@@ -1377,11 +1386,11 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert review_light_profile["health_provider_key"] == "chatplayground"
     assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
-    assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
-    assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == "ONEMIN_AI_API_KEY"
-    assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == "BROWSERACT_API_KEY"
-    assert body["provider_health"]["provider_config"]["onemin_accounts"] == ["ONEMIN_AI_API_KEY"]
-    assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == ["BROWSERACT_API_KEY"]
+    assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == ""
+    assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == ""
+    assert body["provider_health"]["providers"]["chatplayground"]["slots"][0]["account_name"] == ""
+    assert body["provider_health"]["provider_config"]["onemin_accounts"] == []
+    assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == []
     assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
     groundwork_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "groundwork")
     assert groundwork_lane["backend"] == "gemini_vortex"
@@ -1441,35 +1450,21 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         "primary",
         "fallback_1",
     ]
-    assert [slot["account_name"] for slot in providers["chatplayground"]["slots"]] == [
-        "BROWSERACT_API_KEY",
-        "BROWSERACT_API_KEY_FALLBACK_1",
-    ]
+    assert [slot["account_name"] for slot in providers["chatplayground"]["slots"]] == ["", ""]
     assert providers["magixai"]["configured_slots"] == 1
     assert providers["magixai"]["state"] in {"ready", "unknown", "degraded"}
-    assert body["provider_config"]["onemin_accounts"] == [
-        "ONEMIN_AI_API_KEY",
-        *[f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in range(1, 34)],
-    ]
+    assert body["provider_config"]["onemin_accounts"] == []
     assert body["provider_config"]["default_profile"] == "easy"
     assert body["provider_config"]["default_lane"] == "fast"
     assert body["provider_config"]["provider_order"] == ["magixai", "onemin"]
-    assert body["provider_config"]["onemin_active_accounts"] == [
-        "ONEMIN_AI_API_KEY",
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-    ]
-    assert body["provider_config"]["onemin_reserve_accounts"] == [
-        *[f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in range(2, 34)],
-    ]
+    assert body["provider_config"]["onemin_active_accounts"] == []
+    assert body["provider_config"]["onemin_reserve_accounts"] == []
     assert body["provider_config"]["onemin_max_requests_per_hour"] == 120
     assert body["provider_config"]["onemin_max_credits_per_hour"] == 80000
     assert body["provider_config"]["onemin_max_credits_per_day"] == 600000
     assert body["provider_config"]["hard_max_active_requests"] == 1
     assert body["provider_config"]["hard_queue_timeout_seconds"] == 120.0
-    assert body["provider_config"]["chatplayground_accounts"] == [
-        "BROWSERACT_API_KEY",
-        "BROWSERACT_API_KEY_FALLBACK_1",
-    ]
+    assert body["provider_config"]["chatplayground_accounts"] == []
     assert providers["onemin"]["slots"][0]["next_retry_at"] is None
     assert providers["onemin"]["slots"][0]["upstream_reset_unknown"] is False
     assert providers["onemin"]["slots"][0]["observed_consumed_credits"] == 0
@@ -1863,16 +1858,25 @@ def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.Mon
     assert body["providers"]["gemini_vortex"]["state"] == "ready"
     assert "gemini-2.5-flash" in body["providers"]["gemini_vortex"]["models"]
     assert body["providers"]["gemini_vortex"]["selection_mode"] == "round_robin"
-    assert [slot["account_name"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
-        "EA_GEMINI_VORTEX_DEFAULT_AUTH",
-        "GOOGLE_API_KEY_FALLBACK_1",
-    ]
-    assert [slot["slot_owner"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
-        "fleet-primary",
-        "fleet-shadow",
-    ]
+    assert [slot["account_name"] for slot in body["providers"]["gemini_vortex"]["slots"]] == ["", ""]
+    assert [slot["slot_owner"] for slot in body["providers"]["gemini_vortex"]["slots"]] == ["", ""]
     assert body["provider_config"]["gemini_vortex_command"] == "sh"
-    assert body["provider_config"]["gemini_vortex_accounts"] == [
+    assert body["provider_config"]["gemini_vortex_accounts"] == []
+
+
+def test_operator_provider_health_keeps_sensitive_slot_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health-operator", operator=True)
+
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
+
+    response = client.get("/v1/responses/_provider_health")
+    assert response.status_code == 200
+    body = response.json()
+    assert [slot["account_name"] for slot in body["providers"]["gemini_vortex"]["slots"]] == [
         "EA_GEMINI_VORTEX_DEFAULT_AUTH",
         "GOOGLE_API_KEY_FALLBACK_1",
     ]
