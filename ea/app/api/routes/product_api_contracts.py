@@ -275,6 +275,9 @@ class WorkspaceInvitationOut(BaseModel):
     invite_url: str = ""
     invite_token: str = ""
     operator_id: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    access_expires_at: str = ""
 
 
 class WorkspaceInvitationResponse(BaseModel):
@@ -421,6 +424,58 @@ class WorkspaceInvitationAcceptIn(BaseModel):
     token: str = Field(min_length=8)
     display_name: str = ""
     operator_id: str = ""
+
+
+class WorkspaceAccessSessionCreateIn(BaseModel):
+    email: str = Field(min_length=3)
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    expires_in_hours: int = 72
+
+
+class WorkspaceAccessSessionOut(BaseModel):
+    session_id: str
+    principal_id: str
+    email: str = ""
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    source_kind: str = ""
+    expires_at: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    default_target: str = "/app/today"
+
+
+class ChannelDigestDeliveryCreateIn(BaseModel):
+    recipient_email: str = Field(min_length=3)
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    delivery_channel: str = "email"
+    expires_in_hours: int = 72
+
+
+class ChannelDigestDeliveryOut(BaseModel):
+    delivery_id: str
+    digest_key: str
+    principal_id: str
+    recipient_email: str
+    role: str = "principal"
+    display_name: str = ""
+    operator_id: str = ""
+    delivery_channel: str = "email"
+    expires_at: str = ""
+    delivery_token: str = ""
+    delivery_url: str = ""
+    open_url: str = ""
+    access_token: str = ""
+    access_url: str = ""
+    default_target: str = "/app/today"
+    headline: str = ""
+    preview_text: str = ""
+    plain_text: str = ""
 
 
 class DraftApproveIn(BaseModel):

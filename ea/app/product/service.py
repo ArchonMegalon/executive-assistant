@@ -171,6 +171,13 @@ class ProductService:
         fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-channel-loop"
         return f"{fallback}:channel-actions"
 
+    def _workspace_access_secret(self) -> str:
+        configured = str(self._container.settings.auth.api_token or "").strip()
+        if configured:
+            return f"{configured}:workspace-access"
+        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-workspace-access"
+        return f"{fallback}:workspace-access"
+
     def _record_product_event(
         self,
         *,
@@ -1092,6 +1099,78 @@ class ProductService:
             "operator_id": _operator_id_from_email(str(payload.get("email") or "").strip().lower()),
         }
 
+    def issue_workspace_access_session(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+        role: str,
+        display_name: str = "",
+        operator_id: str = "",
+        source_kind: str = "workspace_access",
+        expires_in_hours: int = 72,
+    ) -> dict[str, object]:
+        normalized_email = str(email or "").strip().lower()
+        normalized_role = str(role or "principal").strip().lower() or "principal"
+        resolved_operator_id = str(operator_id or "").strip()
+        if normalized_role == "operator" and not resolved_operator_id:
+            resolved_operator_id = _operator_id_from_email(normalized_email)
+        expires_at = datetime.now(timezone.utc).timestamp() + max(int(expires_in_hours), 1) * 3600
+        session_id = f"access_{uuid4().hex[:10]}"
+        token_payload = {
+            "token_kind": "workspace_access_session",
+            "session_id": session_id,
+            "principal_id": str(principal_id or "").strip(),
+            "email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "operator_id": resolved_operator_id,
+            "source_kind": str(source_kind or "workspace_access").strip() or "workspace_access",
+            "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+        }
+        access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
+        default_target = "/app/activity" if normalized_role == "operator" else "/app/today"
+        payload = {
+            "session_id": session_id,
+            "principal_id": str(principal_id or "").strip(),
+            "email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "operator_id": resolved_operator_id,
+            "source_kind": str(token_payload["source_kind"]),
+            "expires_at": str(token_payload["expires_at"]),
+            "access_token": access_token,
+            "access_url": f"/workspace-access/{access_token}",
+            "default_target": default_target,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_access_session_issued",
+            payload=payload,
+            source_id=session_id,
+            dedupe_key=f"{principal_id}|{session_id}",
+        )
+        return payload
+
+    def preview_workspace_access_session(self, *, token: str) -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._workspace_access_secret(), token=token)
+        if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
+            return None
+        normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
+        return {
+            "session_id": str(payload.get("session_id") or "").strip(),
+            "principal_id": str(payload.get("principal_id") or "").strip(),
+            "email": str(payload.get("email") or "").strip().lower(),
+            "role": normalized_role,
+            "display_name": str(payload.get("display_name") or "").strip(),
+            "operator_id": str(payload.get("operator_id") or "").strip() if normalized_role == "operator" else "",
+            "source_kind": str(payload.get("source_kind") or "").strip(),
+            "expires_at": str(payload.get("expires_at") or "").strip(),
+            "access_token": str(token or "").strip(),
+            "access_url": f"/workspace-access/{token}",
+            "default_target": "/app/activity" if normalized_role == "operator" else "/app/today",
+        }
+
     def accept_workspace_invitation(
         self,
         *,
@@ -1106,7 +1185,8 @@ class ProductService:
         preview = self.preview_workspace_invitation(token=token)
         if preview is None:
             return None
-        if str(preview.get("status") or "").strip().lower() != "pending":
+        current_status = str(preview.get("status") or "").strip().lower()
+        if current_status == "revoked":
             return preview
         principal_id = str(raw_payload.get("principal_id") or "").strip()
         invitation_id = str(preview.get("invitation_id") or "").strip()
@@ -1114,7 +1194,7 @@ class ProductService:
         email = str(preview.get("email") or "").strip().lower()
         resolved_operator_id = str(operator_id or preview.get("operator_id") or "").strip()
         resolved_display_name = str(display_name or preview.get("display_name") or email or "Workspace Operator").strip()
-        if role == "operator":
+        if current_status == "pending" and role == "operator":
             if not resolved_operator_id:
                 resolved_operator_id = _operator_id_from_email(email)
             existing = self._container.orchestrator.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
@@ -1134,19 +1214,34 @@ class ProductService:
                 status="active",
                 notes=f"Accepted workspace invite for {email}.",
             )
-        self._record_product_event(
+        if current_status == "pending":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="workspace_invitation_accepted",
+                payload={
+                    "invitation_id": invitation_id,
+                    "accepted_by": str(accepted_by or email or "workspace").strip() or "workspace",
+                    "accepted_at": _now_iso(),
+                    "operator_id": resolved_operator_id,
+                },
+                source_id=invitation_id,
+                dedupe_key=f"{principal_id}|{invitation_id}|accepted",
+            )
+        access_session = self.issue_workspace_access_session(
             principal_id=principal_id,
-            event_type="workspace_invitation_accepted",
-            payload={
-                "invitation_id": invitation_id,
-                "accepted_by": str(accepted_by or email or "workspace").strip() or "workspace",
-                "accepted_at": _now_iso(),
-                "operator_id": resolved_operator_id,
-            },
-            source_id=invitation_id,
-            dedupe_key=f"{principal_id}|{invitation_id}|accepted",
+            email=email,
+            role=role,
+            display_name=resolved_display_name,
+            operator_id=resolved_operator_id,
+            source_kind="workspace_invite",
         )
-        return self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+        current = self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+        return {
+            **dict(current or preview),
+            "access_token": str(access_session.get("access_token") or "").strip(),
+            "access_url": str(access_session.get("access_url") or "").strip(),
+            "access_expires_at": str(access_session.get("expires_at") or "").strip(),
+        }
 
     def revoke_workspace_invitation(
         self,
@@ -3018,6 +3113,165 @@ class ProductService:
                 lines.append(f"   Open: {href}")
             lines.append("")
         return "\n".join(line for line in lines if line or (lines and line == ""))
+
+    def issue_channel_digest_delivery(
+        self,
+        *,
+        principal_id: str,
+        digest_key: str,
+        recipient_email: str,
+        role: str,
+        display_name: str = "",
+        operator_id: str = "",
+        delivery_channel: str = "email",
+        expires_in_hours: int = 72,
+        base_url: str = "",
+    ) -> dict[str, object] | None:
+        normalized_digest = str(digest_key or "").strip().lower()
+        normalized_email = str(recipient_email or "").strip().lower()
+        normalized_role = str(role or "principal").strip().lower() or "principal"
+        resolved_operator_id = str(operator_id or "").strip() if normalized_role == "operator" else ""
+        digest = self.channel_digest_pack(
+            principal_id=principal_id,
+            digest_key=normalized_digest,
+            operator_id=resolved_operator_id,
+        )
+        if digest is None:
+            return None
+        access_session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=normalized_email,
+            role=normalized_role,
+            display_name=str(display_name or "").strip(),
+            operator_id=resolved_operator_id,
+            source_kind="channel_digest_delivery",
+            expires_in_hours=expires_in_hours,
+        )
+        delivery_id = f"digest_{uuid4().hex[:10]}"
+        token_payload = {
+            "token_kind": "channel_digest_delivery",
+            "delivery_id": delivery_id,
+            "principal_id": principal_id,
+            "digest_key": normalized_digest,
+            "recipient_email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "operator_id": str(access_session.get("operator_id") or "").strip(),
+            "delivery_channel": str(delivery_channel or "email").strip().lower() or "email",
+            "access_token": str(access_session.get("access_token") or "").strip(),
+            "expires_at": str(access_session.get("expires_at") or "").strip(),
+        }
+        delivery_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
+        delivery_url = f"/channel-loop/deliveries/{delivery_token}"
+        absolute_delivery_url = urllib.parse.urljoin(str(base_url or "").strip(), delivery_url) if str(base_url or "").strip() else delivery_url
+        plain_text = "\n".join(
+            part
+            for part in (
+                f"Open digest: {absolute_delivery_url}",
+                self.channel_digest_text(
+                    principal_id=principal_id,
+                    digest_key=normalized_digest,
+                    operator_id=str(access_session.get("operator_id") or "").strip(),
+                    base_url=base_url,
+                ),
+            )
+            if part
+        )
+        payload = {
+            "delivery_id": delivery_id,
+            "digest_key": normalized_digest,
+            "principal_id": principal_id,
+            "recipient_email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "operator_id": str(access_session.get("operator_id") or "").strip(),
+            "delivery_channel": str(token_payload["delivery_channel"]),
+            "expires_at": str(token_payload["expires_at"]),
+            "delivery_token": delivery_token,
+            "delivery_url": delivery_url,
+            "open_url": f"/app/channel-loop/{normalized_digest}",
+            "access_token": str(access_session.get("access_token") or "").strip(),
+            "access_url": str(access_session.get("access_url") or "").strip(),
+            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "headline": str(digest.get("headline") or "Channel digest"),
+            "preview_text": str(digest.get("preview_text") or ""),
+            "plain_text": plain_text,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="channel_digest_delivery_issued",
+            payload={
+                "delivery_id": delivery_id,
+                "digest_key": normalized_digest,
+                "recipient_email": normalized_email,
+                "role": normalized_role,
+                "operator_id": str(payload.get("operator_id") or ""),
+                "delivery_channel": str(payload.get("delivery_channel") or ""),
+                "delivery_url": delivery_url,
+                "open_url": str(payload.get("open_url") or ""),
+                "expires_at": str(payload.get("expires_at") or ""),
+            },
+            source_id=delivery_id,
+            dedupe_key=f"{principal_id}|{delivery_id}",
+        )
+        return payload
+
+    def preview_channel_digest_delivery(self, *, token: str, base_url: str = "") -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._workspace_access_secret(), token=token)
+        if payload is None or str(payload.get("token_kind") or "").strip() != "channel_digest_delivery":
+            return None
+        principal_id = str(payload.get("principal_id") or "").strip()
+        digest_key = str(payload.get("digest_key") or "").strip().lower()
+        access_token = str(payload.get("access_token") or "").strip()
+        access_session = self.preview_workspace_access_session(token=access_token)
+        if not principal_id or not digest_key or access_session is None:
+            return None
+        digest = self.channel_digest_pack(
+            principal_id=principal_id,
+            digest_key=digest_key,
+            operator_id=str(access_session.get("operator_id") or "").strip(),
+        )
+        if digest is None:
+            return None
+        delivery_id = str(payload.get("delivery_id") or "").strip()
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="channel_digest_delivery_opened",
+            payload={
+                "delivery_id": delivery_id,
+                "digest_key": digest_key,
+                "recipient_email": str(payload.get("recipient_email") or "").strip().lower(),
+                "role": str(payload.get("role") or "principal").strip().lower() or "principal",
+                "open_url": f"/app/channel-loop/{digest_key}",
+            },
+            source_id=delivery_id,
+            dedupe_key=f"{principal_id}|{delivery_id}|opened",
+        )
+        return {
+            "delivery_id": delivery_id,
+            "digest_key": digest_key,
+            "principal_id": principal_id,
+            "recipient_email": str(payload.get("recipient_email") or "").strip().lower(),
+            "role": str(payload.get("role") or "principal").strip().lower() or "principal",
+            "display_name": str(payload.get("display_name") or "").strip(),
+            "operator_id": str(access_session.get("operator_id") or "").strip(),
+            "delivery_channel": str(payload.get("delivery_channel") or "email").strip().lower() or "email",
+            "expires_at": str(payload.get("expires_at") or "").strip(),
+            "delivery_token": str(token or "").strip(),
+            "delivery_url": f"/channel-loop/deliveries/{token}",
+            "open_url": f"/app/channel-loop/{digest_key}",
+            "access_token": access_token,
+            "access_url": str(access_session.get("access_url") or "").strip(),
+            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "headline": str(digest.get("headline") or "Channel digest"),
+            "preview_text": str(digest.get("preview_text") or ""),
+            "plain_text": self.channel_digest_text(
+                principal_id=principal_id,
+                digest_key=digest_key,
+                operator_id=str(access_session.get("operator_id") or "").strip(),
+                base_url=base_url,
+            ),
+        }
 
     def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str, principal_id: str) -> list[dict[str, object]]:
         at_risk_commitments = [

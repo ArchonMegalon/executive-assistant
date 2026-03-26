@@ -1419,8 +1419,7 @@ BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).ge
 if [[ -z "${BINDING_ID}" ]]; then
   fail 13 "missing binding_id from connector response"
 fi
-TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  "${PRINCIPAL_ARGS[@]}" \
+TOOL_EXEC_JSON="$(operator_post_json "${BASE}/v1/tools/execute" -H 'content-type: application/json' \
   -d "{\"tool_name\":\"connector.dispatch\",\"action_kind\":\"delivery.send\",\"payload_json\":{\"principal_id\":\"${PRINCIPAL_ID}\",\"binding_id\":\"${BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"ops+tool-${SMOKE_RUN_TOKEN}@example.com\",\"content\":\"tool-runtime smoke dispatch\",\"metadata\":{\"source\":\"tool-execute\",\"smoke_run_token\":\"${SMOKE_RUN_TOKEN}\"},\"idempotency_key\":\"tool-dispatch-smoke-${SMOKE_RUN_TOKEN}\"}}")"
 TOOL_EXEC_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipt=body.get('receipt_json') or {}; out=body.get('output_json') or {}; print('{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('status',''), out.get('binding_id',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${TOOL_EXEC_JSON}")"
 TOOL_EXEC_STATUS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print((body.get('output_json') or {}).get('status',''))" <<<"${TOOL_EXEC_JSON}")"
@@ -1464,8 +1463,8 @@ except Exception:
 print(((body.get("error") or {}).get("code")) or "")
 PY
 )"
-if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
-  echo "expected foreign principal tool execution code principal_scope_mismatch; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
+if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "operator_scope_required" ]]; then
+  echo "expected foreign principal tool execution code operator_scope_required; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
   cat /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
@@ -1475,8 +1474,7 @@ BROWSERACT_BINDING_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin
 if [[ -z "${BROWSERACT_BINDING_ID}" ]]; then
   fail 13 "missing binding_id from browseract connector response"
 fi
-BROWSERACT_TOOL_EXEC_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  "${PRINCIPAL_ARGS[@]}" \
+BROWSERACT_TOOL_EXEC_JSON="$(operator_post_json "${BASE}/v1/tools/execute" -H 'content-type: application/json' \
   -d "{\"tool_name\":\"browseract.extract_account_facts\",\"action_kind\":\"account.extract\",\"payload_json\":{\"principal_id\":\"${PRINCIPAL_ID}\",\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_name\":\"BrowserAct\",\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"BrowserAct\":{\"workspace\":\"primary\"}},\"run_url\":\"https://browseract.example/run\"}}")"
 BROWSERACT_TOOL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); out=body.get('output_json') or {}; receipt=body.get('receipt_json') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('tool_name',''), out.get('service_name',''), (out.get('facts_json') or {}).get('tier',''), out.get('account_email',''), out.get('requested_run_url',''), out.get('instructions',''), bool(out.get('account_hints_json')), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${BROWSERACT_TOOL_EXEC_JSON}")"
 if [[ "${BROWSERACT_TOOL_FIELDS}" != "browseract.extract_account_facts|BrowserAct|Tier 3|ops@example.com|https://browseract.example/run|Use stored BrowserAct credentials|True|browseract.extract_account_facts|tool.v1" ]]; then
@@ -1484,8 +1482,7 @@ if [[ "${BROWSERACT_TOOL_FIELDS}" != "browseract.extract_account_facts|BrowserAc
   echo "${BROWSERACT_TOOL_EXEC_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-BROWSERACT_INVENTORY_JSON="$(curl -fsS -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
-  "${PRINCIPAL_ARGS[@]}" \
+BROWSERACT_INVENTORY_JSON="$(operator_post_json "${BASE}/v1/tools/execute" -H 'content-type: application/json' \
   -d "{\"tool_name\":\"browseract.extract_account_inventory\",\"action_kind\":\"account.extract_inventory\",\"payload_json\":{\"principal_id\":\"${PRINCIPAL_ID}\",\"binding_id\":\"${BROWSERACT_BINDING_ID}\",\"service_names\":[\"BrowserAct\",\"Teable\",\"UnknownService\"],\"requested_fields\":[\"tier\",\"account_email\",\"status\"],\"instructions\":\"Use stored BrowserAct credentials\",\"account_hints_json\":{\"Teable\":{\"workspace\":\"ops\"}},\"run_url\":\"https://browseract.example/run\"}}")"
 BROWSERACT_INVENTORY_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); out=body.get('output_json') or {}; services=out.get('services_json') or []; receipt=body.get('receipt_json') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('tool_name',''), ','.join(out.get('service_names') or []), ','.join(out.get('missing_services') or []), (services[1].get('plan_tier','') if len(services) > 1 else ''), (services[2].get('discovery_status','') if len(services) > 2 else ''), out.get('requested_run_url',''), out.get('instructions',''), receipt.get('handler_key',''), receipt.get('invocation_contract','')))" <<<"${BROWSERACT_INVENTORY_JSON}")"
 if [[ "${BROWSERACT_INVENTORY_FIELDS}" != "browseract.extract_account_inventory|BrowserAct,Teable,UnknownService|UnknownService|License Tier 4|missing|https://browseract.example/run|Use stored BrowserAct credentials|browseract.extract_account_inventory|tool.v1" ]]; then

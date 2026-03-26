@@ -555,6 +555,11 @@ def workspace_invite_preview(
     invite = product.preview_workspace_invitation(token=token)
     if invite is None:
         raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    access_url = str(invite.get("access_url") or "").strip()
+    if access_url:
+        response = RedirectResponse(access_url, status_code=303)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return response
     body = f"""<!doctype html>
 <html lang="en">
   <head>
@@ -574,6 +579,23 @@ def workspace_invite_preview(
   </body>
 </html>"""
     response = HTMLResponse(body)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+@router.get("/workspace-access/{token}", response_model=None)
+def workspace_access_session(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+):
+    product = build_product_service(container)
+    session = product.preview_workspace_access_session(token=token)
+    if session is None:
+        raise HTTPException(status_code=404, detail="workspace_access_session_not_found")
+    target = str(request.query_params.get("return_to") or session.get("default_target") or "/app/today").strip() or "/app/today"
+    response = RedirectResponse(target, status_code=303)
+    response.set_cookie("ea_workspace_session", str(session.get("access_token") or "").strip(), httponly=True, samesite="lax", path="/")
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
@@ -1770,6 +1792,22 @@ def app_channel_action(
   </body>
 </html>"""
     response = HTMLResponse(body)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+@router.get("/channel-loop/deliveries/{token}", response_model=None)
+def channel_digest_delivery_open(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+):
+    product = build_product_service(container)
+    delivery = product.preview_channel_digest_delivery(token=token, base_url=str(request.base_url))
+    if delivery is None:
+        raise HTTPException(status_code=404, detail="channel_digest_delivery_not_found")
+    response = RedirectResponse(str(delivery.get("open_url") or "/app/channel-loop").strip() or "/app/channel-loop", status_code=303)
+    response.set_cookie("ea_workspace_session", str(delivery.get("access_token") or "").strip(), httponly=True, samesite="lax", path="/")
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
