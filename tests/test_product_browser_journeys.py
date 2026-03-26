@@ -60,10 +60,11 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Open commitments" in person_detail.text
     assert "Send board materials" in person_detail.text
 
-    onboarding = client.get("/get-started")
+    onboarding = client.get("/register")
     assert onboarding.status_code == 200
-    assert "Current plan posture" in onboarding.text
-    assert "Open workspace diagnostics" in onboarding.text
+    assert "Create a personal workspace before you add anything else." in onboarding.text
+    assert "Google Core" in onboarding.text
+    assert "Workspace mode stays personal here." in onboarding.text
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200

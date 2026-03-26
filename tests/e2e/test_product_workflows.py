@@ -185,13 +185,12 @@ def page(browser: Browser, product_browser_server: dict[str, object]) -> Iterato
 def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
-    response = page.goto(f"{base_url}/get-started", wait_until="networkidle")
+    response = page.goto(f"{base_url}/register", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Connect Google" in page.content()
-    assert "Add channels later" in page.content()
-    assert "Rules after first value" in page.content()
-    assert "Current plan posture" in page.content()
-    assert "Open workspace diagnostics" in page.content()
+    assert "Create a personal workspace before you add anything else." in page.content()
+    assert "Workspace mode stays personal here." in page.content()
+    assert "Google Core" in page.content()
+    assert "Build first brief" in page.content()
 
     response = page.goto(f"{base_url}/app/today", wait_until="networkidle")
     assert response is not None and response.ok
@@ -453,7 +452,7 @@ def test_core_surface_visual_regression(page: Page, product_browser_server: dict
     page.set_viewport_size({"width": 1440, "height": 1100})
     cases = (
         ("/", "landing-page.png"),
-        ("/get-started", "get-started-page.png"),
+        ("/register", "get-started-page.png"),
         ("/app/today", "today-page.png"),
         ("/app/briefing", "briefing-page.png"),
         ("/app/inbox", "inbox-page.png"),

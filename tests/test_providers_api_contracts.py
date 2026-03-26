@@ -344,30 +344,29 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Start the day with a morning memo, a decision queue, and commitments that stay visible." in landing.text
-    assert "Get started" in landing.text
-    assert "What should feel real in the first few days" in landing.text
+    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
+    assert "Create personal workspace" in landing.text
+    assert "Nothing sends without your review." in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
 
-    setup = owner.get("/get-started")
+    setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Get to the first memo, first draft approval, and first visible follow-up quickly." in setup.text
-    assert "Choose the office shape this product will support." in setup.text
-    assert "Connect Google first." in setup.text
-    assert "Executive support" in setup.text
+    assert "Create a personal workspace before you add anything else." in setup.text
+    assert "Workspace mode stays personal here." in setup.text
+    assert "Google Core" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Executive Assistant does not create a separate email-and-password account inside the app." in sign_in.text
-    assert "Google OAuth is for binding Gmail, Calendar, and contacts to the workspace after access is established." in sign_in.text
+    assert "Sign in if you already have workspace access." in sign_in.text
+    assert "New customers should create a personal workspace first." in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
-    assert legacy_setup.headers["location"] == "/get-started"
+    assert legacy_setup.headers["location"] == "/register"
 
     privacy = owner.get("/security")
     assert privacy.status_code == 200
@@ -456,8 +455,8 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     landing = owner.get("/")
     assert landing.status_code == 200
-    assert "Open app" in landing.text
-    assert "durable context" in landing.text
+    assert "Open workspace" in landing.text
+    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
     assert "browser@gmail.com" not in landing.text
 
     started = owner.post(
