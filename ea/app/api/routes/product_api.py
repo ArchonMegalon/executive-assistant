@@ -35,6 +35,10 @@ from app.api.routes.product_api_contracts import (
     QueueResponse,
     SearchResponse,
     SearchResultOut,
+    WorkspaceInvitationAcceptIn,
+    WorkspaceInvitationCreateIn,
+    WorkspaceInvitationOut,
+    WorkspaceInvitationResponse,
     WebhookDeliveryOut,
     WebhookDeliveryResponse,
     WebhookOut,
@@ -752,6 +756,84 @@ def get_workspace_support_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+
+
+@router.get("/invitations", response_model=WorkspaceInvitationResponse)
+def get_workspace_invitations(
+    status: str = Query(default=""),
+    limit: int = Query(default=100, ge=1, le=200),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceInvitationResponse:
+    service = build_product_service(container)
+    items = service.list_workspace_invitations(principal_id=context.principal_id, status=status, limit=limit)
+    return WorkspaceInvitationResponse(
+        generated_at=now_iso(),
+        items=[WorkspaceInvitationOut(**item) for item in items],
+        total=len(items),
+    )
+
+
+@router.post("/invitations", response_model=WorkspaceInvitationOut)
+def create_workspace_invitation(
+    body: WorkspaceInvitationCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceInvitationOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "workspace").strip()
+    payload = service.create_workspace_invitation(
+        principal_id=context.principal_id,
+        email=body.email,
+        role=body.role,
+        invited_by=actor,
+        display_name=body.display_name,
+        note=body.note,
+        expires_in_days=body.expires_in_days,
+    )
+    return WorkspaceInvitationOut(**payload)
+
+
+@router.post("/invitations/accept", response_model=WorkspaceInvitationOut)
+def accept_workspace_invitation(
+    body: WorkspaceInvitationAcceptIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceInvitationOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "workspace").strip()
+    try:
+        payload = service.accept_workspace_invitation(
+            token=body.token,
+            accepted_by=actor,
+            display_name=body.display_name,
+            operator_id=body.operator_id,
+        )
+    except ValueError as exc:
+        if str(exc or "").strip() == "operator_seat_limit_reached":
+            raise HTTPException(status_code=409, detail="operator_seat_limit_reached") from exc
+        raise
+    if payload is None:
+        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    return WorkspaceInvitationOut(**payload)
+
+
+@router.post("/invitations/{invitation_id}/revoke", response_model=WorkspaceInvitationOut)
+def revoke_workspace_invitation(
+    invitation_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceInvitationOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "workspace").strip()
+    payload = service.revoke_workspace_invitation(
+        principal_id=context.principal_id,
+        invitation_id=invitation_id,
+        actor=actor,
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    return WorkspaceInvitationOut(**payload)
 
 
 @router.get("/events", response_model=OfficeEventResponse)

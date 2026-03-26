@@ -312,26 +312,26 @@ def test_channel_loop_get_actions_work() -> None:
     assert approvals_page.status_code == 200
     assert "Inline approvals" in approvals_page.text
 
-    approved = client.get(
-        f"/app/channel/drafts/approval:{seeded['approval_id']}/approve?return_to=/app/channel-loop/approvals",
-        follow_redirects=False,
-    )
+    loop_payload = client.get("/app/api/channel-loop")
+    assert loop_payload.status_code == 200
+    approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    approved_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Draft")
+    approved = client.get(approved_href, follow_redirects=False)
     assert approved.status_code == 303
     assert approved.headers["location"] == "/app/channel-loop/approvals"
     assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
 
-    closed = client.get(
-        f"/app/channel/queue/commitment:{seeded['commitment_id']}/resolve?action=close&return_to=/app/channel-loop/memo",
-        follow_redirects=False,
-    )
+    memo_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "memo")
+    closed_href = next(item["action_href"] for item in memo_digest["items"] if item["tag"] == "Commitment")
+    closed = client.get(closed_href, follow_redirects=False)
     assert closed.status_code == 303
     assert closed.headers["location"] == "/app/channel-loop/memo"
     assert "Send board materials" not in client.get("/app/inbox").text
 
-    decision_resolved = client.get(
-        f"/app/channel/decisions/decision:{seeded['decision_window_id']}/resolve?action=resolve&return_to=/app/channel-loop/approvals",
-        follow_redirects=False,
-    )
+    refreshed_loop = client.get("/app/api/channel-loop")
+    approvals_after_commitment = next(item for item in refreshed_loop.json()["digests"] if item["key"] == "approvals")
+    decision_href = next(item["action_href"] for item in approvals_after_commitment["items"] if item["tag"] == "Decision")
+    decision_resolved = client.get(decision_href, follow_redirects=False)
     assert decision_resolved.status_code == 303
     assert decision_resolved.headers["location"] == "/app/channel-loop/approvals"
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")

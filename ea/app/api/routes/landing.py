@@ -545,6 +545,81 @@ def sign_in_page(
     )
 
 
+@router.get("/workspace-invites/{token}", response_class=HTMLResponse)
+def workspace_invite_preview(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> HTMLResponse:
+    product = build_product_service(container)
+    invite = product.preview_workspace_invitation(token=token)
+    if invite is None:
+        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    body = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+    <title>Executive Assistant workspace invitation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Executive Assistant workspace invitation</h1>
+      <p>{html.escape(str(invite.get("email") or "A teammate"))} was invited as {html.escape(str(invite.get("role") or "operator"))}.</p>
+      <p>Status: {html.escape(str(invite.get("status") or "pending"))}</p>
+      <p><a href="/workspace-invites/{html.escape(token)}/accept">Accept invitation</a></p>
+      <p><a href="/sign-in">Workspace access</a></p>
+      <p>Access still depends on the workspace identity posture. Google remains a workspace data connection, not app sign-in.</p>
+    </main>
+  </body>
+</html>"""
+    response = HTMLResponse(body)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+@router.get("/workspace-invites/{token}/accept", response_class=HTMLResponse)
+def workspace_invite_accept(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    product = build_product_service(container)
+    actor = str(
+        getattr(access_identity, "email", "")
+        or request.headers.get("X-EA-Operator-ID")
+        or request.headers.get("X-EA-Principal-ID")
+        or "workspace_invite"
+    ).strip() or "workspace_invite"
+    try:
+        invite = product.accept_workspace_invitation(token=token, accepted_by=actor)
+    except ValueError as exc:
+        if str(exc or "").strip() == "operator_seat_limit_reached":
+            raise HTTPException(status_code=409, detail="operator_seat_limit_reached") from exc
+        raise
+    if invite is None:
+        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+    body = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+    <title>Executive Assistant invitation accepted</title>
+  </head>
+  <body>
+    <main>
+      <h1>Workspace invitation accepted</h1>
+      <p>{html.escape(str(invite.get("email") or "Workspace teammate"))} is now marked as {html.escape(str(invite.get("status") or "accepted"))}.</p>
+      <p><a href="/sign-in">Continue to workspace access</a></p>
+    </main>
+  </body>
+</html>"""
+    response = HTMLResponse(body)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
 @router.get("/get-started", response_class=HTMLResponse)
 def get_started(
     request: Request,
@@ -1656,6 +1731,47 @@ def app_channel_approve_draft(
     if approved is None:
         raise HTTPException(status_code=404, detail="draft_not_found")
     return RedirectResponse(return_to, status_code=303)
+
+
+@router.get("/app/channel-actions/{token}", response_model=None)
+def app_channel_action(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+):
+    product = build_product_service(container)
+    actor = str(
+        getattr(access_identity, "email", "")
+        or request.headers.get("X-EA-Operator-ID")
+        or request.headers.get("X-EA-Principal-ID")
+        or "channel_link"
+    ).strip() or "channel_link"
+    resolved = product.redeem_channel_action_token(token=token, actor=actor)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="channel_action_not_found")
+    return_to = str(resolved.get("return_to") or "/sign-in").strip() or "/sign-in"
+    if access_identity is not None or str(request.headers.get("X-EA-Principal-ID") or "").strip():
+        return RedirectResponse(return_to, status_code=303)
+    body = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+    <title>Executive Assistant action applied</title>
+  </head>
+  <body>
+    <main>
+      <h1>Executive Assistant action applied</h1>
+      <p>The requested {html.escape(str(resolved.get("object_kind") or "workspace action"))} action was recorded.</p>
+      <p><a href="{html.escape(return_to)}">Open the related workspace surface</a></p>
+      <p><a href="/sign-in">Workspace access</a></p>
+    </main>
+  </body>
+</html>"""
+    response = HTMLResponse(body)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 @router.get("/app/channel-loop/{digest_key}/plain", response_class=HTMLResponse)

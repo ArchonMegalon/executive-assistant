@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state
+from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
 def test_product_api_projects_real_runtime_objects() -> None:
@@ -152,7 +152,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     channel_loop_body = channel_loop.json()
     assert channel_loop_body["headline"] == "Inline loop"
     assert any(item["action_label"] == "Approve now" for item in channel_loop_body["items"])
-    assert any("/app/channel/drafts/" in item.get("action_href", "") for item in channel_loop_body["items"])
+    assert any("/app/channel-actions/" in item.get("action_href", "") for item in channel_loop_body["items"])
     digests = {item["key"]: item for item in channel_loop_body["digests"]}
     assert {"memo", "approvals", "operator"} <= set(digests)
     assert digests["memo"]["preview_text"]
@@ -161,7 +161,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
     assert "Morning memo digest" in memo_plain.text
-    assert "/app/channel/queue/" in memo_plain.text
+    assert "/app/channel-actions/" in memo_plain.text
 
     webhook = client.post(
         "/app/api/webhooks",
@@ -236,6 +236,16 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert webhook_test.status_code == 200
     assert webhook_test.json()["webhook"]["webhook_id"] == webhook_id
     assert webhook_test.json()["delivery"]["delivery_kind"] == "test"
+
+    draft_action = next(item["action_href"] for item in channel_loop_body["items"] if item["tag"] == "Draft")
+    redeemed = client.get(draft_action, follow_redirects=False)
+    assert redeemed.status_code == 303
+    assert redeemed.headers["location"] == "/app/channel-loop"
+    assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
+
+    diagnostics_after_channel_action = client.get("/app/api/diagnostics")
+    assert diagnostics_after_channel_action.status_code == 200
+    assert int(dict(diagnostics_after_channel_action.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 1
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
@@ -644,3 +654,50 @@ def test_product_diagnostics_include_value_events() -> None:
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
     assert isinstance(body["pending_delivery"], list)
+
+
+def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
+    principal_id = "exec-workspace-invites"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="team", workspace_name="Executive Office")
+    seed_product_state(client, principal_id=principal_id)
+
+    created = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "ops-partner@example.com",
+            "role": "operator",
+            "display_name": "Ops Partner",
+            "note": "Board prep backup.",
+            "expires_in_days": 7,
+        },
+    )
+    assert created.status_code == 200
+    invite = created.json()
+    assert invite["status"] == "pending"
+    assert invite["invite_url"].startswith("/workspace-invites/")
+    assert invite["invite_token"]
+
+    listed = client.get("/app/api/invitations")
+    assert listed.status_code == 200
+    assert any(item["invitation_id"] == invite["invitation_id"] for item in listed.json()["items"])
+
+    preview = client.get(invite["invite_url"])
+    assert preview.status_code == 200
+    assert "workspace invitation" in preview.text.lower()
+
+    accepted = client.post("/app/api/invitations/accept", json={"token": invite["invite_token"]})
+    assert accepted.status_code == 200
+    accepted_body = accepted.json()
+    assert accepted_body["status"] == "accepted"
+    assert accepted_body["accepted_by"]
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert int(diagnostics.json()["operators"]["seats_used"]) == 2
+    assert int(diagnostics.json()["operators"]["seats_remaining"]) == 0
+
+    revoked = client.post(f"/app/api/invitations/{invite['invitation_id']}/revoke")
+    assert revoked.status_code == 200
+    assert revoked.json()["status"] == "revoked"
+    assert revoked.json()["invitation_id"] == invite["invitation_id"]
