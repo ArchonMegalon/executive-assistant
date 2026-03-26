@@ -47,6 +47,7 @@ That does not mean:
 * `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
 * `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
 * `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
+* `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
 * `EXTERNAL_TOOLS_PLANE.md`
 
 ## Boundary rules
@@ -55,6 +56,7 @@ That does not mean:
 * EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
 * Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.
 * Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
+* Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.
 
 ## Non-goals
 
