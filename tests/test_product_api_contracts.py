@@ -158,6 +158,10 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert digests["memo"]["preview_text"]
     assert any(item["action_label"] == "Approve now" for item in digests["approvals"]["items"])
     assert any(item["tag"] == "Handoff" for item in digests["operator"]["items"])
+    memo_plain = client.get("/app/api/channel-loop/memo/plain")
+    assert memo_plain.status_code == 200
+    assert "Morning memo digest" in memo_plain.text
+    assert "/app/channel/queue/" in memo_plain.text
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -2105,6 +2106,65 @@ class ProductService:
             },
             "digests": digests,
         }
+
+    def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = "") -> dict[str, object] | None:
+        pack = self.channel_loop_pack(principal_id=principal_id, operator_id=operator_id)
+        wanted = str(digest_key or "").strip().lower()
+        for row in list(pack.get("digests") or []):
+            if str(row.get("key") or "").strip().lower() == wanted:
+                return dict(row)
+        return None
+
+    def channel_digest_text(
+        self,
+        *,
+        principal_id: str,
+        digest_key: str,
+        operator_id: str = "",
+        base_url: str = "",
+    ) -> str:
+        digest = self.channel_digest_pack(principal_id=principal_id, digest_key=digest_key, operator_id=operator_id)
+        if digest is None:
+            return ""
+        normalized_base = str(base_url or "").strip()
+
+        def absolute(href: str) -> str:
+            value = str(href or "").strip()
+            if not value:
+                return ""
+            if "://" in value:
+                return value
+            if normalized_base:
+                return urllib.parse.urljoin(normalized_base, value)
+            return value
+
+        lines: list[str] = [
+            str(digest.get("headline") or "Channel digest").strip(),
+            str(digest.get("summary") or "").strip(),
+            str(digest.get("preview_text") or "").strip(),
+            "",
+        ]
+        for index, item in enumerate(list(digest.get("items") or []), start=1):
+            title = str(item.get("title") or f"Item {index}").strip()
+            tag = str(item.get("tag") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            action_label = str(item.get("action_label") or "").strip()
+            action_href = absolute(str(item.get("action_href") or "").strip())
+            secondary_label = str(item.get("secondary_action_label") or "").strip()
+            secondary_href = absolute(str(item.get("secondary_action_href") or "").strip())
+            href = absolute(str(item.get("href") or "").strip())
+            header = f"{index}. [{tag}] {title}" if tag else f"{index}. {title}"
+            lines.append(header)
+            if detail:
+                lines.append(f"   {detail}")
+            if action_label and action_href:
+                lines.append(f"   {action_label}: {action_href}")
+            if secondary_label and secondary_href:
+                lines.append(f"   {secondary_label}: {secondary_href}")
+            elif href:
+                lines.append(f"   Open: {href}")
+            lines.append("")
+        return "\n".join(line for line in lines if line or (lines and line == ""))
 
     def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str) -> list[dict[str, object]]:
         at_risk_commitments = [
