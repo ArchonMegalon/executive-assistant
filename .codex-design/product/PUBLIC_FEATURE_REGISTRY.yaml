@@ -324,7 +324,7 @@ cards:
     image_family: solo_operator
     detail_route: /roadmap/local-co-processor
     render_mode: external_explainer
-    action_label: Install the current preview
+    action_label: Open the horizon page
     detail_primary_href: /downloads
     detail_primary_label: Install the current preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md

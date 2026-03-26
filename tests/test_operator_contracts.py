@@ -2505,7 +2505,7 @@ def test_human_task_operator_matched_priority_summary_is_documented_and_smoked()
     assert "PRIORITY_SUMMARY_MATCHED_JSON" in smoke_api
     assert "PRIORITY_SUMMARY_MATCHED_FIELDS" in smoke_api
     assert 'params={' in smoke_runtime
-    assert '"operator_id": "operator-specialist-summary"' in smoke_runtime
+    assert 'operator-specialist-summary-' in smoke_runtime
     assert "/v1/human/tasks/priority-summary?status=pending&assignment_state=unassigned&operator_id=operator-specialist" in http_examples
     assert "operator_id: str" in human_route
 
@@ -3830,7 +3830,7 @@ def test_connector_dispatch_binding_scope_guardrails_are_documented_and_released
     assert "binding_id" in smoke_api
     assert "execute_mismatch" in smoke_runtime
     assert "binding_id" in smoke_runtime
-    assert 'execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"' in smoke_runtime
+    assert 'execute_mismatch.json()["error"]["code"] == "operator_scope_required"' in smoke_runtime
     assert "test_tool_execution_service_rejects_foreign_connector_binding_scope" in tool_execution_tests
     assert "connector_dispatch_binding_scope_guardrails" in changelog
     assert "release/operator guards" in changelog

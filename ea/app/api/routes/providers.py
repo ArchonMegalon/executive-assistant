@@ -85,6 +85,14 @@ class ProviderBindingOut(BaseModel):
     updated_at: str
 
 
+def _redacted_auth_metadata(auth_metadata_json: dict[str, object] | None) -> dict[str, object]:
+    payload = dict(auth_metadata_json or {})
+    return {
+        "redacted": bool(payload),
+        "field_count": len(payload),
+    }
+
+
 class ProviderStateOut(BaseModel):
     provider_key: str
     display_name: str
@@ -115,7 +123,7 @@ def _binding_out(row: ProviderBindingRecord) -> ProviderBindingOut:
         probe_state=row.probe_state,
         probe_details_json=dict(row.probe_details_json or {}),
         scope_json=dict(row.scope_json or {}),
-        auth_metadata_json=dict(row.auth_metadata_json or {}),
+        auth_metadata_json=_redacted_auth_metadata(row.auth_metadata_json),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

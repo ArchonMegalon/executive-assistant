@@ -1399,6 +1399,7 @@ def _redacted_provider_health(provider_health: dict[str, object], *, include_sen
             if not isinstance(item, dict):
                 continue
             slot = dict(item)
+            slot["account_name"] = ""
             slot["slot_owner"] = ""
             slot["lease_holder"] = ""
             slot["lease_holder_label"] = ""
@@ -1417,6 +1418,7 @@ def _redacted_provider_health(provider_health: dict[str, object], *, include_sen
             slot["last_used_at"] = None
             redacted_slots.append(slot)
         row["slots"] = redacted_slots
+        row["account_name"] = ""
         row["last_used_principal_id"] = ""
         row["last_used_principal_label"] = ""
         row["last_used_owner_category"] = ""
@@ -1427,6 +1429,18 @@ def _redacted_provider_health(provider_health: dict[str, object], *, include_sen
         row["last_used_at"] = None
         providers[provider_key] = row
     payload["providers"] = providers
+    provider_config = dict(payload.get("provider_config") or {})
+    for key in (
+        "onemin_accounts",
+        "onemin_active_accounts",
+        "onemin_reserve_accounts",
+        "chatplayground_accounts",
+        "gemini_vortex_accounts",
+        "magixai_accounts",
+    ):
+        if key in provider_config:
+            provider_config[key] = []
+    payload["provider_config"] = provider_config
     return payload
 
 
@@ -3551,15 +3565,18 @@ def get_provider_health(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
+    include_sensitive = is_operator_context(context)
     provider_health = _provider_health_report()
+    safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     return JSONResponse(
         {
-            **provider_health,
+            **safe_provider_health,
             "principal": principal_identity_summary(context.principal_id),
             "provider_registry": _provider_registry_payload(
                 container=container,
                 principal_id=context.principal_id,
-                provider_health=provider_health,
+                provider_health=safe_provider_health,
+                include_sensitive=include_sensitive,
             ),
         }
     )
