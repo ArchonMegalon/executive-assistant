@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.api.dependencies import (
@@ -46,6 +46,13 @@ from app.services.google_oauth import complete_google_oauth_callback
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+@router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
+def robots_txt() -> PlainTextResponse:
+    response = PlainTextResponse("User-agent: *\nDisallow: /\n")
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 
