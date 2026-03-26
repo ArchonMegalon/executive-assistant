@@ -276,7 +276,9 @@ def _console_shell_context(
 
 def _render_public_template(request: Request, template_name: str, **context: Any) -> HTMLResponse:
     context.setdefault("request", request)
-    return templates.TemplateResponse(request, template_name, context)
+    response = templates.TemplateResponse(request, template_name, context)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 def _default_operator_id_for_browser(container: AppContainer, *, principal_id: str) -> str:
@@ -1678,7 +1680,9 @@ def app_channel_digest_plain(
         surface=f"channel_digest_{digest_key}_plain",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
-    return HTMLResponse(text, media_type="text/plain; charset=utf-8")
+    response = HTMLResponse(text, media_type="text/plain; charset=utf-8")
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 @router.get("/app/channel-loop/{digest_key}", response_class=HTMLResponse)
