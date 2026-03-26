@@ -2,7 +2,7 @@
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
   "generated_at": "2026-03-25T18:18:26Z",
-  "as_of": "2026-03-25",
+  "as_of": "2026-03-26",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -14,8 +14,8 @@
     },
     "top_support_or_feedback_clusters": [
       {
-        "cluster_id": "campaign_middle_execution",
-        "summary": "Campaign Spine Execution remains the main additive product-pressure cluster: campaign spine, living dossier, roaming workspace, and return-to-campaign depth still need to feel like one lived product.",
+        "cluster_id": "campaign_breadth_and_promotion",
+        "summary": "Campaign Breadth and Promotion is the post-next20 additive product-pressure cluster: broaden campaign return, creator publication, public promotion, and trust-surface follow-through without reopening closed boundary or control-plane work.",
         "source_paths": [
           "products/chummer/ROADMAP.md",
           "products/chummer/NEXT_20_BIG_WINS_REGISTRY.yaml"
@@ -43,9 +43,9 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-25-continue-campaign-spine-execution",
-        "action": "continue",
-        "reason": "Keep the recommended wave on Campaign Spine Execution. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 2 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation blockers.",
+        "decision_id": "2026-03-26-closeout-and-continue-campaign-breadth-and-promotion",
+        "action": "closeout_and_continue",
+        "reason": "Keep the recommended wave on Campaign Breadth and Promotion now that the Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 2 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation blockers.",
         "cited_signals": [
           "overall_progress_percent=73",
           "history_snapshot_count=2",
@@ -55,10 +55,10 @@
         ]
       }
     ],
-    "next_checkpoint_question": "What is the smallest cross-repo slice that makes campaign spine truth feel like one product across Hub, UI, mobile, and the public trust surface?"
+    "next_checkpoint_question": "What is the smallest cross-repo slice that makes campaign breadth, creator trust, and public promotion feel undeniably real to users?"
   },
   "supporting_signals": {
-    "current_recommended_wave": "Campaign Spine Execution",
+    "current_recommended_wave": "Campaign Breadth and Promotion",
     "overall_progress_percent": 73,
     "phase_label": "Scale & stabilize",
     "history_snapshot_count": 2,
