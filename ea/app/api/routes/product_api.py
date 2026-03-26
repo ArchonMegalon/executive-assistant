@@ -6,6 +6,8 @@ from fastapi.responses import PlainTextResponse
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
     BriefResponse,
+    ChannelDigestDeliveryCreateIn,
+    ChannelDigestDeliveryOut,
     ChannelLoopOut,
     CommitmentCandidateOut,
     CommitmentCandidateReviewIn,
@@ -36,6 +38,8 @@ from app.api.routes.product_api_contracts import (
     SearchResponse,
     SearchResultOut,
     WorkspaceInvitationAcceptIn,
+    WorkspaceAccessSessionCreateIn,
+    WorkspaceAccessSessionOut,
     WorkspaceInvitationCreateIn,
     WorkspaceInvitationOut,
     WorkspaceInvitationResponse,
@@ -818,6 +822,25 @@ def accept_workspace_invitation(
     return WorkspaceInvitationOut(**payload)
 
 
+@router.post("/access-sessions", response_model=WorkspaceAccessSessionOut)
+def create_workspace_access_session(
+    body: WorkspaceAccessSessionCreateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceAccessSessionOut:
+    service = build_product_service(container)
+    payload = service.issue_workspace_access_session(
+        principal_id=context.principal_id,
+        email=body.email,
+        role=body.role,
+        display_name=body.display_name,
+        operator_id=body.operator_id,
+        source_kind="workspace_access_api",
+        expires_in_hours=body.expires_in_hours,
+    )
+    return WorkspaceAccessSessionOut(**payload)
+
+
 @router.post("/invitations/{invitation_id}/revoke", response_model=WorkspaceInvitationOut)
 def revoke_workspace_invitation(
     invitation_id: str,
@@ -980,6 +1003,31 @@ def get_channel_digest_plain(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return PlainTextResponse(text)
+
+
+@router.post("/channel-loop/{digest_key}/deliveries", response_model=ChannelDigestDeliveryOut)
+def create_channel_digest_delivery(
+    digest_key: str,
+    body: ChannelDigestDeliveryCreateIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> ChannelDigestDeliveryOut:
+    service = build_product_service(container)
+    payload = service.issue_channel_digest_delivery(
+        principal_id=context.principal_id,
+        digest_key=digest_key,
+        recipient_email=body.recipient_email,
+        role=body.role,
+        display_name=body.display_name,
+        operator_id=body.operator_id,
+        delivery_channel=body.delivery_channel,
+        expires_in_hours=body.expires_in_hours,
+        base_url=str(request.base_url),
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="channel_digest_not_found")
+    return ChannelDigestDeliveryOut(**payload)
 
 @router.get("/people/{person_id}/detail/history", response_model=list[HistoryEntryOut])
 def get_person_detail_history(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.product_test_helpers import build_product_client, seed_product_state
+from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
 
 
 def test_workspace_pages_render_seeded_product_objects() -> None:
@@ -337,6 +337,49 @@ def test_channel_loop_get_actions_work() -> None:
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
     assert decision_detail.status_code == 200
     assert decision_detail.json()["status"] == "decided"
+
+
+def test_workspace_access_and_channel_delivery_routes_issue_session_cookie() -> None:
+    principal_id = "exec-browser-workspace-access"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="team", workspace_name="Browser Access Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "ops-route@example.com",
+            "role": "operator",
+            "display_name": "Route Operator",
+        },
+    )
+    assert invite.status_code == 200
+    accepted = client.post("/app/api/invitations/accept", json={"token": invite.json()["invite_token"]})
+    assert accepted.status_code == 200
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    access = client.get(accepted.json()["access_url"], follow_redirects=False)
+    assert access.status_code == 303
+    assert access.headers["location"] == "/app/activity"
+    assert "ea_workspace_session=" in str(access.headers.get("set-cookie") or "")
+    session_queue = client.get("/app/api/queue")
+    assert session_queue.status_code == 200
+    assert any(item["id"] == f"approval:{seeded['approval_id']}" for item in session_queue.json()["items"])
+
+    delivery = client.post(
+        "/app/api/channel-loop/memo/deliveries",
+        json={
+            "recipient_email": "ops-route@example.com",
+            "role": "operator",
+            "display_name": "Route Operator",
+            "operator_id": "operator-ops-route",
+        },
+    )
+    assert delivery.status_code == 200
+    opened = client.get(delivery.json()["delivery_url"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/channel-loop/memo"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_browser_commitment_capture_actions_work() -> None:

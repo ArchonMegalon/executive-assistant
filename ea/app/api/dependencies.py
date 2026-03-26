@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import ipaddress
+import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.params import Depends as DependsMarker
@@ -33,6 +38,68 @@ def _extract_token(request: Request) -> str:
 
 def _configured_api_token(container: AppContainer) -> str:
     return str(container.settings.auth.api_token or "").strip()
+
+
+def _workspace_access_secret(container: AppContainer) -> str:
+    configured = _configured_api_token(container)
+    if configured:
+        return f"{configured}:workspace-access"
+    fallback = str(container.settings.auth.default_principal_id or "").strip() or "ea-workspace-access"
+    return f"{fallback}:workspace-access"
+
+
+def _extract_workspace_session_token(request: Request) -> str:
+    return (
+        str(request.headers.get("x-ea-workspace-session") or "").strip()
+        or str(request.cookies.get("ea_workspace_session") or "").strip()
+    )
+
+
+def _verify_signed_payload(*, secret: str, token: str) -> dict[str, object] | None:
+    normalized = str(token or "").strip()
+    if not normalized or "." not in normalized:
+        return None
+    payload_b64, signature = normalized.rsplit(".", 1)
+    expected = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    padding = "=" * ((4 - len(payload_b64) % 4) % 4)
+    try:
+        payload_bytes = base64.urlsafe_b64decode(f"{payload_b64}{padding}".encode("ascii"))
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    expires_raw = str(payload.get("expires_at") or "").strip()
+    if expires_raw:
+        try:
+            expires_at = datetime.fromisoformat(expires_raw)
+        except ValueError:
+            return None
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return None
+    return payload
+
+
+def _workspace_session_payload(request: Request, container: AppContainer) -> dict[str, object] | None:
+    cached = getattr(request.state, "workspace_access_session_payload", None)
+    if isinstance(cached, dict):
+        return cached
+    if cached is False:
+        return None
+    token = _extract_workspace_session_token(request)
+    if not token:
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
+    payload = _verify_signed_payload(secret=_workspace_access_secret(container), token=token)
+    if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
+    setattr(request.state, "workspace_access_session_payload", payload)
+    return payload
 
 
 def _requested_operator_id(request: Request) -> str:
@@ -169,6 +236,8 @@ def require_request_auth(
     profile = _runtime_profile(container)
     if access_identity is not None:
         return
+    if _workspace_session_payload(request, container) is not None:
+        return
     if _loopback_no_auth_allowed(request, container):
         return
     if profile.auth_mode not in {"token", "token_or_access", "access"}:
@@ -244,6 +313,8 @@ def is_operator_context(context: RequestContext) -> bool:
     principal_id = str(context.principal_id or "").strip()
     if not principal_id:
         return False
+    if context.auth_source == "workspace_access_session":
+        return bool(str(context.operator_id or "").strip())
     if context.auth_source == "loopback_no_auth":
         return True
     if not bool(context.authenticated):
@@ -280,6 +351,20 @@ def get_request_context(
             auth_source="cloudflare_access",
             access_email=access_identity.email,
             operator_id=build_operator_id(access_identity),
+        )
+    workspace_session = _workspace_session_payload(request, container)
+    if workspace_session is not None:
+        principal_id = str(workspace_session.get("principal_id") or "").strip()
+        if not principal_id:
+            raise HTTPException(status_code=401, detail="principal_required")
+        role = str(workspace_session.get("role") or "principal").strip().lower() or "principal"
+        operator_id = str(workspace_session.get("operator_id") or "").strip() if role == "operator" else ""
+        return RequestContext(
+            principal_id=principal_id,
+            authenticated=True,
+            auth_source="workspace_access_session",
+            access_email=str(workspace_session.get("email") or "").strip().lower(),
+            operator_id=operator_id,
         )
     if _loopback_no_auth_allowed(request, container):
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)

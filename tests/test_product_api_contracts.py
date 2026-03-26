@@ -691,6 +691,18 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     accepted_body = accepted.json()
     assert accepted_body["status"] == "accepted"
     assert accepted_body["accepted_by"]
+    assert accepted_body["access_url"].startswith("/workspace-access/")
+    assert accepted_body["access_token"]
+    assert accepted_body["access_expires_at"]
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    access = client.get(accepted_body["access_url"], follow_redirects=False)
+    assert access.status_code == 303
+    assert access.headers["location"] == "/app/activity"
+    assert "ea_workspace_session=" in str(access.headers.get("set-cookie") or "")
+    session_loop = client.get("/app/api/channel-loop")
+    assert session_loop.status_code == 200
+    assert session_loop.json()["headline"] == "Inline loop"
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
@@ -701,3 +713,60 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     assert revoked.status_code == 200
     assert revoked.json()["status"] == "revoked"
     assert revoked.json()["invitation_id"] == invite["invitation_id"]
+
+
+def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links() -> None:
+    principal_id = "exec-access-sessions"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200
+    access_body = access_session.json()
+    assert access_body["access_url"].startswith("/workspace-access/")
+    assert access_body["default_target"] == "/app/today"
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert opened_access.headers["location"] == "/app/today"
+    assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
+    session_drafts = client.get("/app/api/drafts")
+    assert session_drafts.status_code == 200
+    assert session_drafts.json()[0]["id"] == f"approval:{seeded['approval_id']}"
+
+    delivery = client.post(
+        "/app/api/channel-loop/memo/deliveries",
+        json={
+            "recipient_email": "operator@example.com",
+            "role": "operator",
+            "display_name": "Operator Digest",
+            "operator_id": "operator-office",
+            "delivery_channel": "email",
+            "expires_in_hours": 24,
+        },
+    )
+    assert delivery.status_code == 200
+    delivery_body = delivery.json()
+    assert delivery_body["delivery_url"].startswith("/channel-loop/deliveries/")
+    assert delivery_body["open_url"] == "/app/channel-loop/memo"
+    assert "Morning memo digest" in delivery_body["plain_text"]
+    assert "Open digest:" in delivery_body["plain_text"]
+
+    opened_delivery = client.get(delivery_body["delivery_url"], follow_redirects=False)
+    assert opened_delivery.status_code == 303
+    assert opened_delivery.headers["location"] == "/app/channel-loop/memo"
+    assert "ea_workspace_session=" in str(opened_delivery.headers.get("set-cookie") or "")
+    delivered_loop = client.get("/app/api/channel-loop")
+    assert delivered_loop.status_code == 200
+    delivered_body = delivered_loop.json()
+    assert delivered_body["headline"] == "Inline loop"
+    assert any(item["key"] == "operator" for item in delivered_body["digests"])
