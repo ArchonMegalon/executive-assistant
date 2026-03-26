@@ -2046,8 +2046,32 @@ def _collect_image_candidates(value: object) -> list[str]:
     return found
 
 
-def onemin_model_candidates() -> list[str]:
+def _spec_string(spec: dict[str, object] | None, key: str) -> str:
+    if not isinstance(spec, dict):
+        return ""
+    return str(spec.get(key) or "").strip()
+
+
+def _spec_string_list(spec: dict[str, object] | None, key: str) -> list[str]:
+    if not isinstance(spec, dict):
+        return []
+    value = spec.get(key)
+    if not isinstance(value, (list, tuple)):
+        return []
+    cleaned: list[str] = []
+    for entry in value:
+        normalized = str(entry or "").strip()
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def onemin_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
     candidates: list[str] = []
+    for candidate in _spec_string_list(spec, "onemin_models"):
+        normalized = str(candidate or "").strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
     for candidate in (
         env_value("CHUMMER6_ONEMIN_MODEL"),
         "black-forest-labs/flux-schnell",
@@ -2109,7 +2133,14 @@ def onemin_request_timeout_seconds(model: str) -> int:
     return 45
 
 
-def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list[dict[str, object]]:
+def onemin_payloads(
+    model: str,
+    *,
+    prompt: str,
+    width: int,
+    height: int,
+    spec: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
     normalized = str(model or "").strip().lower()
     if normalized == "black-forest-labs/flux-schnell":
         prompt_object = {
@@ -2128,14 +2159,16 @@ def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list
             }
         ]
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
+        quality = _spec_string(spec, "onemin_image_quality") or str(env_value("CHUMMER6_ONEMIN_IMAGE_QUALITY") or "low")
+        style = _spec_string(spec, "onemin_image_style") or "natural"
         payloads: list[dict[str, object]] = []
         for size in onemin_size_candidates(model, width=width, height=height):
             prompt_object = {
                 "prompt": prompt,
                 "n": 1,
                 "size": size,
-                "quality": env_value("CHUMMER6_ONEMIN_IMAGE_QUALITY") or "low",
-                "style": "natural",
+                "quality": quality,
+                "style": style,
                 "output_format": "png",
                 "background": "opaque",
             }
@@ -2177,7 +2210,14 @@ def onemin_payloads(model: str, *, prompt: str, width: int, height: int) -> list
     return payloads
 
 
-def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
+def run_onemin_api_provider(
+    *,
+    prompt: str,
+    output_path: Path,
+    width: int,
+    height: int,
+    spec: dict[str, object] | None = None,
+) -> tuple[bool, str]:
     configured_slots = resolve_onemin_image_slots()
     if not configured_slots:
         return False, "onemin:not_configured"
@@ -2235,7 +2275,10 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
             error="reserved_slot_not_available_locally",
         )
         return False, "onemin:reserved_slot_not_available_locally"
-    model_candidates = onemin_model_candidates()
+    try:
+        model_candidates = onemin_model_candidates(spec=spec)
+    except TypeError:
+        model_candidates = onemin_model_candidates()
     endpoints = [
         env_value("CHUMMER6_ONEMIN_ENDPOINT") or "https://api.1min.ai/api/features",
     ]
@@ -2256,7 +2299,10 @@ def run_onemin_api_provider(*, prompt: str, output_path: Path, width: int, heigh
     try:
         for url in endpoints:
             for model in model_candidates:
-                payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
+                try:
+                    payloads = onemin_payloads(model, prompt=prompt, width=width, height=height, spec=spec)
+                except TypeError:
+                    payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
                 timeout_seconds = onemin_request_timeout_seconds(model)
                 for payload in payloads:
                     prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
@@ -3920,6 +3966,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     lore = compact_text(lore_background_clause(contract), limit=64)
     framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
     avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
+    visual_seed = compact_text(row.get("visual_prompt") or prompt or "", limit=520 if first_contact_target(target) else 220)
     overlay_clause = overlay_mode_prompt_clause(target=target)
     hard_block = ""
     if target in {
@@ -3959,40 +4006,71 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
     elif target == "assets/horizons/runbook-press.png":
         hard_block += " Keep sheets edge-on, clipped, or half-obscured inside the mechanism; never presented frontally like a readable page."
-    parts = [
-        flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
-        f"Composition: {composition}." if composition else "",
-        hard_block,
-        compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
-        " ".join(visual_contract_prompt_parts(target=target)) if target else "",
-        overlay_clause if overlay_clause else "",
-        f"Subject: {subject}." if subject else "",
-        f"Setting: {environment}." if environment else "",
-        f"Moment: {action}." if action else "",
-        f"Meaning: {metaphor}." if metaphor else "",
-        f"Key props: {props}." if props else "",
-        f"Overlay cues: {overlays}." if overlays else "",
-        f"Smartlink cues: {smartlink}." if smartlink else "",
-        f"Lore cues: {lore}." if lore else "",
-        f"Framing: {framing}." if framing else "",
-        f"Avoid: {avoid}." if avoid else "",
-        f"Guardrail: {guardrail}." if guardrail else "",
-        "Human presence must be obvious; not props alone."
-        if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
-        else "",
-        (
-            "Ground the image in one believable Shadowrun place that matches the composition. Poster energy is welcome when it stays tied to a lived scene; never drift into an abstract infographic or empty title card."
-            if first_contact_target(target)
-            else "Ground the image in one believable Shadowrun place that matches the composition. Not abstract infographic. Not product poster."
-        ),
-        "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
-        "No readable words or numbers anywhere.",
-        "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
-        "Use pictograms, arrows, chips, glyphs, traces, stamps, and silhouette icons instead of readable lettering.",
-        "No watermark. 16:9.",
-    ]
+    critical_asset = first_contact_target(target)
+    if critical_asset:
+        parts = [
+            flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
+            "Render the base scene plate first; final readable overlay text, stat rails, and chips belong to the verified post-composite overlay layer.",
+            f"Scene brief: {visual_seed}." if visual_seed else "",
+            overlay_clause if overlay_clause else "",
+            f"Subject: {subject}." if subject else "",
+            f"Setting: {environment}." if environment else "",
+            f"Moment: {action}." if action else "",
+            f"Framing: {framing}." if framing else "",
+            hard_block,
+            f"Composition: {composition}." if composition else "",
+            " ".join(visual_contract_prompt_parts(target=target)) if target else "",
+            f"Key props: {props}." if props else "",
+            f"Overlay cues: {overlays}." if overlays else "",
+            f"Smartlink cues: {smartlink}." if smartlink else "",
+            f"Lore cues: {lore}." if lore else "",
+            f"Meaning: {metaphor}." if metaphor else "",
+            f"Guardrail: {guardrail}." if guardrail else "",
+            f"Avoid: {avoid}." if avoid else "",
+            "Human presence must be obvious; not props alone."
+            if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
+            else "",
+            "Ground the image in one believable Shadowrun place that matches the composition. Poster energy is welcome when it stays tied to a lived scene; never drift into an abstract infographic or empty title card.",
+            "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
+            "No readable words or numbers anywhere.",
+            "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
+            "Use pictograms, arrows, chips, glyphs, traces, stamps, and silhouette icons instead of readable lettering.",
+            "No watermark. 16:9.",
+        ]
+        prompt_limit = 1180
+    else:
+        parts = [
+            flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
+            f"Composition: {composition}." if composition else "",
+            f"Subject: {subject}." if subject else "",
+            f"Setting: {environment}." if environment else "",
+            f"Moment: {action}." if action else "",
+            hard_block,
+            compact_easter_egg_clause(contract) if media_row_requests_easter_egg(target=target, row=row) else "",
+            " ".join(visual_contract_prompt_parts(target=target)) if target else "",
+            overlay_clause if overlay_clause else "",
+            f"Meaning: {metaphor}." if metaphor else "",
+            f"Key props: {props}." if props else "",
+            f"Overlay cues: {overlays}." if overlays else "",
+            f"Smartlink cues: {smartlink}." if smartlink else "",
+            f"Lore cues: {lore}." if lore else "",
+            f"Framing: {framing}." if framing else "",
+            f"Avoid: {avoid}." if avoid else "",
+            f"Guardrail: {guardrail}." if guardrail else "",
+            "Human presence must be obvious; not props alone."
+            if composition not in {"prop_detail", "desk_still_life", "dossier_desk", "district_map", "horizon_boulevard"}
+            else "",
+            "Ground the image in one believable Shadowrun place that matches the composition. Not abstract infographic. Not product poster.",
+            "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
+            "No readable words or numbers anywhere.",
+            "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
+            "Use pictograms, arrows, chips, glyphs, traces, stamps, and silhouette icons instead of readable lettering.",
+            "No watermark. 16:9.",
+        ]
+        prompt_limit = 680
     compact_prompt = " ".join(part for part in parts if part)
-    return sanitize_prompt_for_provider(clip_prompt_text(compact_prompt, limit=680), provider="onemin")
+    sanitized = sanitize_prompt_for_provider(compact_prompt, provider="onemin")
+    return clip_prompt_text(sanitized, limit=prompt_limit)
 
 
 def _overlay_family(row: dict[str, object], spec: dict[str, object]) -> str:
@@ -4218,7 +4296,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
                 ok, detail = False, "browseract_prompting_systems:not_configured"
         elif normalized in {"onemin", "1min", "1min.ai", "oneminai"}:
             safe_prompt = build_safe_onemin_prompt(prompt=prompt, spec=spec)
-            ok, detail = run_onemin_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
+            ok, detail = run_onemin_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height, spec=spec)
         elif normalized in {"scene_contract_renderer", "ooda_compositor", "local_raster"}:
             ok, detail = False, f"{normalized}:forbidden_fallback"
         else:
@@ -4426,7 +4504,10 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["BOD rail", "AGI rail", "REA rail", "STR rail", "ESS state", "EDGE readout", "cyberlimb calibration", "wound stabilized"],
             "visual_motifs": ["garage clinic grime", "streetdoc assist", "attribute rail", "triage action", "runner life", "cyberware surgery", "medscan posture"],
             "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED", "NEURAL LINK RESYNC"],
-            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_image_quality": "high",
+            "onemin_image_style": "vivid",
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -4635,7 +4716,10 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets", "consequence nodes", "witness locks"],
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_image_quality": "high",
+            "onemin_image_style": "vivid",
         },
         "assets/horizons/runsite.png": {
             "required": "district_map",
@@ -4837,6 +4921,12 @@ def asset_specs() -> list[dict[str, object]]:
             providers_override = scene_policy_for_target(target).get("providers")
             if isinstance(providers_override, list):
                 audited_spec["providers"] = [str(entry).strip().lower() for entry in providers_override if str(entry).strip()]
+            for field in ("onemin_models", "onemin_image_quality", "onemin_image_style"):
+                override_value = scene_policy_for_target(target).get(field)
+                if isinstance(override_value, list):
+                    audited_spec[field] = [str(entry).strip() for entry in override_value if str(entry).strip()]
+                elif override_value not in (None, ""):
+                    audited_spec[field] = str(override_value).strip()
             audited_specs.append(audited_spec)
             planned_rows.append(planned_scene_row(target, repaired_row))
 
