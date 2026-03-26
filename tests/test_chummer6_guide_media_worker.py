@@ -497,6 +497,19 @@ def test_onemin_model_candidates_prefers_flux_schnell_before_openai(monkeypatch:
     ]
 
 
+def test_onemin_model_candidates_honors_spec_override_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    assert media.onemin_model_candidates({"onemin_models": ["gpt-image-1", "gpt-image-1-mini"]})[:3] == [
+        "gpt-image-1",
+        "gpt-image-1-mini",
+        "black-forest-labs/flux-schnell",
+    ]
+
+
 def test_resolve_onemin_image_slots_assigns_stable_names_to_script_only_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     fake_root = Path("/tmp/fake_ea_root")
@@ -549,6 +562,24 @@ def test_onemin_payloads_build_flux_schnell_contract(monkeypatch: pytest.MonkeyP
             },
         }
     ]
+
+
+def test_onemin_payloads_honor_spec_quality_and_style_for_gpt_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_IMAGE_QUALITY", raising=False)
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    payloads = media.onemin_payloads(
+        "gpt-image-1",
+        prompt="hero poster",
+        width=960,
+        height=540,
+        spec={"onemin_image_quality": "high", "onemin_image_style": "vivid"},
+    )
+
+    assert payloads[0]["promptObject"]["quality"] == "high"
+    assert payloads[0]["promptObject"]["style"] == "vivid"
 
 
 def test_run_release_build_pipeline_refreshes_registry_then_runs_builder(
@@ -1144,6 +1175,40 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     assert "poster energy is welcome when it stays tied to a lived scene" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
     assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
+
+
+def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> None:
+    media = _load_module()
+
+    hero_prompt = media.build_safe_onemin_prompt(
+        prompt="Hero prep scene.",
+        spec={
+            "target": "assets/hero/chummer6-hero.png",
+            "media_row": {
+                "visual_prompt": (
+                    "Illustrated flagship promo poster for a cyberpunk-fantasy tabletop world, grimy barrens garage "
+                    "converted into a streetdoc patch-up clinic, ork streetdoc actively operating on an ugly hairy troll "
+                    "runner on a hacked surgical recliner built from mechanic-shop gear."
+                ),
+                "scene_contract": {
+                    "subject": "an ork streetdoc stabilizing an ugly hairy troll runner",
+                    "environment": "a grimy barrens garage clinic with wet concrete, rust, oil, and hacked med gear",
+                    "action": "calibrating cyberware and stabilizing post-run strain while a teammate crowds the frame",
+                    "composition": "clinic_intake",
+                    "mood": "tense",
+                    "props": ["tool chest", "med-gel", "cyberarm parts", "magical focus"],
+                    "overlays": ["BOD rail", "ESS state", "cyberlimb calibration"],
+                },
+            },
+        },
+    )
+
+    lowered = hero_prompt.lower()
+    assert "scene brief:" in lowered
+    assert "hairy troll" in lowered
+    assert "garage clinic" in lowered
+    assert "render the base scene plate first" in lowered
+    assert "medscan diagnostic" in lowered
 
 
 def test_overlay_mode_for_target_maps_flagship_assets() -> None:
