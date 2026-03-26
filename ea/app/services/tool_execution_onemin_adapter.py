@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -68,6 +69,37 @@ def _bool_flag(value: object, *, default: bool = False) -> bool:
     if cleaned in {"0", "false", "no", "off", "deny", "denied", "forbid", "forbidden"}:
         return False
     return default
+
+
+def _parse_onemin_image_size(value: object) -> tuple[int, int] | None:
+    text = str(value or "").strip().lower().replace("×", "x")
+    if not text:
+        return None
+    match = re.fullmatch(r"(?P<width>\d{2,5})x(?P<height>\d{2,5})", text)
+    if match is None:
+        return None
+    width = max(1, int(match.group("width")))
+    height = max(1, int(match.group("height")))
+    return width, height
+
+
+def _estimate_onemin_feature_credits(feature_payload: dict[str, object], *, capability: str) -> int | None:
+    normalized_capability = str(capability or "").strip().lower()
+    if normalized_capability not in {"image_generate", "media_transform"}:
+        return None
+    raw_override = _env_value("EA_ONEMIN_TOOL_ESTIMATED_IMAGE_CREDITS")
+    if raw_override:
+        try:
+            return max(0, int(float(raw_override)))
+        except Exception:
+            pass
+    prompt_object = dict(feature_payload.get("promptObject") or {})
+    parsed_size = _parse_onemin_image_size(prompt_object.get("size"))
+    if parsed_size is None:
+        return 1200
+    width, height = parsed_size
+    megapixels = max(1.0, (float(width) * float(height)) / 1_000_000.0)
+    return int(round(1200.0 * megapixels))
 
 
 def _collect_asset_urls(value: object) -> list[str]:
@@ -278,6 +310,10 @@ class OneminToolAdapter:
         errors: list[str] = []
         selection_request_id = f"onemin-tool-{uuid.uuid4().hex[:16]}"
         manager = active_onemin_manager()
+        estimated_feature_credits = _estimate_onemin_feature_credits(
+            feature_payload,
+            capability=capability,
+        )
 
         while len(tested) < len(all_key_names):
             candidate_key_names = active_key_names if not allow_reserve else all_key_names
@@ -296,7 +332,7 @@ class OneminToolAdapter:
                     capability=capability,
                     principal_id=principal_id,
                     request_id=selection_request_id,
-                    estimated_credits=None,
+                    estimated_credits=estimated_feature_credits,
                     allow_reserve=allow_reserve,
                 )
             if manager_selection is not None:
@@ -417,7 +453,7 @@ class OneminToolAdapter:
             if isinstance(usage, dict):
                 tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
                 tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-            upstream._record_onemin_usage_event(
+            measured_credits_delta, _usage_basis = upstream._record_onemin_usage_and_measure_delta(
                 api_key=api_key,
                 model=resolved_model,
                 tokens_in=tokens_in,
@@ -426,7 +462,13 @@ class OneminToolAdapter:
             )
             upstream._mark_onemin_success(api_key)
             if manager is not None and manager_lease_id:
-                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
+                manager.record_usage(
+                    lease_id=manager_lease_id,
+                    actual_credits_delta=measured_credits_delta
+                    if measured_credits_delta is not None
+                    else estimated_feature_credits,
+                    status="success",
+                )
                 manager.release_lease(lease_id=manager_lease_id, status="released")
             return payload, account_name, key_slot, resolved_model, tokens_in, tokens_out
 

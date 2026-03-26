@@ -2455,7 +2455,18 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     account_name = _provider_account_name("onemin", key_names=_onemin_key_names(), key=state.key)
     latest_snapshot = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
     if latest_snapshot is not None and latest_snapshot.remaining_credits is not None:
-        return int(latest_snapshot.remaining_credits), str(latest_snapshot.basis or "unknown")
+        observed_since_snapshot = _observed_spend_since(
+            api_key=state.key,
+            since=float(latest_snapshot.happened_at or 0.0),
+        )
+        remaining_after_observed_usage = max(
+            0,
+            int(latest_snapshot.remaining_credits) - int(observed_since_snapshot),
+        )
+        basis = str(latest_snapshot.basis or "unknown")
+        if observed_since_snapshot > 0:
+            basis = f"{basis}_plus_observed_usage"
+        return remaining_after_observed_usage, basis
     credit_state = _parse_credit_state(state.last_error)
     if credit_state is not None:
         return int(credit_state["remaining_credits"]), "observed_error"
@@ -2806,6 +2817,41 @@ def _record_onemin_usage_event(
         },
     )
     return int(estimated_credits), basis
+
+
+def _record_onemin_usage_and_measure_delta(
+    *,
+    api_key: str,
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    lane: str | None = None,
+    happened_at: float | None = None,
+) -> tuple[int | None, str]:
+    state_before = _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key))
+    before_remaining, _before_basis = _estimated_onemin_remaining_credits(
+        state_label="usage_before",
+        state=state_before,
+    )
+    estimated_credits, basis = _record_onemin_usage_event(
+        api_key=api_key,
+        model=model,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        lane=lane,
+        happened_at=happened_at,
+    )
+    state_after = _onemin_states_snapshot((api_key,)).get(api_key, state_before)
+    after_remaining, _after_basis = _estimated_onemin_remaining_credits(
+        state_label="usage_after",
+        state=state_after,
+    )
+    measured_delta: int | None = None
+    if before_remaining is not None and after_remaining is not None and int(after_remaining) <= int(before_remaining):
+        measured_delta = max(0, int(before_remaining) - int(after_remaining))
+    if measured_delta is None or measured_delta <= 0:
+        measured_delta = int(estimated_credits) if estimated_credits > 0 else None
+    return measured_delta, basis
 
 
 def _onemin_burn_window_seconds() -> float:
@@ -5018,7 +5064,7 @@ def _call_onemin(
                 if isinstance(usage, dict):
                     tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
                     tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-                _record_onemin_usage_event(
+                measured_credits_delta, _usage_basis = _record_onemin_usage_and_measure_delta(
                     api_key=api_key,
                     model=resolved_model,
                     tokens_in=tokens_in,
@@ -5027,7 +5073,11 @@ def _call_onemin(
                 )
                 _mark_onemin_success(api_key)
                 if manager is not None and manager_lease_id:
-                    manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
+                    manager.record_usage(
+                        lease_id=manager_lease_id,
+                        actual_credits_delta=measured_credits_delta,
+                        status="success",
+                    )
                     manager.release_lease(lease_id=manager_lease_id, status="released")
                 fallback_reason = None
                 if failures or key_fallback_reason:
@@ -5155,7 +5205,7 @@ def _call_onemin(
             if isinstance(usage, dict):
                 tokens_in = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
                 tokens_out = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-            _record_onemin_usage_event(
+            measured_credits_delta, _usage_basis = _record_onemin_usage_and_measure_delta(
                 api_key=api_key,
                 model=resolved_model,
                 tokens_in=tokens_in,
@@ -5164,7 +5214,11 @@ def _call_onemin(
             )
             _mark_onemin_success(api_key)
             if manager is not None and manager_lease_id:
-                manager.record_usage(lease_id=manager_lease_id, actual_credits_delta=None, status="success")
+                manager.record_usage(
+                    lease_id=manager_lease_id,
+                    actual_credits_delta=measured_credits_delta,
+                    status="success",
+                )
                 manager.release_lease(lease_id=manager_lease_id, status="released")
             fallback_reason = None
             if failures or key_fallback_reason:

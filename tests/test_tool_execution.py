@@ -4661,7 +4661,7 @@ def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account
     monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda api_key: None)
     monkeypatch.setattr(upstream, "_mark_onemin_success", lambda api_key: None)
     monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda api_key, detail, temporary_quarantine=False, quarantine_seconds=None: None)
-    monkeypatch.setattr(upstream, "_record_onemin_usage_event", lambda **kwargs: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_and_measure_delta", lambda **kwargs: (1200, "image_estimate"))
     monkeypatch.setattr(upstream, "_now_ms", lambda: 1000)
     monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: str(payload))
     monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
@@ -4732,6 +4732,9 @@ def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account
     assert tokens_out == 0
     assert payload["aiRecord"]["aiRecordDetail"]["resultObject"]["url"] == "https://cdn.1min.ai/generated/manager-image.png"
     assert manager.occupancy_snapshot()["active_lease_count"] == 1
+    released_image_lease = next(row for row in manager.leases_snapshot() if row["capability"] == "image_generate")
+    assert released_image_lease["actual_credits_delta"] == 1200
+    assert released_image_lease["status"] == "released"
 
     register_onemin_manager(None)
 
@@ -4817,7 +4820,7 @@ def test_onemin_tool_adapter_image_request_can_start_on_reserve_pool(
     monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda api_key: None)
     monkeypatch.setattr(upstream, "_mark_onemin_success", lambda api_key: None)
     monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda api_key, detail, temporary_quarantine=False, quarantine_seconds=None: None)
-    monkeypatch.setattr(upstream, "_record_onemin_usage_event", lambda **kwargs: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_and_measure_delta", lambda **kwargs: (1887, "image_estimate"))
     monkeypatch.setattr(upstream, "_now_ms", lambda: 1000)
     monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: str(payload))
     monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
@@ -4872,6 +4875,9 @@ def test_onemin_tool_adapter_image_request_can_start_on_reserve_pool(
     assert result.output_json["provider_account_name"] == "acct-reserve"
     assert result.output_json["provider_key_slot"] == "ONEMIN_AI_API_KEY_FALLBACK_9"
     assert result.output_json["asset_urls"] == ["https://cdn.1min.ai/generated/reserve-first-image.png"]
+    released_image_lease = next(row for row in manager.leases_snapshot() if row["capability"] == "image_generate")
+    assert released_image_lease["actual_credits_delta"] == 1887
+    assert released_image_lease["status"] == "released"
 
     register_onemin_manager(None)
 

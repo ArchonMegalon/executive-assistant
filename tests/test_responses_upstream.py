@@ -689,6 +689,68 @@ def test_call_onemin_populates_provider_account_name(monkeypatch: pytest.MonkeyP
     assert result.provider_account_name == "ONEMIN_AI_API_KEY"
 
 
+def test_call_onemin_records_manager_usage_and_updates_effective_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setattr(upstream, "_estimate_onemin_request_credits", lambda **_kwargs: (150, "test_estimate"))
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        assert headers["API-KEY"] == "onemin-primary"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "remaining_credits": 1000,
+            "max_credits": 5000,
+            "basis": "actual_provider_api",
+        },
+        source="test",
+    )
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+    try:
+        result = upstream.generate_text(requested_model=upstream.ONEMIN_PUBLIC_MODEL, prompt="ping")
+        assert result.text == "ok"
+
+        leases = manager.leases_snapshot()
+        assert len(leases) == 1
+        assert leases[0]["actual_credits_delta"] == 150
+        assert leases[0]["status"] == "released"
+
+        health = upstream._provider_health_report()
+        slot = health["providers"]["onemin"]["slots"][0]
+        assert slot["billing_remaining_credits"] == 1000
+        assert slot["estimated_remaining_credits"] == 850
+        assert slot["estimated_credit_basis"] == "actual_provider_api_plus_observed_usage"
+    finally:
+        register_onemin_manager(None)
+
+
 def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")
