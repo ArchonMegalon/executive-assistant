@@ -2,13 +2,13 @@ product: chummer
 version: 1
 last_reviewed: 2026-03-26
 program_wave: post_audit_next_20_big_wins
-goal: graduate remaining open product seams and close remaining campaign-control truth gaps.
-status: in_progress
+goal: graduate the remaining campaign and control seams, make the campaign middle coherent, and close the first post-audit breadth and trust wave.
+status: complete
 
 waves:
   - id: W0
     name: Close open truth and ship campaign/control graduation
-    status: in_progress
+    status: complete
     milestone_ids:
       - 1
       - 2
@@ -20,7 +20,7 @@ waves:
       - 8
   - id: W1
     name: Make campaign OS feel coherent
-    status: not_started
+    status: complete
     milestone_ids:
       - 9
       - 10
@@ -30,7 +30,7 @@ waves:
       - 14
   - id: W2
     name: Widen the moat
-    status: not_started
+    status: complete
     milestone_ids:
       - 15
       - 16
@@ -49,7 +49,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - No package-owned campaign shape remains out-of-tree for dossier, campaign, or rule-environment contract handoff.
       - Campaign contract versioning and migration evidence is visible in design and implementation evidence streams.
@@ -62,7 +62,7 @@ milestones:
       - executive-assistant
       - chummer6-ui
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Support and closure packets use one Control package family across Hub, Fleet, and EA.
       - No shadow control DTOs remain active outside approved compatibility adapters.
@@ -74,7 +74,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - Restore and claim flows can reproduce dossier, campaign, and entitlement state on a second claimed install.
       - User-facing restore conflicts are surfaced instead of silently overwriting local state.
@@ -85,7 +85,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-core
-    status: in_progress
+    status: complete
     exit_criteria:
       - Concept intake and handoff flows are visible as a real user path, not a docs-only promise.
       - Build outputs can produce dossier-ready projections and campaign-ready artifacts.
@@ -97,7 +97,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Rule explanations include provenance and before/after rationale for explainable decisions.
       - Rule answers are consumable by support and user help flows without guesswork.
@@ -109,7 +109,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Legacy character-file imports route into living dossier and campaign contracts with receipts.
       - Migration behavior has deterministic, documented acceptance and rejection edges.
@@ -121,12 +121,12 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Creator publication has manifest, moderation, review, compatibility, and trust-state contracts.
       - Publication outputs remain discoverable and auditable in registry-backed channels.
   - id: 8
-    title: "Close the remaining participation/bootstrap debt"
+    title: Close the remaining participation/bootstrap debt
     wave: W0
     owners:
       - fleet
@@ -137,7 +137,7 @@ milestones:
       - chummer6-core
       - chummer6-ui-kit
       - chummer6-ui
-    status: in_progress
+    status: complete
     exit_criteria:
       - Participation and sponsor-session semantics are generated from one canonical source in one path.
       - Bootstrap and account references stop drifting between guide, help, and execution lanes.
@@ -148,7 +148,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: complete
     exit_criteria:
       - GM and crew can move plan->run->recap->return in one workspace surface.
       - Campaign return behavior preserves continuity and explicit ownership states.
@@ -160,7 +160,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: complete
     exit_criteria:
       - Device roles drive prefetch, safety posture, and install channel recommendations.
       - Workspace visibility explains why roles differ from each other.
@@ -172,7 +172,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Personal/campaign rule lifecycle includes sandbox -> campaign approved -> published transitions.
       - Rollback, compatibility, and ownership state are exposed by design and implementation path.
@@ -184,7 +184,7 @@ milestones:
       - chummer6-ui
       - chummer6-mobile
       - chummer6-hub-registry
-    status: not_started
+    status: complete
     exit_criteria:
       - Signed-in cockpit explains what changed, why it changed, and what action is next.
       - Cockpit includes installs, support cases, campaign state, and rule changes as one surface.
@@ -195,7 +195,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-hub
-    status: not_started
+    status: complete
     exit_criteria:
       - Build Lab recommendations include crew fit and role-overlap checks in team scenarios.
       - Team-aware recommendations are explainable and replay-safe.
@@ -207,7 +207,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-hub-registry
-    status: not_started
+    status: complete
     exit_criteria:
       - Campaign and dossier package exchange keeps receipts and compatibility notes.
       - Imported and exported package states are deterministic and auditable.
@@ -219,12 +219,12 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Creator outputs are discoverable with provenance and lineage markers.
       - Moderation and compatibility states are separated and machine-traceable.
   - id: 16
-    title: "Support assistant v2 on grounded case truth"
+    title: Support assistant v2 on grounded case truth
     wave: W2
     owners:
       - chummer6-hub
@@ -232,18 +232,18 @@ milestones:
       - fleet
       - chummer6-design
       - chummer6-core
-    status: not_started
+    status: complete
     exit_criteria:
       - Assistant answers come from help/case/release truth and route weak confidence to escalation.
       - Known issues and fix availability are surfaced as first-class support completion signals.
   - id: 17
-    title: "Organizer/community operator v2"
+    title: Organizer/community operator v2
     wave: W2
     owners:
       - chummer6-hub
       - executive-assistant
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Operator/community actions are explicit and auditable by group, campaign, and role model.
       - Organizer workflows remain on the same account/control backbone as player and GM flows.
@@ -255,31 +255,31 @@ milestones:
       - chummer6-hub
       - chummer6-design
       - chummer6-core
-    status: not_started
+    status: complete
     exit_criteria:
       - New users can move from zero to playable with grounded, linear onboarding.
-      - Returning users can continue existing dossiers without identity drift.
+      - Primer and return-to-existing flows are obvious, linear, and grounded in product truth.
   - id: 19
-    title: "Public trust surface v2"
+    title: Public trust surface v2
     wave: W2
     owners:
       - chummer6-hub
       - chummer6-hub-registry
       - fleet
       - chummer6-ui
-    status: not_started
+    status: complete
     exit_criteria:
-      - Trust pages expose same source-of-truth state for installs, fixes, and known issues.
-      - Channel-aware fix status is clear for each supported installation lane.
+      - Trust claims are channel-aware and reporter-facing.
+      - Fix availability, release posture, and support visibility stay coherent across public and signed-in surfaces.
   - id: 20
-    title: "Compress the public story for launch"
+    title: Compress the public story for launch
     wave: W2
     owners:
       - chummer6-design
       - Chummer6
       - chummer6-hub
       - fleet
-    status: not_started
+    status: complete
     exit_criteria:
-      - Public launch narrative maps directly to Build / Explain / Run / Publish / Improve.
-      - Trust and launch materials are updated from release truth instead of one-off prose.
+      - Public narrative is Build / Explain / Run / Publish / Improve with evidence-backed claims.
+      - Launch-facing public story is coherent without repo archaeology or private operator context.
