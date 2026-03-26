@@ -1627,6 +1627,7 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     assert "UPGRADING" in seen["command"][7]
     assert "TRUST CHECK" not in seen["command"][7]
     assert "NEURAL LINK RESYNC" in seen["command"][7]
+    assert "boxborderw=4" in seen["command"][7]
 
 
 def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
@@ -1640,9 +1641,13 @@ def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
 
     assert len(layout["fills"]) >= 5
     assert len(layout["chips"]) >= 7
-    assert len(layout["lines"]) >= 4
+    assert len(layout["lines"]) >= 6
     assert len(layout["arcs"]) >= 3
     assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
+    provenance = next(chip for chip in layout["chips"] if chip["text"] == "PROVENANCE")
+    rollback = next(chip for chip in layout["chips"] if chip["text"] == "ROLLBACK")
+    assert int(provenance["x"]) > int(0.65 * 960)
+    assert int(rollback["x"]) > int(0.7 * 960)
 
 
 def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
@@ -1655,10 +1660,38 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     )
 
     total_box_area = sum(int(box["w"]) * int(box["h"]) for box in layout["boxes"])
+    calibration = next(chip for chip in layout["chips"] if chip["text"] == "CYBERLIMB CALIBRATION")
+    wound = next(chip for chip in layout["chips"] if chip["text"] == "WOUND STABILIZED")
 
     assert total_box_area < int(0.07 * 960 * 540)
     assert any(chip["text"] == "AGI 4 ↑ UPGRADING" for chip in layout["chips"])
     assert any(chip["text"] == "ESS 2.8 ↑ UPGRADING" for chip in layout["chips"])
+    assert int(calibration["y"]) > int(0.55 * 540)
+    assert int(wound["y"]) > int(0.62 * 540)
+
+
+def test_apply_flagship_finish_postpass_uses_ffmpeg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+    seen: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = list(command)
+        Path(command[-1]).write_bytes(b"png-sharp")
+        return type("Completed", (), {"stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+
+    result = media.apply_flagship_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+    )
+
+    assert result == "flagship_finish_postpass:applied"
+    assert "unsharp=5:5:0.9:3:3:0.0" in seen["command"][7]
+    assert "eq=contrast=1.03:saturation=1.04:brightness=0.01" in seen["command"][7]
 
 
 def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:
@@ -1672,7 +1705,8 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
 
     assert "clean base-scene plate" in hero_prompt
     assert "deterministic post-composite overlay layer" in hero_prompt
-    assert "Reserve these overlay semantics for the verified composite layer" in hero_prompt
+    assert "Reserve the scene-specific overlay semantics for the verified composite layer only" in hero_prompt
+    assert "Do not paint readable stat names, subsystem labels, approval words, or status text into the base artwork." in hero_prompt
     assert "ugly hairy troll runner" in hero_prompt
     assert "Trust Check" not in hero_prompt
     assert "clean base-scene plate" in karma_prompt

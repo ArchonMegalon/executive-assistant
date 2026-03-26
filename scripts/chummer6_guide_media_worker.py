@@ -21,10 +21,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
 except Exception:  # pragma: no cover - optional runtime dependency
     Image = None
     ImageDraw = None
+    ImageFilter = None
     ImageFont = None
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -3042,9 +3043,15 @@ def critical_visual_gate_failures(
     return failures
 
 
-def _overlay_font():
+def _overlay_font(*, size: int = 18):
     if ImageFont is None:
         return None
+    try:
+        fontfile = _ffmpeg_overlay_fontfile()
+        if fontfile:
+            return ImageFont.truetype(fontfile, size=max(12, int(size)))
+    except Exception:
+        pass
     try:
         return ImageFont.load_default()
     except Exception:  # pragma: no cover - defensive only
@@ -3101,25 +3108,25 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
             "fills": [
                 {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.008), "h": int(height * 0.48), "color": (39, 212, 255, 78)},
                 {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.065), "h": int(height * 0.48), "color": (39, 212, 255, 18)},
-                {"x": int(width * 0.62), "y": int(height * 0.44), "w": int(width * 0.058), "h": int(height * 0.01), "color": (255, 166, 87, 86)},
-                {"x": int(width * 0.34), "y": int(height * 0.615), "w": int(width * 0.1), "h": int(height * 0.01), "color": (39, 212, 255, 72)},
-                {"x": int(width * 0.69), "y": int(height * 0.4), "w": int(width * 0.034), "h": int(height * 0.12), "color": (255, 166, 87, 36)},
+                {"x": int(width * 0.58), "y": int(height * 0.65), "w": int(width * 0.09), "h": int(height * 0.01), "color": (255, 166, 87, 82)},
+                {"x": int(width * 0.22), "y": int(height * 0.69), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 166, 87, 72)},
+                {"x": int(width * 0.36), "y": int(height * 0.76), "w": int(width * 0.12), "h": int(height * 0.01), "color": (39, 212, 255, 70)},
             ],
             "boxes": [
                 {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.105), "h": int(height * 0.54), "color": cyan},
             ],
             "lines": [
-                {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.31), int(height * 0.35)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.29), int(height * 0.62)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.44), int(height * 0.62), int(width * 0.58), int(height * 0.585)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.72), int(height * 0.455), int(width * 0.675), int(height * 0.452)), "color": amber, "width": 3},
-                {"points": (int(width * 0.645), int(height * 0.465), int(width * 0.68), int(height * 0.57)), "color": amber, "width": 2},
-                {"points": (int(width * 0.665), int(height * 0.465), int(width * 0.705), int(height * 0.585)), "color": amber, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.28), int(height * 0.35)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.24), int(height * 0.69)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.38), int(height * 0.76)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.56), int(height * 0.68), int(width * 0.67), int(height * 0.61)), "color": amber, "width": 2},
+                {"points": (int(width * 0.33), int(height * 0.71), int(width * 0.46), int(height * 0.67)), "color": amber, "width": 2},
+                {"points": (int(width * 0.47), int(height * 0.78), int(width * 0.55), int(height * 0.72)), "color": cyan, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.39), int(height * 0.22), int(width * 0.62), int(height * 0.47)), "start": 210, "end": 326, "color": cyan, "width": 3},
-                {"box": (int(width * 0.49), int(height * 0.36), int(width * 0.76), int(height * 0.7)), "start": 198, "end": 274, "color": amber, "width": 3},
-                {"box": (int(width * 0.57), int(height * 0.43), int(width * 0.71), int(height * 0.65)), "start": 214, "end": 336, "color": amber, "width": 2},
+                {"box": (int(width * 0.18), int(height * 0.55), int(width * 0.44), int(height * 0.9)), "start": 224, "end": 302, "color": cyan, "width": 2},
+                {"box": (int(width * 0.48), int(height * 0.5), int(width * 0.78), int(height * 0.9)), "start": 196, "end": 314, "color": amber, "width": 3},
+                {"box": (int(width * 0.56), int(height * 0.58), int(width * 0.7), int(height * 0.82)), "start": 206, "end": 336, "color": amber, "width": 2},
             ],
             "chips": [
                 {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
@@ -3132,9 +3139,9 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.58), "y": int(height * 0.39), "text": "CYBERLIMB CALIBRATION", "color": amber},
-                {"x": int(width * 0.32), "y": int(height * 0.53), "text": "WOUND STABILIZED", "color": amber},
-                {"x": int(width * 0.34), "y": int(height * 0.61), "text": "NEURAL LINK RESYNC", "color": cyan},
+                {"x": int(width * 0.57), "y": int(height * 0.6), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 16},
+                {"x": int(width * 0.22), "y": int(height * 0.66), "text": "WOUND STABILIZED", "color": amber, "font_size": 16},
+                {"x": int(width * 0.36), "y": int(height * 0.73), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 16},
             ],
         }
     if target == "assets/pages/horizons-index.png":
@@ -3173,37 +3180,38 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
     if target == "assets/horizons/karma-forge.png":
         return {
             "fills": [
-                {"x": int(width * 0.05), "y": int(height * 0.15), "w": int(width * 0.13), "h": int(height * 0.012), "color": (255, 166, 87, 88)},
-                {"x": int(width * 0.65), "y": int(height * 0.13), "w": int(width * 0.15), "h": int(height * 0.012), "color": (255, 78, 78, 92)},
-                {"x": int(width * 0.08), "y": int(height * 0.74), "w": int(width * 0.14), "h": int(height * 0.012), "color": (39, 212, 255, 84)},
-                {"x": int(width * 0.43), "y": int(height * 0.74), "w": int(width * 0.19), "h": int(height * 0.012), "color": (255, 166, 87, 84)},
-                {"x": int(width * 0.55), "y": int(height * 0.47), "w": int(width * 0.14), "h": int(height * 0.012), "color": (39, 212, 255, 78)},
+                {"x": int(width * 0.05), "y": int(height * 0.12), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 166, 87, 82)},
+                {"x": int(width * 0.74), "y": int(height * 0.11), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 78, 78, 88)},
+                {"x": int(width * 0.07), "y": int(height * 0.79), "w": int(width * 0.15), "h": int(height * 0.01), "color": (39, 212, 255, 82)},
+                {"x": int(width * 0.58), "y": int(height * 0.79), "w": int(width * 0.16), "h": int(height * 0.01), "color": (255, 166, 87, 78)},
+                {"x": int(width * 0.66), "y": int(height * 0.57), "w": int(width * 0.15), "h": int(height * 0.01), "color": (39, 212, 255, 74)},
             ],
             "boxes": [
-                {"x": int(width * 0.05), "y": int(height * 0.13), "w": int(width * 0.11), "h": int(height * 0.036), "color": amber},
-                {"x": int(width * 0.63), "y": int(height * 0.1), "w": int(width * 0.16), "h": int(height * 0.05), "color": red},
+                {"x": int(width * 0.05), "y": int(height * 0.1), "w": int(width * 0.08), "h": int(height * 0.05), "color": amber},
+                {"x": int(width * 0.74), "y": int(height * 0.08), "w": int(width * 0.12), "h": int(height * 0.05), "color": red},
             ],
             "lines": [
-                {"points": (int(width * 0.22), int(height * 0.16), int(width * 0.35), int(height * 0.29)), "color": amber, "width": 3},
-                {"points": (int(width * 0.24), int(height * 0.74), int(width * 0.35), int(height * 0.68)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.53), int(height * 0.6), int(width * 0.66), int(height * 0.53)), "color": cyan, "width": 3},
-                {"points": (int(width * 0.55), int(height * 0.75), int(width * 0.72), int(height * 0.74)), "color": amber, "width": 3},
-                {"points": (int(width * 0.49), int(height * 0.43), int(width * 0.58), int(height * 0.43)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.57), int(height * 0.34), int(width * 0.62), int(height * 0.43)), "color": amber, "width": 2},
+                {"points": (int(width * 0.16), int(height * 0.14), int(width * 0.33), int(height * 0.26)), "color": amber, "width": 2},
+                {"points": (int(width * 0.2), int(height * 0.8), int(width * 0.33), int(height * 0.7)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.77), int(height * 0.14), int(width * 0.66), int(height * 0.24)), "color": red, "width": 2},
+                {"points": (int(width * 0.66), int(height * 0.39), int(width * 0.58), int(height * 0.43)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.66), int(height * 0.49), int(width * 0.56), int(height * 0.52)), "color": amber, "width": 2},
+                {"points": (int(width * 0.7), int(height * 0.6), int(width * 0.57), int(height * 0.62)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.64), int(height * 0.8), int(width * 0.5), int(height * 0.73)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.49), int(height * 0.12), int(width * 0.93), int(height * 0.56)), "start": 182, "end": 278, "color": red, "width": 4},
-                {"box": (int(width * 0.4), int(height * 0.36), int(width * 0.88), int(height * 0.9)), "start": 214, "end": 302, "color": amber, "width": 3},
-                {"box": (int(width * 0.18), int(height * 0.46), int(width * 0.72), int(height * 1.02)), "start": 232, "end": 310, "color": cyan, "width": 3},
+                {"box": (int(width * 0.54), int(height * 0.1), int(width * 0.92), int(height * 0.42)), "start": 186, "end": 292, "color": red, "width": 3},
+                {"box": (int(width * 0.42), int(height * 0.42), int(width * 0.9), int(height * 0.88)), "start": 218, "end": 304, "color": amber, "width": 2},
+                {"box": (int(width * 0.16), int(height * 0.5), int(width * 0.72), int(height * 1.02)), "start": 232, "end": 314, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.12), "text": "DIFF", "color": amber},
-                {"x": int(width * 0.09), "y": int(height * 0.69), "text": "APPROVAL", "color": cyan},
-                {"x": int(width * 0.64), "y": int(height * 0.1), "text": "ROLLBACK", "color": red},
-                {"x": int(width * 0.58), "y": int(height * 0.41), "text": "PROVENANCE", "color": cyan},
-                {"x": int(width * 0.55), "y": int(height * 0.49), "text": "WITNESS LOCK", "color": amber},
-                {"x": int(width * 0.6), "y": int(height * 0.57), "text": "COMPATIBILITY ARC", "color": cyan},
-                {"x": int(width * 0.45), "y": int(height * 0.69), "text": "REVERT COST", "color": amber},
+                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 16},
+                {"x": int(width * 0.06), "y": int(height * 0.75), "text": "APPROVAL", "color": cyan, "font_size": 16},
+                {"x": int(width * 0.75), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 16},
+                {"x": int(width * 0.68), "y": int(height * 0.34), "text": "PROVENANCE", "color": cyan, "font_size": 16},
+                {"x": int(width * 0.66), "y": int(height * 0.44), "text": "WITNESS LOCK", "color": amber, "font_size": 16},
+                {"x": int(width * 0.67), "y": int(height * 0.55), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 16},
+                {"x": int(width * 0.58), "y": int(height * 0.73), "text": "REVERT COST", "color": amber, "font_size": 16},
             ],
         }
     return {"boxes": [], "chips": []}
@@ -3229,16 +3237,17 @@ def _apply_first_contact_overlay_postpass_ffmpeg(*, image_path: Path, target: st
     for chip in layout["chips"]:
         if not fontfile:
             continue
+        font_size = max(14, int(chip.get("font_size") or 18))
         filters.append(
             "drawtext="
             f"fontfile='{escaped_fontfile}':"
             f"text='{_ffmpeg_escape_drawtext(str(chip['text']))}':"
             f"x={int(chip['x'])}:y={int(chip['y'])}:"
-            "fontsize=18:"
-            "fontcolor=white@0.92:"
+            f"fontsize={font_size}:"
+            "fontcolor=white@0.90:"
             "box=1:"
             f"boxcolor={_ffmpeg_rgba_color(chip['color'])}:"
-            "boxborderw=6"
+            "boxborderw=4"
         )
     if not filters:
         return "first_contact_overlay:unavailable"
@@ -3265,22 +3274,73 @@ def _apply_first_contact_overlay_postpass_ffmpeg(*, image_path: Path, target: st
     return "first_contact_overlay:applied_ffmpeg"
 
 
-def _draw_overlay_chip(draw, *, x: int, y: int, text: str, color: tuple[int, int, int, int]) -> None:
+def _draw_overlay_chip(
+    draw,
+    *,
+    x: int,
+    y: int,
+    text: str,
+    color: tuple[int, int, int, int],
+    font_size: int | None = None,
+) -> None:
     if not text:
         return
-    font = _overlay_font()
+    font = _overlay_font(size=int(font_size or 18))
     text_w, text_h = _text_box(draw, text, font=font)
-    pad_x = 6
-    pad_y = 4
-    fill = (color[0], color[1], color[2], max(42, min(color[3] // 2, 88)))
+    pad_x = 5
+    pad_y = 3
+    fill = (color[0], color[1], color[2], max(28, min(color[3] // 3, 62)))
     draw.rounded_rectangle(
         (x, y, x + text_w + pad_x * 2, y + text_h + pad_y * 2),
         outline=color,
         fill=fill,
         width=2,
-        radius=6,
+        radius=10,
     )
-    draw.text((x + pad_x, y + pad_y - 1), text, fill=(241, 246, 250, 220), font=font)
+    draw.text((x + pad_x, y + pad_y - 1), text, fill=(241, 246, 250, 214), font=font)
+
+
+def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object]) -> str:
+    target = str(spec.get("target") or "").replace("\\", "/").strip()
+    if target not in {
+        "assets/hero/chummer6-hero.png",
+        "assets/horizons/karma-forge.png",
+    }:
+        return "flagship_finish_postpass:skipped"
+    if not image_path.exists():
+        raise RuntimeError(f"flagship_finish_postpass:missing_image:{image_path}")
+    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+        temp_path = Path(handle.name)
+    try:
+        subprocess.run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(image_path),
+                "-vf",
+                "unsharp=5:5:0.9:3:3:0.0,eq=contrast=1.03:saturation=1.04:brightness=0.01",
+                "-frames:v",
+                "1",
+                str(temp_path),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        temp_path.replace(image_path)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"flagship_finish_postpass:ffmpeg_failed:{detail[:240]}") from exc
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return "flagship_finish_postpass:applied"
 
 
 def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
@@ -3333,7 +3393,14 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
         for arc in layout.get("arcs", []):
             draw.arc(tuple(int(value) for value in arc["box"]), start=int(arc["start"]), end=int(arc["end"]), fill=tuple(arc["color"]), width=int(arc.get("width", 2)))
         for chip in layout.get("chips", []):
-            _draw_overlay_chip(draw, x=int(chip["x"]), y=int(chip["y"]), text=str(chip["text"]), color=tuple(chip["color"]))
+            _draw_overlay_chip(
+                draw,
+                x=int(chip["x"]),
+                y=int(chip["y"]),
+                text=str(chip["text"]),
+                color=tuple(chip["color"]),
+                font_size=int(chip.get("font_size") or 18),
+            )
 
         combined = Image.alpha_composite(base, overlay).convert("RGB")
         combined.save(image_path)
@@ -4397,13 +4464,13 @@ def asset_specs() -> list[dict[str, object]]:
             f"Humor note: {humor}." if humor else "",
             f"Concrete visible props: {props}." if props else "",
             (
-                f"Reserve these overlay semantics for the verified composite layer rather than baking readable UI into the artwork: {overlays}."
+                "Reserve the scene-specific overlay semantics for the verified composite layer only; keep any in-scene AR abstract, sparse, and unreadable."
                 if overlays and is_flagship_asset
                 else (f"Useful diegetic overlays in-scene: {overlays}." if overlays else "")
             ),
             f"Secondary motif cues: {motifs}." if motifs else "",
             (
-                f"Reserve these short labels for the verified composite layer only: {callouts}."
+                "Do not paint readable stat names, subsystem labels, approval words, or status text into the base artwork."
                 if callouts and is_flagship_asset
                 else (f"Nonverbal idea cues only: {callouts}." if callouts else "")
             ),
@@ -4495,12 +4562,12 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, visible attribute rails, and strong foreground-midground-background layering. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, and not a lonely human doctor in a tidy white coat.",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, and strong foreground-midground-background layering. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, not a lonely human doctor in a tidy white coat, and not a monitor-heavy medbay with framed diagnostic screens.",
             "environment": "an improvised streetdoc garage clinic carved into a rain-soaked barrens auto bay, with a hacked surgical recliner made from a mechanic chair, tool chests, lift-bay residue, hanging cables, med-gel, injector trays, cyberlimb parts, ammo trays, six-sided dice, a magical focus, tarp dividers, extension cords, rust, oil stains, wet concrete, and hard fluorescent strips fighting with amber work lamps across the room",
-            "subject": "an obvious ork or other metahuman streetdoc actively stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the opposite side with tools, telemetry, or light",
-            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, and matted hair, and the support figure reaches into frame with tool handoff, trust traces, attribute checks, and proof anchors spread through the improvised garage clinic",
+            "subject": "an obvious ork or other metahuman streetdoc actively stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the opposite side with tools or hard practical light",
+            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, and matted hair, and the support figure reaches into frame with tool handoff, physical prep traces, and proof anchors spread through the improvised garage clinic",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or telemetry. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, and readable tusks. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue diagnostics against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and obvious left-side attribute-rail support. Show at least two active people clearly in frame with visible hands doing work. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, and no lone gadget hero prop.",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or hard practical light. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, and readable tusks. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue sensor spill against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and crisp material detail. Show at least two active people clearly in frame with visible hands doing work. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, and no medical-screen centerpiece.",
             "framing": "wide cover-energy garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, and deep background tool storage visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
             "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, a human patient, a clean-shaved patient, soft watercolor blur, broad painterly smearing, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, or a clean suburban clinic",
             "overlay_hint": "medscan attribute rail anchors, cyberlimb calibration cues, wound stabilization, neural-link resync, and subsystem fit brackets",
@@ -5160,6 +5227,11 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 statuses.append(apply_first_contact_overlay_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
             if troll_postpass_enabled() and scene_contract_requests_easter_egg(contract):
                 statuses.append(apply_troll_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
+            if target in {
+                "assets/hero/chummer6-hero.png",
+                "assets/horizons/karma-forge.png",
+            }:
+                statuses.append(apply_flagship_finish_postpass(image_path=candidate_path, spec=spec))
             score, notes = visual_audit_score(image_path=candidate_path, target=target) if visual_audit_enabled(target=target) else (0.0, [])
             statuses.extend(notes)
             statuses.append(f"visual_audit:score:{score:.2f}")
