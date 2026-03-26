@@ -106,4 +106,6 @@ Exit: public narrative is Build / Explain / Run / Publish / Improve with evidenc
 
 ## Notes
 
-This guide is intentionally not the canonical control plane. It is an execution operating view for the next wave after the closed closeout planes.
+This guide is now preserved as the historical execution view for the closed post-audit wave.
+Active execution moved to `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` and
+`NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`.

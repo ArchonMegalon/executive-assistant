@@ -1,0 +1,337 @@
+product: chummer
+version: 1
+last_reviewed: 2026-03-26
+program_wave: next_20_big_wins_after_post_audit_closeout
+goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
+status: in_progress
+
+waves:
+  - id: W1
+    name: Make the campaign OS indispensable
+    status: in_progress
+    milestone_ids:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+  - id: W2
+    name: Widen the Build and Explain moat
+    status: not_started
+    milestone_ids:
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+  - id: W3
+    name: Make exchange, output, and publication a second pillar
+    status: not_started
+    milestone_ids:
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
+  - id: W4
+    name: Trust, operator depth, and launch scale
+    status: not_started
+    milestone_ids:
+      - 16
+      - 17
+      - 18
+      - 19
+      - 20
+
+milestones:
+  - id: 1
+    title: "Campaign workspace v3: downtime, aftermath, and long-lived campaign memory"
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    status: in_progress
+    exit_criteria:
+      - Campaign truth spans session plan, run, recap, downtime, and next-session return without lossy handoffs.
+      - Campaign workspace flows keep continuity, recap, and downtime as one governed surface across Hub, UI, and mobile.
+  - id: 2
+    title: Faction, heat, contact, and reputation state as first-class campaign truth
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-core
+      - chummer6-ui
+    status: not_started
+    exit_criteria:
+      - Consequence state is stored as governed campaign truth instead of recap prose or install-local notes.
+      - Campaign-facing UI can explain faction, heat, contact, and reputation changes with grounded receipts.
+    dependencies:
+      - 1
+  - id: 3
+    title: Crew and roster operations across campaigns and groups
+    wave: W1
+    owners:
+      - chummer6-hub
+      - executive-assistant
+      - chummer6-ui
+    status: not_started
+    exit_criteria:
+      - Dossiers can move between rosters, campaigns, and groups with explicit ownership transfer and auditability.
+      - Organizer and GM actions stay on the same governed account and control backbone as normal user flows.
+    dependencies:
+      - 1
+  - id: 4
+    title: NPC/opposition packets and GM prep library
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-core
+      - chummer6-media-factory
+      - chummer6-ui
+    status: not_started
+    exit_criteria:
+      - Opposition, scene, and prep packets are reusable governed objects with search and campaign-binding semantics.
+      - GM prep flows can launch governed opposition truth without recreating local shadow packet models.
+    dependencies:
+      - 1
+      - 2
+  - id: 5
+    title: Safehouse / travel mode with proactive offline prefetch
+    wave: W1
+    owners:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - Claimed devices can prefetch dossier, campaign, rule-environment, and artifact truth for bounded offline use.
+      - Travel and safehouse mode keep install-local caches local while making offline readiness visible and deliberate.
+    dependencies:
+      - 1
+      - 3
+  - id: 6
+    title: Build Lab progression planner
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - Users can model multiple future advancement paths with deterministic tradeoff explanations.
+      - Planner output respects campaign-aware constraints and hands off cleanly into living dossier truth.
+    dependencies:
+      - 1
+      - 2
+  - id: 7
+    title: Build Lab team optimizer
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - Build Lab can reason about crew fit, role overlap, missing capabilities, and campaign role pressure.
+      - Team optimization results are grounded in explainable receipts instead of opaque scoring folklore.
+    dependencies:
+      - 6
+      - 3
+  - id: 8
+    title: "Rules Navigator v2: rule-environment awareness and before/after diffs"
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - Rules answers show how a custom environment differs from baseline and why.
+      - Explain flows reuse the same governed rule-environment truth across product, support, and public-safe surfaces.
+    dependencies:
+      - 2
+      - 5
+  - id: 9
+    title: Rule-environment studio and governed promotion
+    wave: W2
+    owners:
+      - chummer6-hub
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - Sandbox, campaign-approved, and published rule-environment states are real product flows with lineage and rollback.
+      - Promotion, rollback, and lineage posture are visible in both canon and runtime flows.
+    dependencies:
+      - 8
+  - id: 10
+    title: Explain receipts everywhere
+    wave: W2
+    owners:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - Numbers, imports, migration decisions, update eligibility, and support resolutions expose grounded receipts.
+      - Receipt posture is consistent across UI, mobile, hub, and support-facing product surfaces.
+    dependencies:
+      - 6
+      - 8
+  - id: 11
+    title: Portable dossier/campaign federation and external exchange
+    wave: W3
+    owners:
+      - chummer6-core
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-hub-registry
+    status: not_started
+    exit_criteria:
+      - Import and export behaves as a real ecosystem seam with receipts and compatibility notes.
+      - Portable dossier and campaign exchange no longer reads like a backup-only sidecar.
+    dependencies:
+      - 5
+      - 10
+  - id: 12
+    title: Replay and recap packages as first-class artifacts
+    wave: W3
+    owners:
+      - chummer6-hub
+      - chummer6-mobile
+      - chummer6-media-factory
+      - chummer6-hub-registry
+    status: not_started
+    exit_criteria:
+      - Runs can emit durable replay and recap packages that survive publication, return, and audit.
+      - Replay and recap artifacts carry provenance that survives formatting, review, and shelf projection.
+    dependencies:
+      - 1
+      - 11
+  - id: 13
+    title: "Creator publication v3: discovery, lineage, moderation, and trust ranking"
+    wave: W3
+    owners:
+      - chummer6-media-factory
+      - chummer6-hub
+      - chummer6-hub-registry
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - Creator outputs are discoverable, comparable, and provenance-ranked without collapsing into popularity fog.
+      - Moderation, lineage, and trust-ranking posture are explicit and governable end to end.
+    dependencies:
+      - 11
+      - 12
+  - id: 14
+    title: Runbook / module publication flow
+    wave: W3
+    owners:
+      - chummer6-media-factory
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - Campaigns, primers, dossiers, and run modules publish through one coherent governed path.
+      - Publication flow reuses shared artifact truth instead of branching into one-off creator-only lanes.
+    dependencies:
+      - 12
+      - 13
+  - id: 15
+    title: "Artifact shelf v2: personal, campaign, and creator views"
+    wave: W3
+    owners:
+      - chummer6-hub-registry
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+    status: not_started
+    exit_criteria:
+      - One artifact truth can be browsed as personal, campaign, and published views without record duplication.
+      - Shelf posture stays explainable by audience, ownership, and publication state instead of ad hoc filtering.
+    dependencies:
+      - 11
+      - 13
+  - id: 16
+    title: Organizer / league / season operations
+    wave: W4
+    owners:
+      - chummer6-hub
+      - executive-assistant
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - Campaign operators can run larger communities, seasons, and events on the same account and control backbone.
+      - League and season operation surfaces are auditable and governed instead of spreadsheet cargo.
+    dependencies:
+      - 3
+      - 15
+  - id: 17
+    title: Support assistant v3 with proactive fix verification
+    wave: W4
+    owners:
+      - chummer6-hub
+      - executive-assistant
+      - fleet
+      - chummer6-core
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - The support assistant can tell whether a user has received a fix on their install and channel and can ask for confirmation.
+      - Proactive verification remains grounded in release, install, and case truth instead of assistant-local guesswork.
+    dependencies:
+      - 10
+      - 15
+  - id: 18
+    title: Public trust surface v3 with install-specific status and adoption health
+    wave: W4
+    owners:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - fleet
+      - chummer6-ui
+    status: not_started
+    exit_criteria:
+      - Trust pages show what is fixed, who can get it now, what is recommended, and what still needs caution.
+      - Install-specific status and adoption health are visible without collapsing release truth into hand-maintained prose.
+    dependencies:
+      - 15
+      - 17
+  - id: 19
+    title: Guided onboarding and starter-lane to first playable session
+    wave: W4
+    owners:
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-core
+      - chummer6-design
+    status: not_started
+    exit_criteria:
+      - New users can reach a legal, understandable, playable runner and a campaign-ready first session without repo knowledge.
+      - Guided onboarding reuses grounded explain, support, and campaign truth instead of parallel tutorial folklore.
+    dependencies:
+      - 6
+      - 8
+      - 18
+  - id: 20
+    title: "Product pulse v2: measured adoption, provider-route stewardship, and launch readiness"
+    wave: W4
+    owners:
+      - product_governor
+      - fleet
+      - executive-assistant
+      - chummer6-design
+      - chummer6-hub
+    status: not_started
+    exit_criteria:
+      - The weekly pulse uses real adoption, closure, and health trends plus provider-route defaults and canaries.
+      - Launch, freeze, and reroute decisions no longer depend on hand-maintained prose drift.
+    dependencies:
+      - 17
+      - 18

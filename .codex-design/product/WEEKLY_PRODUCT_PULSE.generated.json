@@ -14,11 +14,11 @@
     },
     "top_support_or_feedback_clusters": [
       {
-        "cluster_id": "campaign_breadth_and_promotion",
-        "summary": "Post-Audit Next 20 Big Wins is the post-next20 additive product-pressure cluster: broaden campaign return, creator publication, public promotion, and trust-surface follow-through without reopening closed boundary or control-plane work.",
+        "cluster_id": "campaign_os_indispensable_and_launch_scale",
+        "summary": "Next 20 Big Wins After Post-Audit Closeout is the post-post-audit additive pressure cluster: make the campaign OS indispensable, widen Build and Explain, strengthen exchange and publication, and turn trust plus operator depth into launch-scale product posture.",
         "source_paths": [
           "products/chummer/ROADMAP.md",
-          "products/chummer/NEXT_20_BIG_WINS_REGISTRY.yaml"
+          "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml"
         ]
       },
       {
@@ -43,9 +43,9 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-26-closeout-and-continue-post-audit-next-20-big-wins",
+        "decision_id": "2026-03-26-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
-        "reason": "Keep the recommended wave on Post-Audit Next 20 Big Wins now that the Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 2 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation blockers.",
+        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 2 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
           "overall_progress_percent=73",
           "history_snapshot_count=2",
@@ -55,14 +55,16 @@
         ]
       }
     ],
-    "next_checkpoint_question": "What is the smallest cross-repo slice that makes campaign breadth, creator trust, and public promotion feel undeniably real to users?"
+    "next_checkpoint_question": "What is the smallest cross-repo slice that makes the campaign OS indispensable and turns trust, adoption, and publication depth into a real launch advantage?"
   },
   "supporting_signals": {
-    "current_recommended_wave": "Post-Audit Next 20 Big Wins",
+    "current_recommended_wave": "Next 20 Big Wins After Post-Audit Closeout",
     "overall_progress_percent": 73,
     "phase_label": "Scale & stabilize",
     "history_snapshot_count": 2,
     "longest_pole": "Cloud & Publishing",
+    "post_audit_next20_status": "complete",
+    "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",
     "scorecard_metric_count": 14
   }
 }
