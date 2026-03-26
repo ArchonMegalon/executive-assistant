@@ -24,11 +24,23 @@ from app.api.routes.product_api_contracts import (
     HandoffCompleteIn,
     HandoffNoteOut,
     HistoryEntryOut,
+    OfficeEventOut,
+    OfficeEventResponse,
+    OfficeSignalIn,
+    OfficeSignalResultOut,
     PersonCorrectionIn,
     PersonDetailOut,
     PersonProfileOut,
     QueueResolveIn,
     QueueResponse,
+    SearchResponse,
+    SearchResultOut,
+    WebhookDeliveryOut,
+    WebhookDeliveryResponse,
+    WebhookOut,
+    WebhookRegisterIn,
+    WebhookResponse,
+    WebhookTestResultOut,
     RuleItemOut,
     RuleResponse,
     RuleSimulateIn,
@@ -86,6 +98,31 @@ def get_queue(
         operator_id=str(context.operator_id or "").strip(),
     )
     return QueueResponse(generated_at=now_iso(), items=[queue_out(item) for item in items], total=len(items))
+
+
+@router.get("/search", response_model=SearchResponse)
+def search_workspace(
+    q: str = Query(default="", alias="query"),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> SearchResponse:
+    service = build_product_service(container)
+    items = service.search_workspace(
+        principal_id=context.principal_id,
+        query=q,
+        limit=limit,
+        operator_id=str(context.operator_id or "").strip(),
+    )
+    if str(q or "").strip():
+        service.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="workspace_search_performed",
+            surface="search_api",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            metadata={"query": str(q or "").strip()[:80], "result_total": len(items)},
+        )
+    return SearchResponse(generated_at=now_iso(), items=[SearchResultOut(**item) for item in items], total=len(items))
 
 
 @router.get("/decisions", response_model=DecisionResponse)
@@ -715,6 +752,107 @@ def get_workspace_support_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+
+
+@router.get("/events", response_model=OfficeEventResponse)
+def get_office_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    event_type: str = Query(default=""),
+    channel: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OfficeEventResponse:
+    service = build_product_service(container)
+    items = service.list_office_events(
+        principal_id=context.principal_id,
+        limit=limit,
+        event_type=event_type,
+        channel=channel,
+    )
+    return OfficeEventResponse(generated_at=now_iso(), items=[OfficeEventOut(**item) for item in items], total=len(items))
+
+
+@router.post("/signals/ingest", response_model=OfficeSignalResultOut)
+def ingest_office_signal(
+    body: OfficeSignalIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OfficeSignalResultOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    payload = service.ingest_office_signal(
+        principal_id=context.principal_id,
+        signal_type=body.signal_type,
+        channel=body.channel,
+        title=body.title,
+        summary=body.summary,
+        text=body.text,
+        source_ref=body.source_ref,
+        external_id=body.external_id,
+        counterparty=body.counterparty,
+        stakeholder_id=body.stakeholder_id,
+        due_at=body.due_at,
+        payload=body.payload,
+        actor=actor,
+    )
+    return OfficeSignalResultOut(**payload)
+
+
+@router.get("/webhooks", response_model=WebhookResponse)
+def get_webhooks(
+    limit: int = Query(default=50, ge=1, le=200),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WebhookResponse:
+    service = build_product_service(container)
+    items = service.list_webhooks(principal_id=context.principal_id, limit=limit)
+    return WebhookResponse(generated_at=now_iso(), items=[WebhookOut(**item) for item in items], total=len(items))
+
+
+@router.post("/webhooks", response_model=WebhookOut)
+def register_webhook(
+    body: WebhookRegisterIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WebhookOut:
+    service = build_product_service(container)
+    payload = service.register_webhook(
+        principal_id=context.principal_id,
+        label=body.label,
+        target_url=body.target_url,
+        event_types=tuple(body.event_types),
+        status=body.status,
+    )
+    return WebhookOut(**payload)
+
+
+@router.get("/webhooks/deliveries", response_model=WebhookDeliveryResponse)
+def get_webhook_deliveries(
+    webhook_id: str = Query(default=""),
+    limit: int = Query(default=100, ge=1, le=500),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WebhookDeliveryResponse:
+    service = build_product_service(container)
+    items = service.list_webhook_deliveries(
+        principal_id=context.principal_id,
+        webhook_id=webhook_id,
+        limit=limit,
+    )
+    return WebhookDeliveryResponse(generated_at=now_iso(), items=[WebhookDeliveryOut(**item) for item in items], total=len(items))
+
+
+@router.post("/webhooks/{webhook_id}/test", response_model=WebhookTestResultOut)
+def test_webhook(
+    webhook_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WebhookTestResultOut:
+    service = build_product_service(container)
+    payload = service.test_webhook(principal_id=context.principal_id, webhook_id=webhook_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="webhook_not_found")
+    return WebhookTestResultOut(webhook=WebhookOut(**payload["webhook"]), delivery=WebhookDeliveryOut(**payload["delivery"]))
 
 
 @router.get("/channel-loop", response_model=ChannelLoopOut)

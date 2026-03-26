@@ -47,6 +47,19 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
 def test_support_bundle_export_includes_commercial_state_and_records_event() -> None:
     client, _seeded = _seed("exec-support-bundle")
 
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "calendar_note",
+            "channel": "calendar",
+            "title": "Board prep",
+            "summary": "Confirm the board memo owner before the afternoon meeting.",
+            "source_ref": "calendar-event-1",
+            "external_id": "calendar-note-1",
+        },
+    )
+    assert signal.status_code == 200
+
     export = client.get("/app/api/diagnostics/export")
     assert export.status_code == 200
     body = export.json()
@@ -66,6 +79,8 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
     assert "success_summary" in body["analytics"]
+    assert isinstance(body["recent_events"], list)
+    assert any(item["event_type"] == "office_signal_calendar_note" for item in body["recent_events"])
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200

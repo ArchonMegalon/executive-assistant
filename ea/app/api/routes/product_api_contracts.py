@@ -194,6 +194,18 @@ class RuleItemOut(BaseModel):
     simulated_effect: str = ""
 
 
+class OfficeEventOut(BaseModel):
+    observation_id: str
+    channel: str
+    event_type: str
+    created_at: str
+    source_id: str = ""
+    external_id: str = ""
+    summary: str = ""
+    object_refs: list[str] = Field(default_factory=list)
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
 class WorkspaceDiagnosticsOut(BaseModel):
     workspace: dict[str, object]
     selected_channels: list[str]
@@ -244,6 +256,7 @@ class WorkspaceSupportBundleOut(BaseModel):
     queue_health: dict[str, object]
     assignment_suggestions: list[dict[str, object]]
     pending_delivery: list[dict[str, object]]
+    recent_events: list[OfficeEventOut] = Field(default_factory=list)
 
 
 class ChannelLoopItemOut(BaseModel):
@@ -309,6 +322,66 @@ class EvidenceResponse(BaseModel):
 class RuleResponse(BaseModel):
     generated_at: str
     items: list[RuleItemOut]
+    total: int
+
+
+class OfficeEventResponse(BaseModel):
+    generated_at: str
+    items: list[OfficeEventOut]
+    total: int
+
+
+class SearchResultOut(BaseModel):
+    id: str
+    kind: str
+    title: str
+    summary: str = ""
+    href: str = ""
+    score: float = 0.0
+    secondary_label: str = ""
+    related_object_refs: list[str] = Field(default_factory=list)
+
+
+class SearchResponse(BaseModel):
+    generated_at: str
+    items: list[SearchResultOut]
+    total: int
+
+
+class WebhookOut(BaseModel):
+    webhook_id: str
+    label: str
+    target_url: str
+    status: str = "active"
+    event_types: list[str] = Field(default_factory=list)
+    created_at: str = ""
+    last_delivery_at: str = ""
+    delivery_count: int = 0
+
+
+class WebhookDeliveryOut(BaseModel):
+    delivery_id: str
+    webhook_id: str
+    label: str = ""
+    target_url: str = ""
+    matched_event_type: str = ""
+    delivery_kind: str = "event"
+    status: str = "queued"
+    created_at: str = ""
+    source_id: str = ""
+    summary: str = ""
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class WebhookResponse(BaseModel):
+    generated_at: str
+    items: list[WebhookOut]
+    total: int
+
+
+class WebhookDeliveryResponse(BaseModel):
+    generated_at: str
+    items: list[WebhookDeliveryOut]
     total: int
 
 
@@ -378,6 +451,43 @@ class PersonCorrectionIn(BaseModel):
 
 class RuleSimulateIn(BaseModel):
     proposed_value: str = Field(min_length=1)
+
+
+class OfficeSignalIn(BaseModel):
+    signal_type: str = Field(min_length=1)
+    channel: str = "office_api"
+    title: str = ""
+    summary: str = ""
+    text: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    counterparty: str = ""
+    stakeholder_id: str = ""
+    due_at: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class OfficeSignalResultOut(BaseModel):
+    observation_id: str
+    channel: str
+    event_type: str
+    source_id: str = ""
+    external_id: str = ""
+    created_at: str
+    staged_candidates: list[CommitmentCandidateOut] = Field(default_factory=list)
+    staged_count: int = 0
+
+
+class WebhookRegisterIn(BaseModel):
+    label: str = Field(min_length=1)
+    target_url: str = Field(min_length=1)
+    event_types: list[str] = Field(default_factory=list)
+    status: str = "active"
+
+
+class WebhookTestResultOut(BaseModel):
+    webhook: WebhookOut
+    delivery: WebhookDeliveryOut
 
 
 def now_iso() -> str:

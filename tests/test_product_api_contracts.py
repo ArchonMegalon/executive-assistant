@@ -163,6 +163,80 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "Morning memo digest" in memo_plain.text
     assert "/app/channel/queue/" in memo_plain.text
 
+    webhook = client.post(
+        "/app/api/webhooks",
+        json={
+            "label": "Office sink",
+            "target_url": "https://example.invalid/office-hook",
+            "event_types": ["office_signal_email_thread", "workspace_search_performed"],
+        },
+    )
+    assert webhook.status_code == 200
+    webhook_body = webhook.json()
+    assert webhook_body["label"] == "Office sink"
+    assert webhook_body["target_url"] == "https://example.invalid/office-hook"
+    webhook_id = webhook_body["webhook_id"]
+
+    webhooks = client.get("/app/api/webhooks")
+    assert webhooks.status_code == 200
+    assert any(item["webhook_id"] == webhook_id for item in webhooks.json()["items"])
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Investor follow-up",
+            "summary": "Send the revised board packet to Sofia tomorrow morning.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread-123",
+            "external_id": "gmail-msg-123",
+        },
+    )
+    assert signal.status_code == 200
+    signal_body = signal.json()
+    assert signal_body["channel"] == "gmail"
+    assert signal_body["event_type"] == "office_signal_email_thread"
+    assert signal_body["staged_count"] >= 1
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    events_body = events.json()
+    assert events_body["total"] >= 1
+    assert any(item["event_type"] == "office_signal_email_thread" for item in events_body["items"])
+    assert any(item["source_id"] == "gmail-thread-123" for item in events_body["items"])
+    gmail_events = client.get("/app/api/events", params={"channel": "gmail"})
+    assert gmail_events.status_code == 200
+    assert all(item["channel"] == "gmail" for item in gmail_events.json()["items"])
+
+    deliveries = client.get("/app/api/webhooks/deliveries", params={"webhook_id": webhook_id})
+    assert deliveries.status_code == 200
+    deliveries_body = deliveries.json()
+    assert deliveries_body["total"] >= 1
+    assert any(item["matched_event_type"] == "office_signal_email_thread" for item in deliveries_body["items"])
+    assert any(item["webhook_id"] == webhook_id for item in deliveries_body["items"])
+
+    search = client.get("/app/api/search", params={"query": "Sofia"})
+    assert search.status_code == 200
+    search_body = search.json()
+    assert search_body["total"] >= 2
+    assert any(item["kind"] == "person" and item["title"] == "Sofia N." for item in search_body["items"])
+    assert any(item["kind"] == "thread" and item["title"] == "sofia@example.com" for item in search_body["items"])
+    assert all(item["score"] > 0 for item in search_body["items"])
+
+    board_search = client.get("/app/api/search", params={"query": "board", "limit": 5})
+    assert board_search.status_code == 200
+    board_body = board_search.json()
+    assert board_body["total"] >= 2
+    assert any(item["kind"] == "decision" for item in board_body["items"])
+    assert any(item["kind"] == "commitment" for item in board_body["items"])
+    assert all(item["href"] for item in board_body["items"])
+
+    webhook_test = client.post(f"/app/api/webhooks/{webhook_id}/test")
+    assert webhook_test.status_code == 200
+    assert webhook_test.json()["webhook"]["webhook_id"] == webhook_id
+    assert webhook_test.json()["delivery"]["delivery_kind"] == "test"
+
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
     principal_id = "exec-product-resolve"
