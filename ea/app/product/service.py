@@ -4,6 +4,7 @@ import re
 import urllib.parse
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, Stakeholder
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
@@ -90,6 +91,35 @@ def _action_label(action_json: dict[str, object]) -> str:
     return raw or "review"
 
 
+def _search_tokens(value: str) -> tuple[str, ...]:
+    normalized = _COMMITMENT_KEY_RE.sub(" ", str(value or "").strip().lower()).strip()
+    if not normalized:
+        return ()
+    return tuple(part for part in normalized.split() if part)
+
+
+def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = "", extra: tuple[str, ...] = ()) -> float:
+    if not tokens:
+        return 0.0
+    title_text = str(title or "").strip().lower()
+    summary_text = str(summary or "").strip().lower()
+    extra_text = " ".join(str(part or "").strip().lower() for part in extra if str(part or "").strip())
+    score = 0.0
+    full_query = " ".join(tokens)
+    if full_query and title_text and full_query in title_text:
+        score += 8.0
+    if full_query and summary_text and full_query in summary_text:
+        score += 4.0
+    for token in tokens:
+        if token in title_text:
+            score += 5.0
+        if token in summary_text:
+            score += 3.0
+        if extra_text and token in extra_text:
+            score += 2.0
+    return score
+
+
 class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
@@ -103,7 +133,7 @@ class ProductService:
         source_id: str = "",
         dedupe_key: str = "",
     ) -> None:
-        self._container.channel_runtime.ingest_observation(
+        event = self._container.channel_runtime.ingest_observation(
             principal_id=principal_id,
             channel="product",
             event_type=event_type,
@@ -111,6 +141,14 @@ class ProductService:
             source_id=source_id,
             dedupe_key=dedupe_key,
         )
+        normalized_type = str(event_type or "").strip().lower()
+        if normalized_type and not normalized_type.startswith("webhook_"):
+            self._queue_webhook_deliveries(
+                principal_id=principal_id,
+                matched_event_type=normalized_type,
+                payload=dict(payload or {}),
+                source_id=str(source_id or event.observation_id or "").strip(),
+            )
 
     def _stakeholder_lookup(self, principal_id: str) -> dict[str, Stakeholder]:
         rows = self._container.memory_runtime.list_stakeholders(principal_id=principal_id, limit=200)
@@ -368,6 +406,501 @@ class ProductService:
         else:
             source_id = commitment_ref
         return self._history_entries(principal_id=principal_id, source_ids=(source_id,), limit=limit)
+
+    def _event_object_refs(self, *, source_id: str, payload: dict[str, object]) -> tuple[str, ...]:
+        refs: list[str] = []
+        for key in (
+            "commitment_ref",
+            "decision_ref",
+            "thread_ref",
+            "evidence_ref",
+            "rule_ref",
+            "handoff_ref",
+            "draft_ref",
+        ):
+            value = str(payload.get(key) or "").strip()
+            if value:
+                refs.append(value)
+        for key in ("commitment_refs", "decision_refs", "thread_refs", "evidence_refs", "rule_refs"):
+            for value in (payload.get(key) or []):
+                normalized = str(value or "").strip()
+                if normalized:
+                    refs.append(normalized)
+        normalized_source = str(source_id or "").strip()
+        if normalized_source:
+            refs.append(normalized_source)
+        return self._append_unique_refs(refs)
+
+    def list_office_events(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 50,
+        event_type: str = "",
+        channel: str = "",
+    ) -> tuple[dict[str, object], ...]:
+        wanted_type = str(event_type or "").strip().lower()
+        wanted_channel = str(channel or "").strip().lower()
+        rows: list[dict[str, object]] = []
+        for row in self._container.channel_runtime.list_recent_observations(limit=max(limit * 4, 200), principal_id=principal_id):
+            normalized_channel = str(row.channel or "").strip().lower()
+            normalized_type = str(row.event_type or "").strip().lower()
+            if wanted_channel and normalized_channel != wanted_channel:
+                continue
+            if wanted_type and normalized_type != wanted_type:
+                continue
+            payload = dict(row.payload or {})
+            summary = (
+                str(payload.get("summary") or "").strip()
+                or str(payload.get("title") or "").strip()
+                or str(payload.get("reason") or "").strip()
+                or str(payload.get("text") or "").strip()
+                or str(payload.get("surface") or "").strip()
+                or normalized_type.replace("_", " ")
+            )
+            rows.append(
+                {
+                    "observation_id": str(row.observation_id or ""),
+                    "channel": str(row.channel or ""),
+                    "event_type": str(row.event_type or ""),
+                    "created_at": str(row.created_at or ""),
+                    "source_id": str(row.source_id or ""),
+                    "external_id": str(row.external_id or ""),
+                    "summary": summary[:220],
+                    "object_refs": list(self._event_object_refs(source_id=str(row.source_id or ""), payload=payload)),
+                    "payload": payload,
+                }
+            )
+        rows.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("observation_id") or "")), reverse=True)
+        return tuple(rows[:limit])
+
+    def ingest_office_signal(
+        self,
+        *,
+        principal_id: str,
+        signal_type: str,
+        channel: str = "office_api",
+        title: str = "",
+        summary: str = "",
+        text: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        counterparty: str = "",
+        stakeholder_id: str = "",
+        due_at: str | None = None,
+        payload: dict[str, object] | None = None,
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_signal = str(signal_type or "").strip().lower()
+        normalized_channel = str(channel or "office_api").strip().lower() or "office_api"
+        summary_text = str(summary or "").strip()
+        title_text = str(title or "").strip()
+        source_text = str(text or "").strip() or " ".join(part for part in (title_text, summary_text) if part).strip()
+        dedupe_parts = [
+            "office-signal",
+            principal_id,
+            normalized_signal,
+            str(external_id or "").strip(),
+            str(source_ref or "").strip(),
+            source_text[:80],
+        ]
+        dedupe_key = "|".join(part for part in dedupe_parts if part)
+        staged = self.stage_extracted_commitments(
+            principal_id=principal_id,
+            text=source_text,
+            counterparty=counterparty,
+            due_at=due_at,
+            kind="follow_up" if "follow" in normalized_signal or "meeting" in normalized_signal else "commitment",
+            stakeholder_id=stakeholder_id,
+        ) if source_text else ()
+        payload_json = {
+            "signal_type": normalized_signal,
+            "title": title_text,
+            "summary": summary_text,
+            "text": source_text,
+            "counterparty": str(counterparty or "").strip(),
+            "stakeholder_id": str(stakeholder_id or "").strip(),
+            "due_at": str(due_at or "").strip(),
+            "actor": str(actor or "").strip() or "office_api",
+            "staged_candidate_ids": [row.candidate_id for row in staged if str(row.candidate_id or "").strip()],
+            **dict(payload or {}),
+        }
+        event = self._container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel=normalized_channel,
+            event_type=f"office_signal_{normalized_signal}",
+            payload=payload_json,
+            source_id=str(source_ref or "").strip(),
+            external_id=str(external_id or "").strip(),
+            dedupe_key=dedupe_key,
+        )
+        self._queue_webhook_deliveries(
+            principal_id=principal_id,
+            matched_event_type=str(event.event_type or ""),
+            payload=payload_json,
+            source_id=str(source_ref or event.observation_id or "").strip(),
+            external_id=str(external_id or "").strip(),
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="office_signal_ingested",
+            payload={
+                "signal_type": normalized_signal,
+                "channel": normalized_channel,
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "staged_count": len(staged),
+            },
+            source_id=str(source_ref or event.observation_id or "").strip(),
+        )
+        return {
+            "observation_id": str(event.observation_id or ""),
+            "channel": str(event.channel or ""),
+            "event_type": str(event.event_type or ""),
+            "source_id": str(event.source_id or ""),
+            "external_id": str(event.external_id or ""),
+            "created_at": str(event.created_at or ""),
+            "staged_candidates": [
+                {
+                    "candidate_id": row.candidate_id,
+                    "title": row.title,
+                    "details": row.details,
+                    "source_text": row.source_text,
+                    "confidence": row.confidence,
+                    "suggested_due_at": row.suggested_due_at,
+                    "counterparty": row.counterparty,
+                    "status": row.status,
+                    "kind": row.kind,
+                    "stakeholder_id": row.stakeholder_id,
+                    "duplicate_of_ref": row.duplicate_of_ref,
+                    "merge_strategy": row.merge_strategy,
+                }
+                for row in staged
+            ],
+            "staged_count": len(staged),
+        }
+
+    def search_workspace(
+        self,
+        *,
+        principal_id: str,
+        query: str,
+        limit: int = 20,
+        operator_id: str = "",
+    ) -> tuple[dict[str, object], ...]:
+        tokens = _search_tokens(query)
+        if not tokens:
+            return ()
+        rows: list[dict[str, object]] = []
+
+        def add_result(
+            *,
+            id: str,
+            kind: str,
+            title: str,
+            summary: str = "",
+            href: str = "",
+            secondary_label: str = "",
+            related_object_refs: tuple[str, ...] = (),
+            extra: tuple[str, ...] = (),
+        ) -> None:
+            score = _search_score(tokens=tokens, title=title, summary=summary, extra=extra)
+            if score <= 0:
+                return
+            rows.append(
+                {
+                    "id": id,
+                    "kind": kind,
+                    "title": str(title or "").strip(),
+                    "summary": str(summary or "").strip()[:220],
+                    "href": href,
+                    "score": score,
+                    "secondary_label": secondary_label,
+                    "related_object_refs": list(related_object_refs),
+                }
+            )
+
+        for person in self.list_people(principal_id=principal_id, limit=max(limit * 2, 25)):
+            add_result(
+                id=person.id,
+                kind="person",
+                title=person.display_name,
+                summary=f"{person.role_or_company} · {person.relationship_temperature} · {person.open_loops_count} open loops",
+                href=f"/app/people/{urllib.parse.quote(person.id, safe='')}",
+                secondary_label=person.relationship_temperature,
+                related_object_refs=(person.id,),
+                extra=tuple(person.themes) + tuple(person.risks) + (person.preferred_tone, person.role_or_company),
+            )
+
+        for thread in self.list_threads(principal_id=principal_id, limit=max(limit * 2, 25)):
+            add_result(
+                id=thread.id,
+                kind="thread",
+                title=thread.title,
+                summary=thread.summary,
+                href=f"/app/threads/{urllib.parse.quote(thread.id, safe='')}",
+                secondary_label=thread.channel,
+                related_object_refs=tuple(thread.related_commitment_ids) + tuple(thread.related_decision_ids),
+                extra=tuple(thread.counterparties) + tuple(thread.draft_ids),
+            )
+
+        for commitment in self.list_commitments(principal_id=principal_id, limit=max(limit * 3, 40)):
+            add_result(
+                id=commitment.id,
+                kind="commitment",
+                title=commitment.statement,
+                summary=f"{commitment.counterparty} · {commitment.status} · {commitment.risk_level}",
+                href=f"/app/follow-ups?focus={urllib.parse.quote(commitment.id, safe='')}",
+                secondary_label=commitment.status,
+                related_object_refs=(commitment.id,),
+                extra=(commitment.counterparty, commitment.owner, commitment.channel_hint, commitment.source_ref),
+            )
+
+        for decision in self.list_decisions(principal_id=principal_id, limit=max(limit * 2, 25)):
+            add_result(
+                id=decision.id,
+                kind="decision",
+                title=decision.title,
+                summary=decision.summary,
+                href=f"/app/decisions/{urllib.parse.quote(decision.id, safe='')}",
+                secondary_label=decision.status,
+                related_object_refs=tuple(decision.related_commitment_ids) + tuple(decision.linked_thread_ids),
+                extra=tuple(decision.options) + tuple(decision.related_people) + (decision.recommendation, decision.next_action, decision.rationale),
+            )
+
+        for evidence in self.list_evidence(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id):
+            add_result(
+                id=evidence.id,
+                kind="evidence",
+                title=evidence.label,
+                summary=evidence.summary,
+                href=f"/app/evidence/{urllib.parse.quote(evidence.id, safe='')}",
+                secondary_label=evidence.source_type,
+                related_object_refs=(evidence.id,),
+                extra=(evidence.source_type,),
+            )
+
+        for rule in self.list_rules(principal_id=principal_id):
+            add_result(
+                id=rule.id,
+                kind="rule",
+                title=rule.label,
+                summary=rule.summary,
+                href=f"/app/rules/{urllib.parse.quote(rule.id, safe='')}",
+                secondary_label=rule.scope,
+                related_object_refs=(rule.id,),
+                extra=(rule.scope, rule.current_value, rule.impact, rule.status, rule.simulated_effect),
+            )
+
+        rows.sort(key=lambda item: (float(item.get("score") or 0.0), str(item.get("title") or "").lower(), str(item.get("id") or "")), reverse=True)
+        return tuple(rows[:limit])
+
+    def list_webhooks(self, *, principal_id: str, limit: int = 50) -> tuple[dict[str, object], ...]:
+        configs: dict[str, dict[str, object]] = {}
+        delivery_meta: dict[str, dict[str, object]] = {}
+        for row in self._container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id):
+            event_type = str(row.event_type or "").strip().lower()
+            payload = dict(row.payload or {})
+            if event_type == "webhook_registered":
+                webhook_id = str(payload.get("webhook_id") or row.source_id or "").strip()
+                if webhook_id and webhook_id not in configs:
+                    configs[webhook_id] = {
+                        "webhook_id": webhook_id,
+                        "label": str(payload.get("label") or webhook_id).strip(),
+                        "target_url": str(payload.get("target_url") or "").strip(),
+                        "status": str(payload.get("status") or "active").strip() or "active",
+                        "event_types": [str(item).strip().lower() for item in payload.get("event_types") or [] if str(item).strip()],
+                        "created_at": str(payload.get("created_at") or row.created_at or ""),
+                        "last_delivery_at": "",
+                        "delivery_count": 0,
+                    }
+            elif event_type == "webhook_delivery_queued":
+                webhook_id = str(payload.get("webhook_id") or "").strip()
+                if not webhook_id:
+                    continue
+                slot = delivery_meta.setdefault(webhook_id, {"delivery_count": 0, "last_delivery_at": ""})
+                slot["delivery_count"] = int(slot.get("delivery_count") or 0) + 1
+                created_at = str(row.created_at or "")
+                if created_at and created_at > str(slot.get("last_delivery_at") or ""):
+                    slot["last_delivery_at"] = created_at
+        rows: list[dict[str, object]] = []
+        for webhook_id, config in configs.items():
+            meta = delivery_meta.get(webhook_id, {})
+            rows.append(
+                {
+                    **config,
+                    "last_delivery_at": str(meta.get("last_delivery_at") or ""),
+                    "delivery_count": int(meta.get("delivery_count") or 0),
+                }
+            )
+        rows.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("webhook_id") or "")), reverse=True)
+        return tuple(rows[:limit])
+
+    def get_webhook(self, *, principal_id: str, webhook_id: str) -> dict[str, object] | None:
+        normalized = str(webhook_id or "").strip()
+        if not normalized:
+            return None
+        for row in self.list_webhooks(principal_id=principal_id, limit=200):
+            if str(row.get("webhook_id") or "").strip() == normalized:
+                return row
+        return None
+
+    def register_webhook(
+        self,
+        *,
+        principal_id: str,
+        label: str,
+        target_url: str,
+        event_types: tuple[str, ...] = (),
+        status: str = "active",
+    ) -> dict[str, object]:
+        webhook_id = f"webhook_{uuid4().hex[:10]}"
+        payload = {
+            "webhook_id": webhook_id,
+            "label": str(label or "").strip(),
+            "target_url": str(target_url or "").strip(),
+            "event_types": [str(item).strip().lower() for item in event_types if str(item).strip()],
+            "status": str(status or "active").strip().lower() or "active",
+            "created_at": _now_iso(),
+        }
+        self._container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="product",
+            event_type="webhook_registered",
+            payload=payload,
+            source_id=webhook_id,
+            external_id=str(target_url or "").strip(),
+            dedupe_key=f"{principal_id}|{webhook_id}",
+        )
+        found = self.get_webhook(principal_id=principal_id, webhook_id=webhook_id)
+        return dict(found or payload)
+
+    def _queue_single_webhook_delivery(
+        self,
+        *,
+        principal_id: str,
+        webhook: dict[str, object],
+        matched_event_type: str,
+        payload: dict[str, object],
+        source_id: str = "",
+        external_id: str = "",
+        delivery_kind: str = "event",
+    ) -> dict[str, object]:
+        webhook_id = str(webhook.get("webhook_id") or "").strip()
+        delivery_id = f"{webhook_id}:{matched_event_type}:{str(external_id or source_id or uuid4().hex[:8]).strip()}"
+        event_payload = {
+            "webhook_id": webhook_id,
+            "label": str(webhook.get("label") or webhook_id).strip(),
+            "target_url": str(webhook.get("target_url") or "").strip(),
+            "matched_event_type": str(matched_event_type or "").strip().lower(),
+            "delivery_kind": str(delivery_kind or "event").strip().lower() or "event",
+            "status": "queued",
+            "summary": str(payload.get("summary") or payload.get("title") or matched_event_type).strip(),
+            "event_payload": dict(payload or {}),
+        }
+        event = self._container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="product",
+            event_type="webhook_delivery_queued",
+            payload=event_payload,
+            source_id=str(source_id or webhook_id).strip(),
+            external_id=delivery_id,
+            dedupe_key=delivery_id,
+        )
+        return {
+            "delivery_id": delivery_id,
+            "webhook_id": webhook_id,
+            "label": str(event_payload.get("label") or "").strip(),
+            "target_url": str(event_payload.get("target_url") or "").strip(),
+            "matched_event_type": str(event_payload.get("matched_event_type") or "").strip(),
+            "delivery_kind": str(event_payload.get("delivery_kind") or "event").strip(),
+            "status": "queued",
+            "created_at": str(event.created_at or ""),
+            "source_id": str(source_id or webhook_id).strip(),
+            "summary": str(event_payload.get("summary") or "").strip(),
+            "payload": dict(payload or {}),
+        }
+
+    def _queue_webhook_deliveries(
+        self,
+        *,
+        principal_id: str,
+        matched_event_type: str,
+        payload: dict[str, object],
+        source_id: str = "",
+        external_id: str = "",
+        delivery_kind: str = "event",
+    ) -> tuple[dict[str, object], ...]:
+        normalized_type = str(matched_event_type or "").strip().lower()
+        if not normalized_type:
+            return ()
+        rows: list[dict[str, object]] = []
+        for webhook in self.list_webhooks(principal_id=principal_id, limit=100):
+            if str(webhook.get("status") or "active").strip().lower() != "active":
+                continue
+            filters = tuple(str(item).strip().lower() for item in webhook.get("event_types") or [] if str(item).strip())
+            if filters and normalized_type not in filters:
+                continue
+            rows.append(
+                self._queue_single_webhook_delivery(
+                    principal_id=principal_id,
+                    webhook=webhook,
+                    matched_event_type=normalized_type,
+                    payload=payload,
+                    source_id=source_id,
+                    external_id=external_id,
+                    delivery_kind=delivery_kind,
+                )
+            )
+        return tuple(rows)
+
+    def list_webhook_deliveries(
+        self,
+        *,
+        principal_id: str,
+        webhook_id: str = "",
+        limit: int = 100,
+    ) -> tuple[dict[str, object], ...]:
+        wanted_webhook = str(webhook_id or "").strip()
+        rows: list[dict[str, object]] = []
+        for row in self._container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id):
+            if str(row.event_type or "").strip().lower() != "webhook_delivery_queued":
+                continue
+            payload = dict(row.payload or {})
+            current_webhook = str(payload.get("webhook_id") or "").strip()
+            if wanted_webhook and current_webhook != wanted_webhook:
+                continue
+            rows.append(
+                {
+                    "delivery_id": str(row.external_id or ""),
+                    "webhook_id": current_webhook,
+                    "label": str(payload.get("label") or "").strip(),
+                    "target_url": str(payload.get("target_url") or "").strip(),
+                    "matched_event_type": str(payload.get("matched_event_type") or "").strip(),
+                    "delivery_kind": str(payload.get("delivery_kind") or "event").strip(),
+                    "status": str(payload.get("status") or "queued").strip(),
+                    "created_at": str(row.created_at or ""),
+                    "source_id": str(row.source_id or "").strip(),
+                    "summary": str(payload.get("summary") or "").strip(),
+                    "payload": dict(payload.get("event_payload") or {}),
+                }
+            )
+        rows.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("delivery_id") or "")), reverse=True)
+        return tuple(rows[:limit])
+
+    def test_webhook(self, *, principal_id: str, webhook_id: str) -> dict[str, object] | None:
+        webhook = self.get_webhook(principal_id=principal_id, webhook_id=webhook_id)
+        if webhook is None:
+            return None
+        delivery = self._queue_single_webhook_delivery(
+            principal_id=principal_id,
+            webhook=webhook,
+            matched_event_type="webhook_test_ping",
+            payload={"summary": "Webhook test ping", "webhook_id": webhook_id},
+            source_id=webhook_id,
+            delivery_kind="test",
+        )
+        return {"webhook": webhook, "delivery": delivery}
 
     def create_commitment(
         self,
@@ -1975,6 +2508,7 @@ class ProductService:
                 }
                 for row in pending_delivery
             ],
+            "recent_events": list(self.list_office_events(principal_id=principal_id, limit=20)),
         }
 
     def channel_loop_pack(self, *, principal_id: str, operator_id: str = "") -> dict[str, object]:
