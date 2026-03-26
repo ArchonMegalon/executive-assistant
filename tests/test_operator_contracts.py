@@ -3773,7 +3773,8 @@ def test_connector_dispatch_tool_execution_slice_is_documented_and_smoked() -> N
     assert "connector.dispatch" in runbook
     assert "/v1/tools/execute" in http_examples
     assert "connector.dispatch" in http_examples
-    assert "connector.dispatch|queued|" in smoke_api
+    assert 'TOOL_EXEC_STATUS="$(python3 -c ' in smoke_api
+    assert '"${TOOL_EXEC_STATUS}" != "queued" && "${TOOL_EXEC_STATUS}" != "retry"' in smoke_api
     assert "connector.dispatch|tool.v1" in smoke_api
     assert "connector.dispatch" in smoke_runtime
     assert "/v1/tools/execute" in smoke_runtime
