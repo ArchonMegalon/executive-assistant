@@ -2958,6 +2958,7 @@ def critical_visual_gate_failures(
                 "visual_audit:insufficient_flash",
                 "visual_audit:narrow_subject_cluster",
                 "visual_audit:shallow_layering",
+                "visual_audit:soft_finish",
             },
         },
         "assets/pages/horizons-index.png": {
@@ -2977,6 +2978,7 @@ def critical_visual_gate_failures(
                 "visual_audit:insufficient_flash",
                 "visual_audit:narrow_subject_cluster",
                 "visual_audit:shallow_layering",
+                "visual_audit:soft_finish",
             },
         },
     }.get(normalized, {})
@@ -3347,8 +3349,18 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     elif target == "assets/horizons/karma-forge.png":
         bright_tile_floor = 34.0
     spreads: list[float] = []
+    edge_diffs: list[int] = []
     active_cols: set[int] = set()
     active_rows: set[int] = set()
+    for y in range(height):
+        row_offset = y * width
+        for x in range(1, width):
+            edge_diffs.append(abs(raw[row_offset + x] - raw[row_offset + x - 1]))
+    for y in range(1, height):
+        row_offset = y * width
+        prev_offset = (y - 1) * width
+        for x in range(width):
+            edge_diffs.append(abs(raw[row_offset + x] - raw[prev_offset + x]))
     for y in range(tiles_y):
         for x in range(tiles_x):
             pixels: list[int] = []
@@ -3379,6 +3391,7 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     required_bright_tiles = 0
     required_active_cols = 0
     required_active_rows = 0
+    min_edge_energy = 0.0
     if density == "high":
         required_active_tiles = max(required_active_tiles, 6)
         required_active_cols = 3
@@ -3398,6 +3411,7 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
         required_bright_tiles = 1
         required_active_cols = max(required_active_cols, 4)
         required_active_rows = max(required_active_rows, 3)
+        min_edge_energy = 28.0
     elif target == "assets/pages/horizons-index.png":
         required_active_tiles = max(required_active_tiles, 7)
         required_active_cols = max(required_active_cols, 4)
@@ -3406,6 +3420,7 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
         required_bright_tiles = max(required_bright_tiles, 2)
         required_active_cols = max(required_active_cols, 4)
         required_active_rows = max(required_active_rows, 3)
+        min_edge_energy = 24.0
     if dark_flat_tiles > max_dark_flat_tiles:
         notes.append("visual_audit:dead_negative_space")
         score -= 25
@@ -3415,6 +3430,10 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     if required_bright_tiles and bright_tiles < required_bright_tiles:
         notes.append("visual_audit:insufficient_flash")
         score -= 18
+    edge_energy = mean(edge_diffs) if edge_diffs else 0.0
+    if min_edge_energy and edge_energy < min_edge_energy:
+        notes.append("visual_audit:soft_finish")
+        score -= 16
     if required_active_cols and len(active_cols) < required_active_cols:
         notes.append("visual_audit:narrow_subject_cluster")
         score -= 18

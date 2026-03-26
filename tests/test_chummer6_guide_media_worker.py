@@ -1507,6 +1507,28 @@ def test_visual_audit_score_accepts_gritty_flash_for_hero(monkeypatch: pytest.Mo
 
     assert score > 0
     assert "visual_audit:insufficient_flash" not in notes
+    assert "visual_audit:soft_finish" not in notes
+
+
+def test_visual_audit_score_flags_soft_finish_for_hero(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero-soft.png"
+    image_path.write_bytes(b"png")
+    width, height = 48, 36
+    raw: list[int] = []
+    for y in range(height):
+        for x in range(width):
+            raw.append(78 + ((x + y) % 3))
+
+    monkeypatch.setattr(media, "_visual_audit_grayscale_grid", lambda **kwargs: (width, height, raw))
+
+    score, notes = media.visual_audit_score(
+        image_path=image_path,
+        target="assets/hero/chummer6-hero.png",
+    )
+
+    assert score < 0
+    assert "visual_audit:soft_finish" in notes
 
 
 def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
@@ -1607,6 +1629,20 @@ def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() 
     assert "critical_visual_gate:low_semantic_density" in failures
     assert "critical_visual_gate:narrow_subject_cluster" in failures
     assert "critical_visual_gate:insufficient_flash" in failures
+
+
+def test_critical_visual_gate_failures_reject_soft_finish_on_flagship_assets() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/hero/chummer6-hero.png",
+        base_score=96.0,
+        base_notes=["visual_audit:soft_finish"],
+        final_score=92.0,
+        final_notes=["visual_audit:soft_finish"],
+    )
+
+    assert "critical_visual_gate:soft_finish" in failures
 
 
 def test_scene_policy_for_target_uses_approval_rail_for_karma_forge() -> None:
