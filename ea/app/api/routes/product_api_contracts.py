@@ -259,6 +259,30 @@ class WorkspaceSupportBundleOut(BaseModel):
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
 
 
+class WorkspaceInvitationOut(BaseModel):
+    invitation_id: str
+    email: str
+    role: str = "operator"
+    display_name: str = ""
+    note: str = ""
+    status: str = "pending"
+    invited_by: str = ""
+    invited_at: str = ""
+    expires_at: str = ""
+    accepted_at: str = ""
+    accepted_by: str = ""
+    revoked_at: str = ""
+    invite_url: str = ""
+    invite_token: str = ""
+    operator_id: str = ""
+
+
+class WorkspaceInvitationResponse(BaseModel):
+    generated_at: str
+    items: list[WorkspaceInvitationOut]
+    total: int
+
+
 class ChannelLoopItemOut(BaseModel):
     title: str
     detail: str
@@ -383,6 +407,20 @@ class WebhookDeliveryResponse(BaseModel):
     generated_at: str
     items: list[WebhookDeliveryOut]
     total: int
+
+
+class WorkspaceInvitationCreateIn(BaseModel):
+    email: str = Field(min_length=3)
+    role: str = "operator"
+    display_name: str = ""
+    note: str = ""
+    expires_in_days: int = 14
+
+
+class WorkspaceInvitationAcceptIn(BaseModel):
+    token: str = Field(min_length=8)
+    display_name: str = ""
+    operator_id: str = ""
 
 
 class DraftApproveIn(BaseModel):

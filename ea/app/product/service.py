@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import re
 import urllib.parse
 from datetime import datetime, timezone
@@ -120,9 +124,52 @@ def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = ""
     return score
 
 
+def _operator_id_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    slug = _COMMITMENT_KEY_RE.sub("-", local).strip("-")
+    return f"operator-{slug or uuid4().hex[:6]}"
+
+
+def _sign_channel_payload(*, secret: str, payload: dict[str, object]) -> str:
+    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+    signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+
+def _verify_channel_payload(*, secret: str, token: str) -> dict[str, object] | None:
+    normalized = str(token or "").strip()
+    if not normalized or "." not in normalized:
+        return None
+    payload_b64, signature = normalized.rsplit(".", 1)
+    expected = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    padding = "=" * ((4 - len(payload_b64) % 4) % 4)
+    try:
+        payload_bytes = base64.urlsafe_b64decode(f"{payload_b64}{padding}".encode("ascii"))
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    expires_at = _parse_iso(str(payload.get("expires_at") or "").strip())
+    if expires_at is not None and expires_at <= datetime.now(timezone.utc):
+        return None
+    return payload
+
+
 class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
+
+    def _channel_action_secret(self) -> str:
+        configured = str(self._container.settings.auth.api_token or "").strip()
+        if configured:
+            return configured
+        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-channel-loop"
+        return f"{fallback}:channel-actions"
 
     def _record_product_event(
         self,
@@ -901,6 +948,230 @@ class ProductService:
             delivery_kind="test",
         )
         return {"webhook": webhook, "delivery": delivery}
+
+    def list_workspace_invitations(
+        self,
+        *,
+        principal_id: str,
+        status: str = "",
+        limit: int = 100,
+    ) -> tuple[dict[str, object], ...]:
+        wanted_status = str(status or "").strip().lower()
+        invitations: dict[str, dict[str, object]] = {}
+        rows = list(self._container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
+        rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
+        for row in rows:
+            event_type = str(row.event_type or "").strip().lower()
+            payload = dict(row.payload or {})
+            invitation_id = str(payload.get("invitation_id") or row.source_id or "").strip()
+            if not invitation_id:
+                continue
+            if event_type == "workspace_invitation_created":
+                invitations[invitation_id] = {
+                    "invitation_id": invitation_id,
+                    "email": str(payload.get("email") or "").strip().lower(),
+                    "role": str(payload.get("role") or "operator").strip().lower() or "operator",
+                    "display_name": str(payload.get("display_name") or "").strip(),
+                    "note": str(payload.get("note") or "").strip(),
+                    "status": "pending",
+                    "invited_by": str(payload.get("invited_by") or "").strip(),
+                    "invited_at": str(payload.get("invited_at") or row.created_at or ""),
+                    "expires_at": str(payload.get("expires_at") or "").strip(),
+                    "accepted_at": "",
+                    "accepted_by": "",
+                    "revoked_at": "",
+                    "invite_url": str(payload.get("invite_url") or "").strip(),
+                    "invite_token": str(payload.get("invite_token") or "").strip(),
+                    "operator_id": str(payload.get("operator_id") or "").strip(),
+                }
+            elif event_type == "workspace_invitation_accepted" and invitation_id in invitations:
+                invitations[invitation_id].update(
+                    {
+                        "status": "accepted",
+                        "accepted_at": str(payload.get("accepted_at") or row.created_at or ""),
+                        "accepted_by": str(payload.get("accepted_by") or "").strip(),
+                        "operator_id": str(payload.get("operator_id") or invitations[invitation_id].get("operator_id") or "").strip(),
+                    }
+                )
+            elif event_type == "workspace_invitation_revoked" and invitation_id in invitations:
+                invitations[invitation_id].update(
+                    {
+                        "status": "revoked",
+                        "revoked_at": str(payload.get("revoked_at") or row.created_at or ""),
+                    }
+                )
+        items = list(invitations.values())
+        if wanted_status:
+            items = [item for item in items if str(item.get("status") or "").strip().lower() == wanted_status]
+        items.sort(key=lambda item: (str(item.get("invited_at") or ""), str(item.get("invitation_id") or "")), reverse=True)
+        return tuple(items[:limit])
+
+    def get_workspace_invitation(self, *, principal_id: str, invitation_id: str) -> dict[str, object] | None:
+        normalized = str(invitation_id or "").strip()
+        if not normalized:
+            return None
+        for row in self.list_workspace_invitations(principal_id=principal_id, limit=200):
+            if str(row.get("invitation_id") or "").strip() == normalized:
+                return row
+        return None
+
+    def create_workspace_invitation(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+        role: str,
+        invited_by: str,
+        display_name: str = "",
+        note: str = "",
+        expires_in_days: int = 14,
+    ) -> dict[str, object]:
+        normalized_email = str(email or "").strip().lower()
+        normalized_role = str(role or "operator").strip().lower() or "operator"
+        invitation_id = f"invite_{uuid4().hex[:10]}"
+        expires_at = datetime.now(timezone.utc).timestamp() + max(int(expires_in_days), 1) * 86400
+        token_payload = {
+            "token_kind": "workspace_invitation",
+            "principal_id": principal_id,
+            "invitation_id": invitation_id,
+            "email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+        }
+        invite_token = _sign_channel_payload(secret=self._channel_action_secret(), payload=token_payload)
+        payload = {
+            "invitation_id": invitation_id,
+            "email": normalized_email,
+            "role": normalized_role,
+            "display_name": str(display_name or "").strip(),
+            "note": str(note or "").strip(),
+            "invited_by": str(invited_by or "").strip() or "workspace",
+            "invited_at": _now_iso(),
+            "expires_at": str(token_payload["expires_at"]),
+            "invite_token": invite_token,
+            "invite_url": f"/workspace-invites/{invite_token}",
+            "operator_id": _operator_id_from_email(normalized_email) if normalized_role == "operator" else "",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_invitation_created",
+            payload=payload,
+            source_id=invitation_id,
+            dedupe_key=f"{principal_id}|{invitation_id}",
+        )
+        found = self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+        return dict(found or payload)
+
+    def preview_workspace_invitation(self, *, token: str) -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._channel_action_secret(), token=token)
+        if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_invitation":
+            return None
+        principal_id = str(payload.get("principal_id") or "").strip()
+        invitation_id = str(payload.get("invitation_id") or "").strip()
+        if not principal_id or not invitation_id:
+            return None
+        current = self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+        if current is not None:
+            return current
+        return {
+            "invitation_id": invitation_id,
+            "email": str(payload.get("email") or "").strip().lower(),
+            "role": str(payload.get("role") or "operator").strip().lower() or "operator",
+            "display_name": str(payload.get("display_name") or "").strip(),
+            "note": "",
+            "status": "pending",
+            "invited_by": "",
+            "invited_at": "",
+            "expires_at": str(payload.get("expires_at") or "").strip(),
+            "accepted_at": "",
+            "accepted_by": "",
+            "revoked_at": "",
+            "invite_url": f"/workspace-invites/{token}",
+            "invite_token": str(token or "").strip(),
+            "operator_id": _operator_id_from_email(str(payload.get("email") or "").strip().lower()),
+        }
+
+    def accept_workspace_invitation(
+        self,
+        *,
+        token: str,
+        accepted_by: str,
+        display_name: str = "",
+        operator_id: str = "",
+    ) -> dict[str, object] | None:
+        raw_payload = _verify_channel_payload(secret=self._channel_action_secret(), token=token)
+        if raw_payload is None or str(raw_payload.get("token_kind") or "").strip() != "workspace_invitation":
+            return None
+        preview = self.preview_workspace_invitation(token=token)
+        if preview is None:
+            return None
+        if str(preview.get("status") or "").strip().lower() != "pending":
+            return preview
+        principal_id = str(raw_payload.get("principal_id") or "").strip()
+        invitation_id = str(preview.get("invitation_id") or "").strip()
+        role = str(preview.get("role") or "operator").strip().lower() or "operator"
+        email = str(preview.get("email") or "").strip().lower()
+        resolved_operator_id = str(operator_id or preview.get("operator_id") or "").strip()
+        resolved_display_name = str(display_name or preview.get("display_name") or email or "Workspace Operator").strip()
+        if role == "operator":
+            if not resolved_operator_id:
+                resolved_operator_id = _operator_id_from_email(email)
+            existing = self._container.orchestrator.fetch_operator_profile(resolved_operator_id, principal_id=principal_id)
+            if existing is None:
+                status = self._container.onboarding.status(principal_id=principal_id)
+                workspace = dict(status.get("workspace") or {})
+                plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+                active = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=500)
+                if len(active) >= plan.entitlements.operator_seats:
+                    raise ValueError("operator_seat_limit_reached")
+            self._container.orchestrator.upsert_operator_profile(
+                principal_id=principal_id,
+                operator_id=resolved_operator_id,
+                display_name=resolved_display_name,
+                roles=(role,),
+                trust_tier="standard",
+                status="active",
+                notes=f"Accepted workspace invite for {email}.",
+            )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_invitation_accepted",
+            payload={
+                "invitation_id": invitation_id,
+                "accepted_by": str(accepted_by or email or "workspace").strip() or "workspace",
+                "accepted_at": _now_iso(),
+                "operator_id": resolved_operator_id,
+            },
+            source_id=invitation_id,
+            dedupe_key=f"{principal_id}|{invitation_id}|accepted",
+        )
+        return self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+
+    def revoke_workspace_invitation(
+        self,
+        *,
+        principal_id: str,
+        invitation_id: str,
+        actor: str,
+    ) -> dict[str, object] | None:
+        current = self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+        if current is None:
+            return None
+        if str(current.get("status") or "").strip().lower() == "revoked":
+            return current
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_invitation_revoked",
+            payload={
+                "invitation_id": str(invitation_id or "").strip(),
+                "revoked_at": _now_iso(),
+                "revoked_by": str(actor or "").strip() or "workspace",
+            },
+            source_id=str(invitation_id or "").strip(),
+            dedupe_key=f"{principal_id}|{invitation_id}|revoked",
+        )
+        return self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
 
     def create_commitment(
         self,
@@ -2545,7 +2816,15 @@ class ProductService:
                     or "Draft is waiting for approval.",
                     "tag": "Draft",
                     "href": "/app/inbox",
-                    "action_href": f"/app/channel/drafts/{draft.id}/approve?return_to=%2Fapp%2Fchannel-loop",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="approve",
+                        return_to="/app/channel-loop",
+                        operator_id=operator_key,
+                        reason="Approved from inline loop.",
+                    ),
                     "action_label": "Approve now",
                     "action_method": "get",
                 }
@@ -2567,20 +2846,52 @@ class ProductService:
                     or "Commitment still needs a visible next action.",
                     "tag": "Commitment",
                     "href": f"/app/commitment-items/{commitment.id}",
-                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="close",
+                        return_to="/app/channel-loop",
+                        operator_id=operator_key,
+                        reason="Closed from inline loop.",
+                    ),
                     "action_label": "Close",
                     "action_method": "get",
-                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="defer",
+                        return_to="/app/channel-loop",
+                        operator_id=operator_key,
+                        reason="Deferred from inline loop.",
+                    ),
                     "secondary_action_label": "Defer",
                     "secondary_action_method": "get",
                 }
             )
         if snapshot.handoffs:
             preferred_handoff = next((row for row in snapshot.handoffs if operator_key and row.owner == operator_key), snapshot.handoffs[0])
-            action_href = f"/app/channel/handoffs/{preferred_handoff.id}/assign?return_to=%2Fapp%2Fchannel-loop"
+            action_href = self.channel_action_href(
+                principal_id=principal_id,
+                object_kind="handoff",
+                object_ref=preferred_handoff.id,
+                action="assign",
+                return_to="/app/channel-loop",
+                operator_id=operator_key or preferred_handoff.owner,
+                reason="Claimed from inline loop.",
+            )
             action_label = "Claim"
             if operator_key and preferred_handoff.owner == operator_key:
-                action_href = f"/app/channel/handoffs/{preferred_handoff.id}/complete?return_to=%2Fapp%2Fchannel-loop"
+                action_href = self.channel_action_href(
+                    principal_id=principal_id,
+                    object_kind="handoff",
+                    object_ref=preferred_handoff.id,
+                    action="complete",
+                    return_to="/app/channel-loop",
+                    operator_id=operator_key,
+                    reason="Completed from inline loop.",
+                )
                 action_label = "Complete"
             items.append(
                 {
@@ -2618,7 +2929,15 @@ class ProductService:
                     or "Decision remains open.",
                     "tag": "Decision",
                     "href": f"/app/decisions/{decision.id}",
-                    "action_href": f"/app/channel/decisions/{decision.id}/resolve?action=resolve&return_to=%2Fapp%2Fchannel-loop",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="decision",
+                        object_ref=decision.id,
+                        action="resolve",
+                        return_to="/app/channel-loop",
+                        operator_id=operator_key,
+                        reason="Resolved from inline loop.",
+                    ),
                     "action_label": "Resolve now",
                     "action_method": "get",
                     "secondary_action_href": f"/app/decisions/{decision.id}",
@@ -2626,7 +2945,7 @@ class ProductService:
                     "secondary_action_method": "get",
                 }
             )
-        digests = self._channel_digests(snapshot=snapshot, operator_key=operator_key)
+        digests = self._channel_digests(snapshot=snapshot, operator_key=operator_key, principal_id=principal_id)
         return {
             "headline": "Inline loop",
             "summary": "Use a compact, mobile-safe surface for the memo, approvals, commitments, handoffs, and the next decision that still matters.",
@@ -2700,7 +3019,7 @@ class ProductService:
             lines.append("")
         return "\n".join(line for line in lines if line or (lines and line == ""))
 
-    def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str) -> list[dict[str, object]]:
+    def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str, principal_id: str) -> list[dict[str, object]]:
         at_risk_commitments = [
             item
             for item in snapshot.commitments
@@ -2743,10 +3062,26 @@ class ProductService:
                     or "Commitment pressure needs a visible next action.",
                     "tag": "Commitment",
                     "href": f"/app/commitment-items/{commitment.id}",
-                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop%2Fmemo",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="close",
+                        return_to="/app/channel-loop/memo",
+                        operator_id=operator_key,
+                        reason="Closed from morning memo digest.",
+                    ),
                     "action_label": "Close",
                     "action_method": "get",
-                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop%2Fmemo",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="defer",
+                        return_to="/app/channel-loop/memo",
+                        operator_id=operator_key,
+                        reason="Deferred from morning memo digest.",
+                    ),
                     "secondary_action_label": "Defer",
                     "secondary_action_method": "get",
                 }
@@ -2762,7 +3097,15 @@ class ProductService:
                     or "Draft is waiting for approval.",
                     "tag": "Draft",
                     "href": "/app/inbox",
-                    "action_href": f"/app/channel/drafts/{draft.id}/approve?return_to=%2Fapp%2Fchannel-loop%2Fapprovals",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="approve",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Approved from inline approvals digest.",
+                    ),
                     "action_label": "Approve now",
                     "action_method": "get",
                 }
@@ -2783,7 +3126,15 @@ class ProductService:
                     or "Decision still needs a visible resolution.",
                     "tag": "Decision",
                     "href": f"/app/decisions/{decision.id}",
-                    "action_href": f"/app/channel/decisions/{decision.id}/resolve?action=resolve&return_to=%2Fapp%2Fchannel-loop%2Fapprovals",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="decision",
+                        object_ref=decision.id,
+                        action="resolve",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Resolved from inline approvals digest.",
+                    ),
                     "action_label": "Resolve now",
                     "action_method": "get",
                     "secondary_action_href": f"/app/decisions/{decision.id}",
@@ -2793,10 +3144,26 @@ class ProductService:
             )
         operator_items: list[dict[str, str]] = []
         for handoff in visible_handoffs:
-            action_href = f"/app/channel/handoffs/{handoff.id}/assign?return_to=%2Fapp%2Fchannel-loop%2Foperator"
+            action_href = self.channel_action_href(
+                principal_id=principal_id,
+                object_kind="handoff",
+                object_ref=handoff.id,
+                action="assign",
+                return_to="/app/channel-loop/operator",
+                operator_id=operator_key or handoff.owner,
+                reason="Claimed from operator digest.",
+            )
             action_label = "Claim"
             if operator_key and handoff.owner == operator_key:
-                action_href = f"/app/channel/handoffs/{handoff.id}/complete?return_to=%2Fapp%2Fchannel-loop%2Foperator"
+                action_href = self.channel_action_href(
+                    principal_id=principal_id,
+                    object_kind="handoff",
+                    object_ref=handoff.id,
+                    action="complete",
+                    return_to="/app/channel-loop/operator",
+                    operator_id=operator_key,
+                    reason="Completed from operator digest.",
+                )
                 action_label = "Complete"
             operator_items.append(
                 {
@@ -2835,10 +3202,26 @@ class ProductService:
                     or "Commitment still needs an explicit owner and next step.",
                     "tag": "Commitment",
                     "href": f"/app/commitment-items/{commitment.id}",
-                    "action_href": f"/app/channel/queue/{commitment.id}/resolve?action=close&return_to=%2Fapp%2Fchannel-loop%2Foperator",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="close",
+                        return_to="/app/channel-loop/operator",
+                        operator_id=operator_key,
+                        reason="Closed from operator digest.",
+                    ),
                     "action_label": "Close",
                     "action_method": "get",
-                    "secondary_action_href": f"/app/channel/queue/{commitment.id}/resolve?action=defer&return_to=%2Fapp%2Fchannel-loop%2Foperator",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="queue",
+                        object_ref=commitment.id,
+                        action="defer",
+                        return_to="/app/channel-loop/operator",
+                        operator_id=operator_key,
+                        reason="Deferred from operator digest.",
+                    ),
                     "secondary_action_label": "Defer",
                     "secondary_action_method": "get",
                 }
@@ -2881,6 +3264,122 @@ class ProductService:
                 },
             },
         ]
+
+    def channel_action_href(
+        self,
+        *,
+        principal_id: str,
+        object_kind: str,
+        object_ref: str,
+        action: str,
+        return_to: str,
+        operator_id: str = "",
+        reason: str = "",
+        expires_in_seconds: int = 60 * 60 * 24 * 7,
+    ) -> str:
+        expires_at = datetime.now(timezone.utc).timestamp() + max(int(expires_in_seconds), 300)
+        payload = {
+            "principal_id": str(principal_id or "").strip(),
+            "object_kind": str(object_kind or "").strip(),
+            "object_ref": str(object_ref or "").strip(),
+            "action": str(action or "").strip(),
+            "return_to": str(return_to or "/app/channel-loop").strip() or "/app/channel-loop",
+            "operator_id": str(operator_id or "").strip(),
+            "reason": str(reason or "").strip(),
+            "issued_at": _now_iso(),
+            "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+        }
+        token = _sign_channel_payload(secret=self._channel_action_secret(), payload=payload)
+        return f"/app/channel-actions/{token}"
+
+    def redeem_channel_action_token(
+        self,
+        *,
+        token: str,
+        actor: str = "",
+        preferred_operator_id: str = "",
+    ) -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._channel_action_secret(), token=token)
+        if payload is None:
+            return None
+        principal_id = str(payload.get("principal_id") or "").strip()
+        object_kind = str(payload.get("object_kind") or "").strip().lower()
+        object_ref = str(payload.get("object_ref") or "").strip()
+        action = str(payload.get("action") or "").strip().lower()
+        return_to = str(payload.get("return_to") or "/sign-in").strip() or "/sign-in"
+        reason = str(payload.get("reason") or "Resolved from channel action link.").strip() or "Resolved from channel action link."
+        operator_id = str(preferred_operator_id or payload.get("operator_id") or "").strip()
+        resolved_actor = str(actor or operator_id or principal_id or "channel_link").strip() or "channel_link"
+        if not principal_id or not object_kind or not object_ref or not action:
+            return None
+        result: object | None = None
+        if object_kind == "draft":
+            result = self.approve_draft(
+                principal_id=principal_id,
+                draft_ref=object_ref,
+                decided_by=resolved_actor,
+                reason=reason,
+            )
+        elif object_kind == "queue":
+            result = self.resolve_queue_item(
+                principal_id=principal_id,
+                item_ref=object_ref,
+                action=action,
+                actor=resolved_actor,
+                reason=reason,
+            )
+        elif object_kind == "decision":
+            result = self.resolve_decision(
+                principal_id=principal_id,
+                decision_ref=object_ref,
+                actor=resolved_actor,
+                action=action,
+                reason=reason,
+            )
+        elif object_kind == "handoff":
+            if not operator_id:
+                active = self._container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
+                operator_id = str(active[0].operator_id or "").strip() if active else ""
+            if not operator_id:
+                return None
+            if action == "complete":
+                result = self.complete_handoff(
+                    principal_id=principal_id,
+                    handoff_ref=object_ref,
+                    operator_id=operator_id,
+                    actor=resolved_actor,
+                    resolution="completed",
+                )
+            else:
+                result = self.assign_handoff(
+                    principal_id=principal_id,
+                    handoff_ref=object_ref,
+                    operator_id=operator_id,
+                    actor=resolved_actor,
+                )
+        if result is None:
+            return None
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="channel_action_redeemed",
+            payload={
+                "object_kind": object_kind,
+                "object_ref": object_ref,
+                "action": action,
+                "actor": resolved_actor,
+                "return_to": return_to,
+            },
+            source_id=object_ref,
+            dedupe_key=f"{principal_id}|{object_kind}|{object_ref}|{action}|{token}",
+        )
+        return {
+            "principal_id": principal_id,
+            "object_kind": object_kind,
+            "object_ref": object_ref,
+            "action": action,
+            "return_to": return_to,
+            "actor": resolved_actor,
+        }
 
     def record_surface_event(
         self,
