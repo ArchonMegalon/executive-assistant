@@ -1,0 +1,199 @@
+product: chummer
+surface: chummer.run
+version: 1
+trust_pages:
+  - id: help
+    eyebrow: "Help"
+    heading: "Get help without guessing"
+    intro: "Use the first-party product path first: install help, account recovery, current release truth, and a real support intake before you fall through to deeper technical material."
+    effective_date: "2026-03-25"
+    updated_date: "2026-03-25"
+    summary_points:
+      - "First-party help comes first"
+      - "Support is separate from participation"
+      - "Downloads and account stay connected"
+    actions:
+      - label: "Open support intake"
+        href: "/contact#support-intake"
+        tone: primary
+      - label: "See what works today"
+        href: "/now"
+        tone: secondary
+      - label: "Open downloads"
+        href: "/downloads"
+        tone: ghost
+    sections:
+      - id: install-update
+        eyebrow: "Install or update"
+        heading: "Start with the release page and install help"
+        body: "The release page should answer the normal install questions directly: recommended installer, known issues, update posture, and the next support step if the path still is not clear."
+        bullets:
+          - "One recommended installer is the default path."
+          - "Alternative builds and manual packages are advanced paths."
+          - "Signed-in downloads keep the install handoff attached from first launch."
+          - "Devices and access is where linked copies and claim codes stay visible later."
+      - id: sign-in-recovery
+        eyebrow: "Sign-in or account recovery"
+        heading: "Keep access and recovery on one calm path"
+        body: "Account creation, sign-in, and recovery should stay boring. Use the account surface and the recovery flow before you fall back to manual troubleshooting."
+        bullets:
+          - "Create an account when you want preview downloads, recovery, and tracked support."
+          - "Use recovery email so one sign-in method is never the whole story."
+          - "Devices and access stays separate from identity recovery."
+      - id: product-bug
+        eyebrow: "Product bug"
+        heading: "Product help should become a support case, not a rumor"
+        body: "The first-party intake is the default lane for install trouble, product bugs, and practical feedback. GitHub is the advanced public issue lane, not the main customer entry point."
+        bullets:
+          - "Use Contact for install trouble, product bugs, or UX friction."
+          - "Use Account > Support when you want tracked case history in the signed-in shell."
+          - "Use GitHub only when you intentionally want a public technical issue trail."
+      - id: product-question
+        eyebrow: "Product question or UX confusion"
+        heading: "Ask from the product surface first"
+        body: "Normal preview questions should be answerable from the product shell itself. Support and FAQ exist so you do not need to infer the answer from repo language or implementation details."
+        bullets:
+          - "FAQ answers the normal preview and product questions in plain language."
+          - "Support cases stay separate from optional participation."
+          - "You do not need a GitHub account to ask for help."
+  - id: privacy
+    eyebrow: "Privacy"
+    heading: "What Chummer stores, and what it does not"
+    intro: "This is the practical hosted-product posture right now: what the account keeps, what stays out of Hub, and how install linking and support stay bounded."
+    effective_date: "2026-03-25"
+    updated_date: "2026-03-25"
+    summary_points:
+      - "The installer stays canonical"
+      - "Hub stores account and support state"
+      - "Provider secrets stay out of Hub"
+    actions:
+      - label: "Open account"
+        href: "/account"
+        tone: primary
+      - label: "Read terms"
+        href: "/terms"
+        tone: secondary
+      - label: "Open support intake"
+        href: "/contact#support-intake"
+        tone: ghost
+    sections:
+      - id: hosted-account
+        eyebrow: "Account record"
+        heading: "Hub keeps the account, preferences, and access state together"
+        body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in surfaces stay coherent."
+      - id: install-linking
+        eyebrow: "Install linking"
+        heading: "The installer stays canonical; the account handoff is the variable part"
+        body: "Chummer does not personalize the installer binary. The account-aware part is the signed-in receipt and short-lived claim code that can bind the local copy back to your account on first launch."
+      - id: not-in-hub
+        eyebrow: "What stays out"
+        heading: "Temporary provider auth material and raw secrets do not belong in Hub"
+        body: "Temporary third-party auth material stays on the execution host. Hub keeps consent, support, and receipt state; it does not become a bucket for raw provider secrets."
+      - id: recognition-privacy
+        eyebrow: "Privacy and recognition"
+        heading: "Recognition should not force publicity"
+        body: "Participation and recognition remain optional layers. Private product use, private support, and a quiet account posture remain valid even while community surfaces exist."
+  - id: terms
+    eyebrow: "Terms"
+    heading: "Preview terms in plain language"
+    intro: "The current hosted promise is straightforward: early access, honest labels, installer-first delivery when available, and support that should explain the current boundary instead of hiding it."
+    effective_date: "2026-03-25"
+    updated_date: "2026-03-25"
+    summary_points:
+      - "Early access, not finished breadth"
+      - "Installer-first when available"
+      - "Support is first-party"
+    actions:
+      - label: "Open downloads"
+        href: "/downloads"
+        tone: primary
+      - label: "Read privacy"
+        href: "/privacy"
+        tone: secondary
+      - label: "Open help"
+        href: "/help"
+        tone: ghost
+    sections:
+      - id: preview-posture
+        eyebrow: "Preview posture"
+        heading: "The product is real, but still early access"
+        body: "Expect real surfaces, current installers, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
+      - id: account-support
+        eyebrow: "Account and support"
+        heading: "Accounts should be boring, support should be first-party"
+        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help lanes before any deeper public issue workflow."
+      - id: delivery
+        eyebrow: "Delivery"
+        heading: "Installer-first when available, advanced packages only when necessary"
+        body: "Installer builds are the default product posture. Manual packages remain available for edge cases, but they are not the default first-run experience."
+  - id: contact
+    eyebrow: "Contact"
+    heading: "Open the right support case"
+    intro: "Chummer should not make you guess where to send a problem. Use the first-party intake below for install help, product bugs, and practical feedback."
+    effective_date: "2026-03-25"
+    updated_date: "2026-03-25"
+    summary_points:
+      - "First-party support intake"
+      - "Guest submissions allowed"
+      - "Tracked follow-up with an account"
+    actions:
+      - label: "Open support intake"
+        href: "/contact#support-intake"
+        tone: primary
+      - label: "Open account support"
+        href: "/signup?next=%2Faccount%23support"
+        tone: secondary
+      - label: "Read help first"
+        href: "/help"
+        tone: ghost
+    sections:
+      - id: right-lane
+        eyebrow: "Route it cleanly"
+        heading: "Pick the case type that matches the problem"
+        body: "Use install or update for package and launcher trouble, product bug for broken behavior, and feedback for roadmap or UX pain that is slowing the table down."
+      - id: tracked-support
+        eyebrow: "Tracked follow-up"
+        heading: "Create an account when you want support history inside Chummer"
+        body: "You can submit help here without a GitHub account. Create a Chummer account when you want case history, linked installs, and release follow-up to stay visible in Account."
+      - id: public-issues
+        eyebrow: "Advanced public issues"
+        heading: "GitHub is the advanced public bug lane, not the main support door"
+        body: "Use the public issue tracker only when you intentionally want a public technical discussion. Normal customers should be able to start with the first-party product surface."
+faq_pages:
+  - id: faq
+    eyebrow: "FAQ"
+    heading: "Plain answers before you spend more time"
+    intro: "The public front door should answer the normal questions directly: what is real now, what preview access means, and how to get help without reverse-engineering the repos."
+    actions:
+      - label: "See what works today"
+        href: "/now"
+        tone: primary
+      - label: "Open support intake"
+        href: "/contact#support-intake"
+        tone: secondary
+      - label: "Create account"
+        href: "/signup?next=/home"
+        tone: ghost
+    sections:
+      - title: "Using Chummer"
+        entries:
+          - question: "Can I actually use Chummer right now?"
+            answer: "Yes, as an honest early-access preview. There is a current installer shelf, a real proof trail, and explicit labels for what is live, inspectable, or still opening next."
+          - question: "Why would I trust it more than an opaque assistant?"
+            answer: "Because the product is trying to keep the result, the trail, and the release posture visible together instead of asking you to trust mystery math."
+          - question: "What does account creation give me right away?"
+            answer: "Account creation gives you signed-in downloads, install-link handoff, recovery posture, support history in Account, and a cleaner return path for the next preview."
+      - title: "Downloads and installs"
+        entries:
+          - question: "Why is the current preview gated behind an account?"
+            answer: "The current preview uses account-aware download handoff so the first installed copy can attach back to your account from first launch instead of becoming an orphaned preview."
+          - question: "Do I get a personalized installer?"
+            answer: "No. The installer stays canonical. The account-aware part is the receipt and short-lived claim code that links the installed copy back to you."
+          - question: "Where do I go if install or update goes sideways?"
+            answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue lane, not the default support door."
+      - title: "Participation and support"
+        entries:
+          - question: "Do I need to participate to help or report a bug?"
+            answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
+          - question: "Can I get help without a GitHub account?"
+            answer: "Yes. The first-party support intake is the default help lane. Create a Chummer account if you want tracked support history inside the signed-in shell."
