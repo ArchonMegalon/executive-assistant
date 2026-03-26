@@ -47,7 +47,7 @@ packages:
   - id: Chummer.Campaign.Contracts
     owner_repo: chummer6-hub
     purpose: Campaign continuity contracts for runner dossier, crew, campaign, run, scene, objective, recap, and replay-safe continuity projections.
-    status: in_progress
+    status: complete
     versioning_policy: SemVer. Breaking dossier identity, campaign continuity, or replay-safe lifecycle meaning is major; additive projections and linkage fields are minor; compatible clarifications are patch.
     deprecation_policy: Deprecations must be staged in design and hub, preserve replay-safe continuity for at least one promoted release cycle, and publish migration guidance before removal.
     consumers:
@@ -63,7 +63,7 @@ packages:
   - id: Chummer.Control.Contracts
     owner_repo: chummer6-hub
     purpose: Product-control contracts for support intake, case status, clustered signal packets, decision routing, release-readiness, and closure truth.
-    status: in_progress
+    status: complete
     versioning_policy: SemVer. Breaking support-case, signal-packet, decision-routing, or closure semantics is major; additive packet fields or projections are minor; compatible clarifications are patch.
     deprecation_policy: Deprecations must be staged in design and hub, dual-served for at least one promoted release cycle, and keep reporter-facing status semantics stable until replacement is live.
     consumers:
@@ -175,7 +175,7 @@ contract_sets:
   - id: participation_workflow_vnext
     canonical_package: Chummer.Run.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - sponsor request
       - consent record
@@ -189,7 +189,7 @@ contract_sets:
   - id: campaign_spine_vnext
     canonical_package: Chummer.Campaign.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - runner dossier identity
       - crew and campaign refs
@@ -201,7 +201,7 @@ contract_sets:
   - id: living_dossier_vnext
     canonical_package: Chummer.Campaign.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - build receipt linkage
       - dossier lifecycle state
@@ -212,7 +212,7 @@ contract_sets:
   - id: rule_environment_vnext
     canonical_package: Chummer.Campaign.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - source pack refs
       - house-rule pack refs
@@ -227,7 +227,7 @@ contract_sets:
     semantic_owner: chummer6-hub
     consumer_wrappers:
       - Chummer.Hub.Registry.Contracts
-    status: in_progress
+    status: complete
     includes:
       - person workspace preferences
       - pinned runner and recent campaign refs
@@ -257,7 +257,7 @@ contract_sets:
   - id: support_intake_vnext
     canonical_package: Chummer.Control.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - crash envelope intake
       - diagnostics attachment references
@@ -270,7 +270,7 @@ contract_sets:
   - id: support_status_vnext
     canonical_package: Chummer.Control.Contracts
     semantic_owner: chummer6-hub
-    status: in_progress
+    status: complete
     includes:
       - case status events
       - resolution notices
