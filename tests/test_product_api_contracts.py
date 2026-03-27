@@ -137,6 +137,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "commitment_close_rate" in usage_body["analytics"]
     assert "reliability" in usage_body["analytics"]
     assert "delivery_reliability_state" in usage_body["analytics"]["reliability"]
+    assert "sync" in usage_body["analytics"]
+    assert "google_sync_freshness_state" in usage_body["analytics"]["sync"]
+    assert "pending_commitment_candidates" in usage_body["analytics"]["sync"]
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
@@ -151,6 +154,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "success_summary" in support_body["analytics"]
     assert "reliability" in support_body["analytics"]
     assert "sync_reliability_state" in support_body["analytics"]["reliability"]
+    assert "sync" in support_body["analytics"]
+    assert "google_token_status" in support_body["analytics"]["sync"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
@@ -332,6 +337,13 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert deduplicated_body["synced_total"] == 0
     assert deduplicated_body["deduplicated_total"] == 2
     assert all(item["deduplicated"] is True for item in deduplicated_body["items"])
+    diagnostics = client.get("/app/api/usage")
+    assert diagnostics.status_code == 200
+    sync_analytics = diagnostics.json()["analytics"]["sync"]
+    assert sync_analytics["google_account_email"] == "exec@example.com"
+    assert sync_analytics["google_sync_freshness_state"] == "clear"
+    assert sync_analytics["google_sync_last_completed_at"]
+    assert sync_analytics["pending_commitment_candidates"] >= 1
 
     events_after_repeat = client.get("/app/api/events")
     assert events_after_repeat.status_code == 200
@@ -854,6 +866,9 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert body["access"]["revoked"] >= 1
     assert body["sync"]["google_sync_completed"] >= 1
     assert body["sync"]["office_signal_ingested"] >= 1
+    assert body["sync"]["google_account_email"] == "exec@example.com"
+    assert body["sync"]["google_sync_freshness_state"] == "clear"
+    assert body["sync"]["pending_commitment_candidates"] >= 1
     assert any(item["label"] for item in body["next_actions"])
     assert "snapshot" in body
     assert body["snapshot"]["clearable_queue_items"] >= 1
