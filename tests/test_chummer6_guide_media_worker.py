@@ -1203,7 +1203,7 @@ def test_build_safe_media_factory_prompt_uses_compact_flagship_scene_prompt() ->
     lowered = hero_prompt.lower()
     assert "illustrated cover-grade cyberpunk-fantasy streetdoc cover art." in lowered
     assert "figures occupy less than one quarter of frame" in lowered
-    assert "added later in post" in lowered or "painted scene may only carry faint abstract scan glows" in lowered
+    assert "added in post" in lowered or "painted scene may only carry faint abstract scan glows" in lowered
     assert "hacked repair recliner" in lowered
 
 
@@ -1236,7 +1236,7 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     lowered = hero_prompt.lower()
     assert "hairy troll" in lowered
     assert "full treatment bay" in lowered or "wet floor" in lowered or "tool wall" in lowered
-    assert "added later in post" in lowered or "post-composited later" in lowered
+    assert "added in post" in lowered or "post-composited later" in lowered
     assert "medscan diagnostic" in lowered
     assert "cyberlimb calibration" not in lowered
     assert "bod rail" not in lowered
@@ -1429,7 +1429,7 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     media = _load_module()
 
     assert media.first_contact_target("assets/hero/chummer6-hero.png") is True
-    assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 5
+    assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 8
     assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
 
 
@@ -1477,11 +1477,16 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
     assert any("troll patient must read clearly" in part.lower() for part in hero_parts)
     assert any("shadowrun world markers visible" in part.lower() for part in hero_parts)
+    assert any("room, district, or surrounding environment doing at least about 58% of the storytelling area" in part.lower() for part in hero_parts)
+    assert any("single figure or tight subject cluster read larger than about 26% of the frame" in part.lower() for part in hero_parts)
+    assert any("any overlay chip, rail, or callout must clearly anchor" in part.lower() or "all overlays must visibly anchor" in part.lower() for part in hero_parts)
     assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
     assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
     assert any("overlay posture to forge review ar" in part.lower() for part in forge_parts)
+    assert any("apparatus, rails, machinery, or proving hardware occupy at least about 50% of the readable frame" in part.lower() for part in forge_parts)
+    assert any("single figure or tight subject cluster read larger than about 24% of the frame" in part.lower() for part in forge_parts)
     assert any("approval state" in part.lower() and "rollback" in part.lower() for part in forge_parts)
     assert any("attach overlays to rails" in part.lower() or "avoid floating torso or face coverage" in part.lower() for part in forge_parts)
 
@@ -1789,13 +1794,20 @@ def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
     media = _load_module()
     specs = media.asset_specs()
     hero = next(spec for spec in specs if spec["target"] == "assets/hero/chummer6-hero.png")
+    horizons = next(spec for spec in specs if spec["target"] == "assets/pages/horizons-index.png")
     forge = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
 
     assert hero["onemin_sizes"] == ["auto", "1536x1024"]
     assert hero["onemin_image_style"] == "vivid"
+    assert hero["onemin_models"] == ["gpt-image-1"]
     assert hero["providers"][0] == "onemin"
+    assert horizons["onemin_sizes"] == ["auto", "1536x1024"]
+    assert horizons["onemin_image_style"] == "vivid"
+    assert horizons["onemin_models"] == ["gpt-image-1"]
+    assert horizons["providers"][0] == "media_factory"
     assert forge["onemin_sizes"] == ["auto", "1536x1024"]
     assert forge["onemin_image_style"] == "vivid"
+    assert forge["onemin_models"] == ["gpt-image-1"]
     assert forge["providers"][0] == "media_factory"
 
 

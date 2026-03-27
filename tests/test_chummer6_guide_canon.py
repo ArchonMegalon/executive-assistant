@@ -91,7 +91,11 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert hero["render_layers"] == ["base_scene", "verified_overlay"]
     assert "AGI or ESS" in hero["status_binding_rule"]
     assert "tusks" in " ".join(hero["required_troll_markers"]).lower()
-    assert hero["world_marker_minimum"] == 2
+    assert hero["world_marker_minimum"] == 3
+    assert hero["environment_share_minimum"] == 0.58
+    assert hero["subject_crop_maximum"] == 0.26
+    assert hero["cast_readability_required"] is True
+    assert hero["overlay_anchor_required"] is True
     assert "metahuman presence" in " ".join(hero["world_marker_bucket"]).lower()
     assert "slim attribute rails" in " ".join(hero["overlay_geometry"]).lower()
     assert "illustrated cover-grade promo poster" in hero["critical_style_anchor"].lower()
@@ -102,6 +106,10 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert horizons["visual_density_profile"] == "page_index"
     assert horizons["required_overlay_density"] == "medium"
     assert horizons["required_overlay_mode"] == "ambient_diegetic"
+    assert horizons["world_marker_minimum"] == 3
+    assert horizons["environment_share_minimum"] == 0.72
+    assert horizons["subject_crop_maximum"] == 0.18
+    assert horizons["overlay_anchor_required"] is True
     assert "lane arcs" in " ".join(horizons["overlay_geometry"]).lower()
     assert horizons["overlay_render_strategy"] == "verified_post_composite_optional"
     assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()
@@ -111,6 +119,12 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert forge["style_epoch_force_only"] is True
     assert forge["overlay_render_strategy"] == "verified_post_composite_only"
     assert forge["render_layers"] == ["base_scene", "verified_overlay"]
+    assert forge["world_marker_minimum"] == 3
+    assert forge["environment_share_minimum"] == 0.60
+    assert forge["apparatus_share_minimum"] == 0.50
+    assert forge["subject_crop_maximum"] == 0.24
+    assert forge["cast_readability_required"] is True
+    assert forge["overlay_anchor_required"] is True
     assert "approval state" in " ".join(forge["overlay_priority_order"]).lower()
     assert "reviewer" in " ".join(forge["must_show_semantic_anchors"]).lower()
 
