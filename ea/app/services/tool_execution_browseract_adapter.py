@@ -2563,13 +2563,22 @@ class BrowserActToolAdapter:
 
     @staticmethod
     def _ui_service_worker_script_path(service_key: str) -> Path:
-        service = browseract_ui_service_by_service_key(service_key)
         normalized = str(service_key or "").strip().lower()
+        service = browseract_ui_service_by_service_key(normalized)
+        if service is None:
+            builtin_service_map = {
+                "onemin_billing_usage": BrowserActToolAdapter._onemin_billing_usage_ui_service,
+                "onemin_member_reconciliation": BrowserActToolAdapter._onemin_member_reconciliation_ui_service,
+            }
+            builder = builtin_service_map.get(normalized)
+            if builder is not None:
+                service = builder()
         env_map = {
             "mootion_movie": "EA_MOOTION_MOVIE_WORKER",
             "avomap_flyover": "EA_AVOMAP_FLYOVER_WORKER",
             "booka_book": "EA_BOOKA_BOOK_WORKER",
             "browseract_template_service": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
+            "onemin_billing_usage": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
             "onemin_member_reconciliation": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
         }
         filename_map = {
@@ -2577,6 +2586,7 @@ class BrowserActToolAdapter:
             "avomap_flyover": "avomap_flyover_worker.py",
             "booka_book": "booka_book_worker.py",
             "browseract_template_service": "browseract_template_service_worker.py",
+            "onemin_billing_usage": "browseract_template_service_worker.py",
             "onemin_member_reconciliation": "browseract_template_service_worker.py",
         }
         worker_name = str(service.worker_script_name if service is not None else "").strip()
