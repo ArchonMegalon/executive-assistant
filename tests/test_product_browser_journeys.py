@@ -41,6 +41,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Load score" in activity.text
     assert "Provider posture" in activity.text
     assert "Suggested next claims" in activity.text
+    assert "Clear before principal" in activity.text
+    assert "Exception queue" in activity.text
     assert "Prepare board follow-up handoff" in activity.text
 
     settings = client.get("/app/settings")

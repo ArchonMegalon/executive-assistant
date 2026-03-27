@@ -843,7 +843,7 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert center.status_code == 200
     body = center.json()
     lane_keys = {item["key"] for item in body["lanes"]}
-    assert {"sla", "claims", "principal", "delivery", "access", "sync"} <= lane_keys
+    assert {"sla", "claims", "preclear", "principal", "delivery", "access", "exceptions", "sync"} <= lane_keys
     assert "registration_sent" in body["delivery"] or "registration_failed" in body["delivery"]
     assert body["access"]["issued"] >= 1
     assert body["access"]["opened"] >= 1
@@ -852,6 +852,8 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert body["sync"]["office_signal_ingested"] >= 1
     assert any(item["label"] for item in body["next_actions"])
     assert "snapshot" in body
+    assert body["snapshot"]["clearable_queue_items"] >= 1
+    assert body["snapshot"]["exception_count"] >= 0
     assert body["snapshot"]["pending_drafts"] >= 1
     assert any(
         str(item.get("event_type") or "") in {
