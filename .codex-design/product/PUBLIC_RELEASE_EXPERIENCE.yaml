@@ -62,5 +62,6 @@ linux_requirements:
   - Use the recommended package when available; use manual packages only for advanced or support-directed installs.
   - Linux preview is secondary to Windows and should not promise more than the currently published package lane can support.
 macos_requirements:
-  - macOS publishing is not on the current preview shelf.
-  - Use the public roadmap and downloads page as the live source of truth before assuming a Mac build exists.
+  - macOS is a real build lane, but it is not on the public preview shelf until a signed and notarized `.dmg` is promoted.
+  - A built macOS `.dmg` may exist as internal release evidence without being guest-visible on `/downloads`.
+  - Use the public downloads page and release-truth surfaces as the live source of truth before assuming the current preview is available for macOS.

@@ -200,6 +200,22 @@ This build rule exists to:
 
 A platform may remain unpublished or unpromoted on the public shelf, but lack of promotion does not exempt it from the build gate.
 
+## macOS public shelf rule
+
+macOS build success alone does not make macOS a public preview platform.
+
+Before `/downloads`, release manifests, or public trust surfaces may present a macOS installer as available, the release lane must have:
+
+* a signed `.dmg`
+* notarization evidence for that `.dmg`
+* release-truth promotion that marks the macOS lane public, not merely buildable
+
+Until then:
+
+* macOS artifacts may exist in internal bundles and release evidence
+* startup smoke for macOS remains required
+* public manifests and public file shelves must exclude the withheld macOS artifacts so users do not infer false availability from raw files
+
 ## Startup smoke rule
 
 Every built desktop artifact must pass a platform-appropriate startup smoke test before the affected head is eligible for promotion.

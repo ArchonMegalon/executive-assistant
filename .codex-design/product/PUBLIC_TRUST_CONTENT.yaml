@@ -141,7 +141,7 @@ trust_pages:
         href: "/contact#support-intake"
         tone: primary
       - label: "Open account support"
-        href: "/signup?next=%2Faccount%23support"
+        href: "/signup?next=%2Faccount%2Fsupport"
         tone: secondary
       - label: "Read help first"
         href: "/help"
