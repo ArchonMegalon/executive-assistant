@@ -21,10 +21,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 except Exception:  # pragma: no cover - optional runtime dependency
     Image = None
     ImageDraw = None
+    ImageEnhance = None
     ImageFilter = None
     ImageFont = None
 
@@ -3302,13 +3303,147 @@ def _draw_overlay_chip(
     draw.text((x + pad_x, y + pad_y - 1), text, fill=(241, 246, 250, 214), font=font)
 
 
-def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object]) -> str:
-    target = str(spec.get("target") or "").replace("\\", "/").strip()
-    if target not in {
-        "assets/hero/chummer6-hero.png",
-        "assets/horizons/karma-forge.png",
-    }:
+def _flagship_finish_focus_mask(*, target: str, size: tuple[int, int]):
+    if Image is None or ImageDraw is None or ImageFilter is None:
+        return None
+    width, height = size
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+
+    if target == "assets/hero/chummer6-hero.png":
+        for left, top, right, bottom, strength in (
+            (0.02, 0.06, 0.42, 0.72, 132),
+            (0.22, 0.12, 0.88, 0.96, 214),
+            (0.62, 0.44, 1.04, 1.04, 148),
+        ):
+            draw.ellipse(
+                (
+                    int(left * width),
+                    int(top * height),
+                    int(right * width),
+                    int(bottom * height),
+                ),
+                fill=int(strength),
+            )
+    elif target == "assets/horizons/karma-forge.png":
+        draw.rounded_rectangle(
+            (
+                int(0.08 * width),
+                int(0.15 * height),
+                int(0.94 * width),
+                int(0.86 * height),
+            ),
+            radius=max(12, int(0.035 * min(width, height))),
+            fill=74,
+        )
+        for left, top, right, bottom, strength in (
+            (0.04, 0.10, 0.52, 0.90, 136),
+            (0.34, 0.04, 0.98, 0.90, 196),
+            (0.46, -0.04, 1.04, 0.40, 118),
+        ):
+            draw.ellipse(
+                (
+                    int(left * width),
+                    int(top * height),
+                    int(right * width),
+                    int(bottom * height),
+                ),
+                fill=int(strength),
+            )
+    elif target == "assets/pages/horizons-index.png":
+        for left, top, right, bottom, strength in (
+            (0.00, 0.02, 0.44, 0.58, 138),
+            (0.22, 0.00, 0.82, 0.58, 170),
+            (0.56, 0.02, 1.02, 0.68, 150),
+            (0.15, 0.40, 0.90, 1.02, 126),
+        ):
+            draw.ellipse(
+                (
+                    int(left * width),
+                    int(top * height),
+                    int(right * width),
+                    int(bottom * height),
+                ),
+                fill=int(strength),
+            )
+    else:
+        return None
+
+    blur_radius = max(18, int(min(width, height) * 0.07))
+    return mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+
+def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> str:
+    if Image is None or ImageEnhance is None or ImageFilter is None:
+        return _apply_flagship_finish_postpass_ffmpeg(image_path=image_path, target=target)
+    if not image_path.exists():
+        raise RuntimeError(f"flagship_finish_postpass:missing_image:{image_path}")
+
+    with Image.open(image_path) as original:
+        source_mode = str(original.mode or "RGB")
+        source_format = str(original.format or "").upper() or "PNG"
+        alpha = original.getchannel("A").copy() if "A" in source_mode else None
+        image = original.convert("RGB")
+
+    if target == "assets/hero/chummer6-hero.png":
+        image = ImageEnhance.Brightness(image).enhance(1.26)
+        image = ImageEnhance.Contrast(image).enhance(1.31)
+        image = ImageEnhance.Color(image).enhance(1.11)
+        image = ImageEnhance.Sharpness(image).enhance(2.0)
+        image = image.filter(ImageFilter.UnsharpMask(radius=2, percent=220, threshold=1))
+        focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
+        if focus_mask is not None:
+            lifted = ImageEnhance.Brightness(image).enhance(1.17)
+            lifted = ImageEnhance.Contrast(lifted).enhance(1.08)
+            lifted = ImageEnhance.Color(lifted).enhance(1.06)
+            image = Image.composite(lifted, image, focus_mask)
+    elif target == "assets/horizons/karma-forge.png":
+        image = ImageEnhance.Brightness(image).enhance(1.12)
+        image = ImageEnhance.Contrast(image).enhance(1.24)
+        image = ImageEnhance.Color(image).enhance(1.08)
+        image = ImageEnhance.Sharpness(image).enhance(1.85)
+        image = image.filter(ImageFilter.UnsharpMask(radius=2, percent=190, threshold=1))
+        focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
+        if focus_mask is not None:
+            lifted = ImageEnhance.Brightness(image).enhance(1.12)
+            lifted = ImageEnhance.Contrast(lifted).enhance(1.09)
+            lifted = ImageEnhance.Color(lifted).enhance(1.05)
+            image = Image.composite(lifted, image, focus_mask)
+    elif target == "assets/pages/horizons-index.png":
+        image = ImageEnhance.Brightness(image).enhance(1.18)
+        image = ImageEnhance.Contrast(image).enhance(1.28)
+        image = ImageEnhance.Color(image).enhance(1.12)
+        image = ImageEnhance.Sharpness(image).enhance(1.9)
+        image = image.filter(ImageFilter.UnsharpMask(radius=2, percent=190, threshold=1))
+        focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
+        if focus_mask is not None:
+            lifted = ImageEnhance.Brightness(image).enhance(1.12)
+            lifted = ImageEnhance.Contrast(lifted).enhance(1.06)
+            lifted = ImageEnhance.Color(lifted).enhance(1.05)
+            image = Image.composite(lifted, image, focus_mask)
+    else:
         return "flagship_finish_postpass:skipped"
+
+    image = image.filter(ImageFilter.DETAIL)
+    if alpha is not None:
+        image = image.convert("RGBA")
+        image.putalpha(alpha)
+
+    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+        temp_path = Path(handle.name)
+    try:
+        image.save(temp_path, format=source_format)
+        temp_path.replace(image_path)
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return "flagship_finish_postpass:applied_pillow"
+
+
+def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> str:
     if not image_path.exists():
         raise RuntimeError(f"flagship_finish_postpass:missing_image:{image_path}")
     with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
@@ -3347,7 +3482,18 @@ def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object])
                 temp_path.unlink()
             except Exception:
                 pass
-    return "flagship_finish_postpass:applied"
+    return "flagship_finish_postpass:applied_ffmpeg"
+
+
+def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object]) -> str:
+    target = str(spec.get("target") or "").replace("\\", "/").strip()
+    if target not in {
+        "assets/hero/chummer6-hero.png",
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
+    }:
+        return "flagship_finish_postpass:skipped"
+    return _apply_flagship_finish_postpass_pillow(image_path=image_path, target=target)
 
 
 def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
@@ -5340,6 +5486,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 statuses.append(apply_troll_postpass(image_path=candidate_path, spec=spec, width=width, height=height))
             if target in {
                 "assets/hero/chummer6-hero.png",
+                "assets/pages/horizons-index.png",
                 "assets/horizons/karma-forge.png",
             }:
                 statuses.append(apply_flagship_finish_postpass(image_path=candidate_path, spec=spec))

@@ -1716,7 +1716,49 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     assert int(wound["y"]) > int(0.68 * 540)
 
 
-def test_apply_flagship_finish_postpass_uses_ffmpeg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_apply_flagship_finish_postpass_uses_pillow_when_available(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.Image is None:
+        pytest.skip("Pillow not available")
+    image_path = tmp_path / "hero.png"
+    base = media.Image.new("RGB", (240, 160), (22, 26, 33))
+    draw = media.ImageDraw.Draw(base)
+    draw.rectangle((18, 22, 118, 142), fill=(72, 88, 118))
+    draw.rectangle((112, 28, 208, 148), fill=(128, 84, 68))
+    base.save(image_path, format="PNG")
+    original_bytes = image_path.read_bytes()
+
+    result = media.apply_flagship_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+    )
+
+    assert result == "flagship_finish_postpass:applied_pillow"
+    assert image_path.read_bytes() != original_bytes
+
+
+def test_apply_flagship_finish_postpass_supports_horizons_index(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.Image is None:
+        pytest.skip("Pillow not available")
+    image_path = tmp_path / "horizons.png"
+    base = media.Image.new("RGB", (240, 160), (24, 28, 34))
+    draw = media.ImageDraw.Draw(base)
+    draw.rectangle((12, 20, 224, 144), fill=(42, 76, 112))
+    draw.ellipse((124, 18, 220, 112), fill=(148, 84, 72))
+    base.save(image_path, format="PNG")
+
+    result = media.apply_flagship_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/pages/horizons-index.png"},
+    )
+
+    assert result == "flagship_finish_postpass:applied_pillow"
+
+
+def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     media = _load_module()
     image_path = tmp_path / "hero.png"
     image_path.write_bytes(b"png")
@@ -1729,13 +1771,16 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(media.subprocess, "run", fake_run)
+    monkeypatch.setattr(media, "Image", None)
+    monkeypatch.setattr(media, "ImageEnhance", None)
+    monkeypatch.setattr(media, "ImageFilter", None)
 
     result = media.apply_flagship_finish_postpass(
         image_path=image_path,
         spec={"target": "assets/hero/chummer6-hero.png"},
     )
 
-    assert result == "flagship_finish_postpass:applied"
+    assert result == "flagship_finish_postpass:applied_ffmpeg"
     assert "unsharp=9:9:1.45:5:5:0.0" in seen["command"][7]
     assert "eq=contrast=1.12:saturation=1.12:brightness=0.025" in seen["command"][7]
 
