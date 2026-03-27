@@ -29,6 +29,9 @@ from app.api.routes.product_api_contracts import (
     HistoryEntryOut,
     OfficeEventOut,
     OfficeEventResponse,
+    OperatorCenterActionOut,
+    OperatorCenterLaneOut,
+    OperatorCenterOut,
     OfficeSignalIn,
     OfficeSignalResultOut,
     PersonCorrectionIn,
@@ -615,6 +618,33 @@ def get_workspace_diagnostics(
 ) -> WorkspaceDiagnosticsOut:
     service = build_product_service(container)
     return WorkspaceDiagnosticsOut(**service.workspace_diagnostics(principal_id=context.principal_id))
+
+
+@router.get("/operator-center", response_model=OperatorCenterOut)
+def get_operator_center(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OperatorCenterOut:
+    service = build_product_service(container)
+    payload = service.operator_center(
+        principal_id=context.principal_id,
+        operator_id=str(context.operator_id or "").strip(),
+    )
+    return OperatorCenterOut(
+        generated_at=str(payload.get("generated_at") or now_iso()),
+        workspace=dict(payload.get("workspace") or {}),
+        operators=dict(payload.get("operators") or {}),
+        queue_health=dict(payload.get("queue_health") or {}),
+        providers=dict(payload.get("providers") or {}),
+        readiness=dict(payload.get("readiness") or {}),
+        delivery=dict(payload.get("delivery") or {}),
+        sync=dict(payload.get("sync") or {}),
+        usage={str(key): int(value or 0) for key, value in dict(payload.get("usage") or {}).items()},
+        lanes=[OperatorCenterLaneOut(**dict(value)) for value in list(payload.get("lanes") or [])],
+        next_actions=[OperatorCenterActionOut(**dict(value)) for value in list(payload.get("next_actions") or [])],
+        recent_runtime=[dict(value) for value in list(payload.get("recent_runtime") or [])],
+        snapshot={str(key): int(value or 0) for key, value in dict(payload.get("snapshot") or {}).items()},
+    )
 
 
 @router.get("/plan", response_model=WorkspacePlanDetailOut)

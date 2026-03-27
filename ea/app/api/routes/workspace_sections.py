@@ -333,6 +333,8 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
     queue_health = dict(diagnostics.get("queue_health") or {})
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(analytics.get("counts") or {})
+    analytics_delivery = dict(analytics.get("delivery") or {})
+    analytics_sync = dict(analytics.get("sync") or {})
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
     feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
     return [
@@ -402,6 +404,9 @@ def workspace_section_payload(
     provider_posture = dict(diagnostics.get("providers") or {})
     commercial = dict(diagnostics.get("commercial") or {})
     readiness = dict(diagnostics.get("readiness") or {})
+    analytics = dict(diagnostics.get("analytics") or {})
+    analytics_delivery = dict(analytics.get("delivery") or {})
+    analytics_sync = dict(analytics.get("sync") or {})
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
@@ -627,6 +632,21 @@ def workspace_section_payload(
                         _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),
                         _row("Failover-ready lanes", str(provider_posture.get("failover_ready_lanes") or 0), "Provider"),
                         _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+                        _row("Google sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/usage"),
+                        _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/usage"),
+                    ],
+                },
+                {
+                    "eyebrow": "Delivery and access",
+                    "title": "Registration, invite, and digest delivery",
+                    "body": "The operator lane should surface whether people can actually enter the workspace and receive the compact loop.",
+                    "items": [
+                        _row("Registration emails sent", str(analytics_delivery.get("registration_sent") or 0), "Email", href="/app/settings/usage"),
+                        _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
+                        _row("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/support"),
+                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
+                        _row("Digest emails sent", str(analytics_delivery.get("digest_sent") or 0), "Email", href="/app/channel-loop"),
+                        _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
                     ],
                 },
                 {

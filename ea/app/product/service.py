@@ -2819,6 +2819,14 @@ class ProductService:
         commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
         memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
         support_bundle_opened_count = int(analytics_counts.get("support_bundle_opened") or 0)
+        registration_email_sent_count = int(analytics_counts.get("registration_email_sent") or 0)
+        registration_email_failed_count = int(analytics_counts.get("registration_email_failed") or 0)
+        invite_email_sent_count = int(analytics_counts.get("workspace_invitation_email_sent") or 0)
+        invite_email_failed_count = int(analytics_counts.get("workspace_invitation_email_failed") or 0)
+        digest_email_sent_count = int(analytics_counts.get("channel_digest_delivery_email_sent") or 0)
+        digest_email_failed_count = int(analytics_counts.get("channel_digest_delivery_email_failed") or 0)
+        google_sync_completed_count = int(analytics_counts.get("google_workspace_signal_sync_completed") or 0)
+        office_signal_ingested_count = int(analytics_counts.get("office_signal_ingested") or 0)
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
@@ -2915,6 +2923,18 @@ class ProductService:
                 "correction_rate": correction_rate,
                 "churn_risk": churn_risk,
                 "success_summary": success_summary,
+                "delivery": {
+                    "registration_sent": registration_email_sent_count,
+                    "registration_failed": registration_email_failed_count,
+                    "invite_sent": invite_email_sent_count,
+                    "invite_failed": invite_email_failed_count,
+                    "digest_sent": digest_email_sent_count,
+                    "digest_failed": digest_email_failed_count,
+                },
+                "sync": {
+                    "google_sync_completed": google_sync_completed_count,
+                    "office_signal_ingested": office_signal_ingested_count,
+                },
                 "recent_events": [
                     {
                         "event_type": row.event_type,
@@ -2924,6 +2944,156 @@ class ProductService:
                     }
                     for row in product_events[:12]
                 ],
+            },
+        }
+
+    def operator_center(self, *, principal_id: str, operator_id: str = "") -> dict[str, object]:
+        snapshot = self.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
+        diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        queue_health = dict(diagnostics.get("queue_health") or {})
+        providers = dict(diagnostics.get("providers") or {})
+        readiness = dict(diagnostics.get("readiness") or {})
+        analytics = dict(diagnostics.get("analytics") or {})
+        usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
+        delivery = dict(analytics.get("delivery") or {})
+        sync = dict(analytics.get("sync") or {})
+        counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
+        recent_events = [
+            dict(row)
+            for row in list(analytics.get("recent_events") or [])
+            if str((row or {}).get("event_type") or "").strip()
+            in {
+                "registration_email_sent",
+                "registration_email_failed",
+                "workspace_invitation_email_sent",
+                "workspace_invitation_email_failed",
+                "workspace_access_session_issued",
+                "channel_digest_delivery_email_sent",
+                "channel_digest_delivery_email_failed",
+                "channel_digest_delivery_opened",
+                "google_workspace_signal_sync_completed",
+                "office_signal_ingested",
+                "support_bundle_opened",
+            }
+        ][:12]
+        assignment_suggestions = [dict(value) for value in list(queue_health.get("assignment_suggestions") or [])[:3]]
+        lanes = [
+            {
+                "key": "sla",
+                "label": "SLA risk",
+                "state": "critical" if int(queue_health.get("sla_breaches") or 0) else "clear",
+                "count": int(queue_health.get("sla_breaches") or 0),
+                "detail": f"{int(queue_health.get('sla_breaches') or 0)} breaches · {int(queue_health.get('oldest_handoff_age_hours') or 0)}h oldest handoff",
+                "href": "/app/activity",
+            },
+            {
+                "key": "claims",
+                "label": "Claimable work",
+                "state": "watch" if int(queue_health.get("unclaimed_handoffs") or 0) else "clear",
+                "count": int(queue_health.get("unclaimed_handoffs") or 0),
+                "detail": f"{int(queue_health.get('suggested_claims') or 0)} suggested claims ready now",
+                "href": "/app/activity",
+            },
+            {
+                "key": "principal",
+                "label": "Waiting on principal",
+                "state": "watch" if int(queue_health.get("waiting_on_principal") or 0) else "clear",
+                "count": int(queue_health.get("waiting_on_principal") or 0),
+                "detail": f"{int(queue_health.get('pending_approvals') or 0)} approvals · {int(counts.get('queue_opened') or 0)} queue opens",
+                "href": "/app/briefing",
+            },
+            {
+                "key": "delivery",
+                "label": "Delivery health",
+                "state": "critical"
+                if int(queue_health.get("delivery_errors") or 0) or int(delivery.get("registration_failed") or 0) or int(delivery.get("digest_failed") or 0)
+                else "watch"
+                if int(queue_health.get("retrying_delivery") or 0)
+                else "clear",
+                "count": int(queue_health.get("pending_delivery") or 0),
+                "detail": (
+                    f"{int(queue_health.get('retrying_delivery') or 0)} retrying · "
+                    f"{int(queue_health.get('delivery_errors') or 0)} queue errors · "
+                    f"{int(delivery.get('registration_failed') or 0) + int(delivery.get('invite_failed') or 0) + int(delivery.get('digest_failed') or 0)} email failures"
+                ),
+                "href": "/app/settings/support",
+            },
+            {
+                "key": "sync",
+                "label": "Google sync",
+                "state": "watch" if int(sync.get("google_sync_completed") or 0) == 0 else "clear",
+                "count": int(sync.get("office_signal_ingested") or 0),
+                "detail": f"{int(sync.get('google_sync_completed') or 0)} sync runs · {int(sync.get('office_signal_ingested') or 0)} ingested office signals",
+                "href": "/app/settings/usage",
+            },
+        ]
+        next_actions: list[dict[str, object]] = []
+        for item in assignment_suggestions:
+            handoff_id = str(item.get("id") or "").strip()
+            next_actions.append(
+                {
+                    "label": str(item.get("summary") or handoff_id or "Claim handoff"),
+                    "detail": "Claim the most urgent unassigned handoff before it ages into a miss.",
+                    "href": f"/app/handoffs/{handoff_id}" if handoff_id else "/app/activity",
+                    "action_href": f"/app/actions/handoffs/{handoff_id}/assign" if handoff_id else "",
+                    "action_label": "Claim" if handoff_id else "",
+                    "action_value": "assign" if handoff_id else "",
+                    "action_method": "post" if handoff_id else "",
+                    "return_to": "/app/activity" if handoff_id else "",
+                }
+            )
+        if int(queue_health.get("retrying_delivery") or 0) or int(queue_health.get("delivery_errors") or 0):
+            next_actions.append(
+                {
+                    "label": "Open support diagnostics",
+                    "detail": "Delivery backlog or failures need support posture before the next memo cycle.",
+                    "href": "/app/settings/support",
+                    "action_href": "/app/api/diagnostics/export",
+                    "action_label": "Open bundle",
+                    "action_method": "get",
+                    "return_to": "/app/settings/support",
+                }
+            )
+        if int(sync.get("google_sync_completed") or 0) == 0:
+            next_actions.append(
+                {
+                    "label": "Run Google sync",
+                    "detail": "This workspace has not completed a Google signal sync yet.",
+                    "href": "/app/settings/usage",
+                    "action_href": "/app/api/signals/google/sync",
+                    "action_label": "Sync now",
+                    "action_method": "post",
+                    "return_to": "/app/settings/usage",
+                }
+            )
+        if int(queue_health.get("waiting_on_principal") or 0):
+            next_actions.append(
+                {
+                    "label": "Clear principal approvals",
+                    "detail": "Executive-gated work is still blocking the operator lane.",
+                    "href": "/app/briefing",
+                }
+            )
+        return {
+            "generated_at": _now_iso(),
+            "workspace": dict(diagnostics.get("workspace") or {}),
+            "operators": dict(diagnostics.get("operators") or {}),
+            "queue_health": queue_health,
+            "providers": providers,
+            "readiness": readiness,
+            "delivery": delivery,
+            "sync": sync,
+            "usage": usage,
+            "lanes": lanes,
+            "next_actions": next_actions[:6],
+            "recent_runtime": recent_events,
+            "snapshot": {
+                "assigned_handoffs": len([row for row in snapshot.handoffs if str(row.owner or "").strip() == str(operator_id or "").strip()]) if str(operator_id or "").strip() else 0,
+                "completed_handoffs": len(snapshot.completed_handoffs),
+                "open_commitments": len(snapshot.commitments),
+                "pending_drafts": len(snapshot.drafts),
+                "open_decisions": len(snapshot.decisions),
+                "people_in_play": len(snapshot.people),
             },
         }
 

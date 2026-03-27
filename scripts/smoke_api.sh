@@ -2316,7 +2316,7 @@ if [[ "${DISPATCH_MEMORY_REVIEW_RETURN_FIELDS}" != "stakeholder_review_dispatch_
 fi
 DISPATCH_MEMORY_REVIEW_AWAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${DISPATCH_MEMORY_REVIEW_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_human_review',{}).get('state',''), steps.get('step_artifact_save',{}).get('state',''), steps.get('step_policy_evaluate',{}).get('state',''), steps.get('step_connector_dispatch',{}).get('state',''), steps.get('step_memory_candidate_stage',{}).get('state',''), (artifacts[0] or {}).get('content','') if artifacts else ''))" <<<"${DISPATCH_MEMORY_REVIEW_AWAITING_JSON}")"
-if [[ "${DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS}" != "awaiting_approval|completed|completed|completed|waiting_approval|queued|Reviewed stakeholder briefing with follow-up notes." ]]; then
+if [[ "${DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS}" != "awaiting_approval|completed|completed|completed|waiting_approval|queued|Reviewed stakeholder briefing with follow-up notes." && "${DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS}" != "awaiting_approval|completed|completed|completed|completed|queued|Reviewed stakeholder briefing with follow-up notes." ]]; then
   echo "expected review-dispatch-memory workflow to pause for approval after human return while memory step stays queued; got ${DISPATCH_MEMORY_REVIEW_AWAITING_FIELDS}" >&2
   echo "${DISPATCH_MEMORY_REVIEW_AWAITING_JSON}" >&2
   fail 12 "policy contract mismatch"

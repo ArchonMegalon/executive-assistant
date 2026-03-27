@@ -743,6 +743,60 @@ def test_product_diagnostics_include_value_events() -> None:
     assert isinstance(body["pending_delivery"], list)
 
 
+def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> None:
+    principal_id = "exec-operator-center"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="exec@example.com",
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up",
+                    summary="Send the revised board packet to Sofia tomorrow morning.",
+                    text="Send the revised board packet to Sofia tomorrow morning.",
+                    source_ref="gmail-thread:lane123",
+                    external_id="gmail-message:lane456",
+                    counterparty="Sofia N.",
+                    due_at=None,
+                    payload={"thread_id": "lane123", "message_id": "lane456"},
+                ),
+            ),
+        ),
+    )
+
+    register = client.post("/v1/register/start", json={"email": "lane@example.com"})
+    assert register.status_code == 200
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 1, "calendar_limit": 0})
+    assert synced.status_code == 200
+
+    center = client.get("/app/api/operator-center")
+    assert center.status_code == 200
+    body = center.json()
+    lane_keys = {item["key"] for item in body["lanes"]}
+    assert {"sla", "claims", "principal", "delivery", "sync"} <= lane_keys
+    assert "registration_sent" in body["delivery"] or "registration_failed" in body["delivery"]
+    assert body["sync"]["google_sync_completed"] >= 1
+    assert body["sync"]["office_signal_ingested"] >= 1
+    assert any(item["label"] for item in body["next_actions"])
+    assert "snapshot" in body
+    assert body["snapshot"]["pending_drafts"] >= 1
+    assert any(
+        str(item.get("event_type") or "") in {"registration_email_sent", "registration_email_failed", "google_workspace_signal_sync_completed"}
+        for item in body["recent_runtime"]
+    )
+
+
 def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     principal_id = "exec-workspace-invites"
     client = build_product_client(principal_id=principal_id)

@@ -323,6 +323,7 @@ def register_start(
     container: AppContainer = Depends(get_container),
     request: Request = None,
 ) -> RegisterStartOut:
+    product = build_product_service(container)
     email = str(body.email or "").strip().lower()
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         raise HTTPException(status_code=400, detail="registration_email_invalid")
@@ -354,9 +355,23 @@ def register_start(
             email_delivery_status = "sent"
             email_delivery_provider = receipt.provider
             email_delivery_id = receipt.message_id
+            product.record_surface_event(
+                principal_id=_registration_principal_id(email),
+                event_type="registration_email_sent",
+                surface="register_start",
+                actor=email,
+                metadata={"email": email},
+            )
         except RuntimeError as exc:
             email_delivery_status = "failed"
             email_delivery_error = str(exc) or "registration_email_send_failed"
+            product.record_surface_event(
+                principal_id=_registration_principal_id(email),
+                event_type="registration_email_failed",
+                surface="register_start",
+                actor=email,
+                metadata={"email": email, "error": email_delivery_error},
+            )
     return RegisterStartOut(
         email=email,
         verification_token=verification_token,
