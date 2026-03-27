@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1772,6 +1773,44 @@ def format_command(parts: list[str], *, prompt: str, target: str, output: str, w
     return [part.format(prompt=prompt, target=target, output=output, width=width, height=height) for part in parts]
 
 
+def command_provider_timeout_seconds(name: str) -> int:
+    normalized = str(name or "").strip().upper().replace("-", "_")
+    specific = env_value(f"CHUMMER6_{normalized}_COMMAND_TIMEOUT_SECONDS")
+    raw = specific or env_value("CHUMMER6_RENDER_COMMAND_TIMEOUT_SECONDS") or ""
+    try:
+        if raw:
+            return max(10, min(600, int(raw)))
+    except Exception:
+        pass
+    defaults = {
+        "MEDIA_FACTORY": 120,
+        "BROWSERACT_PROMPTING_SYSTEMS": 90,
+        "BROWSERACT_MAGIXAI": 90,
+        "PROMPTING_SYSTEMS": 90,
+        "MAGIXAI": 90,
+    }
+    return defaults.get(normalized, 60)
+
+
+def url_provider_timeout_seconds(name: str) -> int:
+    normalized = str(name or "").strip().upper().replace("-", "_")
+    specific = env_value(f"CHUMMER6_{normalized}_URL_TIMEOUT_SECONDS")
+    raw = specific or env_value("CHUMMER6_RENDER_URL_TIMEOUT_SECONDS") or ""
+    try:
+        if raw:
+            return max(10, min(600, int(raw)))
+    except Exception:
+        pass
+    defaults = {
+        "MEDIA_FACTORY": 120,
+        "BROWSERACT_PROMPTING_SYSTEMS": 90,
+        "BROWSERACT_MAGIXAI": 90,
+        "PROMPTING_SYSTEMS": 90,
+        "MAGIXAI": 90,
+    }
+    return defaults.get(normalized, 90)
+
+
 def run_command_provider(name: str, template: list[str], *, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
     if not template:
         return False, f"{name}:not_configured"
@@ -1789,7 +1828,10 @@ def run_command_provider(name: str, template: list[str], *, prompt: str, output_
             check=True,
             text=True,
             capture_output=True,
+            timeout=command_provider_timeout_seconds(name),
         )
+    except subprocess.TimeoutExpired:
+        return False, f"{name}:timeout"
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip()
         return False, f"{name}:command_failed:{detail[:240]}"
@@ -1809,11 +1851,13 @@ def run_url_provider(name: str, template: str, *, prompt: str, output_path: Path
     )
     request = urllib.request.Request(url, headers={"User-Agent": "EA-Chummer6-Media/1.0"})
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with urllib.request.urlopen(request, timeout=url_provider_timeout_seconds(name)) as response:
             data = response.read()
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace").strip()
         return False, f"{name}:http_{exc.code}:{body[:240]}"
+    except (TimeoutError, socket.timeout):
+        return False, f"{name}:timeout"
     except urllib.error.URLError as exc:
         return False, f"{name}:urlerror:{exc.reason}"
     if not data:
