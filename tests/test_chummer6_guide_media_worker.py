@@ -1170,9 +1170,10 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
         },
     )
 
-    assert "garage clinic" in hero_prompt.lower() or "getaway-van triage" in hero_prompt.lower()
+    assert "hacked repair recliner" in hero_prompt.lower()
     assert "illustrated cover-grade shadowrun streetdoc poster scene." in hero_prompt.lower()
     assert "poster energy is welcome when it stays tied to a lived scene" in hero_prompt.lower()
+    assert "room, hardware, and clutter" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
     assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
 
@@ -1209,6 +1210,9 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     assert "garage clinic" in lowered
     assert "render the base scene plate first" in lowered
     assert "medscan diagnostic" in lowered
+    assert "cyberlimb calibration" not in lowered
+    assert "bod rail" not in lowered
+    assert "room, hardware, and clutter" in lowered
 
 
 def test_overlay_mode_for_target_maps_flagship_assets() -> None:
@@ -1425,7 +1429,6 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
 
     assert any("two to four people" in part.lower() for part in hero_parts)
     assert any("metahuman clinician" in part.lower() for part in hero_parts)
-    assert any("bod" in part.lower() and "agi" in part.lower() for part in hero_parts)
     assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
     assert any("do not fall back to the softer secondary guide-still epoch" in part.lower() for part in hero_parts)
@@ -1646,8 +1649,10 @@ def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
     assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
     provenance = next(chip for chip in layout["chips"] if chip["text"] == "PROVENANCE")
     rollback = next(chip for chip in layout["chips"] if chip["text"] == "ROLLBACK")
-    assert int(provenance["x"]) > int(0.65 * 960)
-    assert int(rollback["x"]) > int(0.7 * 960)
+    compatibility = next(chip for chip in layout["chips"] if chip["text"] == "COMPATIBILITY ARC")
+    assert int(provenance["x"]) > int(0.72 * 960)
+    assert int(rollback["x"]) > int(0.74 * 960)
+    assert int(compatibility["x"]) > int(0.7 * 960)
 
 
 def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
@@ -1666,8 +1671,10 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     assert total_box_area < int(0.07 * 960 * 540)
     assert any(chip["text"] == "AGI 4 ↑ UPGRADING" for chip in layout["chips"])
     assert any(chip["text"] == "ESS 2.8 ↑ UPGRADING" for chip in layout["chips"])
-    assert int(calibration["y"]) > int(0.55 * 540)
-    assert int(wound["y"]) > int(0.62 * 540)
+    assert int(calibration["x"]) > int(0.65 * 960)
+    assert int(calibration["y"]) > int(0.64 * 540)
+    assert int(wound["x"]) < int(0.25 * 960)
+    assert int(wound["y"]) > int(0.68 * 540)
 
 
 def test_apply_flagship_finish_postpass_uses_ffmpeg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1707,7 +1714,7 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
     assert "deterministic post-composite overlay layer" in hero_prompt
     assert "Reserve the scene-specific overlay semantics for the verified composite layer only" in hero_prompt
     assert "Do not paint readable stat names, subsystem labels, approval words, or status text into the base artwork." in hero_prompt
-    assert "ugly hairy troll runner" in hero_prompt
+    assert "troll patient must read clearly" in hero_prompt
     assert "Trust Check" not in hero_prompt
     assert "clean base-scene plate" in karma_prompt
     assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt

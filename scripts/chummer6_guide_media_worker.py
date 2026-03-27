@@ -690,7 +690,7 @@ def overlay_mode_prompt_clause(*, target: str, compact: bool = False) -> str:
         return (
             "overlay mode medscan diagnostic: slim stat rail, anchored calibration callouts, one or two status capsules, no face-covering panels"
             if compact
-            else "Use medscan diagnostic overlays only: a slim stat rail, anchored calibration callouts, and one or two status capsules. No face-covering panels or floating generic rectangles."
+            else "Use medscan diagnostic overlays only. Keep any base-scene AR abstract, sparse, edge-biased, and unreadable; reserve readable stat rails, calibration callouts, and status capsules for the verified post-composite layer. No face-covering panels or floating generic rectangles."
         )
     if mode == "ambient_diegetic":
         return (
@@ -702,7 +702,7 @@ def overlay_mode_prompt_clause(*, target: str, compact: bool = False) -> str:
         return (
             "overlay mode forge review AR: edge-following rails, provenance seals, rollback vectors, no torso-covering boxes"
             if compact
-            else "Use forge-review AR overlays only: edge-following rails, provenance seals, rollback vectors, and compact approval chips. No torso-covering boxes or generic floating HUD slabs."
+            else "Use forge-review AR overlays only. Keep any base-scene AR abstract, sparse, and attached to machinery silhouettes; reserve readable approval chips, provenance seals, rollback vectors, and witness locks for the verified post-composite layer. No torso-covering boxes or generic floating HUD slabs."
         )
     return ""
 
@@ -3108,25 +3108,25 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
             "fills": [
                 {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.008), "h": int(height * 0.48), "color": (39, 212, 255, 78)},
                 {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.065), "h": int(height * 0.48), "color": (39, 212, 255, 18)},
-                {"x": int(width * 0.58), "y": int(height * 0.65), "w": int(width * 0.09), "h": int(height * 0.01), "color": (255, 166, 87, 82)},
-                {"x": int(width * 0.22), "y": int(height * 0.69), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 166, 87, 72)},
-                {"x": int(width * 0.36), "y": int(height * 0.76), "w": int(width * 0.12), "h": int(height * 0.01), "color": (39, 212, 255, 70)},
+                {"x": int(width * 0.67), "y": int(height * 0.72), "w": int(width * 0.1), "h": int(height * 0.01), "color": (255, 166, 87, 78)},
+                {"x": int(width * 0.16), "y": int(height * 0.74), "w": int(width * 0.13), "h": int(height * 0.01), "color": (255, 166, 87, 68)},
+                {"x": int(width * 0.34), "y": int(height * 0.8), "w": int(width * 0.13), "h": int(height * 0.01), "color": (39, 212, 255, 66)},
             ],
             "boxes": [
-                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.105), "h": int(height * 0.54), "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.098), "h": int(height * 0.54), "color": cyan},
             ],
             "lines": [
                 {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.28), int(height * 0.35)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.24), int(height * 0.69)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.38), int(height * 0.76)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.56), int(height * 0.68), int(width * 0.67), int(height * 0.61)), "color": amber, "width": 2},
-                {"points": (int(width * 0.33), int(height * 0.71), int(width * 0.46), int(height * 0.67)), "color": amber, "width": 2},
-                {"points": (int(width * 0.47), int(height * 0.78), int(width * 0.55), int(height * 0.72)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.2), int(height * 0.74)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.36), int(height * 0.8)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.65), int(height * 0.76), int(width * 0.76), int(height * 0.67)), "color": amber, "width": 2},
+                {"points": (int(width * 0.27), int(height * 0.76), int(width * 0.43), int(height * 0.73)), "color": amber, "width": 2},
+                {"points": (int(width * 0.43), int(height * 0.81), int(width * 0.56), int(height * 0.74)), "color": cyan, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.18), int(height * 0.55), int(width * 0.44), int(height * 0.9)), "start": 224, "end": 302, "color": cyan, "width": 2},
-                {"box": (int(width * 0.48), int(height * 0.5), int(width * 0.78), int(height * 0.9)), "start": 196, "end": 314, "color": amber, "width": 3},
-                {"box": (int(width * 0.56), int(height * 0.58), int(width * 0.7), int(height * 0.82)), "start": 206, "end": 336, "color": amber, "width": 2},
+                {"box": (int(width * 0.14), int(height * 0.58), int(width * 0.42), int(height * 0.94)), "start": 224, "end": 300, "color": cyan, "width": 2},
+                {"box": (int(width * 0.58), int(height * 0.56), int(width * 0.88), int(height * 0.92)), "start": 204, "end": 314, "color": amber, "width": 2},
+                {"box": (int(width * 0.64), int(height * 0.64), int(width * 0.82), int(height * 0.88)), "start": 214, "end": 334, "color": amber, "width": 2},
             ],
             "chips": [
                 {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
@@ -3139,9 +3139,9 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.57), "y": int(height * 0.6), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 16},
-                {"x": int(width * 0.22), "y": int(height * 0.66), "text": "WOUND STABILIZED", "color": amber, "font_size": 16},
-                {"x": int(width * 0.36), "y": int(height * 0.73), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 16},
+                {"x": int(width * 0.68), "y": int(height * 0.68), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 14},
+                {"x": int(width * 0.17), "y": int(height * 0.71), "text": "WOUND STABILIZED", "color": amber, "font_size": 14},
+                {"x": int(width * 0.35), "y": int(height * 0.78), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 14},
             ],
         }
     if target == "assets/pages/horizons-index.png":
@@ -3187,31 +3187,31 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"x": int(width * 0.66), "y": int(height * 0.57), "w": int(width * 0.15), "h": int(height * 0.01), "color": (39, 212, 255, 74)},
             ],
             "boxes": [
-                {"x": int(width * 0.05), "y": int(height * 0.1), "w": int(width * 0.08), "h": int(height * 0.05), "color": amber},
-                {"x": int(width * 0.74), "y": int(height * 0.08), "w": int(width * 0.12), "h": int(height * 0.05), "color": red},
+                {"x": int(width * 0.05), "y": int(height * 0.1), "w": int(width * 0.07), "h": int(height * 0.045), "color": amber},
+                {"x": int(width * 0.75), "y": int(height * 0.08), "w": int(width * 0.11), "h": int(height * 0.045), "color": red},
             ],
             "lines": [
-                {"points": (int(width * 0.16), int(height * 0.14), int(width * 0.33), int(height * 0.26)), "color": amber, "width": 2},
-                {"points": (int(width * 0.2), int(height * 0.8), int(width * 0.33), int(height * 0.7)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.77), int(height * 0.14), int(width * 0.66), int(height * 0.24)), "color": red, "width": 2},
-                {"points": (int(width * 0.66), int(height * 0.39), int(width * 0.58), int(height * 0.43)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.66), int(height * 0.49), int(width * 0.56), int(height * 0.52)), "color": amber, "width": 2},
-                {"points": (int(width * 0.7), int(height * 0.6), int(width * 0.57), int(height * 0.62)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.64), int(height * 0.8), int(width * 0.5), int(height * 0.73)), "color": amber, "width": 2},
+                {"points": (int(width * 0.12), int(height * 0.14), int(width * 0.29), int(height * 0.23)), "color": amber, "width": 2},
+                {"points": (int(width * 0.18), int(height * 0.79), int(width * 0.34), int(height * 0.69)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.8), int(height * 0.14), int(width * 0.69), int(height * 0.22)), "color": red, "width": 2},
+                {"points": (int(width * 0.78), int(height * 0.33), int(width * 0.6), int(height * 0.4)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.76), int(height * 0.44), int(width * 0.58), int(height * 0.49)), "color": amber, "width": 2},
+                {"points": (int(width * 0.76), int(height * 0.56), int(width * 0.59), int(height * 0.59)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.67), int(height * 0.79), int(width * 0.52), int(height * 0.72)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.54), int(height * 0.1), int(width * 0.92), int(height * 0.42)), "start": 186, "end": 292, "color": red, "width": 3},
-                {"box": (int(width * 0.42), int(height * 0.42), int(width * 0.9), int(height * 0.88)), "start": 218, "end": 304, "color": amber, "width": 2},
-                {"box": (int(width * 0.16), int(height * 0.5), int(width * 0.72), int(height * 1.02)), "start": 232, "end": 314, "color": cyan, "width": 2},
+                {"box": (int(width * 0.56), int(height * 0.08), int(width * 0.94), int(height * 0.38)), "start": 188, "end": 292, "color": red, "width": 2},
+                {"box": (int(width * 0.46), int(height * 0.42), int(width * 0.9), int(height * 0.86)), "start": 218, "end": 300, "color": amber, "width": 2},
+                {"box": (int(width * 0.14), int(height * 0.5), int(width * 0.74), int(height * 0.98)), "start": 232, "end": 312, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 16},
-                {"x": int(width * 0.06), "y": int(height * 0.75), "text": "APPROVAL", "color": cyan, "font_size": 16},
-                {"x": int(width * 0.75), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 16},
-                {"x": int(width * 0.68), "y": int(height * 0.34), "text": "PROVENANCE", "color": cyan, "font_size": 16},
-                {"x": int(width * 0.66), "y": int(height * 0.44), "text": "WITNESS LOCK", "color": amber, "font_size": 16},
-                {"x": int(width * 0.67), "y": int(height * 0.55), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 16},
-                {"x": int(width * 0.58), "y": int(height * 0.73), "text": "REVERT COST", "color": amber, "font_size": 16},
+                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 14},
+                {"x": int(width * 0.06), "y": int(height * 0.76), "text": "APPROVAL", "color": cyan, "font_size": 14},
+                {"x": int(width * 0.76), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 14},
+                {"x": int(width * 0.74), "y": int(height * 0.31), "text": "PROVENANCE", "color": cyan, "font_size": 14},
+                {"x": int(width * 0.71), "y": int(height * 0.43), "text": "WITNESS LOCK", "color": amber, "font_size": 14},
+                {"x": int(width * 0.73), "y": int(height * 0.55), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 14},
+                {"x": int(width * 0.64), "y": int(height * 0.74), "text": "REVERT COST", "color": amber, "font_size": 14},
             ],
         }
     return {"boxes": [], "chips": []}
@@ -3287,15 +3287,15 @@ def _draw_overlay_chip(
         return
     font = _overlay_font(size=int(font_size or 18))
     text_w, text_h = _text_box(draw, text, font=font)
-    pad_x = 5
-    pad_y = 3
-    fill = (color[0], color[1], color[2], max(28, min(color[3] // 3, 62)))
+    pad_x = 4
+    pad_y = 2
+    fill = (color[0], color[1], color[2], max(22, min(color[3] // 4, 48)))
     draw.rounded_rectangle(
         (x, y, x + text_w + pad_x * 2, y + text_h + pad_y * 2),
         outline=color,
         fill=fill,
-        width=2,
-        radius=10,
+        width=1,
+        radius=9,
     )
     draw.text((x + pad_x, y + pad_y - 1), text, fill=(241, 246, 250, 214), font=font)
 
@@ -3879,11 +3879,16 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
                 if not compact
                 else f"show cast markers {joined}"
             )
+    verified_overlay_only = "verified_post_composite" in str(contract.get("overlay_render_strategy") or "").lower()
     if overlay_schema:
         joined = ", ".join(entry for entry in overlay_schema if entry)
         if joined:
             parts.append(
-                f"Verified overlay language should explicitly use this schema: {joined}."
+                (
+                    f"Verified post-composite overlay schema must explicitly use: {joined}."
+                    if verified_overlay_only
+                    else f"Verified overlay language should explicitly use this schema: {joined}."
+                )
                 if not compact
                 else f"overlay schema {joined}"
             )
@@ -3891,7 +3896,11 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
         joined = ", ".join(entry for entry in status_labels if entry)
         if joined:
             parts.append(
-                f"When status chips appear, keep these labels available for verified post-composite overlays: {joined}."
+                (
+                    f"When status chips appear, keep these labels available for verified post-composite overlays: {joined}."
+                    if verified_overlay_only
+                    else f"When status chips appear, keep these labels available for verified overlays: {joined}."
+                )
                 if not compact
                 else f"status labels {joined}"
             )
@@ -4017,6 +4026,29 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     return clip_prompt_text(", ".join(part for part in parts if part), limit=240)
 
 
+def critical_asset_onemin_scene_brief(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png":
+        return (
+            "Wide 16:9 illustrated flagship Shadowrun streetdoc poster scene inside a grimy barrens garage clinic. "
+            "Pull the camera back enough to show the room, tool wall, old chrome limb on a shelf, cloudy organ jar, "
+            "off-brand med bags, hanging cables, sputtering caf machine, wet concrete, and the open bay around the figures. "
+            "An ork streetdoc with visible chrome leans over a huge ugly hairy troll patient with tusks and a treated cyberlimb "
+            "in a hacked repair recliner while a second teammate crowds the far edge with tools or hard light. "
+            "More room than faces, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom."
+        )
+    if normalized == "assets/horizons/karma-forge.png":
+        return (
+            "Wide 16:9 illustrated flagship Shadowrun rules-forge poster inside an improvised industrial approval lab. "
+            "Pull the camera back enough to show the approval rail, rollback rig, consequence chamber, cassette bins, "
+            "gantry hooks, seal bands, floor cables, and heat-scored machinery around two standing operators. "
+            "One rulesmith and one reviewer work directly on rail hardware and cassette clamps under pressure. "
+            "The apparatus must occupy more of the frame than the people. No handheld tablet, no paperwork, no seated table, "
+            "no checkmark panel, and no generic workshop conversation."
+        )
+    return ""
+
+
 def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     if not isinstance(row, dict):
@@ -4025,6 +4057,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     target = str(spec.get("target") or "").strip()
     if not isinstance(contract, dict):
         return sanitize_prompt_for_provider(prompt, provider="onemin")
+    critical_asset = first_contact_target(target)
     subject = compact_text(contract.get("subject") or "a cyberpunk protagonist", limit=88)
     environment = compact_text(contract.get("environment") or "a neon-lit cyberpunk setting", limit=92)
     action = compact_text(contract.get("action") or "holding the moment together", limit=104)
@@ -4037,7 +4070,11 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     lore = compact_text(lore_background_clause(contract), limit=64)
     framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
     avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
-    visual_seed = compact_text(row.get("visual_prompt") or prompt or "", limit=520 if first_contact_target(target) else 220)
+    if critical_asset:
+        visual_seed_source = critical_asset_onemin_scene_brief(target) or row.get("replace_visual_prompt") or row.get("visual_prompt") or prompt or ""
+        visual_seed = clip_prompt_text(" ".join(str(visual_seed_source or "").split()).strip(), limit=760)
+    else:
+        visual_seed = compact_text(row.get("visual_prompt") or prompt or "", limit=220)
     overlay_clause = overlay_mode_prompt_clause(target=target)
     hard_block = ""
     if target in {
@@ -4077,11 +4114,12 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
     elif target == "assets/horizons/runbook-press.png":
         hard_block += " Keep sheets edge-on, clipped, or half-obscured inside the mechanism; never presented frontally like a readable page."
-    critical_asset = first_contact_target(target)
     if critical_asset:
+        overlay_mode = overlay_mode_for_target(target)
         parts = [
             flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
             "Render the base scene plate first; final readable overlay text, stat rails, and chips belong to the verified post-composite overlay layer.",
+            "Base-scene framing must stay pulled back enough to show the room, hardware, and clutter around the people; avoid portrait-tight crops or figure-only compositions.",
             f"Scene brief: {visual_seed}." if visual_seed else "",
             overlay_clause if overlay_clause else "",
             f"Subject: {subject}." if subject else "",
@@ -4092,8 +4130,8 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
             f"Composition: {composition}." if composition else "",
             " ".join(visual_contract_prompt_parts(target=target)) if target else "",
             f"Key props: {props}." if props else "",
-            f"Overlay cues: {overlays}." if overlays else "",
-            f"Smartlink cues: {smartlink}." if smartlink else "",
+            "Keep any base-scene AR abstract and non-readable; no ECG traces, no checkmark cards, no stabilization screens, and no floating label plates in the painted scene.",
+            f"Smartlink cues: {smartlink}." if smartlink and not overlay_mode else "",
             f"Lore cues: {lore}." if lore else "",
             f"Meaning: {metaphor}." if metaphor else "",
             f"Guardrail: {guardrail}." if guardrail else "",
@@ -4562,14 +4600,14 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "clinic_intake",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, and strong foreground-midground-background layering. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, not a lonely human doctor in a tidy white coat, and not a monitor-heavy medbay with framed diagnostic screens.",
-            "environment": "an improvised streetdoc garage clinic carved into a rain-soaked barrens auto bay, with a hacked surgical recliner made from a mechanic chair, tool chests, lift-bay residue, hanging cables, med-gel, injector trays, cyberlimb parts, ammo trays, six-sided dice, a magical focus, tarp dividers, extension cords, rust, oil stains, wet concrete, and hard fluorescent strips fighting with amber work lamps across the room",
-            "subject": "an obvious ork or other metahuman streetdoc actively stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the opposite side with tools or hard practical light",
-            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, and matted hair, and the support figure reaches into frame with tool handoff, physical prep traces, and proof anchors spread through the improvised garage clinic",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, and strong foreground-midground-background layering. Pull the camera back enough to show the room, shelves, machinery, and clutter around them. Push harder on poster energy with stronger orange-cyan contrast, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, not a lonely human doctor in a tidy white coat, and not a monitor-heavy medbay with framed diagnostic screens.",
+            "environment": "an improvised streetdoc garage clinic carved into a rain-soaked barrens auto bay, with a hacked surgical recliner made from a mechanic chair, tool chests, lift-bay residue, hanging cables, med-gel, injector trays, cyberlimb parts, an old chrome limb on a shelf, a cloudy organ jar, off-brand med bags, ammo trays, six-sided dice, a magical focus, tarp dividers, extension cords, rust, oil stains, wet concrete, a sputtering caf machine, and hard fluorescent strips fighting with amber work lamps across the room",
+            "subject": "an obvious ork or other metahuman streetdoc with visible chrome on arm, neck, or temple actively stabilizing an ugly hairy troll runner with visible chrome on the treated limb while a teammate crowds the opposite side with tools or hard practical light",
+            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, matted hair, and chrome under work light, and the support figure reaches into frame with tool handoff, physical prep traces, and proof anchors spread through the improvised garage clinic",
             "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. An ork streetdoc with visible tusks is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or hard practical light. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, and readable tusks. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue sensor spill against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and crisp material detail. Show at least two active people clearly in frame with visible hands doing work. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, and no medical-screen centerpiece.",
-            "framing": "wide cover-energy garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, and deep background tool storage visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, a human patient, a clean-shaved patient, soft watercolor blur, broad painterly smearing, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, or a clean suburban clinic",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. Pull the camera back far enough that the room tells half the story: shelves, tool walls, an old chrome limb on a shelf, a cloudy organ jar, off-brand med bags, cable bundles, tarp dividers, a sputtering caf machine, hanging work lamps, and wet concrete must stay visible around the figures. An ork streetdoc with visible tusks and chrome is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or hard practical light. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, readable tusks, and visible chrome on the treated limb. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and electric-blue sensor spill against warm amber work light. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, and crisp material detail. Show at least two active people clearly in frame with visible hands doing work and more room than portrait anatomy. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, no ECG display, and no medical-screen centerpiece.",
+            "framing": "wide establishing garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, shelf props, tool storage, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
+            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, a human patient, a clean-shaved patient, soft watercolor blur, broad painterly smearing, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, or a stabilization screen panel",
             "overlay_hint": "medscan attribute rail anchors, cyberlimb calibration cues, wound stabilization, neural-link resync, and subsystem fit brackets",
             "props": ["tool chest", "med-gel", "injector tray", "cyberware part", "ammo tray", "prep chair", "magical focus", "six-sided dice"],
             "overlays": ["BOD rail", "AGI rail", "REA rail", "STR rail", "ESS state", "EDGE readout", "cyberlimb calibration", "wound stabilized"],
@@ -4774,16 +4812,16 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "approval_rail",
             "banned": TABLEAU_COMPOSITIONS,
             "person_count_target": "duo_preferred",
-            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not two people doing paperwork at a table. This should feel dense, graphic, dangerous, and high-pressure, with obvious approval, rollback, provenance, consequence, and compatibility logic in the frame. Prefer a standing rulesmith plus reviewer or witness in motion over one isolated operator or any seated tableau.",
-            "subject": "a standing rulesmith and skeptical reviewer reconciling a volatile house-rule pack through review, diff, rollback, and consequence pressure",
-            "environment": "an improvised industrial rules lab built around an approval rail, rollback rig, provenance seals, rule cassettes, consequence chutes, diff strips, compatibility halos, and heat-scored control hardware under hard sodium spill",
-            "action": "the rulesmith drives diff controls and cassette clamps while a reviewer leans into the approval rail and rollback rig under visible pressure, witness locks, consequence markers, and compatibility arcs",
+            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not two people doing paperwork at a table. Pull the camera back so the approval rail, rollback rig, consequence chamber, and surrounding lab dominate at least as much as the people. This should feel dense, graphic, dangerous, and high-pressure, with obvious approval, rollback, provenance, consequence, and compatibility logic in the frame. Prefer a standing rulesmith plus reviewer or witness in motion over one isolated operator or any seated tableau.",
+            "subject": "a standing rulesmith and skeptical reviewer reconciling a volatile house-rule pack through review, diff, rollback, and consequence pressure inside a much larger industrial apparatus",
+            "environment": "an improvised industrial rules lab built around a long approval rail, rollback rig, provenance seals, rule cassettes, consequence chutes, cassette bins, suspended seal bands, gantry hooks, floor cables, compatibility halos, and heat-scored control hardware under hard sodium spill",
+            "action": "the rulesmith drives diff controls and cassette clamps while a reviewer leans into the approval rail and rollback rig under visible pressure, witness locks, consequence markers, and compatibility arcs as the apparatus crowds the room around them",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab. A standing rulesmith and skeptical reviewer work at an approval rail, rollback rig, and consequence chamber while they reconcile a volatile house-rule pack through color-banded diff strips, stamped approval cards, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show both torsos and the control hardware together with stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, not a calm workshop, and not generic glowing-card tinkering. No readable labels.",
-            "framing": "medium-wide two-person standing shot with both torsos, active hands on hardware, approval rails, diff strips, rollback rig hardware, witness locks, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
-            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, two people sitting at a table, generic paperwork workshop, or any scene without publication-control cues",
+            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab. Pull the camera back enough that the approval rail, rollback rig, consequence chamber, cassette bins, gantry hardware, floor cables, seal bands, and hot industrial room all stay visible around the people. A standing rulesmith and skeptical reviewer work at an approval rail, rollback rig, and consequence chamber while they reconcile a volatile house-rule pack through color-banded diff strips, clipped approval tabs, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, and visible control hardware under hard sodium spill and cyan overlay rails. The frame must immediately sell governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, and bounded experimentation all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show more apparatus than faces, with the hardware and room occupying at least half the storytelling space, and push stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use abstract diff bars, chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, checkmark panels, or glowing text sheets. This is not a literal blacksmith shop, not a seated bench-table moment, not a calm workshop, and not generic glowing-card tinkering. No readable labels.",
+            "framing": "wide industrial-room two-person standing shot with approval rails, rollback rig hardware, consequence chamber, cassette bins, witness locks, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
+            "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, two people sitting at a table, generic paperwork workshop, approval tablet glamour, giant checkmark panel, or any scene without publication-control cues",
             "overlay_hint": "approval rails, provenance seals, rollback vectors, witness locks, compatibility arcs, and consequence-path anchors",
-            "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers", "witness locks", "consequence nodes"],
+            "props": ["diff strips", "approval tabs", "rollback cassettes", "provenance rails", "seal bands", "control markers", "witness locks", "consequence nodes"],
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets", "consequence nodes", "witness locks"],
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
