@@ -297,8 +297,11 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     body = synced.json()
     assert body["account_email"] == "exec@example.com"
     assert body["total"] == 2
+    assert body["synced_total"] == 2
+    assert body["deduplicated_total"] == 0
     assert {item["channel"] for item in body["items"]} == {"gmail", "calendar"}
     assert any(item["event_type"] == "office_signal_email_thread" and item["staged_count"] >= 1 for item in body["items"])
+    assert all(item["deduplicated"] is False for item in body["items"])
 
     events = client.get("/app/api/events")
     assert events.status_code == 200
@@ -309,6 +312,27 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     candidates = client.get("/app/api/commitments/candidates")
     assert candidates.status_code == 200
     assert any("board packet" in item["title"].lower() for item in candidates.json())
+
+    deduplicated = client.post("/app/api/signals/google/sync", params={"email_limit": 2, "calendar_limit": 2})
+    assert deduplicated.status_code == 200
+    deduplicated_body = deduplicated.json()
+    assert deduplicated_body["total"] == 2
+    assert deduplicated_body["synced_total"] == 0
+    assert deduplicated_body["deduplicated_total"] == 2
+    assert all(item["deduplicated"] is True for item in deduplicated_body["items"])
+
+    events_after_repeat = client.get("/app/api/events")
+    assert events_after_repeat.status_code == 200
+    repeat_event_types = [item["event_type"] for item in events_after_repeat.json()["items"]]
+    assert repeat_event_types.count("office_signal_email_thread") == 1
+    assert repeat_event_types.count("office_signal_calendar_note") == 1
+
+    candidates_after_repeat = client.get("/app/api/commitments/candidates")
+    assert candidates_after_repeat.status_code == 200
+    board_packet_matches = [
+        item for item in candidates_after_repeat.json() if "board packet" in str(item.get("title") or "").lower()
+    ]
+    assert len(board_packet_matches) == 1
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:

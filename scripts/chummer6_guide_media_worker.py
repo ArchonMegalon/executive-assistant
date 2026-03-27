@@ -3109,41 +3109,41 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
     if target == "assets/hero/chummer6-hero.png":
         return {
             "fills": [
-                {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.008), "h": int(height * 0.48), "color": (39, 212, 255, 78)},
-                {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.065), "h": int(height * 0.48), "color": (39, 212, 255, 18)},
-                {"x": int(width * 0.76), "y": int(height * 0.77), "w": int(width * 0.11), "h": int(height * 0.008), "color": (255, 166, 87, 66)},
-                {"x": int(width * 0.08), "y": int(height * 0.83), "w": int(width * 0.13), "h": int(height * 0.008), "color": (255, 166, 87, 58)},
-                {"x": int(width * 0.36), "y": int(height * 0.87), "w": int(width * 0.14), "h": int(height * 0.008), "color": (39, 212, 255, 58)},
+                {"x": int(width * 0.03), "y": int(height * 0.16), "w": int(width * 0.007), "h": int(height * 0.48), "color": (39, 212, 255, 76)},
+                {"x": int(width * 0.042), "y": int(height * 0.16), "w": int(width * 0.055), "h": int(height * 0.48), "color": (39, 212, 255, 16)},
+                {"x": int(width * 0.81), "y": int(height * 0.82), "w": int(width * 0.1), "h": int(height * 0.007), "color": (255, 166, 87, 60)},
+                {"x": int(width * 0.04), "y": int(height * 0.87), "w": int(width * 0.13), "h": int(height * 0.007), "color": (255, 166, 87, 52)},
+                {"x": int(width * 0.34), "y": int(height * 0.9), "w": int(width * 0.13), "h": int(height * 0.007), "color": (39, 212, 255, 56)},
             ],
             "boxes": [
-                {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.098), "h": int(height * 0.54), "color": cyan},
+                {"x": int(width * 0.03), "y": int(height * 0.14), "w": int(width * 0.082), "h": int(height * 0.54), "color": cyan},
             ],
             "lines": [
-                {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.28), int(height * 0.35)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.13), int(height * 0.83)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.36), int(height * 0.87)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.72), int(height * 0.8), int(width * 0.88), int(height * 0.71)), "color": amber, "width": 2},
-                {"points": (int(width * 0.2), int(height * 0.83), int(width * 0.36), int(height * 0.8)), "color": amber, "width": 2},
-                {"points": (int(width * 0.49), int(height * 0.88), int(width * 0.6), int(height * 0.79)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.117), int(height * 0.28), int(width * 0.26), int(height * 0.36)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.117), int(height * 0.58), int(width * 0.1), int(height * 0.87)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.117), int(height * 0.64), int(width * 0.34), int(height * 0.9)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.72), int(height * 0.8), int(width * 0.9), int(height * 0.78)), "color": amber, "width": 2},
+                {"points": (int(width * 0.17), int(height * 0.88), int(width * 0.31), int(height * 0.86)), "color": amber, "width": 2},
+                {"points": (int(width * 0.48), int(height * 0.91), int(width * 0.63), int(height * 0.81)), "color": cyan, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.1), int(height * 0.67), int(width * 0.36), int(height * 1.0)), "start": 226, "end": 296, "color": cyan, "width": 2},
-                {"box": (int(width * 0.56), int(height * 0.6), int(width * 0.94), int(height * 0.95)), "start": 212, "end": 304, "color": amber, "width": 2},
+                {"box": (int(width * 0.05), int(height * 0.71), int(width * 0.34), int(height * 1.02)), "start": 226, "end": 296, "color": cyan, "width": 2},
+                {"box": (int(width * 0.62), int(height * 0.63), int(width * 0.97), int(height * 0.96)), "start": 214, "end": 302, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.18), "text": "AGI 4 ↑ UPGRADING", "color": amber},
-                {"x": int(width * 0.05), "y": int(height * 0.23), "text": "REA 3", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.28), "text": "STR 6", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.33), "text": "CHA 2", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.38), "text": "INT 4", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.43), "text": "LOG 3", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
-                {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
-                {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.74), "y": int(height * 0.74), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 13},
-                {"x": int(width * 0.08), "y": int(height * 0.79), "text": "WOUND STABILIZED", "color": amber, "font_size": 13},
-                {"x": int(width * 0.34), "y": int(height * 0.84), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 13},
+                {"x": int(width * 0.04), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.18), "text": "AGI 4 ↑ UPGRADING", "color": amber},
+                {"x": int(width * 0.04), "y": int(height * 0.23), "text": "REA 3", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.28), "text": "STR 6", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.33), "text": "CHA 2", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.38), "text": "INT 4", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.43), "text": "LOG 3", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
+                {"x": int(width * 0.04), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
+                {"x": int(width * 0.04), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
+                {"x": int(width * 0.8), "y": int(height * 0.79), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 12},
+                {"x": int(width * 0.04), "y": int(height * 0.84), "text": "WOUND STABILIZED", "color": amber, "font_size": 12},
+                {"x": int(width * 0.32), "y": int(height * 0.88), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 12},
             ],
         }
     if target == "assets/pages/horizons-index.png":
@@ -3182,38 +3182,38 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
     if target == "assets/horizons/karma-forge.png":
         return {
             "fills": [
-                {"x": int(width * 0.05), "y": int(height * 0.12), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 166, 87, 82)},
-                {"x": int(width * 0.74), "y": int(height * 0.11), "w": int(width * 0.12), "h": int(height * 0.01), "color": (255, 78, 78, 88)},
-                {"x": int(width * 0.07), "y": int(height * 0.79), "w": int(width * 0.15), "h": int(height * 0.01), "color": (39, 212, 255, 82)},
-                {"x": int(width * 0.58), "y": int(height * 0.79), "w": int(width * 0.16), "h": int(height * 0.01), "color": (255, 166, 87, 78)},
-                {"x": int(width * 0.66), "y": int(height * 0.57), "w": int(width * 0.15), "h": int(height * 0.01), "color": (39, 212, 255, 74)},
+                {"x": int(width * 0.05), "y": int(height * 0.12), "w": int(width * 0.12), "h": int(height * 0.009), "color": (255, 166, 87, 80)},
+                {"x": int(width * 0.78), "y": int(height * 0.11), "w": int(width * 0.12), "h": int(height * 0.009), "color": (255, 78, 78, 86)},
+                {"x": int(width * 0.05), "y": int(height * 0.82), "w": int(width * 0.15), "h": int(height * 0.009), "color": (39, 212, 255, 80)},
+                {"x": int(width * 0.69), "y": int(height * 0.82), "w": int(width * 0.16), "h": int(height * 0.009), "color": (255, 166, 87, 76)},
+                {"x": int(width * 0.75), "y": int(height * 0.48), "w": int(width * 0.14), "h": int(height * 0.009), "color": (39, 212, 255, 70)},
             ],
             "boxes": [
                 {"x": int(width * 0.05), "y": int(height * 0.1), "w": int(width * 0.07), "h": int(height * 0.045), "color": amber},
-                {"x": int(width * 0.75), "y": int(height * 0.08), "w": int(width * 0.11), "h": int(height * 0.045), "color": red},
+                {"x": int(width * 0.79), "y": int(height * 0.08), "w": int(width * 0.11), "h": int(height * 0.045), "color": red},
             ],
             "lines": [
-                {"points": (int(width * 0.12), int(height * 0.14), int(width * 0.29), int(height * 0.23)), "color": amber, "width": 2},
-                {"points": (int(width * 0.18), int(height * 0.79), int(width * 0.29), int(height * 0.71)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.8), int(height * 0.14), int(width * 0.69), int(height * 0.22)), "color": red, "width": 2},
-                {"points": (int(width * 0.87), int(height * 0.26), int(width * 0.67), int(height * 0.36)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.86), int(height * 0.37), int(width * 0.66), int(height * 0.46)), "color": amber, "width": 2},
-                {"points": (int(width * 0.86), int(height * 0.5), int(width * 0.64), int(height * 0.58)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.76), int(height * 0.8), int(width * 0.58), int(height * 0.72)), "color": amber, "width": 2},
+                {"points": (int(width * 0.12), int(height * 0.14), int(width * 0.34), int(height * 0.25)), "color": amber, "width": 2},
+                {"points": (int(width * 0.2), int(height * 0.82), int(width * 0.36), int(height * 0.69)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.85), int(height * 0.14), int(width * 0.68), int(height * 0.24)), "color": red, "width": 2},
+                {"points": (int(width * 0.86), int(height * 0.2), int(width * 0.62), int(height * 0.34)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.86), int(height * 0.32), int(width * 0.62), int(height * 0.42)), "color": amber, "width": 2},
+                {"points": (int(width * 0.84), int(height * 0.46), int(width * 0.58), int(height * 0.53)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.82), int(height * 0.82), int(width * 0.58), int(height * 0.72)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.56), int(height * 0.08), int(width * 0.94), int(height * 0.38)), "start": 188, "end": 292, "color": red, "width": 2},
-                {"box": (int(width * 0.5), int(height * 0.44), int(width * 0.95), int(height * 0.84)), "start": 220, "end": 296, "color": amber, "width": 2},
-                {"box": (int(width * 0.08), int(height * 0.56), int(width * 0.62), int(height * 1.0)), "start": 232, "end": 306, "color": cyan, "width": 2},
+                {"box": (int(width * 0.6), int(height * 0.08), int(width * 0.96), int(height * 0.37)), "start": 188, "end": 292, "color": red, "width": 2},
+                {"box": (int(width * 0.56), int(height * 0.46), int(width * 0.97), int(height * 0.88)), "start": 220, "end": 296, "color": amber, "width": 2},
+                {"box": (int(width * 0.06), int(height * 0.58), int(width * 0.64), int(height * 1.02)), "start": 232, "end": 306, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 13},
-                {"x": int(width * 0.06), "y": int(height * 0.76), "text": "APPROVAL", "color": cyan, "font_size": 13},
-                {"x": int(width * 0.76), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 13},
-                {"x": int(width * 0.78), "y": int(height * 0.24), "text": "PROVENANCE", "color": cyan, "font_size": 13},
-                {"x": int(width * 0.77), "y": int(height * 0.36), "text": "WITNESS LOCK", "color": amber, "font_size": 13},
-                {"x": int(width * 0.75), "y": int(height * 0.49), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 13},
-                {"x": int(width * 0.68), "y": int(height * 0.75), "text": "REVERT COST", "color": amber, "font_size": 13},
+                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 12},
+                {"x": int(width * 0.05), "y": int(height * 0.79), "text": "APPROVAL", "color": cyan, "font_size": 12},
+                {"x": int(width * 0.8), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 12},
+                {"x": int(width * 0.79), "y": int(height * 0.18), "text": "PROVENANCE", "color": cyan, "font_size": 12},
+                {"x": int(width * 0.78), "y": int(height * 0.31), "text": "WITNESS LOCK", "color": amber, "font_size": 12},
+                {"x": int(width * 0.75), "y": int(height * 0.44), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 12},
+                {"x": int(width * 0.71), "y": int(height * 0.78), "text": "REVERT COST", "color": amber, "font_size": 12},
             ],
         }
     return {"boxes": [], "chips": []}
@@ -3313,6 +3313,11 @@ def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object])
         raise RuntimeError(f"flagship_finish_postpass:missing_image:{image_path}")
     with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
         temp_path = Path(handle.name)
+    filtergraph = "unsharp=7:7:1.2:3:3:0.0,eq=contrast=1.06:saturation=1.06:brightness=0.01"
+    if target == "assets/hero/chummer6-hero.png":
+        filtergraph = "unsharp=9:9:1.45:5:5:0.0,eq=contrast=1.12:saturation=1.12:brightness=0.025"
+    elif target == "assets/horizons/karma-forge.png":
+        filtergraph = "unsharp=9:9:1.35:5:5:0.0,eq=contrast=1.1:saturation=1.1:brightness=0.018"
     try:
         subprocess.run(
             [
@@ -3323,7 +3328,7 @@ def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object])
                 "-i",
                 str(image_path),
                 "-vf",
-                "unsharp=7:7:1.2:3:3:0.0,eq=contrast=1.06:saturation=1.06:brightness=0.01",
+                filtergraph,
                 "-frames:v",
                 "1",
                 str(temp_path),
@@ -4057,36 +4062,39 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
             " ".join(
                 [
                     "Illustrated cover-grade cyberpunk-fantasy streetdoc cover art.",
-                    "Ultra-wide establishing shot, environment first, characters occupy less than one third of frame.",
-                    "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, camera several meters back and slightly above eye level.",
-                    "An ork streetdoc with visible chrome operates on a huge ugly hairy troll patient with tusks and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
-                    "Keep the full treatment bay visible wall to wall: open garage door, wet floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, hanging cables, sputtering caf machine, improvised work lights, rust, oil, and runner clutter.",
-                    "Poster-grade realism with crisp material edges, hard orange-cyan contrast, sharper grime detail, strong foreground-midground-background layering, and bold silhouette grouping.",
+                    "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, figures occupy less than one quarter of frame.",
+                    "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full treatment bay instead of a bedside crop.",
+                    "An ork or dwarf streetdoc with obvious chrome operates on a huge ugly hairy troll patient with tusks, scarred skin, matted hair, and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
+                    "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, dangling cables, sputtering caf machine, storage cages, tarps, injector trays, and improvised work lights.",
+                    "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and med clutter; avoid blank dark wall or empty negative space.",
+                    "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy.",
+                    "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, and bold silhouette grouping.",
                     "AR posture is medscan diagnostic, but every readable rail, label, or calibration callout is added later in post; the painted scene may only carry faint abstract scan glows at most.",
-                    "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, soft watercolor blur, clean empty surfaces.",
+                    "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces.",
                     "Do not paint any words, letters, numbers, signage, title text, or UI labels into the scene. No readable status boxes, no pseudo monitors, and no pseudo medical text.",
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1160,
+            limit=1600,
         )
     if normalized == "assets/horizons/karma-forge.png":
         return clip_prompt_text(
             " ".join(
                 [
                     "Illustrated cover-grade cyberpunk-fantasy industrial research-forge cover art.",
-                    "Ultra-wide establishing shot, environment first, operators occupy less than one third of frame.",
-                    "Industrial proving bay for testing dangerous cyber or awakened materials, unmistakably Shadowrun-adjacent, camera several meters back so the room and rig dominate.",
-                    "One rulesmith and one reviewer work directly on approval-rail hardware, cassette clamps, and an active materials test rig under pressure.",
-                    "Keep the whole lab visible: approval rail, rollback rig, consequence chamber, assay cage, sample racks, crucible hardware, occult sample lockers, gantry hooks, floor cables, seal bands, smoke, sparks, and heat-scored machinery.",
-                    "Poster-grade realism with harder edges, denser industrial clutter, stronger hot highlights, clearer machinery silhouettes, and more apparatus than faces.",
+                    "Ultra-wide establishing shot, environment first, camera several meters back, operators occupy less than one quarter of frame.",
+                    "Industrial proving bay for testing dangerous cyber or awakened materials, unmistakably Shadowrun-adjacent, with a towering central test rig and surrounding lab dominating the composition.",
+                    "One forge technician and one review witness work on approval-rail hardware, cassette clamps, and a roaring materials test chamber under pressure, but they stay visually secondary to the apparatus.",
+                    "Keep the whole lab visible: approval rail, rollback rig, consequence chamber, assay cage, sample racks, crucible hardware, occult sample lockers, gantry hooks, floor cables, seal bands, smoke, sparks, heat-scored machinery, and suspended material handling gear.",
+                    "The middle and upper frame must be owned by machinery, racks, and test architecture, not by faces, handheld screens, or a desk-like workstation crop.",
+                    "Poster-grade realism with harder edges, denser industrial clutter, brighter hot highlights, harder sodium-and-cyan lighting, clearer machinery silhouettes, and more apparatus than faces.",
                     "AR posture is forge-review diagnostic, but every readable approval, provenance, rollback, or witness label is added later in post; the painted scene may only carry faint abstract machinery glows and blank signal traces.",
-                    "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, soft promotional still, painterly blur.",
+                    "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, empty dark ceiling, soft promotional still, painterly blur.",
                     "Do not paint any words, title text, approval stamps, logos, signage, or readable UI labels into the scene. No big approved screens, no pseudo dashboard text, and no header wordmarks.",
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1120,
+            limit=1500,
         )
     return ""
 
@@ -4661,9 +4669,9 @@ def asset_specs() -> list[dict[str, object]]:
             "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED", "NEURAL LINK RESYNC"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
-            "onemin_sizes": ["1536x1024", "auto"],
+            "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
-            "onemin_image_style": "natural",
+            "onemin_image_style": "vivid",
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -4874,9 +4882,9 @@ def asset_specs() -> list[dict[str, object]]:
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
-            "onemin_sizes": ["1536x1024", "auto"],
+            "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
-            "onemin_image_style": "natural",
+            "onemin_image_style": "vivid",
         },
         "assets/horizons/runsite.png": {
             "required": "district_map",
@@ -5078,7 +5086,7 @@ def asset_specs() -> list[dict[str, object]]:
             providers_override = scene_policy_for_target(target).get("providers")
             if isinstance(providers_override, list):
                 audited_spec["providers"] = [str(entry).strip().lower() for entry in providers_override if str(entry).strip()]
-            for field in ("onemin_models", "onemin_image_quality", "onemin_image_style"):
+            for field in ("onemin_models", "onemin_sizes", "onemin_image_quality", "onemin_image_style"):
                 override_value = scene_policy_for_target(target).get(field)
                 if isinstance(override_value, list):
                     audited_spec[field] = [str(entry).strip() for entry in override_value if str(entry).strip()]
