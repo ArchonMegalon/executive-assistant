@@ -547,6 +547,42 @@ def test_commitment_defer_and_follow_up_reopen_preserve_reason_codes() -> None:
     assert reopened.json()["resolution_code"] == ""
 
 
+def test_brief_ranking_surfaces_repeated_deferrals() -> None:
+    principal_id = "exec-brief-deferrals"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    initial_brief = client.get("/app/api/brief")
+    assert initial_brief.status_code == 200
+    initial_item = next(item for item in initial_brief.json()["items"] if item["object_ref"] == f"commitment:{seeded['commitment_id']}")
+    initial_score = float(initial_item["score"])
+    assert "Deferred" not in initial_item["why_now"]
+
+    first_defer = client.post(
+        f"/app/api/commitments/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "defer", "reason_code": "waiting_on_dependency", "reason": "Waiting on the revised board pack."},
+    )
+    assert first_defer.status_code == 200
+
+    first_brief = client.get("/app/api/brief")
+    assert first_brief.status_code == 200
+    first_item = next(item for item in first_brief.json()["items"] if item["object_ref"] == f"commitment:{seeded['commitment_id']}")
+    assert "Deferred 1 time" in first_item["why_now"]
+    assert float(first_item["score"]) > initial_score
+
+    second_defer = client.post(
+        f"/app/api/commitments/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "defer", "reason_code": "waiting_on_dependency", "reason": "Still waiting on the revised board pack."},
+    )
+    assert second_defer.status_code == 200
+
+    second_brief = client.get("/app/api/brief")
+    assert second_brief.status_code == 200
+    second_item = next(item for item in second_brief.json()["items"] if item["object_ref"] == f"commitment:{seeded['commitment_id']}")
+    assert "Deferred 2 times" in second_item["why_now"]
+    assert float(second_item["score"]) > float(first_item["score"])
+
+
 def test_product_draft_approval_uses_real_approval_runtime() -> None:
     principal_id = "exec-product-approvals"
     client = build_product_client(principal_id=principal_id)
