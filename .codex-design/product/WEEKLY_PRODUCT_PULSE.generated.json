@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-26T21:12:10Z",
+  "generated_at": "2026-03-27T13:46:58Z",
   "as_of": "2026-03-27",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
@@ -11,6 +11,12 @@
       "state": "green_or_explained",
       "reason": "No red blockers are open. Foundation release remains closed and the active work is additive middle-layer and trust-surface depth.",
       "front_door_wave_closed": true
+    },
+    "journey_gate_health": {
+      "state": "warning",
+      "reason": "Close the target-stage and history-depth warnings before claiming the campaign OS is boringly proven.",
+      "blocked_count": 0,
+      "warning_count": 6
     },
     "top_support_or_feedback_clusters": [
       {
@@ -63,8 +69,9 @@
     "phase_label": "Scale & stabilize",
     "history_snapshot_count": 2,
     "longest_pole": "Cloud & Publishing",
+    "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",
-    "scorecard_metric_count": 14
+    "scorecard_metric_count": 16
   }
 }

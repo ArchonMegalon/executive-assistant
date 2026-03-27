@@ -38,14 +38,16 @@ Read:
 2. `PUBLIC_RELEASE_EXPERIENCE.yaml`
 3. `PUBLIC_DOWNLOADS_POLICY.md`
 4. `PUBLIC_AUTO_UPDATE_POLICY.md`
-5. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
-6. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-7. `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
-8. `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
-9. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
-10. `PROGRAM_MILESTONES.yaml`
-11. `GROUP_BLOCKERS.md`
-12. `review/*.md` for the affected repo
+5. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
+6. `PRIVACY_AND_RETENTION_BOUNDARIES.md`
+7. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
+8. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+9. `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
+10. `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
+11. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
+12. `PROGRAM_MILESTONES.yaml`
+13. `GROUP_BLOCKERS.md`
+14. `review/*.md` for the affected repo
 
 ### Strategy or future-lane reader
 
@@ -60,10 +62,11 @@ Read:
 7. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
 8. `PRODUCT_HEALTH_SCORECARD.yaml`
 9. `USER_JOURNEYS.md`
-10. `EXPERIENCE_SUCCESS_METRICS.md`
-11. `METRICS_AND_SLOS.yaml`
-12. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
-13. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
+10. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
+11. `EXPERIENCE_SUCCESS_METRICS.md`
+12. `METRICS_AND_SLOS.yaml`
+13. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
+14. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 
 ## Fast path by question
 
@@ -71,6 +74,7 @@ Read:
 * What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
 * What just closed and what is next? -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` and `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
 * What still makes the campaign OS feel unproven or uneven? -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
+* Which journeys must every release wave keep passable? -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
@@ -81,6 +85,7 @@ Read:
 * What does done look like? -> `METRICS_AND_SLOS.yaml` and `PROGRAM_MILESTONES.yaml`
 * Who decides whether reality means "fix code", "fix docs", "freeze", or "replan"? -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
 * What closes the loop from support reality back into canon and release posture? -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` and `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+* What are the default privacy and retention rules? -> `PRIVACY_AND_RETENTION_BOUNDARIES.md`
 * What do users actually do? -> `USER_JOURNEYS.md` and `journeys/`
 * What does success feel like from the user side? -> `EXPERIENCE_SUCCESS_METRICS.md`
 * What do these words mean? -> `GLOSSARY.md`

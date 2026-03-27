@@ -1,0 +1,287 @@
+product: chummer
+surface: release_control
+version: 1
+last_reviewed: 2026-03-27
+purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
+
+journey_gates:
+  - id: install_claim_restore_continue
+    title: Install, claim, restore, continue
+    user_promise: A person can install the flagship client, claim it, restore the right workspace, and continue safely on a known install.
+    canonical_journeys:
+      - journeys/install-and-update.md
+      - journeys/claim-install-and-close-a-support-case.md
+      - journeys/continue-on-a-second-claimed-device.md
+    owner_repos:
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-hub-registry
+      - fleet
+    scorecard_refs:
+      slos:
+        - install_and_update_coherence
+        - roaming_workspace_trust
+        - golden_journey_proof
+      release_gates:
+        - install_and_update_gate
+        - roaming_workspace_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - campaign_middle_health
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+        - support_packets
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      required_project_posture:
+        - project_id: ui
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: hub-registry
+          minimum_stage: boundary_pure
+          target_stage: boundary_pure
+
+  - id: build_explain_publish
+    title: Build, explain, publish
+    user_promise: A runner can be built, understood with receipts, and handed off into grounded publication without head-local shadow truth.
+    canonical_journeys:
+      - journeys/build-and-inspect-a-character.md
+      - journeys/publish-a-grounded-artifact.md
+    owner_repos:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+      - chummer6-media-factory
+      - fleet
+    scorecard_refs:
+      slos:
+        - deterministic_rules_truth
+        - artifact_publication_integrity
+        - golden_journey_proof
+      release_gates:
+        - deterministic_truth_gate
+        - publication_and_provenance_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - campaign_middle_health
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      required_project_posture:
+        - project_id: core
+          minimum_stage: pre_repo_local_complete
+          target_stage: boundary_pure
+        - project_id: ui
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: media-factory
+          minimum_stage: boundary_pure
+          target_stage: boundary_pure
+
+  - id: campaign_session_recover_recap
+    title: Campaign, session, recover, recap
+    user_promise: A table can prepare, run, reconnect, recover, and return without rebuilding campaign truth from memory.
+    canonical_journeys:
+      - journeys/run-a-campaign-and-return.md
+      - journeys/rejoin-after-disconnect.md
+    owner_repos:
+      - chummer6-hub
+      - chummer6-mobile
+      - chummer6-ui
+      - fleet
+    scorecard_refs:
+      slos:
+        - session_continuity
+        - campaign_and_dossier_continuity
+        - golden_journey_proof
+      release_gates:
+        - continuity_and_conflict_recovery_gate
+        - campaign_and_closure_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - campaign_middle_health
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      required_project_posture:
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: mobile
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: ui
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+
+  - id: recover_from_sync_conflict
+    title: Recover from sync conflict
+    user_promise: Conflict and drift remain visible, branchable, and repairable instead of collapsing into silent last-write-wins.
+    canonical_journeys:
+      - journeys/recover-from-sync-conflict.md
+      - journeys/continue-on-a-second-claimed-device.md
+    owner_repos:
+      - chummer6-hub
+      - chummer6-mobile
+      - chummer6-ui
+      - fleet
+    scorecard_refs:
+      slos:
+        - roaming_workspace_trust
+        - session_continuity
+        - golden_journey_proof
+      release_gates:
+        - continuity_and_conflict_recovery_gate
+        - roaming_workspace_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - campaign_middle_health
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      required_project_posture:
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: mobile
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: ui
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+
+  - id: report_cluster_release_notify
+    title: Report, cluster, release, notify
+    user_promise: A user can report pain, follow honest case state, and only receive a fixed notice once the fix actually reaches their channel.
+    canonical_journeys:
+      - journeys/claim-install-and-close-a-support-case.md
+      - journeys/install-and-update.md
+    owner_repos:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-hub-registry
+      - fleet
+      - executive-assistant
+    scorecard_refs:
+      slos:
+        - support_and_closure_honesty
+        - install_and_update_coherence
+        - golden_journey_proof
+      release_gates:
+        - campaign_and_closure_gate
+        - install_and_update_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - support_and_feedback_closure
+        - control_loop_integrity
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+        - support_packets
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      require_support_freshness: true
+      require_support_closure_waiting_zero: true
+      required_project_posture:
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: ui
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: hub-registry
+          minimum_stage: boundary_pure
+          target_stage: boundary_pure
+
+  - id: organize_community_and_close_loop
+    title: Organize community and close the loop
+    user_promise: Organizer and community operation stays on the same account, campaign, and closure spine instead of splintering into side spreadsheets and oral tradition.
+    canonical_journeys:
+      - journeys/organize-a-community-and-close-the-loop.md
+      - journeys/claim-install-and-close-a-support-case.md
+    owner_repos:
+      - chummer6-hub
+      - fleet
+      - executive-assistant
+      - chummer6-design
+    scorecard_refs:
+      slos:
+        - hosted_identity_and_participation
+        - support_and_closure_honesty
+        - golden_journey_proof
+      release_gates:
+        - public_surface_honesty
+        - campaign_and_closure_gate
+        - golden_journey_gate
+      health_scorecards:
+        - golden_journey_health
+        - control_loop_integrity
+        - public_promise_drift
+    fleet_gate:
+      required_artifacts:
+        - status_plane
+        - progress_report
+        - support_packets
+      minimum_history_snapshots: 2
+      target_history_snapshots: 4
+      required_project_posture:
+        - project_id: hub
+          minimum_stage: pre_repo_local_complete
+          target_stage: publicly_promoted
+          minimum_deployment_posture: protected_preview
+          target_deployment_posture: public
+        - project_id: fleet
+          minimum_stage: package_canonical
+          target_stage: boundary_pure
+
+rules:
+  - A journey gate is blocked when required published artifacts are missing or stale, or when an owning project falls below its minimum stage or deployment posture.
+  - A journey gate is warning when the minimum posture is met but the target posture or history depth is still not boring.
+  - Fleet publish readiness must consume this registry through a generated JOURNEY_GATES artifact rather than by ad hoc prose.

@@ -2,8 +2,20 @@ product: chummer
 version: 1
 last_reviewed: 2026-03-25
 purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
+golden_journey_source: GOLDEN_JOURNEY_RELEASE_GATES.yaml
 
 scorecards:
+  - id: golden_journey_proof
+    owner_repo: fleet
+    user_promise: The main campaign-OS journeys are proven as lived product flows, not only described as coherent repo boundaries.
+    metrics:
+      - name: blocked_golden_journey_count
+        target: 0
+        measurement: "`JOURNEY_GATES.generated.json` must report zero blocked golden journeys before promotion claims widen."
+      - name: warning_golden_journey_without_governor_note
+        target: explained_only
+        measurement: "A warning golden journey must carry a bounded governor reason and next action instead of being silently tolerated."
+
   - id: deterministic_rules_truth
     owner_repo: chummer6-core
     user_promise: Numbers and legality stay reproducible and explainable.
@@ -135,6 +147,11 @@ release_gates:
       - Dossier or rule-environment conflicts surface compare, branch, or repair choices rather than silent last-write-wins.
       - Secrets, logs, crash dumps, and per-install channel posture remain local-only.
       - Home or campaign workspace surfaces explain what changed for this user and what is safe to do next.
+
+  - id: golden_journey_gate
+    pass_conditions:
+      - The six system journeys in GOLDEN_JOURNEY_RELEASE_GATES.yaml are materialized into Fleet journey-gate truth and none are blocked.
+      - A journey warning may remain only when the governor can cite the reason, the next action, and the bounded non-breach claim for that wave.
 
 rules:
   - These metrics are release gates, not dashboard decoration.
