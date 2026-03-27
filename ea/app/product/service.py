@@ -2999,6 +2999,28 @@ class ProductService:
                 first_value_seconds = max(int((reached - started).total_seconds()), 0)
             except Exception:
                 first_value_seconds = None
+        google_sync_last_event = next((row for row in reversed(event_rows) if row.event_type == "google_workspace_signal_sync_completed"), None)
+        google_sync_last_payload = dict(getattr(google_sync_last_event, "payload", {}) or {}) if google_sync_last_event is not None else {}
+        google_sync_last_completed_at = str(getattr(google_sync_last_event, "created_at", "") or "").strip()
+        google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
+        primary_google_account = google_accounts[0] if google_accounts else None
+        google_connected = primary_google_account is not None or bool(str(google_sync_last_payload.get("account_email") or "").strip())
+        google_account_email = str(
+            getattr(primary_google_account, "google_email", "") or google_sync_last_payload.get("account_email") or ""
+        ).strip()
+        google_token_status = str(getattr(primary_google_account, "token_status", "") or "").strip() or ("active" if google_sync_last_completed_at else ("missing" if not google_connected else "unknown"))
+        google_last_refresh_at = str(getattr(primary_google_account, "last_refresh_at", "") or google_sync_last_completed_at or "").strip()
+        google_reauth_required_reason = str(getattr(primary_google_account, "reauth_required_reason", "") or "").strip()
+        google_sync_age_seconds: int | None = None
+        if google_sync_last_completed_at:
+            try:
+                google_sync_age_seconds = max(
+                    int((_utcnow() - datetime.fromisoformat(google_sync_last_completed_at.replace("Z", "+00:00"))).total_seconds()),
+                    0,
+                )
+            except Exception:
+                google_sync_age_seconds = None
+        pending_commitment_candidates = len(self.list_commitment_candidates(principal_id=principal_id, limit=200, status="pending"))
         usage_stats = dict(snapshot.stats_json or {})
         seats_used = len(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
@@ -3093,7 +3115,22 @@ class ProductService:
             if access_session_issued_count or active_access_sessions
             else "watch"
         )
-        sync_reliability_state = "clear" if google_sync_completed_count else "watch"
+        google_sync_freshness_state = (
+            "watch"
+            if not google_connected
+            else "critical"
+            if google_token_status not in {"active", "unknown"}
+            else "watch"
+            if not google_sync_last_completed_at
+            else "clear"
+            if google_sync_age_seconds is None
+            else "critical"
+            if google_sync_age_seconds >= 86400
+            else "watch"
+            if google_sync_age_seconds >= 21600
+            else "clear"
+        )
+        sync_reliability_state = google_sync_freshness_state
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
@@ -3207,6 +3244,19 @@ class ProductService:
                 "sync": {
                     "google_sync_completed": google_sync_completed_count,
                     "office_signal_ingested": office_signal_ingested_count,
+                    "google_connected": google_connected,
+                    "google_account_email": google_account_email,
+                    "google_token_status": google_token_status,
+                    "google_last_refresh_at": google_last_refresh_at,
+                    "google_reauth_required_reason": google_reauth_required_reason,
+                    "google_sync_last_completed_at": google_sync_last_completed_at,
+                    "google_sync_last_synced_total": int(google_sync_last_payload.get("synced_total") or 0),
+                    "google_sync_last_deduplicated_total": int(google_sync_last_payload.get("deduplicated_total") or 0),
+                    "google_sync_last_gmail_total": int(google_sync_last_payload.get("gmail_total") or 0),
+                    "google_sync_last_calendar_total": int(google_sync_last_payload.get("calendar_total") or 0),
+                    "google_sync_age_seconds": google_sync_age_seconds,
+                    "google_sync_freshness_state": google_sync_freshness_state,
+                    "pending_commitment_candidates": pending_commitment_candidates,
                 },
                 "reliability": {
                     "delivery_success_total": delivery_success_total,
@@ -3352,9 +3402,13 @@ class ProductService:
             {
                 "key": "sync",
                 "label": "Google sync",
-                "state": "watch" if int(sync.get("google_sync_completed") or 0) == 0 else "clear",
-                "count": int(sync.get("office_signal_ingested") or 0),
-                "detail": f"{int(sync.get('google_sync_completed') or 0)} sync runs · {int(sync.get('office_signal_ingested') or 0)} ingested office signals",
+                "state": str(sync.get("google_sync_freshness_state") or ("watch" if int(sync.get("google_sync_completed") or 0) == 0 else "clear")),
+                "count": int(sync.get("pending_commitment_candidates") or 0),
+                "detail": (
+                    f"{int(sync.get('google_sync_completed') or 0)} sync runs · "
+                    f"{int(sync.get('office_signal_ingested') or 0)} ingested office signals · "
+                    f"{int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+                ),
                 "href": "/app/settings/usage",
             },
         ]
@@ -3443,16 +3497,44 @@ class ProductService:
                     "return_to": "/app/activity" if clearable_action_href else "",
                 }
             )
-        if int(sync.get("google_sync_completed") or 0) == 0:
+        if not bool(sync.get("google_connected")):
+            next_actions.append(
+                {
+                    "label": "Connect Google",
+                    "detail": "Workspace sync cannot run until a Google workspace account is connected.",
+                    "href": "/app/settings/usage",
+                }
+            )
+        elif str(sync.get("google_token_status") or "") not in {"active", "unknown"}:
+            next_actions.append(
+                {
+                    "label": "Reconnect Google",
+                    "detail": str(sync.get("google_reauth_required_reason") or "Google access needs attention before the next sync."),
+                    "href": "/app/settings/usage",
+                }
+            )
+        elif str(sync.get("google_sync_freshness_state") or "") != "clear":
             next_actions.append(
                 {
                     "label": "Run Google sync",
-                    "detail": "This workspace has not completed a Google signal sync yet.",
+                    "detail": (
+                        f"Last sync at {str(sync.get('google_sync_last_completed_at') or 'not yet completed')}."
+                        if str(sync.get("google_sync_last_completed_at") or "").strip()
+                        else "This workspace has not completed a Google signal sync yet."
+                    ),
                     "href": "/app/settings/usage",
                     "action_href": "/app/api/signals/google/sync",
                     "action_label": "Sync now",
                     "action_method": "post",
                     "return_to": "/app/settings/usage",
+                }
+            )
+        if int(sync.get("pending_commitment_candidates") or 0):
+            next_actions.append(
+                {
+                    "label": "Review staged commitments",
+                    "detail": f"{int(sync.get('pending_commitment_candidates') or 0)} pending commitment candidates need review after sync.",
+                    "href": "/app/inbox",
                 }
             )
         if int(queue_health.get("waiting_on_principal") or 0):
