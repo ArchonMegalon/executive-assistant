@@ -240,6 +240,19 @@ class WorkspaceUsageDetailOut(BaseModel):
     operators: dict[str, object]
 
 
+class WorkspaceOutcomesOut(BaseModel):
+    generated_at: str
+    time_to_first_value_seconds: int | None = None
+    first_value_event: str = ""
+    memo_open_rate: float = 0.0
+    approval_action_rate: float = 0.0
+    commitment_close_rate: float = 0.0
+    correction_rate: float = 0.0
+    churn_risk: str = "watch"
+    success_summary: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
 class WorkspaceSupportBundleOut(BaseModel):
     workspace: dict[str, object]
     selected_channels: list[str]
