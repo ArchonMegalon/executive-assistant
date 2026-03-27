@@ -121,10 +121,11 @@ class BrowserActUiTemplateDefinition:
             },
             {
                 "id": "submit",
-                "type": "click",
+                "type": "submit_login_form",
                 "label": "Submit Login",
                 "config": {
-                    "selector": self.direct_submit_selector
+                    "selector": self.direct_submit_selector,
+                    "password_selector": self.direct_password_selector,
                 },
             },
             {
