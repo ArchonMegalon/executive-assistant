@@ -2468,7 +2468,26 @@ class ProductService:
             evidence_count=len(row.evidence_refs),
         )
 
+    def _brief_event_context(self, *, principal_id: str) -> dict[str, object]:
+        deferred_counts: dict[str, int] = {}
+        rows = list(self._container.channel_runtime.list_recent_observations(limit=500, principal_id=principal_id))
+        rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
+        for row in rows:
+            if str(row.channel or "").strip() != "product":
+                continue
+            event_type = str(row.event_type or "").strip().lower()
+            payload = dict(row.payload or {})
+            item_ref = str(payload.get("item_ref") or "").strip()
+            action = str(payload.get("action") or "").strip().lower()
+            if not item_ref:
+                continue
+            if event_type == "commitment_deferred" or (event_type == "queue_resolved" and action in {"defer", "snooze"}):
+                deferred_counts[item_ref] = int(deferred_counts.get(item_ref) or 0) + 1
+        return {"deferred_counts": deferred_counts}
+
     def list_brief_items(self, *, principal_id: str, limit: int = 20, operator_id: str = "") -> tuple[BriefItem, ...]:
+        event_context = self._brief_event_context(principal_id=principal_id)
+        deferred_counts = {str(key): int(value or 0) for key, value in dict(event_context.get("deferred_counts") or {}).items()}
         queue = self.list_queue(principal_id=principal_id, limit=max(limit, 8), operator_id=operator_id)
         decisions = self.list_decisions(principal_id=principal_id, limit=max(limit, 6))
         commitments = self.list_commitments(principal_id=principal_id, limit=max(limit, 6))
@@ -2481,8 +2500,34 @@ class ProductService:
             if row.id.startswith(("decision:", "commitment:", "follow_up:", "human_task:")):
                 continue
             items.append(self._brief_item_from_queue(row, workspace_id=principal_id))
-        deduped: dict[str, BriefItem] = {}
+        contextualized: list[BriefItem] = []
         for row in items:
+            deferred_count = int(deferred_counts.get(str(row.object_ref or row.id).strip()) or 0)
+            if deferred_count <= 0:
+                contextualized.append(row)
+                continue
+            deferred_label = f"Deferred {deferred_count} time" if deferred_count == 1 else f"Deferred {deferred_count} times"
+            contextualized.append(
+                BriefItem(
+                    id=row.id,
+                    workspace_id=row.workspace_id,
+                    kind=row.kind,
+                    title=row.title,
+                    summary=row.summary,
+                    score=float(row.score + min(0.6 * deferred_count, 1.8)),
+                    why_now=" · ".join(part for part in (row.why_now, deferred_label) if part),
+                    evidence_refs=row.evidence_refs,
+                    related_people=row.related_people,
+                    related_commitment_ids=row.related_commitment_ids,
+                    recommended_action=row.recommended_action,
+                    status=row.status,
+                    confidence=row.confidence,
+                    object_ref=row.object_ref,
+                    evidence_count=row.evidence_count,
+                )
+            )
+        deduped: dict[str, BriefItem] = {}
+        for row in contextualized:
             key = row.object_ref or row.id
             current = deduped.get(key)
             if current is None or (row.score, row.evidence_count, row.confidence) > (current.score, current.evidence_count, current.confidence):
