@@ -259,6 +259,42 @@ class WorkspaceSupportBundleOut(BaseModel):
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
 
 
+class OperatorCenterLaneOut(BaseModel):
+    key: str
+    label: str
+    state: str = "clear"
+    count: int = 0
+    detail: str = ""
+    href: str = ""
+
+
+class OperatorCenterActionOut(BaseModel):
+    label: str
+    detail: str = ""
+    href: str = ""
+    action_href: str = ""
+    action_label: str = ""
+    action_value: str = ""
+    action_method: str = ""
+    return_to: str = ""
+
+
+class OperatorCenterOut(BaseModel):
+    generated_at: str
+    workspace: dict[str, object]
+    operators: dict[str, object]
+    queue_health: dict[str, object]
+    providers: dict[str, object]
+    readiness: dict[str, object]
+    delivery: dict[str, object]
+    sync: dict[str, object]
+    usage: dict[str, int]
+    lanes: list[OperatorCenterLaneOut] = Field(default_factory=list)
+    next_actions: list[OperatorCenterActionOut] = Field(default_factory=list)
+    recent_runtime: list[dict[str, object]] = Field(default_factory=list)
+    snapshot: dict[str, int] = Field(default_factory=dict)
+
+
 class WorkspaceInvitationOut(BaseModel):
     invitation_id: str
     email: str
