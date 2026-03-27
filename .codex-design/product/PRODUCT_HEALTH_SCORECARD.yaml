@@ -9,6 +9,17 @@ cadence:
   publication: internal_canon_first
 
 scorecards:
+  - id: golden_journey_health
+    owner: product_governor
+    question: Do the main campaign-OS journeys still feel real, safe, and evidenced across install, play, publication, and closure?
+    metrics:
+      - name: blocked_golden_journey_count
+        target: 0
+        source: Fleet JOURNEY_GATES.generated.json
+      - name: warning_golden_journey_count
+        target: explained_only
+        source: Fleet JOURNEY_GATES.generated.json plus governor decision notes
+
   - id: release_health
     owner: product_governor
     question: Are promoted and previewed surfaces healthy enough to keep trust?
@@ -90,6 +101,7 @@ weekly_snapshot:
   required_fields:
     - as_of
     - release_health
+    - journey_gate_health
     - top_support_or_feedback_clusters
     - oldest_blocker_days
     - design_drift_count
