@@ -1171,9 +1171,9 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     )
 
     assert "hacked repair recliner" in hero_prompt.lower()
-    assert "illustrated cover-grade shadowrun streetdoc poster scene." in hero_prompt.lower()
-    assert "poster energy is welcome when it stays tied to a lived scene" in hero_prompt.lower()
-    assert "room, hardware, and clutter" in hero_prompt.lower()
+    assert "illustrated cover-grade cyberpunk-fantasy streetdoc cover art." in hero_prompt.lower()
+    assert "environment first" in hero_prompt.lower()
+    assert "characters occupy less than one third of frame" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
     assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
 
@@ -1205,14 +1205,24 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     )
 
     lowered = hero_prompt.lower()
-    assert "scene brief:" in lowered
     assert "hairy troll" in lowered
-    assert "full bay" in lowered or "floor, shelves, and doorway" in lowered or "tool wall" in lowered
-    assert "render the base scene plate first" in lowered
+    assert "full treatment bay" in lowered or "wet floor" in lowered or "tool wall" in lowered
+    assert "added later in post" in lowered or "post-composited later" in lowered
     assert "medscan diagnostic" in lowered
     assert "cyberlimb calibration" not in lowered
     assert "bod rail" not in lowered
-    assert "room, hardware, and clutter" in lowered
+    assert "characters occupy less than one third of frame" in lowered
+
+
+def test_onemin_size_candidates_honor_specified_wide_sizes() -> None:
+    media = _load_module()
+
+    assert media.onemin_size_candidates(
+        "gpt-image-1",
+        width=960,
+        height=540,
+        spec={"onemin_sizes": ["1536x1024", "auto"]},
+    ) == ["1536x1024", "auto"]
 
 
 def test_overlay_mode_for_target_maps_flagship_assets() -> None:
@@ -1697,8 +1707,8 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg(monkeypatch: pytest.MonkeyPa
     )
 
     assert result == "flagship_finish_postpass:applied"
-    assert "unsharp=5:5:0.9:3:3:0.0" in seen["command"][7]
-    assert "eq=contrast=1.03:saturation=1.04:brightness=0.01" in seen["command"][7]
+    assert "unsharp=7:7:1.2:3:3:0.0" in seen["command"][7]
+    assert "eq=contrast=1.06:saturation=1.06:brightness=0.01" in seen["command"][7]
 
 
 def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:

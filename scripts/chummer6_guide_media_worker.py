@@ -2086,7 +2086,10 @@ def onemin_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
     return candidates
 
 
-def onemin_size_candidates(model: str, *, width: int, height: int) -> list[str]:
+def onemin_size_candidates(model: str, *, width: int, height: int, spec: dict[str, object] | None = None) -> list[str]:
+    explicit = _spec_string_list(spec, "onemin_sizes")
+    if explicit:
+        return explicit
     configured = str(env_value("CHUMMER6_ONEMIN_IMAGE_SIZE") or "").strip()
     if configured:
         return [configured]
@@ -2094,7 +2097,7 @@ def onemin_size_candidates(model: str, *, width: int, height: int) -> list[str]:
     if normalized == "black-forest-labs/flux-schnell":
         return [onemin_aspect_ratio(width, height)]
     if normalized.startswith("gpt-image-") or normalized.startswith("dall-e-"):
-        return ["auto", "1024x1024", "1024x1536", "1536x1024"]
+        return ["1536x1024", "auto", "1024x1024", "1024x1536"]
     return [f"{width}x{height}", "1024x1024", "auto"]
 
 
@@ -2163,7 +2166,7 @@ def onemin_payloads(
         quality = _spec_string(spec, "onemin_image_quality") or str(env_value("CHUMMER6_ONEMIN_IMAGE_QUALITY") or "low")
         style = _spec_string(spec, "onemin_image_style") or "natural"
         payloads: list[dict[str, object]] = []
-        for size in onemin_size_candidates(model, width=width, height=height):
+        for size in onemin_size_candidates(model, width=width, height=height, spec=spec):
             prompt_object = {
                 "prompt": prompt,
                 "n": 1,
@@ -3108,25 +3111,24 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
             "fills": [
                 {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.008), "h": int(height * 0.48), "color": (39, 212, 255, 78)},
                 {"x": int(width * 0.052), "y": int(height * 0.16), "w": int(width * 0.065), "h": int(height * 0.48), "color": (39, 212, 255, 18)},
-                {"x": int(width * 0.67), "y": int(height * 0.72), "w": int(width * 0.1), "h": int(height * 0.01), "color": (255, 166, 87, 78)},
-                {"x": int(width * 0.16), "y": int(height * 0.74), "w": int(width * 0.13), "h": int(height * 0.01), "color": (255, 166, 87, 68)},
-                {"x": int(width * 0.34), "y": int(height * 0.8), "w": int(width * 0.13), "h": int(height * 0.01), "color": (39, 212, 255, 66)},
+                {"x": int(width * 0.76), "y": int(height * 0.77), "w": int(width * 0.11), "h": int(height * 0.008), "color": (255, 166, 87, 66)},
+                {"x": int(width * 0.08), "y": int(height * 0.83), "w": int(width * 0.13), "h": int(height * 0.008), "color": (255, 166, 87, 58)},
+                {"x": int(width * 0.36), "y": int(height * 0.87), "w": int(width * 0.14), "h": int(height * 0.008), "color": (39, 212, 255, 58)},
             ],
             "boxes": [
                 {"x": int(width * 0.04), "y": int(height * 0.14), "w": int(width * 0.098), "h": int(height * 0.54), "color": cyan},
             ],
             "lines": [
                 {"points": (int(width * 0.145), int(height * 0.28), int(width * 0.28), int(height * 0.35)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.2), int(height * 0.74)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.36), int(height * 0.8)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.65), int(height * 0.76), int(width * 0.76), int(height * 0.67)), "color": amber, "width": 2},
-                {"points": (int(width * 0.27), int(height * 0.76), int(width * 0.43), int(height * 0.73)), "color": amber, "width": 2},
-                {"points": (int(width * 0.43), int(height * 0.81), int(width * 0.56), int(height * 0.74)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.58), int(width * 0.13), int(height * 0.83)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.145), int(height * 0.64), int(width * 0.36), int(height * 0.87)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.72), int(height * 0.8), int(width * 0.88), int(height * 0.71)), "color": amber, "width": 2},
+                {"points": (int(width * 0.2), int(height * 0.83), int(width * 0.36), int(height * 0.8)), "color": amber, "width": 2},
+                {"points": (int(width * 0.49), int(height * 0.88), int(width * 0.6), int(height * 0.79)), "color": cyan, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.14), int(height * 0.58), int(width * 0.42), int(height * 0.94)), "start": 224, "end": 300, "color": cyan, "width": 2},
-                {"box": (int(width * 0.58), int(height * 0.56), int(width * 0.88), int(height * 0.92)), "start": 204, "end": 314, "color": amber, "width": 2},
-                {"box": (int(width * 0.64), int(height * 0.64), int(width * 0.82), int(height * 0.88)), "start": 214, "end": 334, "color": amber, "width": 2},
+                {"box": (int(width * 0.1), int(height * 0.67), int(width * 0.36), int(height * 1.0)), "start": 226, "end": 296, "color": cyan, "width": 2},
+                {"box": (int(width * 0.56), int(height * 0.6), int(width * 0.94), int(height * 0.95)), "start": 212, "end": 304, "color": amber, "width": 2},
             ],
             "chips": [
                 {"x": int(width * 0.05), "y": int(height * 0.13), "text": "BOD 5", "color": cyan},
@@ -3139,9 +3141,9 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"x": int(width * 0.05), "y": int(height * 0.48), "text": "WIL 5", "color": cyan},
                 {"x": int(width * 0.05), "y": int(height * 0.53), "text": "ESS 2.8 ↑ UPGRADING", "color": amber},
                 {"x": int(width * 0.05), "y": int(height * 0.58), "text": "EDGE 3", "color": cyan},
-                {"x": int(width * 0.68), "y": int(height * 0.68), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 14},
-                {"x": int(width * 0.17), "y": int(height * 0.71), "text": "WOUND STABILIZED", "color": amber, "font_size": 14},
-                {"x": int(width * 0.35), "y": int(height * 0.78), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 14},
+                {"x": int(width * 0.74), "y": int(height * 0.74), "text": "CYBERLIMB CALIBRATION", "color": amber, "font_size": 13},
+                {"x": int(width * 0.08), "y": int(height * 0.79), "text": "WOUND STABILIZED", "color": amber, "font_size": 13},
+                {"x": int(width * 0.34), "y": int(height * 0.84), "text": "NEURAL LINK RESYNC", "color": cyan, "font_size": 13},
             ],
         }
     if target == "assets/pages/horizons-index.png":
@@ -3192,26 +3194,26 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
             ],
             "lines": [
                 {"points": (int(width * 0.12), int(height * 0.14), int(width * 0.29), int(height * 0.23)), "color": amber, "width": 2},
-                {"points": (int(width * 0.18), int(height * 0.79), int(width * 0.34), int(height * 0.69)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.18), int(height * 0.79), int(width * 0.29), int(height * 0.71)), "color": cyan, "width": 2},
                 {"points": (int(width * 0.8), int(height * 0.14), int(width * 0.69), int(height * 0.22)), "color": red, "width": 2},
-                {"points": (int(width * 0.78), int(height * 0.33), int(width * 0.6), int(height * 0.4)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.76), int(height * 0.44), int(width * 0.58), int(height * 0.49)), "color": amber, "width": 2},
-                {"points": (int(width * 0.76), int(height * 0.56), int(width * 0.59), int(height * 0.59)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.67), int(height * 0.79), int(width * 0.52), int(height * 0.72)), "color": amber, "width": 2},
+                {"points": (int(width * 0.87), int(height * 0.26), int(width * 0.67), int(height * 0.36)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.86), int(height * 0.37), int(width * 0.66), int(height * 0.46)), "color": amber, "width": 2},
+                {"points": (int(width * 0.86), int(height * 0.5), int(width * 0.64), int(height * 0.58)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.76), int(height * 0.8), int(width * 0.58), int(height * 0.72)), "color": amber, "width": 2},
             ],
             "arcs": [
                 {"box": (int(width * 0.56), int(height * 0.08), int(width * 0.94), int(height * 0.38)), "start": 188, "end": 292, "color": red, "width": 2},
-                {"box": (int(width * 0.46), int(height * 0.42), int(width * 0.9), int(height * 0.86)), "start": 218, "end": 300, "color": amber, "width": 2},
-                {"box": (int(width * 0.14), int(height * 0.5), int(width * 0.74), int(height * 0.98)), "start": 232, "end": 312, "color": cyan, "width": 2},
+                {"box": (int(width * 0.5), int(height * 0.44), int(width * 0.95), int(height * 0.84)), "start": 220, "end": 296, "color": amber, "width": 2},
+                {"box": (int(width * 0.08), int(height * 0.56), int(width * 0.62), int(height * 1.0)), "start": 232, "end": 306, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 14},
-                {"x": int(width * 0.06), "y": int(height * 0.76), "text": "APPROVAL", "color": cyan, "font_size": 14},
-                {"x": int(width * 0.76), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 14},
-                {"x": int(width * 0.74), "y": int(height * 0.31), "text": "PROVENANCE", "color": cyan, "font_size": 14},
-                {"x": int(width * 0.71), "y": int(height * 0.43), "text": "WITNESS LOCK", "color": amber, "font_size": 14},
-                {"x": int(width * 0.73), "y": int(height * 0.55), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 14},
-                {"x": int(width * 0.64), "y": int(height * 0.74), "text": "REVERT COST", "color": amber, "font_size": 14},
+                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 13},
+                {"x": int(width * 0.06), "y": int(height * 0.76), "text": "APPROVAL", "color": cyan, "font_size": 13},
+                {"x": int(width * 0.76), "y": int(height * 0.08), "text": "ROLLBACK", "color": red, "font_size": 13},
+                {"x": int(width * 0.78), "y": int(height * 0.24), "text": "PROVENANCE", "color": cyan, "font_size": 13},
+                {"x": int(width * 0.77), "y": int(height * 0.36), "text": "WITNESS LOCK", "color": amber, "font_size": 13},
+                {"x": int(width * 0.75), "y": int(height * 0.49), "text": "COMPATIBILITY ARC", "color": cyan, "font_size": 13},
+                {"x": int(width * 0.68), "y": int(height * 0.75), "text": "REVERT COST", "color": amber, "font_size": 13},
             ],
         }
     return {"boxes": [], "chips": []}
@@ -3321,7 +3323,7 @@ def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object])
                 "-i",
                 str(image_path),
                 "-vf",
-                "unsharp=5:5:0.9:3:3:0.0,eq=contrast=1.03:saturation=1.04:brightness=0.01",
+                "unsharp=7:7:1.2:3:3:0.0,eq=contrast=1.06:saturation=1.06:brightness=0.01",
                 "-frames:v",
                 "1",
                 str(temp_path),
@@ -4048,6 +4050,47 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
     return ""
 
 
+def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], contract: dict[str, object]) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png":
+        return clip_prompt_text(
+            " ".join(
+                [
+                    "Illustrated cover-grade cyberpunk-fantasy streetdoc cover art.",
+                    "Ultra-wide establishing shot, environment first, characters occupy less than one third of frame.",
+                    "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, camera several meters back and slightly above eye level.",
+                    "An ork streetdoc with visible chrome operates on a huge ugly hairy troll patient with tusks and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
+                    "Keep the full treatment bay visible wall to wall: open garage door, wet floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, hanging cables, sputtering caf machine, improvised work lights, rust, oil, and runner clutter.",
+                    "Poster-grade realism with crisp material edges, hard orange-cyan contrast, sharper grime detail, strong foreground-midground-background layering, and bold silhouette grouping.",
+                    "AR posture is medscan diagnostic, but every readable rail, label, or calibration callout is added later in post; the painted scene may only carry faint abstract scan glows at most.",
+                    "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, soft watercolor blur, clean empty surfaces.",
+                    "Do not paint any words, letters, numbers, signage, title text, or UI labels into the scene. No readable status boxes, no pseudo monitors, and no pseudo medical text.",
+                    "No readable text or numbers anywhere. No watermark. 16:9.",
+                ]
+            ),
+            limit=1160,
+        )
+    if normalized == "assets/horizons/karma-forge.png":
+        return clip_prompt_text(
+            " ".join(
+                [
+                    "Illustrated cover-grade cyberpunk-fantasy industrial research-forge cover art.",
+                    "Ultra-wide establishing shot, environment first, operators occupy less than one third of frame.",
+                    "Industrial proving bay for testing dangerous cyber or awakened materials, unmistakably Shadowrun-adjacent, camera several meters back so the room and rig dominate.",
+                    "One rulesmith and one reviewer work directly on approval-rail hardware, cassette clamps, and an active materials test rig under pressure.",
+                    "Keep the whole lab visible: approval rail, rollback rig, consequence chamber, assay cage, sample racks, crucible hardware, occult sample lockers, gantry hooks, floor cables, seal bands, smoke, sparks, and heat-scored machinery.",
+                    "Poster-grade realism with harder edges, denser industrial clutter, stronger hot highlights, clearer machinery silhouettes, and more apparatus than faces.",
+                    "AR posture is forge-review diagnostic, but every readable approval, provenance, rollback, or witness label is added later in post; the painted scene may only carry faint abstract machinery glows and blank signal traces.",
+                    "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, soft promotional still, painterly blur.",
+                    "Do not paint any words, title text, approval stamps, logos, signage, or readable UI labels into the scene. No big approved screens, no pseudo dashboard text, and no header wordmarks.",
+                    "No readable text or numbers anywhere. No watermark. 16:9.",
+                ]
+            ),
+            limit=1120,
+        )
+    return ""
+
+
 def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     row = spec.get("media_row") if isinstance(spec, dict) else {}
     if not isinstance(row, dict):
@@ -4069,6 +4112,10 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     lore = compact_text(lore_background_clause(contract), limit=64)
     framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
     avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
+    if critical_asset:
+        direct_flagship_prompt = critical_asset_onemin_scene_prompt(target=target, row=row, contract=contract)
+        if direct_flagship_prompt:
+            return direct_flagship_prompt
     if critical_asset:
         visual_seed_source = critical_asset_onemin_scene_brief(target) or row.get("replace_visual_prompt") or row.get("visual_prompt") or prompt or ""
         visual_seed = clip_prompt_text(" ".join(str(visual_seed_source or "").split()).strip(), limit=760)
@@ -4614,8 +4661,9 @@ def asset_specs() -> list[dict[str, object]]:
             "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED", "NEURAL LINK RESYNC"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_sizes": ["1536x1024", "auto"],
             "onemin_image_quality": "high",
-            "onemin_image_style": "vivid",
+            "onemin_image_style": "natural",
         },
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
@@ -4826,8 +4874,9 @@ def asset_specs() -> list[dict[str, object]]:
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_sizes": ["1536x1024", "auto"],
             "onemin_image_quality": "high",
-            "onemin_image_style": "vivid",
+            "onemin_image_style": "natural",
         },
         "assets/horizons/runsite.png": {
             "required": "district_map",
