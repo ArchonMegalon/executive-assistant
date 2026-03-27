@@ -571,6 +571,13 @@ def _boolish(value: object, *, default: bool) -> bool:
     return default
 
 
+def _floatish(value: object, *, default: float = 0.0) -> float:
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+
 def visual_density_profile_name_for_target(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
@@ -2972,7 +2979,15 @@ def first_contact_variant_count(*, target: str) -> int:
         return 1
     raw = env_value("CHUMMER6_FIRST_CONTACT_VARIANTS")
     try:
-        value = int(raw) if raw else 5
+        if raw:
+            value = int(raw)
+        else:
+            normalized = str(target or "").replace("\\", "/").strip()
+            value = {
+                "assets/hero/chummer6-hero.png": 8,
+                "assets/pages/horizons-index.png": 10,
+                "assets/horizons/karma-forge.png": 8,
+            }.get(normalized, 5)
     except Exception:
         value = 5
     return max(1, min(12, value))
@@ -3005,31 +3020,38 @@ def critical_visual_gate_failures(
             "min_base_score": 85.0,
             "reject_notes": {
                 "visual_audit:dead_negative_space",
+                "visual_audit:environment_share_too_low",
                 "visual_audit:low_semantic_density",
                 "visual_audit:insufficient_flash",
                 "visual_audit:narrow_subject_cluster",
                 "visual_audit:shallow_layering",
                 "visual_audit:soft_finish",
+                "visual_audit:subject_crop_too_tight",
             },
         },
         "assets/pages/horizons-index.png": {
             "min_base_score": 78.0,
             "reject_notes": {
                 "visual_audit:dead_negative_space",
+                "visual_audit:environment_share_too_low",
                 "visual_audit:low_semantic_density",
                 "visual_audit:narrow_subject_cluster",
                 "visual_audit:missing_lane_plurality",
+                "visual_audit:subject_crop_too_tight",
             },
         },
         "assets/horizons/karma-forge.png": {
             "min_base_score": 90.0,
             "reject_notes": {
+                "visual_audit:apparatus_share_too_low",
                 "visual_audit:dead_negative_space",
+                "visual_audit:environment_share_too_low",
                 "visual_audit:low_semantic_density",
                 "visual_audit:insufficient_flash",
                 "visual_audit:narrow_subject_cluster",
                 "visual_audit:shallow_layering",
                 "visual_audit:soft_finish",
+                "visual_audit:subject_crop_too_tight",
             },
         },
     }.get(normalized, {})
@@ -3605,6 +3627,9 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     overlay_density = str(visual_contract.get("overlay_density") or "").strip().lower()
     negative_space_cap = str(visual_contract.get("negative_space_cap") or "").strip().lower()
     flash_level = str(visual_contract.get("flash_level") or "").strip().lower()
+    environment_share_minimum = _floatish(visual_contract.get("environment_share_minimum"), default=0.0)
+    apparatus_share_minimum = _floatish(visual_contract.get("apparatus_share_minimum"), default=0.0)
+    subject_crop_maximum = _floatish(visual_contract.get("subject_crop_maximum"), default=0.0)
     tiles_x = 4
     tiles_y = 3
     tile_w = max(1, width // tiles_x)
@@ -3621,6 +3646,7 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     edge_diffs: list[int] = []
     active_cols: set[int] = set()
     active_rows: set[int] = set()
+    active_map: dict[tuple[int, int], bool] = {}
     for y in range(height):
         row_offset = y * width
         for x in range(1, width):
@@ -3647,7 +3673,9 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
             spreads.append(spread)
             if avg < 70 and spread < 28:
                 dark_flat_tiles += 1
-            if spread >= 42:
+            is_active = spread >= 42
+            active_map[(x, y)] = is_active
+            if is_active:
                 active_tiles += 1
                 active_cols.add(x)
                 active_rows.add(y)
@@ -3694,6 +3722,26 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
         required_active_cols = max(required_active_cols, 4)
         required_active_rows = max(required_active_rows, 3)
         min_edge_energy = 8.5
+    perimeter_tiles = {
+        (x, y)
+        for y in range(tiles_y)
+        for x in range(tiles_x)
+        if x in {0, tiles_x - 1} or y in {0, tiles_y - 1}
+    }
+    center_band_tiles = {
+        (x, y)
+        for y in range(tiles_y)
+        for x in range(tiles_x)
+        if x in {1, 2}
+    }
+    upper_band_tiles = {
+        (x, y)
+        for y in range(min(2, tiles_y))
+        for x in range(tiles_x)
+    }
+    perimeter_active_tiles = sum(1 for tile in perimeter_tiles if active_map.get(tile))
+    center_band_active_tiles = sum(1 for tile in center_band_tiles if active_map.get(tile))
+    upper_band_active_tiles = sum(1 for tile in upper_band_tiles if active_map.get(tile))
     if dark_flat_tiles > max_dark_flat_tiles:
         notes.append("visual_audit:dead_negative_space")
         score -= 25
@@ -3707,6 +3755,23 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     if min_edge_energy and edge_energy < min_edge_energy:
         notes.append("visual_audit:soft_finish")
         score -= 16
+    if environment_share_minimum > 0:
+        required_perimeter_active = max(3, min(len(perimeter_tiles), int(round(len(perimeter_tiles) * environment_share_minimum * 0.72))))
+        if perimeter_active_tiles < required_perimeter_active:
+            notes.append("visual_audit:environment_share_too_low")
+            score -= 18
+    if apparatus_share_minimum > 0:
+        required_upper_active = max(3, min(len(upper_band_tiles), int(round(len(upper_band_tiles) * apparatus_share_minimum))))
+        if upper_band_active_tiles < required_upper_active:
+            notes.append("visual_audit:apparatus_share_too_low")
+            score -= 18
+    if subject_crop_maximum > 0:
+        center_overweight = center_band_active_tiles >= 5 and perimeter_active_tiles <= 4
+        if subject_crop_maximum <= 0.20:
+            center_overweight = center_band_active_tiles >= 5 and perimeter_active_tiles <= 5
+        if center_overweight:
+            notes.append("visual_audit:subject_crop_too_tight")
+            score -= 18
     if required_active_cols and len(active_cols) < required_active_cols:
         notes.append("visual_audit:narrow_subject_cluster")
         score -= 18
@@ -3840,6 +3905,11 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     overlay_attachment_rule = compact_text(contract.get("overlay_attachment_rule") or "", limit=100 if compact else 220)
     status_binding_rule = compact_text(contract.get("status_binding_rule") or "", limit=100 if compact else 220)
     style_epoch_force_only = _boolish(contract.get("style_epoch_force_only"), default=False)
+    environment_share_minimum = _floatish(contract.get("environment_share_minimum"), default=0.0)
+    apparatus_share_minimum = _floatish(contract.get("apparatus_share_minimum"), default=0.0)
+    subject_crop_maximum = _floatish(contract.get("subject_crop_maximum"), default=0.0)
+    cast_readability_required = _boolish(contract.get("cast_readability_required"), default=False)
+    overlay_anchor_required = _boolish(contract.get("overlay_anchor_required"), default=False)
     parts: list[str] = []
     if _boolish(contract.get("critical_style_overrides_shared_prompt_scaffold"), default=False):
         parts.append(
@@ -3947,6 +4017,39 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             status_binding_rule.rstrip(".") + "."
             if not compact
             else status_binding_rule
+        )
+    if environment_share_minimum > 0:
+        share_pct = max(1, int(round(environment_share_minimum * 100)))
+        parts.append(
+            f"Keep the room, district, or surrounding environment doing at least about {share_pct}% of the storytelling area; do not collapse into a tight subject crop."
+            if not compact
+            else f"environment tells about {share_pct}% of frame"
+        )
+    if apparatus_share_minimum > 0:
+        share_pct = max(1, int(round(apparatus_share_minimum * 100)))
+        parts.append(
+            f"Let the apparatus, rails, machinery, or proving hardware occupy at least about {share_pct}% of the readable frame so the system feels larger than the operators."
+            if not compact
+            else f"apparatus takes about {share_pct}% of frame"
+        )
+    if subject_crop_maximum > 0:
+        crop_pct = max(1, int(round(subject_crop_maximum * 100)))
+        parts.append(
+            f"Do not let any single figure or tight subject cluster read larger than about {crop_pct}% of the frame."
+            if not compact
+            else f"single subject under about {crop_pct}% of frame"
+        )
+    if cast_readability_required:
+        parts.append(
+            "Cast species, role, and operator relationship must read clearly at a glance instead of dissolving into generic silhouettes."
+            if not compact
+            else "cast role and species must read clearly"
+        )
+    if overlay_anchor_required:
+        parts.append(
+            "Any overlay chip, rail, or callout must clearly anchor to anatomy, tool, rail, route, or apparatus geometry; no free-floating labels."
+            if not compact
+            else "all overlays must visibly anchor"
         )
     if troll_markers:
         joined = "; ".join(entry for entry in troll_markers if entry)
@@ -4205,14 +4308,21 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "Ultra-wide 16:9 illustrated flagship Shadowrun streetdoc poster scene inside a lived-in runner clinic carved out of a barrens auto garage. "
             "Set the camera several meters back and slightly above eye level. An ork streetdoc with visible chrome works on a huge ugly hairy troll patient with tusks and a treated cyberlimb in a hacked repair recliner while a second teammate crowds the far edge with tools or hard light. "
             "The full treatment bay must stay visible at once: open garage door with rain outside, parked wreck, ceiling fixtures, tool wall, shelf of old chrome limbs, cloudy organ jar, off-brand med bags, side bench clutter, hanging cables, sputtering caf machine, wet concrete, and improvised work lights. "
-            "The room must tell as much of the story as the people, with the bay, shelves, floor, and doorway occupying more frame area than any single figure. More surroundings than portrait anatomy, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom."
+            "The room must tell as much of the story as the people, with the bay, shelves, floor, and doorway occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. More surroundings than portrait anatomy, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom."
+        )
+    if normalized == "assets/pages/horizons-index.png":
+        return (
+            "Ultra-wide 16:9 illustrated flagship Shadowrun horizons boulevard scene showing several practical future lanes at once. "
+            "Set the camera far enough back that street geometry, branch directions, ramps, alleys, markets, and industrial edges tell most of the story. "
+            "The environment must dominate over any one figure, sign, or object, with differentiated lanes, partial crowds, vehicles, route clutter, cables, puddles, and branch pressure visible across nearly the whole frame. "
+            "No centered hero figure, no kiosk centerpiece, no billboard, no single corridor vanishing point, and no UI-like signboard replacing the district."
         )
     if normalized == "assets/horizons/karma-forge.png":
         return (
             "Ultra-wide 16:9 illustrated flagship Shadowrun industrial research forge for testing new cyber or awakened materials. "
             "Set the camera several meters back. One rulesmith and one reviewer work directly on rail hardware, cassette clamps, and the active test rig under pressure while the lab keeps stretching around them. "
             "The whole lab must read as an industrial proving bay: approval rail, rollback rig, consequence chamber, material racks, assay cage, crucible bed, occult sample lockers, cassette bins, gantry hooks, seal bands, floor cables, smoke, sparks, and heat-scored machinery around the operators. "
-            "The apparatus and room must occupy more of the frame than the people, with the test rig and surrounding materials lab clearly larger than the operators. No handheld tablet, no paperwork, no seated table, no checkmark panel, and no generic workshop conversation."
+            "The apparatus and room must occupy well over half the frame and clearly outweigh the people, with the test rig and surrounding materials lab reading larger than the operators. No handheld tablet, no paperwork, no seated table, no checkmark panel, and no generic workshop conversation."
         )
     return ""
 
@@ -4224,14 +4334,14 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
             " ".join(
                 [
                     "Illustrated cover-grade cyberpunk-fantasy streetdoc cover art.",
-                    "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, figures occupy less than one quarter of frame.",
+                    "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, the room occupies well over half the frame, and figures occupy less than one quarter of frame.",
                     "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full treatment bay instead of a bedside crop.",
                     "An ork or dwarf streetdoc with obvious chrome operates on a huge ugly hairy troll patient with tusks, scarred skin, matted hair, and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
                     "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, dangling cables, sputtering caf machine, storage cages, tarps, injector trays, and improvised work lights.",
                     "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and med clutter; avoid blank dark wall or empty negative space.",
-                    "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy.",
+                    "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy, and cast roles must read clearly at a glance.",
                     "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, and bold silhouette grouping.",
-                    "AR posture is medscan diagnostic, but every readable rail, label, or calibration callout is added later in post; the painted scene may only carry faint abstract scan glows at most.",
+                    "AR posture is medscan diagnostic; readable rails and calibration callouts are added in post and anchored to anatomy, tool, or rail. The painted scene may carry only faint abstract scan glows.",
                     "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces.",
                     "Do not paint any words, letters, numbers, signage, title text, or UI labels into the scene. No readable status boxes, no pseudo monitors, and no pseudo medical text.",
                     "No readable text or numbers anywhere. No watermark. 16:9.",
@@ -4239,18 +4349,35 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
             ),
             limit=1600,
         )
+    if normalized == "assets/pages/horizons-index.png":
+        return clip_prompt_text(
+            " ".join(
+                [
+                    "Illustrated cover-grade cyberpunk-fantasy district-futures cover art.",
+                    "Ultra-wide establishing shot, environment first, camera several meters back, environment occupies about three quarters of frame, and no single figure or object dominates.",
+                    "Shadowrun boulevard of future lanes with at least four differentiated branch directions visible at once: clinic alley, dossier stair, relay street, tactical route, and industrial approval lane.",
+                    "Keep the frame packed with route clutter, partial crowds, vehicle traces, tram wires, barrier posts, gantries, wet reflections, cable halos, market edges, and district pressure.",
+                    "The frame must read as a place before it reads as a person, with no centered hero, no kiosk centerpiece, no glowing rectangle, no billboard, and no single corridor vanishing point.",
+                    "Any AR remains ambient and route-anchored only, with readable labels added in post; no diagnostic HUD slabs, floating cards, or giant center boxes.",
+                    "Poster-grade realism with sharp street texture, brighter lane highlights, stronger rain reflections, bolder branch color separation, and richer city-depth layering.",
+                    "Do not paint any words, letters, numbers, signage, title text, or UI labels into the scene. No readable signs, no menu boards, and no pseudo map text.",
+                    "No readable text or numbers anywhere. No watermark. 16:9.",
+                ]
+            ),
+            limit=1500,
+        )
     if normalized == "assets/horizons/karma-forge.png":
         return clip_prompt_text(
             " ".join(
                 [
                     "Illustrated cover-grade cyberpunk-fantasy industrial research-forge cover art.",
-                    "Ultra-wide establishing shot, environment first, camera several meters back, operators occupy less than one quarter of frame.",
+                    "Ultra-wide establishing shot, environment first, camera several meters back, the apparatus and room occupy well over half the frame, and operators occupy less than one quarter of frame.",
                     "Industrial proving bay for testing dangerous cyber or awakened materials, unmistakably Shadowrun-adjacent, with a towering central test rig and surrounding lab dominating the composition.",
                     "One forge technician and one review witness work on approval-rail hardware, cassette clamps, and a roaring materials test chamber under pressure, but they stay visually secondary to the apparatus.",
                     "Keep the whole lab visible: approval rail, rollback rig, consequence chamber, assay cage, sample racks, crucible hardware, occult sample lockers, gantry hooks, floor cables, seal bands, smoke, sparks, heat-scored machinery, and suspended material handling gear.",
                     "The middle and upper frame must be owned by machinery, racks, and test architecture, not by faces, handheld screens, or a desk-like workstation crop.",
                     "Poster-grade realism with harder edges, denser industrial clutter, brighter hot highlights, harder sodium-and-cyan lighting, clearer machinery silhouettes, and more apparatus than faces.",
-                    "AR posture is forge-review diagnostic, but every readable approval, provenance, rollback, or witness label is added later in post; the painted scene may only carry faint abstract machinery glows and blank signal traces.",
+                    "AR posture is forge-review diagnostic; readable approval, provenance, rollback, and witness labels are added in post and anchored to apparatus, rails, packet flow, or machine geometry. The painted scene may carry only faint abstract machinery glows and blank signal traces.",
                     "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, empty dark ceiling, soft promotional still, painterly blur.",
                     "Do not paint any words, title text, approval stamps, logos, signage, or readable UI labels into the scene. No big approved screens, no pseudo dashboard text, and no header wordmarks.",
                     "No readable text or numbers anywhere. No watermark. 16:9.",
@@ -4831,7 +4958,7 @@ def asset_specs() -> list[dict[str, object]]:
             "visual_motifs": ["garage clinic grime", "streetdoc assist", "attribute rail", "triage action", "runner life", "cyberware surgery", "medscan posture"],
             "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED", "NEURAL LINK RESYNC"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
-            "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
             "onemin_image_style": "vivid",
@@ -4929,6 +5056,10 @@ def asset_specs() -> list[dict[str, object]]:
             "visual_motifs": ["branching ramps", "future lanes", "district pressure", "stacked route choices", "street-level cyberpunk clues"],
             "overlay_callouts": ["route branch", "future lane", "threat drift", "district split"],
             "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "onemin_models": ["gpt-image-1"],
+            "onemin_sizes": ["auto", "1536x1024"],
+            "onemin_image_quality": "high",
+            "onemin_image_style": "vivid",
         },
         "assets/parts/core.png": {
             "required": "review_bay",
@@ -5044,7 +5175,7 @@ def asset_specs() -> list[dict[str, object]]:
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
             "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
-            "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
+            "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
             "onemin_image_style": "vivid",
