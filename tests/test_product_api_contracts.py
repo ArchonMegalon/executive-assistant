@@ -140,6 +140,13 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "sync" in usage_body["analytics"]
     assert "google_sync_freshness_state" in usage_body["analytics"]["sync"]
     assert "pending_commitment_candidates" in usage_body["analytics"]["sync"]
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert "memo_open_rate" in outcomes_body
+    assert "approval_action_rate" in outcomes_body
+    assert "commitment_close_rate" in outcomes_body
+    assert "counts" in outcomes_body
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
@@ -798,6 +805,12 @@ def test_product_diagnostics_include_value_events() -> None:
     assert analytics["commitment_closed"] >= 1
     assert analytics["handoff_completed"] >= 1
     assert analytics["memory_corrected"] >= 1
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert outcomes_body["counts"]["draft_approved"] >= 1
+    assert outcomes_body["counts"]["commitment_closed"] >= 1
+    assert outcomes_body["success_summary"]
 
     bundle = client.get("/app/api/diagnostics/export")
     assert bundle.status_code == 200

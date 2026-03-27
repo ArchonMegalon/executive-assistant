@@ -738,6 +738,33 @@ class ProductService:
             "pending_commitment_candidates": int(sync.get("pending_commitment_candidates") or 0),
         }
 
+    def workspace_outcomes(self, *, principal_id: str) -> dict[str, object]:
+        diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        analytics = dict(diagnostics.get("analytics") or {})
+        counts = dict(analytics.get("counts") or {})
+        selected_counts = {
+            "memo_opened": int(counts.get("memo_opened") or 0),
+            "approval_requested": int(counts.get("approval_requested") or 0),
+            "draft_approved": int(counts.get("draft_approved") or 0),
+            "commitment_created": int(counts.get("commitment_created") or 0),
+            "commitment_closed": int(counts.get("commitment_closed") or 0),
+            "handoff_completed": int(counts.get("handoff_completed") or 0),
+            "memory_corrected": int(counts.get("memory_corrected") or 0),
+            "support_bundle_opened": int(counts.get("support_bundle_opened") or 0),
+        }
+        return {
+            "generated_at": _now_iso(),
+            "time_to_first_value_seconds": analytics.get("time_to_first_value_seconds"),
+            "first_value_event": str(analytics.get("first_value_event") or "").strip(),
+            "memo_open_rate": float(analytics.get("memo_open_rate") or 0.0),
+            "approval_action_rate": float(analytics.get("approval_action_rate") or 0.0),
+            "commitment_close_rate": float(analytics.get("commitment_close_rate") or 0.0),
+            "correction_rate": float(analytics.get("correction_rate") or 0.0),
+            "churn_risk": str(analytics.get("churn_risk") or "watch").strip() or "watch",
+            "success_summary": str(analytics.get("success_summary") or "").strip(),
+            "counts": selected_counts,
+        }
+
     def search_workspace(
         self,
         *,

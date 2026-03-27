@@ -62,6 +62,7 @@ from app.api.routes.product_api_contracts import (
     ThreadResponse,
     WorkspaceDiagnosticsOut,
     WorkspacePlanDetailOut,
+    WorkspaceOutcomesOut,
     WorkspaceSupportBundleOut,
     WorkspaceUsageDetailOut,
     brief_out,
@@ -695,6 +696,21 @@ def get_workspace_usage_detail(
         readiness=dict(diagnostics.get("readiness") or {}),
         operators=dict(diagnostics.get("operators") or {}),
     )
+
+
+@router.get("/outcomes", response_model=WorkspaceOutcomesOut)
+def get_workspace_outcomes(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceOutcomesOut:
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="outcomes_opened",
+        surface="outcomes_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspaceOutcomesOut(**service.workspace_outcomes(principal_id=context.principal_id))
 
 
 @router.get("/evidence", response_model=EvidenceResponse)
