@@ -416,6 +416,13 @@ def test_run_url_provider_returns_timeout_when_request_times_out(
     assert detail == "magixai:timeout"
 
 
+def test_media_factory_timeout_defaults_support_slower_high_quality_renders() -> None:
+    media = _load_module()
+
+    assert media.command_provider_timeout_seconds("media_factory") == 240
+    assert media.url_provider_timeout_seconds("media_factory") == 240
+
+
 def test_reserve_onemin_image_slot_locally_synthesizes_candidates_when_provider_health_has_no_slots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

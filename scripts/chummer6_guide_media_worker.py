@@ -1783,7 +1783,7 @@ def command_provider_timeout_seconds(name: str) -> int:
     except Exception:
         pass
     defaults = {
-        "MEDIA_FACTORY": 120,
+        "MEDIA_FACTORY": 240,
         "BROWSERACT_PROMPTING_SYSTEMS": 90,
         "BROWSERACT_MAGIXAI": 90,
         "PROMPTING_SYSTEMS": 90,
@@ -1802,7 +1802,7 @@ def url_provider_timeout_seconds(name: str) -> int:
     except Exception:
         pass
     defaults = {
-        "MEDIA_FACTORY": 120,
+        "MEDIA_FACTORY": 240,
         "BROWSERACT_PROMPTING_SYSTEMS": 90,
         "BROWSERACT_MAGIXAI": 90,
         "PROMPTING_SYSTEMS": 90,
