@@ -287,6 +287,7 @@ class OperatorCenterOut(BaseModel):
     providers: dict[str, object]
     readiness: dict[str, object]
     delivery: dict[str, object]
+    access: dict[str, object]
     sync: dict[str, object]
     usage: dict[str, int]
     lanes: list[OperatorCenterLaneOut] = Field(default_factory=list)

@@ -602,7 +602,8 @@ def workspace_access_session(
     container: AppContainer = Depends(get_container),
 ):
     product = build_product_service(container)
-    session = product.preview_workspace_access_session(token=token)
+    actor = str(request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "").strip()
+    session = product.open_workspace_access_session(token=token, actor=actor)
     if session is None:
         raise HTTPException(status_code=404, detail="workspace_access_session_not_found")
     target = str(request.query_params.get("return_to") or session.get("default_target") or "/app/today").strip() or "/app/today"

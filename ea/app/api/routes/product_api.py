@@ -639,6 +639,7 @@ def get_operator_center(
         providers=dict(payload.get("providers") or {}),
         readiness=dict(payload.get("readiness") or {}),
         delivery=dict(payload.get("delivery") or {}),
+        access=dict(payload.get("access") or {}),
         sync=dict(payload.get("sync") or {}),
         usage={str(key): int(value or 0) for key, value in dict(payload.get("usage") or {}).items()},
         lanes=[OperatorCenterLaneOut(**dict(value)) for value in list(payload.get("lanes") or [])],
