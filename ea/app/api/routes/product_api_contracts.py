@@ -278,6 +278,10 @@ class WorkspaceInvitationOut(BaseModel):
     access_token: str = ""
     access_url: str = ""
     access_expires_at: str = ""
+    email_delivery_status: str = ""
+    email_delivery_error: str = ""
+    email_message_id: str = ""
+    email_provider: str = ""
 
 
 class WorkspaceInvitationResponse(BaseModel):
@@ -476,6 +480,10 @@ class ChannelDigestDeliveryOut(BaseModel):
     headline: str = ""
     preview_text: str = ""
     plain_text: str = ""
+    email_delivery_status: str = ""
+    email_delivery_error: str = ""
+    email_message_id: str = ""
+    email_provider: str = ""
 
 
 class DraftApproveIn(BaseModel):

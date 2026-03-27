@@ -45,6 +45,11 @@ from app.product.projections import (
     status_open,
     thread_items_from_objects,
 )
+from app.services.registration_email import (
+    email_delivery_enabled,
+    send_channel_digest_email,
+    send_workspace_invitation_email,
+)
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -1032,6 +1037,7 @@ class ProductService:
         display_name: str = "",
         note: str = "",
         expires_in_days: int = 14,
+        base_url: str = "",
     ) -> dict[str, object]:
         normalized_email = str(email or "").strip().lower()
         normalized_role = str(role or "operator").strip().lower() or "operator"
@@ -1047,6 +1053,8 @@ class ProductService:
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
         }
         invite_token = _sign_channel_payload(secret=self._channel_action_secret(), payload=token_payload)
+        invite_path = f"/workspace-invites/{invite_token}"
+        absolute_invite_url = urllib.parse.urljoin(str(base_url or "").strip(), invite_path) if str(base_url or "").strip() else invite_path
         payload = {
             "invitation_id": invitation_id,
             "email": normalized_email,
@@ -1057,9 +1065,43 @@ class ProductService:
             "invited_at": _now_iso(),
             "expires_at": str(token_payload["expires_at"]),
             "invite_token": invite_token,
-            "invite_url": f"/workspace-invites/{invite_token}",
+            "invite_url": invite_path,
             "operator_id": _operator_id_from_email(normalized_email) if normalized_role == "operator" else "",
+            "email_delivery_status": "not_configured" if normalized_email and not email_delivery_enabled() else "",
+            "email_delivery_error": "",
+            "email_message_id": "",
+            "email_provider": "",
         }
+        if normalized_email and email_delivery_enabled():
+            try:
+                receipt = send_workspace_invitation_email(
+                    recipient_email=normalized_email,
+                    invite_url=absolute_invite_url,
+                    role=normalized_role,
+                    invited_by=payload["invited_by"],
+                    note=payload["note"],
+                    expires_at=payload["expires_at"],
+                )
+                payload["email_delivery_status"] = "sent"
+                payload["email_message_id"] = receipt.message_id
+                payload["email_provider"] = receipt.provider
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="workspace_invitation_email_sent",
+                    payload={"invitation_id": invitation_id, "recipient_email": normalized_email, "provider": receipt.provider},
+                    source_id=invitation_id,
+                    dedupe_key=f"{principal_id}|{invitation_id}|invite-email-sent",
+                )
+            except RuntimeError as exc:
+                payload["email_delivery_status"] = "failed"
+                payload["email_delivery_error"] = str(exc)
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="workspace_invitation_email_failed",
+                    payload={"invitation_id": invitation_id, "recipient_email": normalized_email, "error": str(exc)},
+                    source_id=invitation_id,
+                    dedupe_key=f"{principal_id}|{invitation_id}|invite-email-failed",
+                )
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_invitation_created",
@@ -3196,7 +3238,52 @@ class ProductService:
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": plain_text,
+            "email_delivery_status": "not_requested" if str(token_payload["delivery_channel"]) != "email" else ("not_configured" if not email_delivery_enabled() else ""),
+            "email_delivery_error": "",
+            "email_message_id": "",
+            "email_provider": "",
         }
+        if str(token_payload["delivery_channel"]) == "email" and email_delivery_enabled():
+            try:
+                receipt = send_channel_digest_email(
+                    recipient_email=normalized_email,
+                    digest_key=normalized_digest,
+                    headline=str(payload.get("headline") or "Channel digest"),
+                    preview_text=str(payload.get("preview_text") or ""),
+                    delivery_url=absolute_delivery_url,
+                    plain_text=plain_text,
+                    expires_at=str(payload.get("expires_at") or ""),
+                )
+                payload["email_delivery_status"] = "sent"
+                payload["email_message_id"] = receipt.message_id
+                payload["email_provider"] = receipt.provider
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="channel_digest_delivery_email_sent",
+                    payload={
+                        "delivery_id": delivery_id,
+                        "digest_key": normalized_digest,
+                        "recipient_email": normalized_email,
+                        "provider": receipt.provider,
+                    },
+                    source_id=delivery_id,
+                    dedupe_key=f"{principal_id}|{delivery_id}|delivery-email-sent",
+                )
+            except RuntimeError as exc:
+                payload["email_delivery_status"] = "failed"
+                payload["email_delivery_error"] = str(exc)
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="channel_digest_delivery_email_failed",
+                    payload={
+                        "delivery_id": delivery_id,
+                        "digest_key": normalized_digest,
+                        "recipient_email": normalized_email,
+                        "error": str(exc),
+                    },
+                    source_id=delivery_id,
+                    dedupe_key=f"{principal_id}|{delivery_id}|delivery-email-failed",
+                )
         self._record_product_event(
             principal_id=principal_id,
             event_type="channel_digest_delivery_issued",
@@ -3210,6 +3297,9 @@ class ProductService:
                 "delivery_url": delivery_url,
                 "open_url": str(payload.get("open_url") or ""),
                 "expires_at": str(payload.get("expires_at") or ""),
+                "email_delivery_status": str(payload.get("email_delivery_status") or ""),
+                "email_message_id": str(payload.get("email_message_id") or ""),
+                "email_provider": str(payload.get("email_provider") or ""),
             },
             source_id=delivery_id,
             dedupe_key=f"{principal_id}|{delivery_id}",

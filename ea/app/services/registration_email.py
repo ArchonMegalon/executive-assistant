@@ -22,6 +22,10 @@ class RegistrationEmailReceipt:
     accepted_at: str
 
 
+def email_delivery_enabled() -> bool:
+    return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
+
+
 def _registration_sender_email() -> str:
     configured = str(os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "").strip()
     if configured:
@@ -42,8 +46,21 @@ def _registration_subject() -> str:
     return "Verify your email for Executive Assistant"
 
 
+def _minutes_until(*, expires_at: int | None = None, expires_at_iso: str = "") -> int:
+    if expires_at is not None:
+        return max(1, int((int(expires_at) - int(time.time())) / 60))
+    normalized = str(expires_at_iso or "").strip()
+    if not normalized:
+        return 60
+    try:
+        when = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return 60
+    return max(1, int((when - datetime.now(timezone.utc)).total_seconds() / 60))
+
+
 def _registration_text(*, verification_code: str, magic_link_url: str, expires_at: int) -> str:
-    minutes = max(1, int((int(expires_at) - int(time.time())) / 60))
+    minutes = _minutes_until(expires_at=expires_at)
     return (
         "Hello,\n\n"
         "Use this verification code to create your Executive Assistant workspace:\n\n"
@@ -56,29 +73,42 @@ def _registration_text(*, verification_code: str, magic_link_url: str, expires_a
     )
 
 
-def send_registration_email(*, recipient_email: str, verification_code: str, magic_link_url: str, expires_at: int) -> RegistrationEmailReceipt:
+def _send_emailit_email(
+    *,
+    recipient_email: str,
+    subject: str,
+    text: str,
+    kind: str,
+    meta: dict[str, object] | None = None,
+) -> RegistrationEmailReceipt:
     api_key = str(os.environ.get("EMAILIT_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("registration_email_api_key_missing")
     payload = {
         "from": f"{_registration_sender_name()} <{_registration_sender_email()}>",
         "to": str(recipient_email or "").strip(),
-        "subject": _registration_subject(),
-        "text": _registration_text(
-            verification_code=verification_code,
-            magic_link_url=magic_link_url,
-            expires_at=expires_at,
-        ),
+        "subject": str(subject or "").strip(),
+        "text": str(text or "").strip(),
         "html": "",
         "reply_to": _registration_sender_email(),
         "tracking": False,
         "meta": {
-            "kind": "ea_registration_verification",
+            "kind": kind,
             "recipient_email": str(recipient_email or "").strip(),
+            **dict(meta or {}),
         },
     }
-    idempotency_seed = f"{str(recipient_email or '').strip().lower()}|{verification_code}|registration"
-    idempotency_key = f"ea-register-{hashlib.sha256(idempotency_seed.encode('utf-8')).hexdigest()[:24]}"
+    idempotency_seed = json.dumps(
+        {
+            "kind": kind,
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "subject": str(subject or "").strip(),
+            "meta": dict(meta or {}),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    idempotency_key = f"ea-mail-{hashlib.sha256(idempotency_seed.encode('utf-8')).hexdigest()[:24]}"
     request = urllib.request.Request(
         EMAILIT_API_BASE,
         data=json.dumps(payload).encode("utf-8"),
@@ -113,3 +143,98 @@ def send_registration_email(*, recipient_email: str, verification_code: str, mag
                 continue
             break
     raise RuntimeError(last_error or "registration_email_send_failed")
+
+
+def send_registration_email(*, recipient_email: str, verification_code: str, magic_link_url: str, expires_at: int) -> RegistrationEmailReceipt:
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=_registration_subject(),
+        text=_registration_text(
+            verification_code=verification_code,
+            magic_link_url=magic_link_url,
+            expires_at=expires_at,
+        ),
+        kind="ea_registration_verification",
+        meta={"verification_code": verification_code},
+    )
+
+
+def send_workspace_invitation_email(
+    *,
+    recipient_email: str,
+    invite_url: str,
+    role: str,
+    invited_by: str,
+    note: str = "",
+    expires_at: str = "",
+) -> RegistrationEmailReceipt:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    role_label = str(role or "operator").strip().replace("_", " ").title() or "Operator"
+    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
+    note_text = str(note or "").strip()
+    body = [
+        "Hello,",
+        "",
+        f"{inviter} invited you to join an Executive Assistant workspace as {role_label}.",
+        "",
+        "Open this secure link to accept the invite:",
+        "",
+        invite_url,
+        "",
+        f"This link expires in about {minutes} minutes.",
+    ]
+    if note_text:
+        body.extend(["", "Message from the workspace:", note_text])
+    body.extend(
+        [
+            "",
+            "You will get workspace access after accepting the invite.",
+            "Google is connected later as a workspace data source. It is not your app login.",
+        ]
+    )
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=f"{inviter} invited you to Executive Assistant",
+        text="\n".join(body).strip() + "\n",
+        kind="ea_workspace_invitation",
+        meta={"invite_url": invite_url, "role": str(role or "").strip().lower()},
+    )
+
+
+def send_channel_digest_email(
+    *,
+    recipient_email: str,
+    digest_key: str,
+    headline: str,
+    preview_text: str,
+    delivery_url: str,
+    plain_text: str,
+    expires_at: str = "",
+) -> RegistrationEmailReceipt:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    label = str(headline or "Executive Assistant update").strip() or "Executive Assistant update"
+    preview = str(preview_text or "").strip()
+    body = [
+        label,
+        "",
+    ]
+    if preview:
+        body.extend([preview, ""])
+    body.extend(
+        [
+            "Open this secure workspace view:",
+            "",
+            delivery_url,
+            "",
+            f"This link expires in about {minutes} minutes.",
+        ]
+    )
+    if plain_text:
+        body.extend(["", "Digest preview", "", str(plain_text or "").strip()])
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=label,
+        text="\n".join(body).strip() + "\n",
+        kind="ea_channel_digest_delivery",
+        meta={"digest_key": str(digest_key or "").strip().lower(), "delivery_url": delivery_url},
+    )

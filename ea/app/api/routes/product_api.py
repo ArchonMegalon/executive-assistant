@@ -781,6 +781,7 @@ def get_workspace_invitations(
 @router.post("/invitations", response_model=WorkspaceInvitationOut)
 def create_workspace_invitation(
     body: WorkspaceInvitationCreateIn,
+    request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> WorkspaceInvitationOut:
@@ -794,6 +795,7 @@ def create_workspace_invitation(
         display_name=body.display_name,
         note=body.note,
         expires_in_days=body.expires_in_days,
+        base_url=str(request.base_url),
     )
     return WorkspaceInvitationOut(**payload)
 
