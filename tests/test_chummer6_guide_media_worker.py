@@ -1207,7 +1207,7 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     lowered = hero_prompt.lower()
     assert "scene brief:" in lowered
     assert "hairy troll" in lowered
-    assert "garage clinic" in lowered
+    assert "full bay" in lowered or "floor, shelves, and doorway" in lowered or "tool wall" in lowered
     assert "render the base scene plate first" in lowered
     assert "medscan diagnostic" in lowered
     assert "cyberlimb calibration" not in lowered
@@ -1768,7 +1768,19 @@ def test_scene_policy_for_target_rebriefs_hero_as_active_triage() -> None:
 
     assert "garage clinic" in str(contract["environment"]).lower()
     assert "stabilizing" in str(contract["subject"]).lower()
+    assert "side bench" in str(contract["environment"]).lower() or "open bay door" in str(contract["environment"]).lower()
     assert "triage" in str(hero["prompt"]).lower() or "garage clinic" in str(hero["prompt"]).lower()
+
+
+def test_scene_policy_for_target_makes_karma_forge_an_industrial_materials_lab() -> None:
+    media = _load_module()
+    specs = media.asset_specs()
+    forge = next(spec for spec in specs if spec["target"] == "assets/horizons/karma-forge.png")
+    contract = forge["media_row"]["scene_contract"]
+    prompt = str(forge["prompt"]).lower()
+
+    assert "assay" in str(contract["environment"]).lower() or "sample" in str(contract["environment"]).lower()
+    assert "materials" in prompt or "awakened" in prompt
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
