@@ -17,6 +17,8 @@ WORKDIR /app
 COPY ea/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ea/app ./app
+COPY scripts/browseract_template_service_worker.py /app/scripts/browseract_template_service_worker.py
+COPY scripts/publish_browseract_ui_results.py /app/scripts/publish_browseract_ui_results.py
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chown -R ea:ea /app && chmod +x /usr/local/bin/docker-entrypoint.sh
 

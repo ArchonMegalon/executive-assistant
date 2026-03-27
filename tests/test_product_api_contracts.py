@@ -223,6 +223,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert search_body["total"] >= 2
     assert any(item["kind"] == "person" and item["title"] == "Sofia N." for item in search_body["items"])
     assert any(item["kind"] == "thread" and item["title"] == "sofia@example.com" for item in search_body["items"])
+    assert any(item["kind"] == "draft" for item in search_body["items"])
     assert all(item["score"] > 0 for item in search_body["items"])
 
     board_search = client.get("/app/api/search", params={"query": "board", "limit": 5})
@@ -231,6 +232,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert board_body["total"] >= 2
     assert any(item["kind"] == "decision" for item in board_body["items"])
     assert any(item["kind"] == "commitment" for item in board_body["items"])
+    assert any(item["kind"] == "handoff" for item in board_body["items"])
     assert all(item["href"] for item in board_body["items"])
     decision_result = next(item for item in board_body["items"] if item["kind"] == "decision")
     assert decision_result["action_label"] in {"Resolve", "Review"}

@@ -4408,6 +4408,22 @@ def test_crezlo_worker_script_path_resolves_existing_worker() -> None:
     assert path.exists()
 
 
+@pytest.mark.parametrize(
+    ("service_key", "worker_name"),
+    [
+        ("onemin_billing_usage", "browseract_template_service_worker.py"),
+        ("onemin_member_reconciliation", "browseract_template_service_worker.py"),
+    ],
+)
+def test_ui_service_worker_script_path_resolves_onemin_builtin_workers(
+    service_key: str,
+    worker_name: str,
+) -> None:
+    path = BrowserActToolAdapter._ui_service_worker_script_path(service_key)
+    assert path.name == worker_name
+    assert path.exists()
+
+
 def test_tool_execution_service_self_heals_missing_builtin_onemin_code_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

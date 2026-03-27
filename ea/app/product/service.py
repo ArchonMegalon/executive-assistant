@@ -788,6 +788,21 @@ class ProductService:
                 extra=tuple(thread.counterparties) + tuple(thread.draft_ids),
             )
 
+        for draft in self.list_drafts(principal_id=principal_id, limit=max(limit * 2, 25)):
+            add_result(
+                id=draft.id,
+                kind="draft",
+                title=draft.recipient_summary or draft.intent,
+                summary=f"{draft.intent} · {draft.send_channel} · {draft.approval_status}",
+                href=f"/app/inbox?focus={urllib.parse.quote(draft.id, safe='')}",
+                secondary_label=draft.approval_status,
+                related_object_refs=(draft.id, draft.thread_ref) if draft.thread_ref else (draft.id,),
+                extra=(draft.thread_ref, draft.intent, draft.send_channel, draft.draft_text, draft.recipient_summary, draft.tone),
+                action_href=f"/app/actions/drafts/{urllib.parse.quote(draft.id, safe='')}/approve",
+                action_label="Approve",
+                action_method="post",
+            )
+
         for commitment in self.list_commitments(principal_id=principal_id, limit=max(limit * 3, 40)):
             add_result(
                 id=commitment.id,
@@ -818,6 +833,23 @@ class ProductService:
                 action_label="Resolve" if decision.status == "open" else "Review",
                 action_method="post" if decision.status == "open" else "",
                 action_value="resolve" if decision.status == "open" else "",
+            )
+
+        for handoff in self.list_handoffs(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id, status=None):
+            actionable_value = "completed" if operator_id and handoff.owner == operator_id else "assign"
+            add_result(
+                id=handoff.id,
+                kind="handoff",
+                title=handoff.summary,
+                summary=f"{handoff.owner or 'unassigned'} · {handoff.escalation_status} · {handoff.status}",
+                href=f"/app/handoffs/{urllib.parse.quote(handoff.id, safe='')}",
+                secondary_label=handoff.escalation_status,
+                related_object_refs=(handoff.id,),
+                extra=(handoff.owner, handoff.status, handoff.escalation_status, handoff.due_time or ""),
+                action_href=f"/app/actions/handoffs/{urllib.parse.quote(handoff.id, safe='')}/{'complete' if actionable_value == 'completed' else 'assign'}",
+                action_label="Complete" if actionable_value == "completed" else "Claim",
+                action_method="post",
+                action_value=actionable_value,
             )
 
         for evidence in self.list_evidence(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id):
