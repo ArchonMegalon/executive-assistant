@@ -408,6 +408,10 @@ class SearchResultOut(BaseModel):
     score: float = 0.0
     secondary_label: str = ""
     related_object_refs: list[str] = Field(default_factory=list)
+    action_href: str = ""
+    action_label: str = ""
+    action_method: str = ""
+    action_value: str = ""
 
 
 class SearchResponse(BaseModel):

@@ -232,6 +232,12 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert any(item["kind"] == "decision" for item in board_body["items"])
     assert any(item["kind"] == "commitment" for item in board_body["items"])
     assert all(item["href"] for item in board_body["items"])
+    decision_result = next(item for item in board_body["items"] if item["kind"] == "decision")
+    assert decision_result["action_label"] in {"Resolve", "Review"}
+    assert decision_result["action_href"].startswith("/app/actions/queue/")
+    commitment_result = next(item for item in board_body["items"] if item["kind"] == "commitment")
+    assert commitment_result["action_label"] in {"Close", "Reopen", "Review"}
+    assert commitment_result["action_href"].startswith("/app/actions/queue/")
 
     webhook_test = client.post(f"/app/api/webhooks/{webhook_id}/test")
     assert webhook_test.status_code == 200

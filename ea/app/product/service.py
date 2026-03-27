@@ -739,6 +739,10 @@ class ProductService:
             secondary_label: str = "",
             related_object_refs: tuple[str, ...] = (),
             extra: tuple[str, ...] = (),
+            action_href: str = "",
+            action_label: str = "",
+            action_method: str = "",
+            action_value: str = "",
         ) -> None:
             score = _search_score(tokens=tokens, title=title, summary=summary, extra=extra)
             if score <= 0:
@@ -753,6 +757,10 @@ class ProductService:
                     "score": score,
                     "secondary_label": secondary_label,
                     "related_object_refs": list(related_object_refs),
+                    "action_href": action_href,
+                    "action_label": action_label,
+                    "action_method": action_method,
+                    "action_value": action_value,
                 }
             )
 
@@ -790,6 +798,10 @@ class ProductService:
                 secondary_label=commitment.status,
                 related_object_refs=(commitment.id,),
                 extra=(commitment.counterparty, commitment.owner, commitment.channel_hint, commitment.source_ref),
+                action_href=f"/app/actions/queue/{urllib.parse.quote(commitment.id, safe='')}/resolve",
+                action_label="Close" if commitment.status == "open" else "Reopen" if commitment.status == "completed" else "Review",
+                action_method="post",
+                action_value="close" if commitment.status == "open" else "reopen" if commitment.status == "completed" else "",
             )
 
         for decision in self.list_decisions(principal_id=principal_id, limit=max(limit * 2, 25)):
@@ -802,6 +814,10 @@ class ProductService:
                 secondary_label=decision.status,
                 related_object_refs=tuple(decision.related_commitment_ids) + tuple(decision.linked_thread_ids),
                 extra=tuple(decision.options) + tuple(decision.related_people) + (decision.recommendation, decision.next_action, decision.rationale),
+                action_href=f"/app/actions/queue/{urllib.parse.quote(decision.id, safe='')}/resolve",
+                action_label="Resolve" if decision.status == "open" else "Review",
+                action_method="post" if decision.status == "open" else "",
+                action_value="resolve" if decision.status == "open" else "",
             )
 
         for evidence in self.list_evidence(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id):
