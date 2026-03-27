@@ -1223,12 +1223,15 @@ def refresh_onemin_billing(
     errors: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
     bound_account_labels: set[str] = set()
+    bound_account_label_order: list[str] = []
     bound_account_login_credentials: dict[str, dict[str, str]] = {}
     browseract_billing_attempted_labels: set[str] = set()
     browseract_billing_result_labels: set[str] = set()
     browseract_billing_error_labels: set[str] = set()
+    browseract_member_attempted_labels: set[str] = set()
     browseract_max_accounts = _onemin_browseract_max_accounts_per_refresh()
     refresh_allowed, throttle_seconds_remaining, throttle_reason = container.onemin_manager.begin_billing_refresh()
+    binding_jobs: list[dict[str, object]] = []
 
     try:
         for binding in bindings:
@@ -1257,8 +1260,10 @@ def refresh_onemin_billing(
             )
             account_labels = _resolve_onemin_account_labels(binding)
             binding_account_login_credentials: dict[str, dict[str, str]] = {}
-            bound_account_labels.update(account_labels)
             for account_label in account_labels:
+                if account_label not in bound_account_labels:
+                    bound_account_labels.add(account_label)
+                    bound_account_label_order.append(account_label)
                 credentials = upstream.onemin_account_login_credentials(
                     account_name=account_label,
                     binding_metadata=binding_metadata,
@@ -1275,14 +1280,38 @@ def refresh_onemin_billing(
                     }
                 )
                 continue
+            binding_jobs.append(
+                {
+                    "binding": binding,
+                    "binding_metadata": binding_metadata,
+                    "billing_run_url": billing_run_url,
+                    "billing_workflow_id": billing_workflow_id,
+                    "members_run_url": members_run_url,
+                    "members_workflow_id": members_workflow_id,
+                    "account_labels": account_labels,
+                }
+            )
+        selected_browseract_labels = (
+            set(
+                container.onemin_manager.select_billing_refresh_account_labels(
+                    bound_account_label_order,
+                    limit=browseract_max_accounts,
+                )
+            )
+            if refresh_allowed
+            else set()
+        )
+        for job in binding_jobs:
+            binding = job["binding"]
+            binding_metadata = dict(job["binding_metadata"] or {})
+            billing_run_url = str(job["billing_run_url"] or "")
+            billing_workflow_id = str(job["billing_workflow_id"] or "")
+            members_run_url = str(job["members_run_url"] or "")
+            members_workflow_id = str(job["members_workflow_id"] or "")
+            account_labels = tuple(str(value or "").strip() for value in (job["account_labels"] or ()) if str(value or "").strip())
             if refresh_allowed:
                 for account_label in account_labels:
-                    if not billing_run_url and not billing_workflow_id and not _browseract_onemin_login_ready(
-                        account_label=account_label,
-                        binding_metadata=binding_metadata,
-                    ):
-                        continue
-                    if len(browseract_billing_attempted_labels) >= browseract_max_accounts:
+                    if account_label not in selected_browseract_labels:
                         skipped.append(
                             {
                                 "binding_id": binding.binding_id,
@@ -1291,6 +1320,13 @@ def refresh_onemin_billing(
                                 "reason": "browseract_refresh_capped",
                             }
                         )
+                        continue
+                    if account_label in browseract_billing_attempted_labels:
+                        continue
+                    if not billing_run_url and not billing_workflow_id and not _browseract_onemin_login_ready(
+                        account_label=account_label,
+                        binding_metadata=binding_metadata,
+                    ):
                         continue
                     browseract_billing_attempted_labels.add(account_label)
                     try:
@@ -1334,11 +1370,14 @@ def refresh_onemin_billing(
                 for account_label in account_labels:
                     if account_label not in browseract_billing_attempted_labels:
                         continue
+                    if account_label in browseract_member_attempted_labels:
+                        continue
                     if not members_run_url and not members_workflow_id and not _browseract_onemin_login_ready(
                         account_label=account_label,
                         binding_metadata=binding_metadata,
                     ):
                         continue
+                    browseract_member_attempted_labels.add(account_label)
                     try:
                         output = _invoke_browseract_tool(
                             container=container,

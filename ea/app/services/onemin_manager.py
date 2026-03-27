@@ -35,6 +35,7 @@ class OneminManagerService:
         self._billing_refresh_lock = threading.Lock()
         self._billing_refresh_next_allowed_monotonic = 0.0
         self._billing_refresh_in_flight = False
+        self._billing_refresh_last_account_label = ""
 
     def _env_float(self, name: str, default: float) -> float:
         raw = str(os.environ.get(name) or "").strip()
@@ -84,6 +85,33 @@ class OneminManagerService:
     def finish_billing_refresh(self) -> None:
         with self._billing_refresh_lock:
             self._billing_refresh_in_flight = False
+
+    def select_billing_refresh_account_labels(
+        self,
+        account_labels: list[str] | tuple[str, ...] | set[str],
+        *,
+        limit: int,
+    ) -> tuple[str, ...]:
+        normalized_labels: list[str] = []
+        seen: set[str] = set()
+        for value in account_labels or ():
+            normalized = str(value or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            normalized_labels.append(normalized)
+        if not normalized_labels or limit <= 0:
+            return ()
+        capped_limit = min(max(int(limit), 1), len(normalized_labels))
+        with self._billing_refresh_lock:
+            start_index = 0
+            if self._billing_refresh_last_account_label and self._billing_refresh_last_account_label in normalized_labels:
+                start_index = (normalized_labels.index(self._billing_refresh_last_account_label) + 1) % len(normalized_labels)
+            ordered = normalized_labels[start_index:] + normalized_labels[:start_index]
+            selected = tuple(ordered[:capped_limit])
+            if selected:
+                self._billing_refresh_last_account_label = selected[-1]
+            return selected
 
     def _core_floor_ratio(self) -> float:
         return min(0.95, max(0.0, self._env_float("EA_ONEMIN_CORE_FLOOR_RATIO", 0.50)))
@@ -225,9 +253,9 @@ class OneminManagerService:
         if slot.get("billing_max_credits") not in (None, ""):
             return True
         basis = str(slot.get("billing_basis") or "").strip().lower()
+        if basis in {"page_seen_but_unparsed", "actual_members_page"}:
+            return False
         if basis.startswith("actual_"):
-            return True
-        if str(slot.get("last_billing_snapshot_at") or "").strip():
             return True
         return False
 

@@ -3839,6 +3839,36 @@ def test_browseract_ui_template_spec_waits_for_google_entry_before_click() -> No
     assert ["wait_google_entry", "enter_google"] in spec["edges"]
 
 
+def test_browseract_ui_template_spec_uses_explicit_onemin_billing_workflow() -> None:
+    spec = browseract_ui_template_spec("onemin_billing_usage_reader_live")
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert spec["meta"]["tool_url"] == "https://app.1min.ai/billing-usage"
+    assert spec["meta"]["authorized_credential_queries"] == ["1min.ai", "app.1min.ai"]
+    assert spec["inputs"][-1]["name"] == "page_url"
+    assert "open_billing_usage" in node_ids
+    assert "extract_billing_settings" in node_ids
+    assert "extract_usage_records" in node_ids
+    assert "extract_pre_bonus_page" in node_ids
+    assert "extract_billing_bonus_page" in node_ids
+    submit_node = next(node for node in spec["nodes"] if node.get("id") == "submit")
+    assert submit_node["type"] == "submit_login_form"
+    assert submit_node["config"]["auth_advance_timeout_ms"] == 9000
+    output_node = next(node for node in spec["nodes"] if node.get("id") == "output_result")
+    assert output_node["config"]["field_name"] == "billing_usage_bonus_page"
+
+
+def test_browseract_ui_template_spec_uses_explicit_onemin_members_workflow() -> None:
+    spec = browseract_ui_template_spec("onemin_members_reconciliation_live")
+    node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
+    assert spec["meta"]["tool_url"] == "https://app.1min.ai/members"
+    assert "open_members" in node_ids
+    assert "extract_members" in node_ids
+    wait_login_entry = next(node for node in spec["nodes"] if node.get("id") == "wait_login_entry")
+    assert wait_login_entry["config"]["optional"] is True
+    dismiss_node = next(node for node in spec["nodes"] if node.get("id") == "dismiss_overlay_01")
+    assert dismiss_node["config"]["optional"] is True
+
+
 def test_browseract_ui_template_spec_omits_dismiss_overlay_clicks_by_default() -> None:
     spec = browseract_ui_template_spec("documentation_ai_workspace_reader")
     node_ids = [str(node.get("id") or "") for node in spec["nodes"]]
