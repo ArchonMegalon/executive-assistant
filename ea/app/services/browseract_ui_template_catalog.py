@@ -437,6 +437,399 @@ class BrowserActUiTemplateDefinition:
         }
 
 
+_ONEMIN_LOGIN_URL = "https://app.1min.ai/login"
+_ONEMIN_BILLING_USAGE_URL = "https://app.1min.ai/billing-usage"
+_ONEMIN_MEMBERS_URL = "https://app.1min.ai/members"
+_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES = ("1min.ai", "app.1min.ai")
+_ONEMIN_CLOSE_SELECTORS = (
+    "[aria-label='Close']",
+    ".ant-tour-close",
+    "button[title='Close']",
+    "[data-testid='close']",
+)
+_ONEMIN_LOGIN_ENTRY_SELECTOR = "button:has-text(\"Log In\"), a:has-text(\"Log In\"), [role='button']:has-text(\"Log In\")"
+_ONEMIN_EMAIL_SELECTOR = "#login_email, input#login_email, input[placeholder='Email'], input[type=email], input[name=email]"
+_ONEMIN_PASSWORD_SELECTOR = "#login_password, input#login_password, input[type=password], input[name=password], input[placeholder*='Password' i]"
+_ONEMIN_SUBMIT_SELECTOR = (
+    ".ant-modal button.ant-btn-primary:has-text(\"Log In\"), "
+    ".ant-modal-root button.ant-btn-primary:has-text(\"Log In\"), "
+    ".ant-modal-wrap button.ant-btn-primary:has-text(\"Log In\"), "
+    ".ant-modal button[type=submit], .ant-modal-root button[type=submit]"
+)
+
+
+def _onemin_meta(*, slug: str, output_dir: str, tool_url: str) -> dict[str, object]:
+    return {
+        "slug": slug,
+        "output_dir": output_dir,
+        "status": "pending_browseract_seed",
+        "workflow_kind": "page_extract",
+        "auth_flow": "direct",
+        "runtime_input_name": "page_url",
+        "tool_url": tool_url,
+        "authorized_credential_queries": list(_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES),
+    }
+
+
+def _onemin_login_modal_nodes() -> tuple[list[dict[str, object]], list[list[str]], str]:
+    nodes: list[dict[str, object]] = [
+        {
+            "id": "open_login",
+            "type": "visit_page",
+            "label": "Open Login",
+            "config": {"url": _ONEMIN_LOGIN_URL},
+        },
+        {
+            "id": "wait_login_entry",
+            "type": "wait",
+            "label": "Wait Login Entry",
+            "config": {
+                "selector": _ONEMIN_LOGIN_ENTRY_SELECTOR,
+                "timeout_ms": 5000,
+                "optional": True,
+            },
+        },
+        {
+            "id": "open_login_entry",
+            "type": "click",
+            "label": "Open Login Entry",
+            "config": {
+                "selector": _ONEMIN_LOGIN_ENTRY_SELECTOR,
+                "optional": True,
+                "wait_timeout_ms": 2500,
+            },
+        },
+        {
+            "id": "wait_login_form",
+            "type": "wait",
+            "label": "Wait Login Form",
+            "config": {
+                "selector": _ONEMIN_EMAIL_SELECTOR,
+                "timeout_ms": 45000,
+            },
+        },
+        {
+            "id": "email",
+            "type": "input_text",
+            "label": "Email",
+            "config": {
+                "selector": _ONEMIN_EMAIL_SELECTOR,
+                "value_from_secret": "browseract_username",
+            },
+        },
+        {
+            "id": "password",
+            "type": "input_text",
+            "label": "Password",
+            "config": {
+                "selector": _ONEMIN_PASSWORD_SELECTOR,
+                "value_from_secret": "browseract_password",
+            },
+        },
+        {
+            "id": "submit",
+            "type": "submit_login_form",
+            "label": "Submit Login",
+            "config": {
+                "selector": _ONEMIN_SUBMIT_SELECTOR,
+                "password_selector": _ONEMIN_PASSWORD_SELECTOR,
+                "auth_advance_timeout_ms": 9000,
+            },
+        },
+        {
+            "id": "wait_authenticated",
+            "type": "wait",
+            "label": "Wait Authenticated",
+            "config": {
+                "selector": _ONEMIN_PASSWORD_SELECTOR,
+                "state": "hidden",
+                "timeout_ms": 45000,
+                "optional": True,
+            },
+        },
+    ]
+    edges = [
+        ["open_login", "wait_login_entry"],
+        ["wait_login_entry", "open_login_entry"],
+        ["open_login_entry", "wait_login_form"],
+        ["wait_login_form", "email"],
+        ["email", "password"],
+        ["password", "submit"],
+        ["submit", "wait_authenticated"],
+    ]
+    return nodes, edges, "wait_authenticated"
+
+
+def _onemin_dismiss_overlay_nodes(previous: str) -> tuple[list[dict[str, object]], list[list[str]], str]:
+    nodes: list[dict[str, object]] = []
+    edges: list[list[str]] = []
+    last = previous
+    for index, selector in enumerate(_ONEMIN_CLOSE_SELECTORS, start=1):
+        wait_id = f"wait_dismiss_overlay_{index:02d}"
+        click_id = f"dismiss_overlay_{index:02d}"
+        nodes.extend(
+            [
+                {
+                    "id": wait_id,
+                    "type": "wait",
+                    "label": f"Wait Dismiss Overlay {index}",
+                    "config": {
+                        "selector": selector,
+                        "timeout_ms": 2500,
+                        "optional": True,
+                    },
+                },
+                {
+                    "id": click_id,
+                    "type": "click",
+                    "label": f"Dismiss Overlay {index}",
+                    "config": {
+                        "selector": selector,
+                        "optional": True,
+                        "wait_timeout_ms": 1500,
+                    },
+                },
+            ]
+        )
+        edges.extend([[last, wait_id], [wait_id, click_id]])
+        last = click_id
+    return nodes, edges, last
+
+
+def _onemin_workflow_inputs() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "browseract_username",
+            "description": "1min login email for the selected account.",
+        },
+        {
+            "name": "browseract_password",
+            "description": "1min login password for the selected account.",
+        },
+        {
+            "name": "page_url",
+            "description": "Optional target page override for the selected 1min surface.",
+        },
+    ]
+
+
+def _onemin_billing_usage_workflow_spec(*, output_dir: str) -> dict[str, object]:
+    nodes, edges, last_login_node = _onemin_login_modal_nodes()
+    nodes.extend(
+        [
+            {
+                "id": "open_billing_usage",
+                "type": "visit_page",
+                "label": "Open Billing Usage",
+                "config": {
+                    "url": _ONEMIN_BILLING_USAGE_URL,
+                    "value_from_input": "page_url",
+                },
+            },
+            {
+                "id": "wait_billing_usage",
+                "type": "wait",
+                "label": "Wait Billing Usage",
+                "config": {"selector": "main, body", "timeout_ms": 45000},
+            },
+        ]
+    )
+    edges.extend(
+        [
+            [last_login_node, "open_billing_usage"],
+            ["open_billing_usage", "wait_billing_usage"],
+        ]
+    )
+    dismiss_nodes, dismiss_edges, last_node = _onemin_dismiss_overlay_nodes("wait_billing_usage")
+    nodes.extend(dismiss_nodes)
+    edges.extend(dismiss_edges)
+    nodes.extend(
+        [
+            {
+                "id": "extract_billing_settings",
+                "type": "extract",
+                "label": "Extract Billing Settings",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_settings_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "extract_usage_records",
+                "type": "extract",
+                "label": "Extract Usage Records",
+                "config": {
+                    "selector": "table, main, body",
+                    "field_name": "usage_records_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "extract_pre_bonus_page",
+                "type": "extract",
+                "label": "Extract Billing Page Before Bonus",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_usage_pre_bonus_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "wait_unlock_free_credits",
+                "type": "wait",
+                "label": "Wait Unlock Free Credits",
+                "config": {
+                    "selector": 'button:has-text("Unlock Free Credits"), [role=button]:has-text("Unlock Free Credits")',
+                    "timeout_ms": 2500,
+                    "optional": True,
+                },
+            },
+            {
+                "id": "unlock_free_credits",
+                "type": "click",
+                "label": "Unlock Free Credits",
+                "config": {
+                    "selector": 'button:has-text("Unlock Free Credits"), [role=button]:has-text("Unlock Free Credits")',
+                    "optional": True,
+                    "wait_timeout_ms": 1500,
+                },
+            },
+            {
+                "id": "wait_bonus_surface",
+                "type": "wait",
+                "label": "Wait Bonus Surface",
+                "config": {"selector": "main, body", "timeout_ms": 45000},
+            },
+            {
+                "id": "extract_billing_bonus_page",
+                "type": "extract",
+                "label": "Extract Billing Page After Bonus",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "billing_usage_bonus_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "output_result",
+                "type": "output",
+                "label": "Output Result",
+                "config": {
+                    "field_name": "billing_usage_bonus_page",
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            [last_node, "extract_billing_settings"],
+            ["extract_billing_settings", "extract_usage_records"],
+            ["extract_usage_records", "extract_pre_bonus_page"],
+            ["extract_pre_bonus_page", "wait_unlock_free_credits"],
+            ["wait_unlock_free_credits", "unlock_free_credits"],
+            ["unlock_free_credits", "wait_bonus_surface"],
+            ["wait_bonus_surface", "extract_billing_bonus_page"],
+            ["extract_billing_bonus_page", "output_result"],
+        ]
+    )
+    return {
+        "workflow_name": "1min Billing Usage Reader",
+        "description": (
+            "Sign in to 1min.AI, extract billing settings and usage records, capture the "
+            "full billing page before and after the free-credit surface, and publish the "
+            "post-click page for stable balance, burn, and bonus normalization."
+        ),
+        "publish": True,
+        "mcp_ready": False,
+        "inputs": _onemin_workflow_inputs(),
+        "nodes": nodes,
+        "edges": edges,
+        "meta": _onemin_meta(
+            slug="onemin_billing_usage_reader_live",
+            output_dir=output_dir,
+            tool_url=_ONEMIN_BILLING_USAGE_URL,
+        ),
+    }
+
+
+def _onemin_members_workflow_spec(*, output_dir: str) -> dict[str, object]:
+    nodes, edges, last_login_node = _onemin_login_modal_nodes()
+    nodes.extend(
+        [
+            {
+                "id": "open_members",
+                "type": "visit_page",
+                "label": "Open Members",
+                "config": {
+                    "url": _ONEMIN_MEMBERS_URL,
+                    "value_from_input": "page_url",
+                },
+            },
+            {
+                "id": "wait_members",
+                "type": "wait",
+                "label": "Wait Members",
+                "config": {"selector": "main, body", "timeout_ms": 45000},
+            },
+        ]
+    )
+    edges.extend(
+        [
+            [last_login_node, "open_members"],
+            ["open_members", "wait_members"],
+        ]
+    )
+    dismiss_nodes, dismiss_edges, last_node = _onemin_dismiss_overlay_nodes("wait_members")
+    nodes.extend(dismiss_nodes)
+    edges.extend(dismiss_edges)
+    nodes.extend(
+        [
+            {
+                "id": "extract_members",
+                "type": "extract",
+                "label": "Extract Members",
+                "config": {
+                    "selector": "main, body",
+                    "field_name": "members_page",
+                    "mode": "text",
+                },
+            },
+            {
+                "id": "output_result",
+                "type": "output",
+                "label": "Output Result",
+                "config": {
+                    "field_name": "members_page",
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            [last_node, "extract_members"],
+            ["extract_members", "output_result"],
+        ]
+    )
+    return {
+        "workflow_name": "1min Members Reconciliation Reader",
+        "description": (
+            "Sign in to 1min.AI, open the members surface, dismiss overlays, and extract "
+            "the visible roster and status cues for owner reconciliation."
+        ),
+        "publish": True,
+        "mcp_ready": False,
+        "inputs": _onemin_workflow_inputs(),
+        "nodes": nodes,
+        "edges": edges,
+        "meta": _onemin_meta(
+            slug="onemin_members_reconciliation_live",
+            output_dir=output_dir,
+            tool_url=_ONEMIN_MEMBERS_URL,
+        ),
+    }
+
+
 _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
     BrowserActUiTemplateDefinition(
         template_key="approvethis_queue_reader",
@@ -576,42 +969,36 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         template_key="onemin_billing_usage_reader_live",
         workflow_name="1min Billing Usage Reader",
         description="Open the logged-in 1min billing usage surface and extract the visible credit, top-up, and billing state.",
-        login_url="https://app.1min.ai/login",
-        tool_url="https://app.1min.ai/billing-usage",
+        login_url=_ONEMIN_LOGIN_URL,
+        tool_url=_ONEMIN_BILLING_USAGE_URL,
         workflow_kind="page_extract",
         runtime_input_name="page_url",
-        authorized_credential_queries=("1min.ai", "app.1min.ai"),
-        direct_pre_auth_dismiss_selectors=(
-            "[aria-label='Close']",
-            ".ant-tour-close",
-        ),
-        direct_login_entry_selector="button:has-text(\"Log In\"), a:has-text(\"Log In\"), [role='button']:has-text(\"Log In\")",
-        direct_email_selector="#login_email, input#login_email, input[placeholder='Email'], input[type=email], input[name=email]",
-        direct_password_selector="#login_password, input#login_password, input[type=password], input[name=password], input[placeholder*='Password' i]",
-        direct_submit_selector=".ant-modal button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-root button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-wrap button.ant-btn-primary:has-text(\"Log In\"), .ant-modal button[type=submit], .ant-modal-root button[type=submit]",
+        authorized_credential_queries=_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES,
+        direct_pre_auth_dismiss_selectors=_ONEMIN_CLOSE_SELECTORS[:2],
+        direct_login_entry_selector=_ONEMIN_LOGIN_ENTRY_SELECTOR,
+        direct_email_selector=_ONEMIN_EMAIL_SELECTOR,
+        direct_password_selector=_ONEMIN_PASSWORD_SELECTOR,
+        direct_submit_selector=_ONEMIN_SUBMIT_SELECTOR,
         wait_selector="main, body",
         result_selector="main, body",
         title_selector="",
-        result_field_name="billing_usage_page",
+        result_field_name="billing_usage_bonus_page",
         include_dismiss_nodes=True,
     ),
     BrowserActUiTemplateDefinition(
         template_key="onemin_members_reconciliation_live",
         workflow_name="1min Members Reconciliation Reader",
         description="Open the logged-in 1min members surface and extract the visible member roster, statuses, and credit-limit hints for owner reconciliation.",
-        login_url="https://app.1min.ai/login",
-        tool_url="https://app.1min.ai/members",
+        login_url=_ONEMIN_LOGIN_URL,
+        tool_url=_ONEMIN_MEMBERS_URL,
         workflow_kind="page_extract",
         runtime_input_name="page_url",
-        authorized_credential_queries=("1min.ai", "app.1min.ai"),
-        direct_pre_auth_dismiss_selectors=(
-            "[aria-label='Close']",
-            ".ant-tour-close",
-        ),
-        direct_login_entry_selector="button:has-text(\"Log In\"), a:has-text(\"Log In\"), [role='button']:has-text(\"Log In\")",
-        direct_email_selector="#login_email, input#login_email, input[placeholder='Email'], input[type=email], input[name=email]",
-        direct_password_selector="#login_password, input#login_password, input[type=password], input[name=password], input[placeholder*='Password' i]",
-        direct_submit_selector=".ant-modal button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-root button.ant-btn-primary:has-text(\"Log In\"), .ant-modal-wrap button.ant-btn-primary:has-text(\"Log In\"), .ant-modal button[type=submit], .ant-modal-root button[type=submit]",
+        authorized_credential_queries=_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES,
+        direct_pre_auth_dismiss_selectors=_ONEMIN_CLOSE_SELECTORS[:2],
+        direct_login_entry_selector=_ONEMIN_LOGIN_ENTRY_SELECTOR,
+        direct_email_selector=_ONEMIN_EMAIL_SELECTOR,
+        direct_password_selector=_ONEMIN_PASSWORD_SELECTOR,
+        direct_submit_selector=_ONEMIN_SUBMIT_SELECTOR,
         wait_selector="main, body",
         result_selector="main, body",
         title_selector="",
@@ -634,6 +1021,11 @@ def browseract_ui_template_by_key(template_key: str) -> BrowserActUiTemplateDefi
 
 
 def browseract_ui_template_spec(template_key: str, *, output_dir: str = "/docker/fleet/state/browseract_bootstrap") -> dict[str, object]:
+    normalized = str(template_key or "").strip().lower()
+    if normalized == "onemin_billing_usage_reader_live":
+        return _onemin_billing_usage_workflow_spec(output_dir=output_dir)
+    if normalized == "onemin_members_reconciliation_live":
+        return _onemin_members_workflow_spec(output_dir=output_dir)
     template = browseract_ui_template_by_key(template_key)
     if template is None:
         raise KeyError(f"unknown_browseract_ui_template:{template_key}")

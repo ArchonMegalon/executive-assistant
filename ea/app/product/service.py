@@ -3048,6 +3048,52 @@ class ProductService:
         google_sync_completed_count = int(analytics_counts.get("google_workspace_signal_sync_completed") or 0)
         office_signal_ingested_count = int(analytics_counts.get("office_signal_ingested") or 0)
         active_access_sessions = len(self.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=500))
+        registration_delivery_success_rate = (
+            round(
+                registration_email_sent_count
+                / max(registration_email_sent_count + registration_email_failed_count, 1),
+                2,
+            )
+            if (registration_email_sent_count + registration_email_failed_count)
+            else None
+        )
+        invite_delivery_success_rate = (
+            round(invite_email_sent_count / max(invite_email_sent_count + invite_email_failed_count, 1), 2)
+            if (invite_email_sent_count + invite_email_failed_count)
+            else None
+        )
+        digest_delivery_success_rate = (
+            round(digest_email_sent_count / max(digest_email_sent_count + digest_email_failed_count, 1), 2)
+            if (digest_email_sent_count + digest_email_failed_count)
+            else None
+        )
+        delivery_success_total = registration_email_sent_count + invite_email_sent_count + digest_email_sent_count
+        delivery_failure_total = registration_email_failed_count + invite_email_failed_count + digest_email_failed_count
+        delivery_success_rate = (
+            round(delivery_success_total / max(delivery_success_total + delivery_failure_total, 1), 2)
+            if (delivery_success_total + delivery_failure_total)
+            else None
+        )
+        workspace_access_open_rate = (
+            round(access_session_opened_count / max(access_session_issued_count, 1), 2)
+            if access_session_issued_count
+            else None
+        )
+        delivery_reliability_state = (
+            "critical"
+            if int(queue_health.get("delivery_errors") or 0) or delivery_failure_total
+            else "watch"
+            if int(queue_health.get("retrying_delivery") or 0)
+            else "clear"
+        )
+        access_reliability_state = (
+            "watch"
+            if access_session_issued_count and access_session_opened_count == 0
+            else "clear"
+            if access_session_issued_count or active_access_sessions
+            else "watch"
+        )
+        sync_reliability_state = "clear" if google_sync_completed_count else "watch"
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
@@ -3161,6 +3207,18 @@ class ProductService:
                 "sync": {
                     "google_sync_completed": google_sync_completed_count,
                     "office_signal_ingested": office_signal_ingested_count,
+                },
+                "reliability": {
+                    "delivery_success_total": delivery_success_total,
+                    "delivery_failure_total": delivery_failure_total,
+                    "delivery_success_rate": delivery_success_rate,
+                    "registration_delivery_success_rate": registration_delivery_success_rate,
+                    "invite_delivery_success_rate": invite_delivery_success_rate,
+                    "digest_delivery_success_rate": digest_delivery_success_rate,
+                    "workspace_access_open_rate": workspace_access_open_rate,
+                    "delivery_reliability_state": delivery_reliability_state,
+                    "access_reliability_state": access_reliability_state,
+                    "sync_reliability_state": sync_reliability_state,
                 },
                 "recent_events": [
                     {

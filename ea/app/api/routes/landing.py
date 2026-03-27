@@ -1338,6 +1338,7 @@ def settings_usage_detail(
     diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
     analytics = dict(diagnostics.get("analytics") or {})
+    reliability = dict(analytics.get("reliability") or {})
     operators = dict(diagnostics.get("operators") or {})
     readiness = dict(diagnostics.get("readiness") or {})
     queue_health = dict(diagnostics.get("queue_health") or {})
@@ -1397,6 +1398,17 @@ def settings_usage_detail(
                 ],
             },
             {
+                "eyebrow": "Reliability",
+                "title": "Delivery reliability and access posture",
+                "items": [
+                    _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Runtime"),
+                    _object_detail_row("Delivery success rate", str(reliability.get("delivery_success_rate") if reliability.get("delivery_success_rate") is not None else "n/a"), "Runtime"),
+                    _object_detail_row("Access open rate", str(reliability.get("workspace_access_open_rate") if reliability.get("workspace_access_open_rate") is not None else "n/a"), "Runtime"),
+                    _object_detail_row("Google sync reliability", str(reliability.get("sync_reliability_state") or "watch"), "Runtime"),
+                    _object_detail_row("Delivery failures", str(reliability.get("delivery_failure_total") or 0), "Runtime"),
+                ],
+            },
+            {
                 "eyebrow": "Success metrics",
                 "title": "Adoption, closure, and correction signals",
                 "items": [
@@ -1428,6 +1440,8 @@ def settings_support_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     bundle = product.workspace_support_bundle(principal_id=context.principal_id)
+    analytics = dict(bundle.get("analytics") or {})
+    reliability = dict(analytics.get("reliability") or {})
     billing = dict(bundle.get("billing") or {})
     approvals = dict(bundle.get("approvals") or {})
     human_tasks = [dict(value) for value in (bundle.get("human_tasks") or [])]
@@ -1517,15 +1531,26 @@ def settings_support_detail(
                 ],
             },
             {
+                "eyebrow": "Operational reliability",
+                "title": "Delivery, access, and sync posture",
+                "items": [
+                    _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Runtime"),
+                    _object_detail_row("Delivery success rate", str(reliability.get("delivery_success_rate") if reliability.get("delivery_success_rate") is not None else "n/a"), "Runtime"),
+                    _object_detail_row("Access reliability", str(reliability.get("access_reliability_state") or "watch"), "Runtime"),
+                    _object_detail_row("Access open rate", str(reliability.get("workspace_access_open_rate") if reliability.get("workspace_access_open_rate") is not None else "n/a"), "Runtime"),
+                    _object_detail_row("Sync reliability", str(reliability.get("sync_reliability_state") or "watch"), "Runtime"),
+                ],
+            },
+            {
                 "eyebrow": "Workspace health",
                 "title": "Success metrics and churn risk",
                 "items": [
-                    _object_detail_row("Memo open rate", str(bundle.get("analytics", {}).get("memo_open_rate") or 0), "Analytics"),
-                    _object_detail_row("Approval action rate", str(bundle.get("analytics", {}).get("approval_action_rate") or 0), "Analytics"),
-                    _object_detail_row("Commitment close rate", str(bundle.get("analytics", {}).get("commitment_close_rate") or 0), "Analytics"),
-                    _object_detail_row("Correction rate", str(bundle.get("analytics", {}).get("correction_rate") or 0), "Analytics"),
-                    _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
-                    _object_detail_row("Success summary", str(bundle.get("analytics", {}).get("success_summary") or "No summary yet."), "Analytics"),
+                    _object_detail_row("Memo open rate", str(analytics.get("memo_open_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval action rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
+                    _object_detail_row("Correction rate", str(analytics.get("correction_rate") or 0), "Analytics"),
+                    _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
+                    _object_detail_row("Success summary", str(analytics.get("success_summary") or "No summary yet."), "Analytics"),
                 ],
             },
             {
