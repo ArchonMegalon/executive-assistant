@@ -777,6 +777,21 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     register = client.post("/v1/register/start", json={"email": "lane@example.com"})
     assert register.status_code == 200
 
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={"email": "lane@example.com", "role": "operator", "display_name": "Lane Operator", "operator_id": "operator-office"},
+    )
+    assert access_session.status_code == 200
+    access_url = access_session.json()["access_url"]
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_url, follow_redirects=False)
+    assert opened_access.status_code == 303
+    client.headers["X-EA-Principal-ID"] = principal_id
+
+    revoked_access = client.post(f"/app/api/access-sessions/{access_session.json()['session_id']}/revoke")
+    assert revoked_access.status_code == 200
+
     synced = client.post("/app/api/signals/google/sync", params={"email_limit": 1, "calendar_limit": 0})
     assert synced.status_code == 200
 
@@ -784,15 +799,24 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert center.status_code == 200
     body = center.json()
     lane_keys = {item["key"] for item in body["lanes"]}
-    assert {"sla", "claims", "principal", "delivery", "sync"} <= lane_keys
+    assert {"sla", "claims", "principal", "delivery", "access", "sync"} <= lane_keys
     assert "registration_sent" in body["delivery"] or "registration_failed" in body["delivery"]
+    assert body["access"]["issued"] >= 1
+    assert body["access"]["opened"] >= 1
+    assert body["access"]["revoked"] >= 1
     assert body["sync"]["google_sync_completed"] >= 1
     assert body["sync"]["office_signal_ingested"] >= 1
     assert any(item["label"] for item in body["next_actions"])
     assert "snapshot" in body
     assert body["snapshot"]["pending_drafts"] >= 1
     assert any(
-        str(item.get("event_type") or "") in {"registration_email_sent", "registration_email_failed", "google_workspace_signal_sync_completed"}
+        str(item.get("event_type") or "") in {
+            "registration_email_sent",
+            "registration_email_failed",
+            "workspace_access_session_opened",
+            "workspace_access_session_revoked",
+            "google_workspace_signal_sync_completed",
+        }
         for item in body["recent_runtime"]
     )
 

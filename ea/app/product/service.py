@@ -1366,6 +1366,29 @@ class ProductService:
             "default_target": "/app/activity" if normalized_role == "operator" else "/app/today",
         }
 
+    def open_workspace_access_session(self, *, token: str, actor: str = "") -> dict[str, object] | None:
+        session = self.preview_workspace_access_session(token=token)
+        if session is None:
+            return None
+        principal_id = str(session.get("principal_id") or "").strip()
+        session_id = str(session.get("session_id") or "").strip()
+        if principal_id and session_id:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="workspace_access_session_opened",
+                payload={
+                    "session_id": session_id,
+                    "email": str(session.get("email") or "").strip().lower(),
+                    "role": str(session.get("role") or "principal").strip().lower() or "principal",
+                    "operator_id": str(session.get("operator_id") or "").strip(),
+                    "source_kind": str(session.get("source_kind") or "").strip(),
+                    "opened_at": _now_iso(),
+                    "opened_by": str(actor or session.get("email") or principal_id or "workspace_access").strip(),
+                },
+                source_id=session_id,
+            )
+        return session
+
     def revoke_workspace_access_session(
         self,
         *,
@@ -2926,8 +2949,12 @@ class ProductService:
         invite_email_failed_count = int(analytics_counts.get("workspace_invitation_email_failed") or 0)
         digest_email_sent_count = int(analytics_counts.get("channel_digest_delivery_email_sent") or 0)
         digest_email_failed_count = int(analytics_counts.get("channel_digest_delivery_email_failed") or 0)
+        access_session_issued_count = int(analytics_counts.get("workspace_access_session_issued") or 0)
+        access_session_opened_count = int(analytics_counts.get("workspace_access_session_opened") or 0)
+        access_session_revoked_count = int(analytics_counts.get("workspace_access_session_revoked") or 0)
         google_sync_completed_count = int(analytics_counts.get("google_workspace_signal_sync_completed") or 0)
         office_signal_ingested_count = int(analytics_counts.get("office_signal_ingested") or 0)
+        active_access_sessions = len(self.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=500))
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
@@ -3032,6 +3059,12 @@ class ProductService:
                     "digest_sent": digest_email_sent_count,
                     "digest_failed": digest_email_failed_count,
                 },
+                "access": {
+                    "issued": access_session_issued_count,
+                    "opened": access_session_opened_count,
+                    "revoked": access_session_revoked_count,
+                    "active": active_access_sessions,
+                },
                 "sync": {
                     "google_sync_completed": google_sync_completed_count,
                     "office_signal_ingested": office_signal_ingested_count,
@@ -3057,6 +3090,7 @@ class ProductService:
         analytics = dict(diagnostics.get("analytics") or {})
         usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
         delivery = dict(analytics.get("delivery") or {})
+        access = dict(analytics.get("access") or {})
         sync = dict(analytics.get("sync") or {})
         counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
         recent_events = [
@@ -3069,6 +3103,8 @@ class ProductService:
                 "workspace_invitation_email_sent",
                 "workspace_invitation_email_failed",
                 "workspace_access_session_issued",
+                "workspace_access_session_opened",
+                "workspace_access_session_revoked",
                 "channel_digest_delivery_email_sent",
                 "channel_digest_delivery_email_failed",
                 "channel_digest_delivery_opened",
@@ -3117,6 +3153,14 @@ class ProductService:
                     f"{int(queue_health.get('delivery_errors') or 0)} queue errors · "
                     f"{int(delivery.get('registration_failed') or 0) + int(delivery.get('invite_failed') or 0) + int(delivery.get('digest_failed') or 0)} email failures"
                 ),
+                "href": "/app/settings/support",
+            },
+            {
+                "key": "access",
+                "label": "Workspace access",
+                "state": "watch" if int(access.get("revoked") or 0) else ("clear" if int(access.get("active") or 0) else "watch"),
+                "count": int(access.get("active") or 0),
+                "detail": f"{int(access.get('active') or 0)} active sessions · {int(access.get('opened') or 0)} opens · {int(access.get('revoked') or 0)} revoked",
                 "href": "/app/settings/support",
             },
             {
@@ -3183,6 +3227,7 @@ class ProductService:
             "providers": providers,
             "readiness": readiness,
             "delivery": delivery,
+            "access": access,
             "sync": sync,
             "usage": usage,
             "lanes": lanes,

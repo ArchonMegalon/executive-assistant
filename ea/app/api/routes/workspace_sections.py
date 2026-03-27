@@ -406,6 +406,7 @@ def workspace_section_payload(
     readiness = dict(diagnostics.get("readiness") or {})
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_delivery = dict(analytics.get("delivery") or {})
+    analytics_access = dict(analytics.get("access") or {})
     analytics_sync = dict(analytics.get("sync") or {})
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
@@ -647,6 +648,9 @@ def workspace_section_payload(
                         _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
                         _row("Digest emails sent", str(analytics_delivery.get("digest_sent") or 0), "Email", href="/app/channel-loop"),
                         _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
+                        _row("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/support"),
+                        _row("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/support"),
+                        _row("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/support"),
                     ],
                 },
                 {
