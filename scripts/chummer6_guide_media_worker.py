@@ -4036,6 +4036,22 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     return clip_prompt_text(", ".join(part for part in parts if part), limit=240)
 
 
+def build_safe_media_factory_prompt(*, prompt: str, spec: dict[str, object]) -> str:
+    row = spec.get("media_row") if isinstance(spec, dict) else {}
+    if not isinstance(row, dict):
+        row = {}
+    contract = row.get("scene_contract") if isinstance(row, dict) else {}
+    if not isinstance(contract, dict):
+        return sanitize_prompt_for_provider(prompt, provider="media_factory")
+    target = str(spec.get("target") or "").strip()
+    if first_contact_target(target):
+        direct_flagship_prompt = critical_asset_onemin_scene_prompt(target=target, row=row, contract=contract)
+        if direct_flagship_prompt:
+            return direct_flagship_prompt
+    cleaned = sanitize_prompt_for_provider(prompt, provider="media_factory")
+    return clip_prompt_text(cleaned, limit=720)
+
+
 def critical_asset_onemin_scene_brief(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
@@ -4404,10 +4420,11 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
             safe_prompt = build_safe_pollinations_prompt(prompt=prompt, spec=spec)
             ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
         elif normalized in {"media_factory", "media-factory"}:
+            safe_prompt = build_safe_media_factory_prompt(prompt=prompt, spec=spec)
             ok, detail = run_command_provider(
                 "media_factory",
                 media_factory_render_command(),
-                prompt=prompt,
+                prompt=safe_prompt,
                 output_path=output_path,
                 width=width,
                 height=height,
@@ -4880,7 +4897,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets", "consequence nodes", "witness locks"],
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
             "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1", "gpt-image-1-mini", "black-forest-labs/flux-schnell"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
