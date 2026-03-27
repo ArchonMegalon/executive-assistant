@@ -3816,6 +3816,12 @@ def test_browseract_ui_template_spec_waits_for_direct_login_fields() -> None:
     assert wait_node["config"]["timeout_ms"] == 45000
     assert ["open_login", "wait_login_form"] in spec["edges"]
     assert ["wait_login_form", "email"] in spec["edges"]
+    submit_node = next(node for node in spec["nodes"] if node.get("id") == "submit")
+    assert submit_node["type"] == "submit_login_form"
+    assert submit_node["config"]["password_selector"] == (
+        "input[type=password], input[name=password], input[name=Passwd], "
+        "input[autocomplete='current-password'], input[placeholder*='Password' i]"
+    )
 
 
 def test_browseract_ui_template_spec_waits_for_google_entry_before_click() -> None:

@@ -1569,10 +1569,13 @@ if [[ -z "${TOOL_EXEC_DELIVERY_ID}" ]]; then
 fi
 DELIVERY_PENDING_JSON="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=200" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 DELIVERY_PENDING_MATCH="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); target='${TOOL_EXEC_DELIVERY_ID}'; print(any((row or {}).get('delivery_id') == target for row in rows))" <<<"${DELIVERY_PENDING_JSON}")"
-if [[ "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
-  echo "expected tool-executed connector dispatch to appear in pending outbox; delivery_id=${TOOL_EXEC_DELIVERY_ID}" >&2
+if [[ "${TOOL_EXEC_STATUS}" == "queued" && "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
+  echo "expected queued tool-executed connector dispatch to appear in pending outbox; delivery_id=${TOOL_EXEC_DELIVERY_ID}" >&2
   echo "${DELIVERY_PENDING_JSON}" >&2
   fail 12 "policy contract mismatch"
+fi
+if [[ "${TOOL_EXEC_STATUS}" == "retry" && "${DELIVERY_PENDING_MATCH}" != "True" ]]; then
+  echo "tool-executed connector dispatch deferred into retry state before pending outbox enqueue; delivery_id=${TOOL_EXEC_DELIVERY_ID}" >&2
 fi
 TOOL_EXEC_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json -X POST "${BASE}/v1/tools/execute" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
   -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}" \

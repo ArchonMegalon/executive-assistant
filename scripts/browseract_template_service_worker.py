@@ -303,13 +303,35 @@ async function main() {
 
   async function submitLoginForm(config, label) {
     const passwordSelector = String(config.password_selector || "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']").trim();
-      if (await maybePressEnter(passwordSelector, `${label}:enter`, config)) {
+    const startUrl = String(page.url() || '');
+    const authAdvanceTimeoutMs = Math.max(1500, Number(config.auth_advance_timeout_ms || 5000));
+
+    async function authAdvanced() {
+      const changed = await waitForUrlChange(startUrl, authAdvanceTimeoutMs);
+      if (changed) return true;
+      if (!passwordSelector) return false;
+      try {
+        const locator = page.locator(passwordSelector).first();
+        const count = await locator.count().catch(() => 0);
+        if (!count) return true;
+        const visible = await locator.isVisible().catch(() => false);
+        return !visible;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (await maybePressEnter(passwordSelector, `${label}:enter`, config)) {
+      if (await authAdvanced()) {
         return true;
       }
-      const selector = String(config.selector || '').trim();
-      if (selector && await maybeClick(selector, `${label}:click`, config)) {
+    }
+    const selector = String(config.selector || '').trim();
+    if (selector && await maybeClick(selector, `${label}:click`, config)) {
+      if (await authAdvanced()) {
         return true;
       }
+    }
     const fallbackSelectors = [
       "form button[type=submit]",
       "form input[type=submit]",
@@ -320,11 +342,13 @@ async function main() {
       "button:has-text('Submit')",
       "button:has-text('Next')",
       ];
-      for (const fallback of fallbackSelectors) {
-        if (await maybeClick(fallback, `${label}:fallback`, config)) {
+    for (const fallback of fallbackSelectors) {
+      if (await maybeClick(fallback, `${label}:fallback`, config)) {
+        if (await authAdvanced()) {
           return true;
         }
       }
+    }
     return false;
   }
 
