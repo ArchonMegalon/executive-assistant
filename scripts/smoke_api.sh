@@ -238,6 +238,53 @@ if [[ "${REGISTER_QUEUE_FIELDS}" != "True|True|True" ]]; then
 fi
 echo "registration/workspace access ok"
 
+echo "== smoke: google signal sync =="
+GOOGLE_SYNC_BODY="${EA_ROOT}/.smoke_tmp/google_signal_sync.json"
+GOOGLE_SYNC_STATUS="$(curl -sS -o "${GOOGLE_SYNC_BODY}" -w '%{http_code}' -X POST "${BASE}/app/api/signals/google/sync?email_limit=1&calendar_limit=1" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+GOOGLE_SYNC_FIELDS="$(python3 - <<'PY' "${GOOGLE_SYNC_STATUS}" "${GOOGLE_SYNC_BODY}"
+import json
+import sys
+from pathlib import Path
+
+status = str(sys.argv[1] or "").strip()
+body = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8", errors="replace") or "{}")
+if status == "200":
+    print(
+        "{}|{}|{}|{}|{}".format(
+            status,
+            bool(str(body.get("generated_at", "")).strip()),
+            bool(str(body.get("account_email", "")).strip()),
+            isinstance(body.get("items"), list),
+            isinstance(body.get("total"), int),
+        )
+    )
+elif status == "409":
+    detail = (
+        str(body.get("detail", "")).strip()
+        or str((body.get("error") or {}).get("details", "")).strip()
+        or str((body.get("error") or {}).get("message", "")).strip()
+        or str((body.get("error") or {}).get("code", "")).strip()
+    )
+    print(
+        "{}|{}|{}|{}|{}".format(
+            status,
+            bool(detail),
+            True,
+            True,
+            True,
+        )
+    )
+else:
+    print(f"{status}|False|False|False|False")
+PY
+)"
+if [[ "${GOOGLE_SYNC_FIELDS}" != "200|True|True|True|True" && "${GOOGLE_SYNC_FIELDS}" != "409|True|True|True|True" ]]; then
+  echo "expected google signal sync to either return a valid sync envelope or a clean conflict when no Google binding exists; got ${GOOGLE_SYNC_FIELDS}" >&2
+  cat "${GOOGLE_SYNC_BODY}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "google signal sync ok"
+
 echo "== smoke: rewrite =="
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null

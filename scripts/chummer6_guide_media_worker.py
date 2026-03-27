@@ -3413,6 +3413,9 @@ def _visual_audit_grayscale_grid(*, image_path: Path, width: int = 48, height: i
     if Image is not None:
         with Image.open(image_path).convert("L") as image:
             resized = image.resize((width, height))
+            flattened = getattr(resized, "get_flattened_data", None)
+            if callable(flattened):
+                return width, height, list(flattened())
             return width, height, list(resized.getdata())
     command = [
         ffmpeg_bin(),
