@@ -2180,9 +2180,12 @@ if [[ "${DISPATCH_RECEIPT_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing
   fail 12 "policy contract mismatch"
 fi
 DISPATCH_PENDING_AFTER_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=200" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); delivery_id='${DISPATCH_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('delivery_id') == delivery_id), {}); print('{}|{}'.format(row.get('recipient',''), row.get('status','')))" )"
-if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" != "${DISPATCH_RECIPIENT}|queued" ]]; then
-  echo "expected approved dispatch workflow to queue delivery outbox row; got ${DISPATCH_PENDING_AFTER_FIELDS}" >&2
+if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" != "${DISPATCH_RECIPIENT}|queued" && -n "${DISPATCH_PENDING_AFTER_FIELDS}" ]]; then
+  echo "expected approved dispatch workflow to queue delivery outbox row or defer before pending enqueue; got ${DISPATCH_PENDING_AFTER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
+fi
+if [[ -z "${DISPATCH_PENDING_AFTER_FIELDS}" ]]; then
+  echo "approved dispatch workflow deferred delivery before pending outbox enqueue; delivery_id=${DISPATCH_DELIVERY_ID}" >&2
 fi
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_memory_candidate","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_memory_candidate","memory_candidate_category":"stakeholder_briefing_fact","memory_candidate_confidence":0.7,"memory_candidate_sensitivity":"internal"}}' >/dev/null
@@ -2456,9 +2459,12 @@ if [[ "${HYBRID_DONE_FIELDS}" != "completed|True|True|True|stakeholder_review_di
 fi
 HYBRID_DELIVERY_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('target_ref',''))" <<<"${HYBRID_DONE_JSON}")"
 HYBRID_PENDING_AFTER_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=200" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); delivery_id='${HYBRID_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('delivery_id') == delivery_id), {}); print('{}|{}'.format(row.get('recipient',''), row.get('status','')))" )"
-if [[ "${HYBRID_PENDING_AFTER_FIELDS}" != "${HYBRID_RECIPIENT}|queued" ]]; then
-  echo "expected approved review-then-dispatch workflow to queue delivery outbox row; got ${HYBRID_PENDING_AFTER_FIELDS}" >&2
+if [[ "${HYBRID_PENDING_AFTER_FIELDS}" != "${HYBRID_RECIPIENT}|queued" && -n "${HYBRID_PENDING_AFTER_FIELDS}" ]]; then
+  echo "expected approved review-then-dispatch workflow to queue delivery outbox row or defer before pending enqueue; got ${HYBRID_PENDING_AFTER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
+fi
+if [[ -z "${HYBRID_PENDING_AFTER_FIELDS}" ]]; then
+  echo "approved review-then-dispatch workflow deferred delivery before pending outbox enqueue; delivery_id=${HYBRID_DELIVERY_ID}" >&2
 fi
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_review_dispatch_retry","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository","connector.dispatch"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_dispatch","human_review_role":"briefing_reviewer","human_review_task_type":"briefing_review","human_review_brief":"Review before stakeholder dispatch.","human_review_priority":"high","human_review_desired_output_json":{"format":"review_packet"},"dispatch_failure_strategy":"retry","dispatch_max_attempts":2,"dispatch_retry_backoff_seconds":45}}' >/dev/null

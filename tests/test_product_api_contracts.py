@@ -135,6 +135,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert int(dict(usage_body["analytics"]["counts"]).get("usage_opened") or 0) >= 1
     assert "churn_risk" in usage_body["analytics"]
     assert "commitment_close_rate" in usage_body["analytics"]
+    assert "reliability" in usage_body["analytics"]
+    assert "delivery_reliability_state" in usage_body["analytics"]["reliability"]
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
@@ -147,6 +149,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "load_score" in support_body["queue_health"]
     assert "blocked_action_message" in support_body["commercial"]
     assert "success_summary" in support_body["analytics"]
+    assert "reliability" in support_body["analytics"]
+    assert "sync_reliability_state" in support_body["analytics"]["reliability"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
