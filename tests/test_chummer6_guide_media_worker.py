@@ -766,10 +766,12 @@ def test_render_with_ooda_rejects_forbidden_fallback_providers(
 
 def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
+    seen: dict[str, object] = {}
 
     def fake_run_command_provider(name: str, template: list[str], **kwargs):
         assert name == "media_factory"
         assert template
+        seen["prompt"] = kwargs["prompt"]
         output_path = kwargs["output_path"]
         output_path.write_bytes(b"png")
         return True, "media_factory:rendered"
@@ -786,6 +788,7 @@ def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monke
 
     assert result["provider"] == "media_factory"
     assert result["status"] == "media_factory:rendered"
+    assert seen["prompt"] == "bounded runsite scene"
 
 
 def test_render_with_ooda_treats_explicit_provider_order_as_a_strict_filter(
@@ -1176,6 +1179,32 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     assert "figures occupy less than one quarter of frame" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
     assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
+
+
+def test_build_safe_media_factory_prompt_uses_compact_flagship_scene_prompt() -> None:
+    media = _load_module()
+
+    hero_prompt = media.build_safe_media_factory_prompt(
+        prompt="Hero prep scene.",
+        spec={
+            "target": "assets/hero/chummer6-hero.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "one runner",
+                    "environment": "a prep wall threshold",
+                    "action": "checking whether the build trail deserves trust",
+                    "composition": "street_front",
+                    "mood": "tense",
+                },
+            },
+        },
+    )
+
+    lowered = hero_prompt.lower()
+    assert "illustrated cover-grade cyberpunk-fantasy streetdoc cover art." in lowered
+    assert "figures occupy less than one quarter of frame" in lowered
+    assert "added later in post" in lowered or "painted scene may only carry faint abstract scan glows" in lowered
+    assert "hacked repair recliner" in lowered
 
 
 def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> None:
@@ -1719,8 +1748,10 @@ def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
 
     assert hero["onemin_sizes"] == ["auto", "1536x1024"]
     assert hero["onemin_image_style"] == "vivid"
+    assert hero["providers"][0] == "onemin"
     assert forge["onemin_sizes"] == ["auto", "1536x1024"]
     assert forge["onemin_image_style"] == "vivid"
+    assert forge["providers"][0] == "media_factory"
 
 
 def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> None:
