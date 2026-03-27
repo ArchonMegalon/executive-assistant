@@ -411,12 +411,69 @@ def workspace_section_payload(
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
+    clearable_queue_items = tuple(row for row in snapshot.queue_items if not bool(row.requires_principal))
     suggested_handoff_ids = {
         str(item.get("id") or "").strip()
         for item in assignment_suggestions
         if str(item.get("id") or "").strip()
     }
     remaining_unclaimed_handoffs = tuple(row for row in unclaimed_handoffs if row.id not in suggested_handoff_ids)
+    blocked_actions = [str(value).replace("_", " ") for value in list(commercial.get("blocked_actions") or []) if str(value).strip()]
+    warning_messages = [str(value) for value in list(commercial.get("warnings") or []) if str(value).strip()]
+    delivery_failure_total = (
+        int(analytics_delivery.get("registration_failed") or 0)
+        + int(analytics_delivery.get("invite_failed") or 0)
+        + int(analytics_delivery.get("digest_failed") or 0)
+    )
+    exception_rows = [
+        _row(
+            "Delivery failures",
+            (
+                f"{int(queue_health.get('delivery_errors') or 0)} queue delivery errors · "
+                f"{delivery_failure_total} email failures"
+            ),
+            "Support",
+            href="/app/settings/support",
+        )
+        for _ in [0]
+        if int(queue_health.get("delivery_errors") or 0) or delivery_failure_total
+    ] + [
+        _row(
+            "SLA breaches",
+            f"{int(queue_health.get('sla_breaches') or 0)} handoffs already breached their SLA.",
+            "Queue",
+            href="/app/activity",
+        )
+        for _ in [0]
+        if int(queue_health.get("sla_breaches") or 0)
+    ] + [
+        _row(
+            "Blocked actions",
+            ", ".join(blocked_actions[:4]),
+            "Plan",
+            href="/app/settings/support",
+        )
+        for _ in [0]
+        if blocked_actions
+    ] + [
+        _row(
+            "Commercial warnings",
+            "; ".join(warning_messages[:2]),
+            "Support",
+            href="/app/settings/support",
+        )
+        for _ in [0]
+        if warning_messages
+    ] + [
+        _row(
+            "Provider risk",
+            str(provider_posture.get("risk_state") or "unknown").replace("_", " ").title(),
+            "Provider",
+            href="/app/settings/support",
+        )
+        for _ in [0]
+        if str(provider_posture.get("risk_state") or "").strip().lower() in {"degraded", "critical", "failed"}
+    ]
     stats = [
         {"label": "Memo items", "value": str(snapshot.stats_json.get("brief_items", 0))},
         {"label": "Queue items", "value": str(snapshot.stats_json.get("queue_items", 0))},
@@ -682,6 +739,13 @@ def workspace_section_payload(
                     or [_row("No claim suggestions", "The unclaimed operator lane is currently clear.", "Clear")],
                 },
                 {
+                    "eyebrow": "Pre-clear",
+                    "title": "Clear before principal",
+                    "body": "These queue items can be closed, resolved, or approved inside the operator lane before they become principal noise.",
+                    "items": _queue_rows(clearable_queue_items[:8])
+                    or [_row("Nothing to pre-clear", "The remaining queue currently depends on the principal.", "Clear")],
+                },
+                {
                     "eyebrow": "Assigned to me",
                     "title": "What already belongs to this operator lane",
                     "body": "Assigned work should stay separate from the claimable backlog.",
@@ -699,6 +763,13 @@ def workspace_section_payload(
                     "title": "What still needs executive clearance",
                     "body": "Approval-backed drafts and decision windows should not disappear into admin surfaces.",
                     "items": _queue_rows(tuple(row for row in snapshot.queue_items if row.requires_principal)[:8]),
+                },
+                {
+                    "eyebrow": "Exceptions",
+                    "title": "Exception queue",
+                    "body": "Failures, breaches, provider risk, and plan blockers belong in one exception lane instead of leaking into normal work.",
+                    "items": exception_rows
+                    or [_row("No active exceptions", "The operator lane is clear of delivery, SLA, provider, and commercial exceptions.", "Clear")],
                 },
                 {
                     "eyebrow": "Recently completed",

@@ -3179,6 +3179,7 @@ class ProductService:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
         queue_health = dict(diagnostics.get("queue_health") or {})
         providers = dict(diagnostics.get("providers") or {})
+        commercial = dict(diagnostics.get("commercial") or {})
         readiness = dict(diagnostics.get("readiness") or {})
         analytics = dict(diagnostics.get("analytics") or {})
         usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
@@ -3186,6 +3187,20 @@ class ProductService:
         access = dict(analytics.get("access") or {})
         sync = dict(analytics.get("sync") or {})
         counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
+        blocked_actions = [str(value).replace("_", " ") for value in list(commercial.get("blocked_actions") or []) if str(value).strip()]
+        warning_messages = [str(value) for value in list(commercial.get("warnings") or []) if str(value).strip()]
+        delivery_failure_total = (
+            int(delivery.get("registration_failed") or 0)
+            + int(delivery.get("invite_failed") or 0)
+            + int(delivery.get("digest_failed") or 0)
+        )
+        clearable_queue_items = [row for row in snapshot.queue_items if not bool(row.requires_principal)]
+        exception_total = (
+            int(queue_health.get("sla_breaches") or 0)
+            + int(queue_health.get("delivery_errors") or 0)
+            + delivery_failure_total
+            + len(blocked_actions)
+        )
         recent_events = [
             dict(row)
             for row in list(analytics.get("recent_events") or [])
@@ -3225,6 +3240,14 @@ class ProductService:
                 "href": "/app/activity",
             },
             {
+                "key": "preclear",
+                "label": "Clear before principal",
+                "state": "watch" if clearable_queue_items else "clear",
+                "count": len(clearable_queue_items),
+                "detail": f"{len(clearable_queue_items)} queue items can be cleared inside the operator lane",
+                "href": "/app/activity",
+            },
+            {
                 "key": "principal",
                 "label": "Waiting on principal",
                 "state": "watch" if int(queue_health.get("waiting_on_principal") or 0) else "clear",
@@ -3254,6 +3277,18 @@ class ProductService:
                 "state": "watch" if int(access.get("revoked") or 0) else ("clear" if int(access.get("active") or 0) else "watch"),
                 "count": int(access.get("active") or 0),
                 "detail": f"{int(access.get('active') or 0)} active sessions · {int(access.get('opened') or 0)} opens · {int(access.get('revoked') or 0)} revoked",
+                "href": "/app/settings/support",
+            },
+            {
+                "key": "exceptions",
+                "label": "Exception queue",
+                "state": "critical" if exception_total else "clear",
+                "count": exception_total,
+                "detail": (
+                    f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches · "
+                    f"{int(queue_health.get('delivery_errors') or 0) + delivery_failure_total} delivery issues · "
+                    f"{len(blocked_actions)} blocked actions"
+                ),
                 "href": "/app/settings/support",
             },
             {
@@ -3290,6 +3325,64 @@ class ProductService:
                     "action_label": "Open bundle",
                     "action_method": "get",
                     "return_to": "/app/settings/support",
+                }
+            )
+        if exception_total:
+            next_actions.append(
+                {
+                    "label": "Clear exception queue",
+                    "detail": (
+                        "; ".join(
+                            part
+                            for part in (
+                                f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches" if int(queue_health.get("sla_breaches") or 0) else "",
+                                f"{int(queue_health.get('delivery_errors') or 0) + delivery_failure_total} delivery issues"
+                                if int(queue_health.get("delivery_errors") or 0) + delivery_failure_total
+                                else "",
+                                blocked_actions[0] if blocked_actions else "",
+                                warning_messages[0] if warning_messages else "",
+                            )
+                            if part
+                        )
+                        or "The operator lane has active exceptions."
+                    ),
+                    "href": "/app/settings/support",
+                }
+            )
+        if clearable_queue_items:
+            clearable = clearable_queue_items[0]
+            clearable_href = ""
+            clearable_action_href = ""
+            clearable_action_label = ""
+            clearable_action_value = ""
+            clearable_action_method = ""
+            if clearable.id.startswith("approval:"):
+                clearable_href = "/app/inbox"
+                clearable_action_href = f"/app/actions/drafts/{clearable.id}/approve"
+                clearable_action_label = "Approve"
+                clearable_action_method = "post"
+            elif clearable.id.startswith(("commitment:", "follow_up:")):
+                clearable_href = "/app/follow-ups"
+                clearable_action_href = f"/app/actions/queue/{clearable.id}/resolve"
+                clearable_action_label = "Close"
+                clearable_action_value = "close"
+                clearable_action_method = "post"
+            elif clearable.id.startswith(("decision:", "deadline:")):
+                clearable_href = "/app/briefing"
+                clearable_action_href = f"/app/actions/queue/{clearable.id}/resolve"
+                clearable_action_label = "Resolve"
+                clearable_action_value = "resolve"
+                clearable_action_method = "post"
+            next_actions.append(
+                {
+                    "label": str(clearable.title or "Clear queue item"),
+                    "detail": "Resolve this inside the operator lane before it becomes principal noise.",
+                    "href": clearable_href or "/app/activity",
+                    "action_href": clearable_action_href,
+                    "action_label": clearable_action_label,
+                    "action_value": clearable_action_value,
+                    "action_method": clearable_action_method,
+                    "return_to": "/app/activity" if clearable_action_href else "",
                 }
             )
         if int(sync.get("google_sync_completed") or 0) == 0:
@@ -3329,6 +3422,8 @@ class ProductService:
             "snapshot": {
                 "assigned_handoffs": len([row for row in snapshot.handoffs if str(row.owner or "").strip() == str(operator_id or "").strip()]) if str(operator_id or "").strip() else 0,
                 "completed_handoffs": len(snapshot.completed_handoffs),
+                "clearable_queue_items": len(clearable_queue_items),
+                "exception_count": exception_total,
                 "open_commitments": len(snapshot.commitments),
                 "pending_drafts": len(snapshot.drafts),
                 "open_decisions": len(snapshot.decisions),
