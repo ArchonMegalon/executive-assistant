@@ -632,6 +632,7 @@ program_phases:
     status: complete
     exit:
     - Accessibility and localization are first-class.
+    - Shipping locale scope, fallback behavior, and release gates are canonized in `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` and `LOCALIZATION_PARITY_MATRIX.yaml`.
     - Performance targets are documented and met.
   - id: F1
     title: Observability, DR, replay safety

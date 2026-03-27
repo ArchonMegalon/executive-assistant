@@ -19,7 +19,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 3. Repo and contract boundaries:
    `ARCHITECTURE.md` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `PROVIDER_AND_ROUTE_STEWARDSHIP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
-   `RELEASE_PIPELINE.md` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
+   `RELEASE_PIPELINE.md` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
    `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
 
@@ -36,66 +36,70 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 9. `PRODUCT_HEALTH_SCORECARD.yaml`
 10. `RELEASE_PIPELINE.md`
 11. `PUBLIC_DOWNLOADS_POLICY.md`
-12. `DESKTOP_AUTO_UPDATE_SYSTEM.md`
-13. `PUBLIC_AUTO_UPDATE_POLICY.md`
-14. `ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md`
-15. `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
-16. `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
-17. `FEEDBACK_AND_CRASH_AUTOMATION.md`
-18. `FEEDBACK_AND_CRASH_STATUS_MODEL.md`
-19. `PUBLIC_LANDING_POLICY.md`
-20. `PUBLIC_LANDING_MANIFEST.yaml`
-21. `PUBLIC_FEATURE_REGISTRY.yaml`
-22. `PUBLIC_LANDING_ASSET_REGISTRY.yaml`
-23. `PUBLIC_USER_MODEL.md`
-24. `PUBLIC_AUTH_FLOW.md`
-25. `IDENTITY_AND_CHANNEL_LINKING_MODEL.md`
-26. `PUBLIC_MEDIA_BRIEFS.yaml`
-27. `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
-28. `COMMUNITY_SPONSORSHIP_BACKLOG.md`
-29. `EXTERNAL_TOOLS_PLANE.md`
-30. `LTD_CAPABILITY_MAP.md`
-31. `PUBLIC_GUIDE_POLICY.md`
-32. `PUBLIC_GUIDE_PAGE_REGISTRY.yaml`
-33. `PUBLIC_PART_REGISTRY.yaml`
-34. `PUBLIC_FAQ_REGISTRY.yaml`
-35. `PUBLIC_HELP_COPY.md`
-36. `PUBLIC_GUIDE_EXPORT_MANIFEST.yaml`
-37. `HORIZON_SIGNAL_POLICY.md`
-38. `PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md`
-39. `METRICS_AND_SLOS.yaml`
-40. `PUBLIC_TRUST_CONTENT.yaml`
-41. `journeys/README.md`
-42. `OWNERSHIP_MATRIX.md`
-43. `PROGRAM_MILESTONES.yaml`
-44. `CONTRACT_SETS.yaml`
-45. `GROUP_BLOCKERS.md`
-46. `projects/*.md` for repo-specific scope
-47. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
-48. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
-49. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-50. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
-51. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
-52. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-53. `USER_JOURNEYS.md`
-54. `EXPERIENCE_SUCCESS_METRICS.md`
-55. `PUBLIC_NAVIGATION.yaml`
-56. `PUBLIC_PROGRESS_PARTS.yaml`
-57. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
-58. `PUBLIC_RELEASE_EXPERIENCE.yaml`
-59. `BUILD_LAB_PRODUCT_MODEL.md`
-60. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
-61. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
-62. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
-63. `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
-64. `NEXT_20_BIG_WINS_REGISTRY.yaml`
-65. `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md`
-66. `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml`
-67. `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md`
-68. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
-69. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
-70. `INTEROP_AND_PORTABILITY_MODEL.md`
-71. `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
+12. `DESKTOP_CLIENT_PRODUCT_CUT.md`
+13. `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml`
+14. `DESKTOP_AUTO_UPDATE_SYSTEM.md`
+15. `PUBLIC_AUTO_UPDATE_POLICY.md`
+16. `LOCALIZATION_AND_LANGUAGE_SYSTEM.md`
+17. `LOCALIZATION_PARITY_MATRIX.yaml`
+18. `ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md`
+19. `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
+20. `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
+21. `FEEDBACK_AND_CRASH_AUTOMATION.md`
+22. `FEEDBACK_AND_CRASH_STATUS_MODEL.md`
+23. `PUBLIC_LANDING_POLICY.md`
+24. `PUBLIC_LANDING_MANIFEST.yaml`
+25. `PUBLIC_FEATURE_REGISTRY.yaml`
+26. `PUBLIC_LANDING_ASSET_REGISTRY.yaml`
+27. `PUBLIC_USER_MODEL.md`
+28. `PUBLIC_AUTH_FLOW.md`
+29. `IDENTITY_AND_CHANNEL_LINKING_MODEL.md`
+30. `PUBLIC_MEDIA_BRIEFS.yaml`
+31. `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
+32. `COMMUNITY_SPONSORSHIP_BACKLOG.md`
+33. `EXTERNAL_TOOLS_PLANE.md`
+34. `LTD_CAPABILITY_MAP.md`
+35. `PUBLIC_GUIDE_POLICY.md`
+36. `PUBLIC_GUIDE_PAGE_REGISTRY.yaml`
+37. `PUBLIC_PART_REGISTRY.yaml`
+38. `PUBLIC_FAQ_REGISTRY.yaml`
+39. `PUBLIC_HELP_COPY.md`
+40. `PUBLIC_GUIDE_EXPORT_MANIFEST.yaml`
+41. `HORIZON_SIGNAL_POLICY.md`
+42. `PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md`
+43. `METRICS_AND_SLOS.yaml`
+44. `PUBLIC_TRUST_CONTENT.yaml`
+45. `journeys/README.md`
+46. `OWNERSHIP_MATRIX.md`
+47. `PROGRAM_MILESTONES.yaml`
+48. `CONTRACT_SETS.yaml`
+49. `GROUP_BLOCKERS.md`
+50. `projects/*.md` for repo-specific scope
+51. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
+52. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+53. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
+54. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+55. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
+56. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+57. `USER_JOURNEYS.md`
+58. `EXPERIENCE_SUCCESS_METRICS.md`
+59. `PUBLIC_NAVIGATION.yaml`
+60. `PUBLIC_PROGRESS_PARTS.yaml`
+61. `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml`
+62. `PUBLIC_RELEASE_EXPERIENCE.yaml`
+63. `BUILD_LAB_PRODUCT_MODEL.md`
+64. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
+65. `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md`
+66. `NEXT_15_BIG_WINS_EXECUTION_PLAN.md`
+67. `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`
+68. `NEXT_20_BIG_WINS_REGISTRY.yaml`
+69. `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md`
+70. `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml`
+71. `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md`
+72. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
+73. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
+74. `INTEROP_AND_PORTABILITY_MODEL.md`
+75. `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
@@ -109,8 +113,12 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `USER_JOURNEYS.md` is the top-level product map for Build, Explain, Run, Publish, and Improve, with the detailed happy-path/failure-mode canon still living under `journeys/*.md`.
 `EXPERIENCE_SUCCESS_METRICS.md` translates repo and release gates back into user-facing promises so the product is measured as a lived system, not only as a clean repo graph.
 `RELEASE_PIPELINE.md` is the canonical source for where release orchestration, desktop packaging, runtime-bundle production, registry publication truth, updater feeds, and public download/install rendering belong.
+`DESKTOP_CLIENT_PRODUCT_CUT.md` names the shipped flagship desktop head, the fallback head, the current preview cut, and the explicit platform posture so delivery focus does not drift with repo shape.
+`DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` is the machine-readable release truth for Windows, Linux, and macOS package posture, smoke gating, signing/notarization expectations, updater mode, and supportability.
 `PUBLIC_DOWNLOADS_POLICY.md` and `PUBLIC_AUTO_UPDATE_POLICY.md` are the public copy and CTA truth for `/downloads` and in-app update promises, so landing/help/guide surfaces cannot drift away from the install/update contract.
 `DESKTOP_AUTO_UPDATE_SYSTEM.md` is the canonical source for the first desktop self-update wave, including the split between install media, machine update payloads, registry-owned release heads, rollout states, and UI-owned apply helpers.
+`LOCALIZATION_AND_LANGUAGE_SYSTEM.md` defines the shipping locale set, translation domains, fallback rules, restart behavior, carried-corpus bridge strategy, and localization acceptance gates for desktop and hosted surfaces.
+`LOCALIZATION_PARITY_MATRIX.yaml` is the machine-readable parity target for locale-by-domain coverage across app chrome, install/update/support, explain/receipts, data/rules names, and generated artifacts.
 `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` is the canonical source for the first support plane, including the split between crash reporting, structured bug reporting, lightweight feedback, Hub-owned case truth, and the rule that the grounded support assistant stays an optional phase-2 layer rather than the gate in front of real support intake.
 `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` is the canonical routing loop from raw support, survey, public-issue, and release signals into code, docs, queue, policy, or canon action.
 `ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md` is the canonical source for Hub-first downloads, claimable installs, installation-level auth, and the rule that Chummer personalizes the relationship rather than the binary.
