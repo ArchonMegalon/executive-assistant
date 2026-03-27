@@ -356,6 +356,33 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: signed-in dashboard with honest empty states
+  - path: /home/access
+    title: Home access
+    audience: registered
+    purpose: signed_in_dashboard
+    requires_auth: true
+    guest_fallback: /login?next=/home/access
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in access focus
+  - path: /home/work
+    title: Home work
+    audience: registered
+    purpose: signed_in_dashboard
+    requires_auth: true
+    guest_fallback: /login?next=/home/work
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in work focus
+  - path: /home/setup
+    title: Home setup
+    audience: registered
+    purpose: signed_in_dashboard
+    requires_auth: true
+    guest_fallback: /login?next=/home/setup
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in setup focus
   - path: /account
     title: Account
     audience: registered
@@ -365,6 +392,51 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: profile and linked-identity shell
+  - path: /account/support
+    title: Account support
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account/support
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: tracked support route
+  - path: /account/access
+    title: Account access
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account/access
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: devices and access route
+  - path: /account/work
+    title: Account workspaces
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account/work
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: campaign and operator route
+  - path: /account/settings
+    title: Account settings
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account/settings
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: secondary preferences route
+  - path: /account/advanced
+    title: Account advanced
+    audience: registered
+    purpose: profile_and_preferences
+    requires_auth: true
+    guest_fallback: /login?next=/account/advanced
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: advanced account diagnostics route
   - path: /participate/codex
     title: Guided contribution
     audience: registered

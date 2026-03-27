@@ -423,12 +423,12 @@ cards:
     bucket: participate
     title: Suggest a future
     summary: Tell Chummer what would help your table next, then keep the product team pointed at the right lane.
-    href: /signup?next=/home
+    href: /signup?next=/account/settings
     badge: Public
     audience: public
     image_family: boulevard_of_futures
-    guest_href: /signup?next=/home
-    registered_href: /home
+    guest_href: /signup?next=/account/settings
+    registered_href: /account/settings
     action_label: Create account to suggest a future
   - id: participate_booster
     bucket: participate
@@ -446,13 +446,13 @@ cards:
     bucket: participate
     title: Join the beta waitlist
     summary: Raise your hand for follow-up previews and future gated surfaces.
-    href: /participate#beta-waitlist
+    href: /account/settings
     badge: Registered soon
     audience: public
     image_family: dossier_desk
     cta_kind: signup
-    guest_href: /signup?next=/home
-    registered_href: /home#beta-interest
+    guest_href: /signup?next=/account/settings
+    registered_href: /account/settings
     action_label: Join beta waitlist
   - id: release_latest
     bucket: release_shelf

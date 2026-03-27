@@ -21,7 +21,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 4. Delivery and release control:
    `RELEASE_PIPELINE.md` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
-   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
+   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 
 ### Full canonical set
 
@@ -100,6 +100,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 73. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
 74. `INTEROP_AND_PORTABILITY_MODEL.md`
 75. `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
+76. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
@@ -139,6 +140,7 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` records the just-closed install, update, support, and operator-control wave so roadmap and milestone language does not lag the public-main implementation.
 `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` records the now-closed post-audit wave boundary and keeps `ROADMAP.md`, public proof evidence, and registry status aligned.
 `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` and `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml` are the active successor wave after that closeout.
+`CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` is the current audit-driven remediation overlay for that successor wave: it states where journey proof, bounded-context discipline, flagship surface focus, localization, provider stewardship, and promotion proof still lag the now-strong architectural center.
 `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is preserved as the older prior plan, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` is the preserved additive-wave closeout plan, and `NEXT_20_BIG_WINS_REGISTRY.yaml` is the machine-readable closeout registry that validators and downstream mirrors can consume directly.
 
 ## Active Chummer repos
@@ -202,6 +204,8 @@ These inform the program but are not part of the main release train:
 9. Keep installs claimable rather than personalized: Hub may bind an install to an account, but shipped desktop artifacts remain canonical signed builds for their release target.
 
 The foundational closure wave is materially finished. The Account-Aware Front Door wave, the Next 20 additive wave, and the Post-Audit Next 20 wave are all materially closed on public `main`, with their closeout records preserved in `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`, `NEXT_20_BIG_WINS_REGISTRY.yaml`, and `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md`. Campaign workspace / GM runboard, rule-environment posture, package-owned campaign contracts, roaming restore, Build Lab handoff UX, Rules Navigator, creator publication posture, and the first organizer/operator layer now count as shipped product surfaces instead of only design intent. Remaining growth tracks such as campaign indispensability, publication depth, install-aware trust posture, broader public promotion, and live operator cadence now sit on top of finished release-governance and boundary truth instead of reopening it.
+
+The current risk is no longer missing architecture. The current risk is that the campaign OS can be described better than it can be proven as a lived system across install, continuity, play, publication, and closure. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` is the active correction layer for that gap.
 
 `PARTICIPATION_AND_BOOSTER_WORKFLOW.md` is the first-class canon for user language, ownership, state transitions, receipts, recognition, and package/bootstrap truth for the bounded participation lane.
 

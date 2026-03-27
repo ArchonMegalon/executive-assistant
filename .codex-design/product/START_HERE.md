@@ -63,12 +63,14 @@ Read:
 10. `EXPERIENCE_SUCCESS_METRICS.md`
 11. `METRICS_AND_SLOS.yaml`
 12. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
+13. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 
 ## Fast path by question
 
 * What is Chummer? -> `VISION.md`
 * What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
 * What just closed and what is next? -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` and `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
+* What still makes the campaign OS feel unproven or uneven? -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
