@@ -1058,6 +1058,78 @@ def test_onemin_billing_refresh_caps_browseract_login_pass_per_cycle(
     assert "for 2 of 4 bound accounts this cycle" in body["note"]
 
 
+def test_onemin_billing_refresh_rotates_browseract_login_pass_across_cycles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner-3@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "owner_email": "owner-4@example.com"},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+    monkeypatch.setenv("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH", "2")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "ONEMIN_AI_API_KEY_FALLBACK_3",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    begin_states = iter([(True, 0.0, ""), (True, 0.0, "")])
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: next(begin_states))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+
+    invoked: list[tuple[str, str]] = []
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append((tool_name, account_label))
+        if tool_name == "browseract.onemin_billing_usage":
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+
+    first = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": False})
+    second = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": False})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert invoked == [
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_2"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_3"),
+    ]
+
+
 def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1573,6 +1645,49 @@ def test_onemin_manager_binding_overlay_and_occupancy_are_principal_scoped() -> 
     )
     assert lease is not None
     assert manager.occupancy_snapshot(principal_id="exec-1")["active_lease_count"] == 1
+
+
+def test_onemin_manager_does_not_count_unparsed_page_views_as_actual_billing() -> None:
+    from types import SimpleNamespace
+
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot_env_name": "ONEMIN_AI_API_KEY",
+                        "slot": "primary",
+                        "slot_name": "primary",
+                        "credential_id": "primary",
+                        "state": "ready",
+                        "estimated_remaining_credits": 15572,
+                        "billing_basis": "page_seen_but_unparsed",
+                        "last_billing_snapshot_at": "2026-03-27T21:24:46Z",
+                    }
+                ]
+            }
+        }
+    }
+    binding = SimpleNamespace(
+        binding_id="binding-1",
+        auth_metadata_json={"slot_env_name": "ONEMIN_AI_API_KEY"},
+        external_account_ref="",
+    )
+
+    aggregate = manager.aggregate_snapshot(provider_health=provider_health, binding_rows=[], principal_id="")
+    actual = manager.actual_credits_snapshot(provider_health=provider_health, binding_rows=[binding], principal_id="exec-1")
+
+    assert aggregate["actual_billing_account_count"] == 0
+    assert aggregate["actual_free_credits_total"] == 0
+    assert aggregate["estimated_account_count"] == 1
+    assert actual["actual_billing_account_count"] == 0
+    assert actual["binding_account_count"] == 1
+    assert actual["accounts_without_actual_billing_count"] == 1
     assert manager.occupancy_snapshot(principal_id="exec-2")["active_lease_count"] == 0
 
 
