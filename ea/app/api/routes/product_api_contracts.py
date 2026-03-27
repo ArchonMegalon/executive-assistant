@@ -577,6 +577,7 @@ class OfficeSignalResultOut(BaseModel):
     created_at: str
     staged_candidates: list[CommitmentCandidateOut] = Field(default_factory=list)
     staged_count: int = 0
+    deduplicated: bool = False
 
 
 class GoogleSignalSyncOut(BaseModel):
@@ -585,6 +586,8 @@ class GoogleSignalSyncOut(BaseModel):
     granted_scopes: list[str] = Field(default_factory=list)
     items: list[OfficeSignalResultOut] = Field(default_factory=list)
     total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
 
 
 class WebhookRegisterIn(BaseModel):

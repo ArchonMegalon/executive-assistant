@@ -565,6 +565,22 @@ class ProductService:
             source_text[:80],
         ]
         dedupe_key = "|".join(part for part in dedupe_parts if part)
+        existing_event = self._container.channel_runtime.find_observation_by_dedupe(
+            dedupe_key,
+            principal_id=principal_id,
+        )
+        if existing_event is not None:
+            return {
+                "observation_id": str(existing_event.observation_id or ""),
+                "channel": str(existing_event.channel or normalized_channel),
+                "event_type": str(existing_event.event_type or f"office_signal_{normalized_signal}"),
+                "source_id": str(existing_event.source_id or source_ref or "").strip(),
+                "external_id": str(existing_event.external_id or external_id or "").strip(),
+                "created_at": str(existing_event.created_at or ""),
+                "staged_candidates": [],
+                "staged_count": 0,
+                "deduplicated": True,
+            }
         staged = self.stage_extracted_commitments(
             principal_id=principal_id,
             text=source_text,
@@ -638,6 +654,7 @@ class ProductService:
                 for row in staged
             ],
             "staged_count": len(staged),
+            "deduplicated": False,
         }
 
     def sync_google_workspace_signals(
@@ -671,6 +688,8 @@ class ProductService:
             )
             for row in packet.signals
         ]
+        deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
+        synced_total = len(items) - deduplicated_total
         self._record_product_event(
             principal_id=principal_id,
             event_type="google_workspace_signal_sync_completed",
@@ -678,7 +697,9 @@ class ProductService:
                 "account_email": packet.account_email,
                 "email_limit": max(int(email_limit), 0),
                 "calendar_limit": max(int(calendar_limit), 0),
-                "synced_total": len(items),
+                "processed_total": len(items),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
                 "gmail_total": sum(1 for row in packet.signals if row.channel == "gmail"),
                 "calendar_total": sum(1 for row in packet.signals if row.channel == "calendar"),
             },
@@ -691,6 +712,8 @@ class ProductService:
             "granted_scopes": list(packet.granted_scopes),
             "items": items,
             "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
         }
 
     def search_workspace(
