@@ -751,6 +751,44 @@ def test_call_onemin_records_manager_usage_and_updates_effective_remaining(
         register_onemin_manager(None)
 
 
+def test_latest_onemin_billing_snapshot_keeps_last_actual_when_new_page_is_unparsed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-03-27T22:00:00Z",
+            "remaining_credits": 15003,
+            "max_credits": 15000,
+            "next_topup_at": "2026-03-31T02:19:47Z",
+            "topup_amount": 15000,
+            "basis": "actual_billing_usage_page",
+        },
+        source="test",
+    )
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-03-27T22:10:00Z",
+            "basis": "page_seen_but_unparsed",
+            "source_url": "https://app.1min.ai/billing-usage",
+        },
+        source="test",
+    )
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+    assert slot["billing_basis"] == "actual_billing_usage_page"
+    assert slot["billing_remaining_credits"] == 15003
+    assert slot["billing_topup_amount"] == 15000
+    assert slot["billing_next_topup_at"] == "2026-03-31T02:19:47Z"
+
+
 def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_URLS", "https://good.magicx.local/api/v1/chat/completions")

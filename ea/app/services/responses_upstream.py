@@ -2617,7 +2617,20 @@ def _latest_provider_billing_snapshot(
     snapshots = _recent_provider_billing_snapshots(provider_key=provider_key, account_name=account_name)
     if not snapshots:
         return None
-    return max(snapshots, key=lambda item: _iso_to_epoch(item.observed_at))
+    def _snapshot_quality(item: ProviderBillingSnapshot) -> tuple[int, float]:
+        basis = str(item.basis or "").strip().lower()
+        epoch = _iso_to_epoch(item.observed_at)
+        if basis in {"actual_provider_api", "actual_billing_usage_page"}:
+            return (4, epoch)
+        if basis.startswith("actual_"):
+            return (3, epoch)
+        if item.remaining_credits is not None or item.max_credits is not None or item.next_topup_at or item.topup_amount is not None:
+            return (2, epoch)
+        if basis == "page_seen_but_unparsed":
+            return (1, epoch)
+        return (0, epoch)
+
+    return max(snapshots, key=_snapshot_quality)
 
 
 def _recent_provider_member_reconciliation_snapshots(

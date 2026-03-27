@@ -106,6 +106,9 @@ async function main() {
   const runtimeInputs = Object.assign({}, packet.runtime_inputs_json || {});
   const authFlow = String((((spec || {}).meta || {}).auth_flow) || '').trim().toLowerCase();
   const runtimeTargetInputName = String((((spec || {}).meta || {}).runtime_input_name) || '').trim();
+  const blockedUrlMarkers = Array.isArray((((spec || {}).meta || {}).blocked_url_markers))
+    ? (((spec || {}).meta || {}).blocked_url_markers || []).map(value => String(value || '').trim()).filter(Boolean)
+    : [];
   const googleAuthSequenceIds = new Set([
     'wait_google_email',
     'google_email',
@@ -132,6 +135,18 @@ async function main() {
     workflow_kind: String((((spec || {}).meta || {}).workflow_kind) || ''),
   };
   let traceIndex = 0;
+
+  if (blockedUrlMarkers.length) {
+    await context.route('**/*', (route) => {
+      try {
+        const url = String(route.request().url() || '');
+        if (blockedUrlMarkers.some(marker => marker && url.includes(marker))) {
+          return route.abort();
+        }
+      } catch (_) {}
+      return route.continue();
+    });
+  }
 
   function emitResultSummary(payload) {
     const summary = {
@@ -247,11 +262,22 @@ async function main() {
       const locator = await awaitLocator(normalized, config);
       if (!locator) return false;
       const waitMs = Math.max(250, Number((config && config.wait_timeout_ms) || (isOptional(config) ? 1200 : 12000)));
+      const postClickWaitMs = Math.max(200, Number((config && config.post_click_wait_ms) || 1500));
       await locator.waitFor({ state: 'visible', timeout: waitMs }).catch(() => {});
-      await locator.click({ force: true, timeout: 10000 }).catch(async () => {
-        await locator.click({ timeout: 10000 });
-      });
-      await page.waitForTimeout(1500);
+      if (Boolean(config && config.dom_click)) {
+        await locator.evaluate((node) => {
+          if (node && typeof node.click === 'function') {
+            node.click();
+            return;
+          }
+          node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        });
+      } else {
+        await locator.click({ force: true, timeout: 10000 }).catch(async () => {
+          await locator.click({ timeout: 10000 });
+        });
+      }
+      await page.waitForTimeout(postClickWaitMs);
       return true;
     } catch (error) {
       result.warnings.push(`${label || 'click'}:${String(error && error.message ? error.message : error)}`);
@@ -301,10 +327,31 @@ async function main() {
     }
   }
 
+  async function waitForCookie(cookieName, timeoutMs) {
+    const normalized = String(cookieName || '').trim();
+    if (!normalized) return true;
+    const deadline = Date.now() + Math.max(500, Number(timeoutMs || 10000));
+    while (Date.now() < deadline) {
+      try {
+        const cookies = await context.cookies();
+        if (cookies.some(cookie => String(cookie.name || '').trim() === normalized)) {
+          return true;
+        }
+      } catch (_) {}
+      await page.waitForTimeout(500);
+    }
+    return false;
+  }
+
   async function submitLoginForm(config, label) {
     const passwordSelector = String(config.password_selector || "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']").trim();
     const startUrl = String(page.url() || '');
     const authAdvanceTimeoutMs = Math.max(1500, Number(config.auth_advance_timeout_ms || 5000));
+    const preSubmitCookieName = String(config.pre_submit_cookie_name || '').trim();
+    const preSubmitCookieTimeoutMs = Math.max(1000, Number(config.pre_submit_cookie_timeout_ms || 15000));
+    const preSubmitWaitMs = Math.max(0, Number(config.pre_submit_wait_ms || 0));
+    const submitRetryCount = Math.max(0, Number(config.submit_retry_count || 0));
+    const submitRetryBackoffMs = Math.max(500, Number(config.submit_retry_backoff_ms || 5000));
 
     async function authAdvanced() {
       const changed = await waitForUrlChange(startUrl, authAdvanceTimeoutMs);
@@ -321,18 +368,8 @@ async function main() {
       }
     }
 
-    if (await maybePressEnter(passwordSelector, `${label}:enter`, config)) {
-      if (await authAdvanced()) {
-        return true;
-      }
-    }
-    const selector = String(config.selector || '').trim();
-    if (selector && await maybeClick(selector, `${label}:click`, config)) {
-      if (await authAdvanced()) {
-        return true;
-      }
-    }
-    const fallbackSelectors = [
+    const attemptSelectors = [
+      String(config.selector || '').trim(),
       "form button[type=submit]",
       "form input[type=submit]",
       "button:has-text('Sign In')",
@@ -341,12 +378,33 @@ async function main() {
       "button:has-text('Continue')",
       "button:has-text('Submit')",
       "button:has-text('Next')",
-      ];
-    for (const fallback of fallbackSelectors) {
-      if (await maybeClick(fallback, `${label}:fallback`, config)) {
+    ].filter(Boolean);
+
+    for (let attempt = 0; attempt <= submitRetryCount; attempt += 1) {
+      if (preSubmitCookieName) {
+        const cookieReady = await waitForCookie(preSubmitCookieName, preSubmitCookieTimeoutMs);
+        if (!cookieReady) {
+          result.warnings.push(`${label}:cookie_wait_timeout:${preSubmitCookieName}`);
+        }
+      }
+      if (preSubmitWaitMs > 0) {
+        await page.waitForTimeout(preSubmitWaitMs);
+      }
+      if (await maybePressEnter(passwordSelector, `${label}:enter:${attempt + 1}`, config)) {
         if (await authAdvanced()) {
           return true;
         }
+      }
+      for (const selector of attemptSelectors) {
+        if (!(await maybeClick(selector, `${label}:click:${attempt + 1}`, config))) {
+          continue;
+        }
+        if (await authAdvanced()) {
+          return true;
+        }
+      }
+      if (attempt < submitRetryCount) {
+        await page.waitForTimeout(submitRetryBackoffMs);
       }
     }
     return false;

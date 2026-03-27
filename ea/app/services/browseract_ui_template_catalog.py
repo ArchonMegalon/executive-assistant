@@ -18,6 +18,7 @@ class BrowserActUiTemplateDefinition:
     authorized_credential_queries: tuple[str, ...] = ()
     direct_pre_auth_dismiss_selectors: tuple[str, ...] = ()
     direct_login_entry_selector: str = ""
+    direct_login_entry_dom_click: bool = False
     direct_email_selector: str = "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]"
     direct_password_selector: str = "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]"
     direct_submit_selector: str = (
@@ -85,7 +86,11 @@ class BrowserActUiTemplateDefinition:
                         "id": "open_login_entry",
                         "type": "click",
                         "label": "Open Login Entry",
-                        "config": {"selector": self.direct_login_entry_selector},
+                        "config": {
+                            "selector": self.direct_login_entry_selector,
+                            **({"dom_click": True} if self.direct_login_entry_dom_click else {}),
+                            **({"post_click_wait_ms": 1200} if self.direct_login_entry_dom_click else {}),
+                        },
                     },
                 ]
             )
@@ -468,6 +473,14 @@ def _onemin_meta(*, slug: str, output_dir: str, tool_url: str) -> dict[str, obje
         "runtime_input_name": "page_url",
         "tool_url": tool_url,
         "authorized_credential_queries": list(_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES),
+        "blocked_url_markers": [
+            "tawk.to",
+            "growthbook",
+            "google-analytics.com",
+            "region1.google-analytics.com",
+            "otlp.1min.ai",
+            "appleid.cdn-apple.com",
+        ],
     }
 
 
@@ -497,6 +510,8 @@ def _onemin_login_modal_nodes() -> tuple[list[dict[str, object]], list[list[str]
                 "selector": _ONEMIN_LOGIN_ENTRY_SELECTOR,
                 "optional": True,
                 "wait_timeout_ms": 2500,
+                "dom_click": True,
+                "post_click_wait_ms": 1200,
             },
         },
         {
@@ -533,7 +548,12 @@ def _onemin_login_modal_nodes() -> tuple[list[dict[str, object]], list[list[str]
             "config": {
                 "selector": _ONEMIN_SUBMIT_SELECTOR,
                 "password_selector": _ONEMIN_PASSWORD_SELECTOR,
-                "auth_advance_timeout_ms": 9000,
+                "auth_advance_timeout_ms": 12000,
+                "pre_submit_cookie_name": "cf_clearance",
+                "pre_submit_cookie_timeout_ms": 25000,
+                "pre_submit_wait_ms": 3000,
+                "submit_retry_count": 1,
+                "submit_retry_backoff_ms": 8000,
             },
         },
         {
@@ -976,6 +996,7 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         authorized_credential_queries=_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES,
         direct_pre_auth_dismiss_selectors=_ONEMIN_CLOSE_SELECTORS[:2],
         direct_login_entry_selector=_ONEMIN_LOGIN_ENTRY_SELECTOR,
+        direct_login_entry_dom_click=True,
         direct_email_selector=_ONEMIN_EMAIL_SELECTOR,
         direct_password_selector=_ONEMIN_PASSWORD_SELECTOR,
         direct_submit_selector=_ONEMIN_SUBMIT_SELECTOR,
@@ -996,6 +1017,7 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         authorized_credential_queries=_ONEMIN_AUTHORIZED_CREDENTIAL_QUERIES,
         direct_pre_auth_dismiss_selectors=_ONEMIN_CLOSE_SELECTORS[:2],
         direct_login_entry_selector=_ONEMIN_LOGIN_ENTRY_SELECTOR,
+        direct_login_entry_dom_click=True,
         direct_email_selector=_ONEMIN_EMAIL_SELECTOR,
         direct_password_selector=_ONEMIN_PASSWORD_SELECTOR,
         direct_submit_selector=_ONEMIN_SUBMIT_SELECTOR,

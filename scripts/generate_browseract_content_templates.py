@@ -57,6 +57,8 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
                 "selector": 'button:has-text("Log In"), a:has-text("Log In"), [role=button]:has-text("Log In")',
                 "optional": True,
                 "wait_timeout_ms": 2500,
+                "dom_click": True,
+                "post_click_wait_ms": 1200,
             },
         },
         {
@@ -93,7 +95,12 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
             "config": {
                 "selector": 'button[type=submit], button:has-text("Log In")',
                 "password_selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
-                "auth_advance_timeout_ms": 9000,
+                "auth_advance_timeout_ms": 12000,
+                "pre_submit_cookie_name": "cf_clearance",
+                "pre_submit_cookie_timeout_ms": 25000,
+                "pre_submit_wait_ms": 3000,
+                "submit_retry_count": 1,
+                "submit_retry_backoff_ms": 8000,
             },
         },
         {
@@ -388,6 +395,14 @@ def onemin_billing_usage_workflow_spec() -> dict[str, object]:
             "output_dir": str(DEFAULT_OUTPUT_DIR),
             "status": "pending_browseract_seed",
             "workflow_kind": "page_extract",
+            "blocked_url_markers": [
+                "tawk.to",
+                "growthbook",
+                "google-analytics.com",
+                "region1.google-analytics.com",
+                "otlp.1min.ai",
+                "appleid.cdn-apple.com",
+            ],
         },
     }
 
@@ -474,6 +489,14 @@ def onemin_members_workflow_spec() -> dict[str, object]:
             "output_dir": str(DEFAULT_OUTPUT_DIR),
             "status": "pending_browseract_seed",
             "workflow_kind": "page_extract",
+            "blocked_url_markers": [
+                "tawk.to",
+                "growthbook",
+                "google-analytics.com",
+                "region1.google-analytics.com",
+                "otlp.1min.ai",
+                "appleid.cdn-apple.com",
+            ],
         },
     }
 
