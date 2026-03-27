@@ -253,6 +253,19 @@ class WorkspaceOutcomesOut(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
 
 
+class WorkspaceTrustOut(BaseModel):
+    generated_at: str
+    health_score: int = 0
+    workspace_summary: str = ""
+    readiness: dict[str, str] = Field(default_factory=dict)
+    provider_posture: dict[str, object] = Field(default_factory=dict)
+    reliability: dict[str, str] = Field(default_factory=dict)
+    audit_retention: str = "standard"
+    evidence_count: int = 0
+    rule_count: int = 0
+    recent_events: list[OfficeEventOut] = Field(default_factory=list)
+
+
 class WorkspaceSupportBundleOut(BaseModel):
     workspace: dict[str, object]
     selected_channels: list[str]

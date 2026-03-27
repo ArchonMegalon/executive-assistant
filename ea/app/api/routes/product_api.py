@@ -64,6 +64,7 @@ from app.api.routes.product_api_contracts import (
     WorkspacePlanDetailOut,
     WorkspaceOutcomesOut,
     WorkspaceSupportBundleOut,
+    WorkspaceTrustOut,
     WorkspaceUsageDetailOut,
     brief_out,
     commitment_candidate_out,
@@ -711,6 +712,21 @@ def get_workspace_outcomes(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     return WorkspaceOutcomesOut(**service.workspace_outcomes(principal_id=context.principal_id))
+
+
+@router.get("/trust", response_model=WorkspaceTrustOut)
+def get_workspace_trust(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceTrustOut:
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="trust_opened",
+        surface="trust_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspaceTrustOut(**service.workspace_trust_summary(principal_id=context.principal_id))
 
 
 @router.get("/evidence", response_model=EvidenceResponse)

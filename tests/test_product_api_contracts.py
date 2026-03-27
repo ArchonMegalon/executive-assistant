@@ -147,6 +147,12 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "approval_action_rate" in outcomes_body
     assert "commitment_close_rate" in outcomes_body
     assert "counts" in outcomes_body
+    trust = client.get("/app/api/trust")
+    assert trust.status_code == 200
+    trust_body = trust.json()
+    assert "workspace_summary" in trust_body
+    assert "provider_posture" in trust_body
+    assert "reliability" in trust_body
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
