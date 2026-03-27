@@ -34,6 +34,10 @@ repo_boundary_purity:
   status: healthy
   score: 0.84
   reason: The render-only contract plane and runtime execution now both live here, with clean-room integration proof from the hosted repo.
+- repo: fleet
+  status: healthy
+  score: 0.86
+  reason: Compile, runtime healing, publish readiness, and journey-gate truth now live together as one governed control-plane seam instead of a loose operator toolbox.
 program_phases:
 - id: A
   title: Design and contract canon
