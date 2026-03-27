@@ -717,9 +717,9 @@ def _onemin_direct_api_batch_backoff_seconds() -> float:
 def _onemin_browseract_max_accounts_per_refresh() -> int:
     raw = str(upstream._env("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
     try:
-        value = int(raw) if raw else 3
+        value = int(raw) if raw else 50
     except Exception:
-        value = 3
+        value = 50
     return max(1, min(50, value))
 
 
