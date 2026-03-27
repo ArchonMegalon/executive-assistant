@@ -765,6 +765,51 @@ class ProductService:
             "counts": selected_counts,
         }
 
+    def workspace_trust_summary(self, *, principal_id: str) -> dict[str, object]:
+        diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        analytics = dict(diagnostics.get("analytics") or {})
+        reliability = dict(analytics.get("reliability") or {})
+        providers = dict(diagnostics.get("providers") or {})
+        readiness = dict(diagnostics.get("readiness") or {})
+        evidence_items = self.list_evidence(principal_id=principal_id, limit=50)
+        rules = self.list_rules(principal_id=principal_id)
+        recent_events = [
+            item
+            for item in self.list_office_events(principal_id=principal_id, limit=12)
+            if str(item.get("channel") or "").strip() == "product"
+        ]
+        trust_summary = (
+            "Workspace trust posture is clear."
+            if str(readiness.get("status") or "") == "ready"
+            and str(providers.get("risk_state") or "healthy") in {"healthy", "ready", "clear"}
+            and str(reliability.get("delivery_reliability_state") or "clear") == "clear"
+            and str(reliability.get("sync_reliability_state") or "watch") in {"clear", "watch"}
+            else "Review support diagnostics before the next office loop."
+        )
+        return {
+            "generated_at": _now_iso(),
+            "health_score": int(readiness.get("health_score") or 0),
+            "workspace_summary": trust_summary,
+            "readiness": {
+                "status": str(readiness.get("status") or "unknown"),
+                "detail": str(readiness.get("detail") or ""),
+            },
+            "provider_posture": {
+                "risk_state": str(providers.get("risk_state") or "unknown"),
+                "risk_detail": str(providers.get("risk_detail") or ""),
+                "lanes_with_fallback": int(providers.get("lanes_with_fallback") or 0),
+            },
+            "reliability": {
+                "delivery": str(reliability.get("delivery_reliability_state") or "watch"),
+                "access": str(reliability.get("access_reliability_state") or "watch"),
+                "sync": str(reliability.get("sync_reliability_state") or "watch"),
+            },
+            "audit_retention": str(dict(diagnostics.get("entitlements") or {}).get("audit_retention") or "standard"),
+            "evidence_count": len(evidence_items),
+            "rule_count": len(rules),
+            "recent_events": recent_events[:8],
+        }
+
     def search_workspace(
         self,
         *,
