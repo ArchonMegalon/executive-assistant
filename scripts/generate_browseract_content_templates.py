@@ -40,11 +40,32 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
             "config": {"url": ONEMIN_LOGIN_URL},
         },
         {
+            "id": "wait_login_entry",
+            "type": "wait",
+            "label": "Wait Login Entry",
+            "config": {
+                "selector": 'button:has-text("Log In"), a:has-text("Log In"), [role=button]:has-text("Log In")',
+                "timeout_ms": 5000,
+                "optional": True,
+            },
+        },
+        {
             "id": "open_login_modal",
             "type": "click",
             "label": "Open Login Modal",
             "config": {
                 "selector": 'button:has-text("Log In"), a:has-text("Log In"), [role=button]:has-text("Log In")',
+                "optional": True,
+                "wait_timeout_ms": 2500,
+            },
+        },
+        {
+            "id": "wait_login_form",
+            "type": "wait",
+            "label": "Wait Login Form",
+            "config": {
+                "selector": 'input[placeholder="Email"], input[aria-label="Email"], input[type=email]',
+                "timeout_ms": 45000,
             },
         },
         {
@@ -67,20 +88,31 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
         },
         {
             "id": "submit",
-            "type": "click",
+            "type": "submit_login_form",
             "label": "Submit",
-            "config": {"selector": 'button[type=submit], button:has-text("Log In")'},
+            "config": {
+                "selector": 'button[type=submit], button:has-text("Log In")',
+                "password_selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
+                "auth_advance_timeout_ms": 9000,
+            },
         },
         {
             "id": "wait_dashboard",
             "type": "wait",
             "label": "Wait Dashboard",
-            "config": {"selector": "body"},
+            "config": {
+                "selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
+                "state": "hidden",
+                "timeout_ms": 45000,
+                "optional": True,
+            },
         },
     ]
     edges = [
-        ["open_login", "open_login_modal"],
-        ["open_login_modal", "email"],
+        ["open_login", "wait_login_entry"],
+        ["wait_login_entry", "open_login_modal"],
+        ["open_login_modal", "wait_login_form"],
+        ["wait_login_form", "email"],
         ["email", "password"],
         ["password", "submit"],
         ["submit", "wait_dashboard"],
@@ -99,22 +131,40 @@ def onemin_daily_bonus_workflow_spec() -> dict[str, object]:
                 "config": {"url": ONEMIN_BILLING_USAGE_URL},
             },
             {
+                "id": "wait_dismiss_overlay_01",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 1",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0], "timeout_ms": 2500, "optional": True},
+            },
+            {
                 "id": "dismiss_overlay_01",
                 "type": "click",
                 "label": "Dismiss Overlay 1",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[0]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0], "optional": True, "wait_timeout_ms": 1500},
+            },
+            {
+                "id": "wait_dismiss_overlay_02",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 2",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1], "timeout_ms": 2500, "optional": True},
             },
             {
                 "id": "dismiss_overlay_02",
                 "type": "click",
                 "label": "Dismiss Overlay 2",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[1]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1], "optional": True, "wait_timeout_ms": 1500},
+            },
+            {
+                "id": "wait_dismiss_overlay_03",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 3",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2], "timeout_ms": 2500, "optional": True},
             },
             {
                 "id": "dismiss_overlay_03",
                 "type": "click",
                 "label": "Dismiss Overlay 3",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[2]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2], "optional": True, "wait_timeout_ms": 1500},
             },
             {
                 "id": "wait_billing_usage",
@@ -128,6 +178,8 @@ def onemin_daily_bonus_workflow_spec() -> dict[str, object]:
                 "label": "Unlock Free Credits",
                 "config": {
                     "selector": 'button:has-text("Unlock Free Credits"), [role=button]:has-text("Unlock Free Credits")',
+                    "optional": True,
+                    "wait_timeout_ms": 1500,
                 },
             },
             {
@@ -160,9 +212,12 @@ def onemin_daily_bonus_workflow_spec() -> dict[str, object]:
     edges.extend(
         [
             ["wait_dashboard", "open_billing_usage"],
-            ["open_billing_usage", "dismiss_overlay_01"],
-            ["dismiss_overlay_01", "dismiss_overlay_02"],
-            ["dismiss_overlay_02", "dismiss_overlay_03"],
+            ["open_billing_usage", "wait_dismiss_overlay_01"],
+            ["wait_dismiss_overlay_01", "dismiss_overlay_01"],
+            ["dismiss_overlay_01", "wait_dismiss_overlay_02"],
+            ["wait_dismiss_overlay_02", "dismiss_overlay_02"],
+            ["dismiss_overlay_02", "wait_dismiss_overlay_03"],
+            ["wait_dismiss_overlay_03", "dismiss_overlay_03"],
             ["dismiss_overlay_03", "wait_billing_usage"],
             ["wait_billing_usage", "unlock_free_credits"],
             ["unlock_free_credits", "wait_bonus_surface"],
@@ -198,22 +253,40 @@ def onemin_billing_usage_workflow_spec() -> dict[str, object]:
                 "config": {"url": ONEMIN_BILLING_USAGE_URL},
             },
             {
+                "id": "wait_dismiss_overlay_01",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 1",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0], "timeout_ms": 2500, "optional": True},
+            },
+            {
                 "id": "dismiss_overlay_01",
                 "type": "click",
                 "label": "Dismiss Overlay 1",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[0]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[0], "optional": True, "wait_timeout_ms": 1500},
+            },
+            {
+                "id": "wait_dismiss_overlay_02",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 2",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1], "timeout_ms": 2500, "optional": True},
             },
             {
                 "id": "dismiss_overlay_02",
                 "type": "click",
                 "label": "Dismiss Overlay 2",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[1]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[1], "optional": True, "wait_timeout_ms": 1500},
+            },
+            {
+                "id": "wait_dismiss_overlay_03",
+                "type": "wait",
+                "label": "Wait Dismiss Overlay 3",
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2], "timeout_ms": 2500, "optional": True},
             },
             {
                 "id": "dismiss_overlay_03",
                 "type": "click",
                 "label": "Dismiss Overlay 3",
-                "config": {"selector": COMMON_CLOSE_SELECTORS[2]},
+                "config": {"selector": COMMON_CLOSE_SELECTORS[2], "optional": True, "wait_timeout_ms": 1500},
             },
             {
                 "id": "wait_billing_usage",
@@ -377,9 +450,12 @@ def onemin_members_workflow_spec() -> dict[str, object]:
     edges.extend(
         [
             ["wait_dashboard", "open_members"],
-            ["open_members", "dismiss_overlay_01"],
-            ["dismiss_overlay_01", "dismiss_overlay_02"],
-            ["dismiss_overlay_02", "dismiss_overlay_03"],
+            ["open_members", "wait_dismiss_overlay_01"],
+            ["wait_dismiss_overlay_01", "dismiss_overlay_01"],
+            ["dismiss_overlay_01", "wait_dismiss_overlay_02"],
+            ["wait_dismiss_overlay_02", "dismiss_overlay_02"],
+            ["dismiss_overlay_02", "wait_dismiss_overlay_03"],
+            ["wait_dismiss_overlay_03", "dismiss_overlay_03"],
             ["dismiss_overlay_03", "wait_members"],
             ["wait_members", "extract_members"],
             ["extract_members", "output_result"],
