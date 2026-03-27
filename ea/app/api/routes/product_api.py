@@ -22,6 +22,7 @@ from app.api.routes.product_api_contracts import (
     DraftCandidateOut,
     EvidenceItemOut,
     EvidenceResponse,
+    GoogleSignalSyncOut,
     HandoffAssignIn,
     HandoffCompleteIn,
     HandoffNoteOut,
@@ -903,6 +904,27 @@ def ingest_office_signal(
         actor=actor,
     )
     return OfficeSignalResultOut(**payload)
+
+
+@router.post("/signals/google/sync", response_model=GoogleSignalSyncOut)
+def sync_google_workspace_signals(
+    email_limit: int = Query(default=5, ge=0, le=25),
+    calendar_limit: int = Query(default=5, ge=0, le=25),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "google_sync").strip()
+    try:
+        payload = service.sync_google_workspace_signals(
+            principal_id=context.principal_id,
+            actor=actor,
+            email_limit=email_limit,
+            calendar_limit=calendar_limit,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return GoogleSignalSyncOut(**payload)
 
 
 @router.get("/webhooks", response_model=WebhookResponse)
