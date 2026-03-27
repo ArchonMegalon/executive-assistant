@@ -17,6 +17,7 @@ _IDLE_BACKOFF_MAX_SECONDS = 15.0
 _ERROR_BACKOFF_SECONDS = 2.0
 _SCHEDULER_SCAN_INTERVAL_SECONDS = 900.0
 _SCHEDULER_ONEMIN_REFRESH_INTERVAL_SECONDS = 86400.0
+_SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 
 
 def _env_float(name: str, default: float) -> float:
@@ -48,6 +49,17 @@ def _scheduler_onemin_refresh_interval_seconds() -> float:
 
 def _scheduler_onemin_global_provider_api_sweep_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_ONEMIN_GLOBAL_PROVIDER_API_SWEEP", True)
+
+
+def _scheduler_google_signal_sync_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS",
+        _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_google_signal_sync_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_ENABLED", True)
 
 
 def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
@@ -210,6 +222,49 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
         container.onemin_manager.finish_billing_refresh()
 
 
+def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+    from app.services.google_oauth import GOOGLE_CONNECTOR_NAME
+
+    service = build_product_service(container)
+    bindings = [
+        binding
+        for binding in container.tool_runtime.list_connector_bindings_for_connector(GOOGLE_CONNECTOR_NAME, limit=1000)
+        if str(binding.status or "").strip().lower() == "enabled" and str(binding.principal_id or "").strip()
+    ]
+    principal_ids = tuple(sorted({str(binding.principal_id or "").strip() for binding in bindings}))
+    attempted = 0
+    synced = 0
+    error_count = 0
+    for principal_id in principal_ids:
+        attempted += 1
+        try:
+            summary = service.sync_google_workspace_signals(
+                principal_id=principal_id,
+                actor="scheduler",
+                email_limit=5,
+                calendar_limit=5,
+            )
+            if int(summary.get("total") or 0) >= 0:
+                synced += 1
+        except RuntimeError as exc:
+            error_count += 1
+            log.info(
+                "scheduler google signal sync skipped principal=%s reason=%s",
+                principal_id,
+                str(exc or "unknown_error"),
+            )
+        except Exception:
+            error_count += 1
+            log.exception("scheduler google signal sync failed principal=%s", principal_id)
+    return {
+        "ran": True,
+        "attempted": attempted,
+        "synced": synced,
+        "errors": error_count,
+    }
+
+
 def _run_api() -> None:
     s = get_settings()
     uvicorn.run("app.main:app", host=s.host, port=s.port, log_level=s.log_level.lower())
@@ -229,6 +284,7 @@ def _run_execution_worker(role: str) -> None:
     idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
     last_horizon_scan_at = 0.0
     last_onemin_refresh_at = 0.0
+    last_google_signal_sync_at = 0.0
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
         if role == "scheduler":
@@ -284,6 +340,22 @@ def _run_execution_worker(role: str) -> None:
                         )
                 except Exception:
                     log.exception("role=%s scheduler onemin refresh failed", role)
+            if _scheduler_google_signal_sync_enabled() and (
+                now - last_google_signal_sync_at >= _scheduler_google_signal_sync_interval_seconds()
+            ):
+                try:
+                    sync_summary = _run_scheduler_google_signal_sync(container, log)
+                    last_google_signal_sync_at = now
+                    log.info(
+                        "role=%s scheduler google signal sync attempted=%s synced=%s errors=%s",
+                        role,
+                        sync_summary.get("attempted"),
+                        sync_summary.get("synced"),
+                        sync_summary.get("errors"),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler google signal sync failed", role)
+                    last_google_signal_sync_at = now
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:

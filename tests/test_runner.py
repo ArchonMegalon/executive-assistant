@@ -105,3 +105,56 @@ def test_scheduler_onemin_billing_refresh_respects_manager_throttle(
     assert summary["browseract_attempted"] == 0
     assert summary["api_attempted"] == 0
     assert finished == []
+
+
+def test_scheduler_google_signal_sync_runs_for_enabled_google_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    calls: list[str] = []
+
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-1",
+        principal_id="principal-google-1",
+        connector_name="google_workspace",
+        external_account_ref="exec@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "exec@example.com"},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+    disabled_binding = ConnectorBinding(
+        binding_id="binding-google-2",
+        principal_id="principal-google-2",
+        connector_name="google_workspace",
+        external_account_ref="skip@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "skip@example.com"},
+        status="disabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+
+    class _FakeService:
+        def sync_google_workspace_signals(self, *, principal_id: str, actor: str, email_limit: int, calendar_limit: int):
+            calls.append(f"{principal_id}|{actor}|{email_limit}|{calendar_limit}")
+            return {"total": 2}
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding, disabled_binding]
+        ),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_google_signal_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {"ran": True, "attempted": 1, "synced": 1, "errors": 0}
+    assert calls == ["principal-google-1|scheduler|5|5"]
