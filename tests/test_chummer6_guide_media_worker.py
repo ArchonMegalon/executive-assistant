@@ -369,6 +369,53 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
 
 
+def test_run_command_provider_returns_timeout_when_subprocess_times_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "format_command", lambda parts, **kwargs: ["fake-render"])
+
+    def fake_run(*args, **kwargs):
+        raise media.subprocess.TimeoutExpired(cmd="fake-render", timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+
+    ok, detail = media.run_command_provider(
+        "media_factory",
+        ["fake-render"],
+        prompt="room-first streetdoc clinic",
+        output_path=tmp_path / "hero.png",
+        width=1280,
+        height=720,
+    )
+
+    assert ok is False
+    assert detail == "media_factory:timeout"
+
+
+def test_run_url_provider_returns_timeout_when_request_times_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+
+    def fake_urlopen(request, timeout=0):
+        raise TimeoutError("provider stalled")
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    ok, detail = media.run_url_provider(
+        "magixai",
+        "https://example.test/render?prompt={prompt}&width={width}&height={height}",
+        prompt="industrial research forge",
+        output_path=tmp_path / "forge.png",
+        width=1280,
+        height=720,
+    )
+
+    assert ok is False
+    assert detail == "magixai:timeout"
+
+
 def test_reserve_onemin_image_slot_locally_synthesizes_candidates_when_provider_health_has_no_slots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
