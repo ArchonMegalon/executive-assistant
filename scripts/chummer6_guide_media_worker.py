@@ -21,13 +21,14 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageStat
 except Exception:  # pragma: no cover - optional runtime dependency
     Image = None
     ImageDraw = None
     ImageEnhance = None
     ImageFilter = None
     ImageFont = None
+    ImageStat = None
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -3395,6 +3396,229 @@ def _flagship_finish_focus_mask(*, target: str, size: tuple[int, int]):
     return mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
 
 
+def _public_asset_finish_focus_mask(*, target: str, size: tuple[int, int]):
+    if Image is None or ImageDraw is None or ImageFilter is None:
+        return None
+    width, height = size
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    normalized = str(target or "").replace("\\", "/").strip()
+
+    if normalized.startswith("assets/pages/"):
+        ellipses = (
+            (0.02, 0.10, 0.52, 0.86, 116),
+            (0.30, 0.02, 0.96, 0.74, 148),
+            (0.18, 0.42, 0.90, 1.02, 108),
+        )
+    elif normalized.startswith("assets/parts/"):
+        ellipses = (
+            (0.10, 0.08, 0.76, 0.86, 126),
+            (0.44, 0.02, 1.02, 0.82, 104),
+        )
+    elif normalized.startswith("assets/horizons/details/"):
+        ellipses = (
+            (0.08, 0.06, 0.88, 0.90, 108),
+            (0.34, 0.02, 1.00, 0.74, 92),
+        )
+    elif normalized.startswith("assets/horizons/"):
+        ellipses = (
+            (0.04, 0.06, 0.54, 0.88, 118),
+            (0.34, 0.00, 0.98, 0.82, 128),
+        )
+    elif normalized == "assets/hero/poc-warning.png":
+        ellipses = (
+            (0.08, 0.10, 0.78, 0.92, 132),
+            (0.44, 0.04, 1.02, 0.70, 112),
+        )
+    else:
+        return None
+
+    for left, top, right, bottom, strength in ellipses:
+        draw.ellipse(
+            (
+                int(left * width),
+                int(top * height),
+                int(right * width),
+                int(bottom * height),
+            ),
+            fill=int(strength),
+        )
+    blur_radius = max(16, int(min(width, height) * 0.06))
+    return mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+
+def _public_asset_finish_profile(*, target: str, mean_luma: float, std_luma: float, edge_mean: float) -> dict[str, float]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    brightness = 1.06
+    contrast = 1.14
+    color = 1.04
+    sharpness = 1.50
+    unsharp_percent = 155.0
+
+    if normalized.startswith("assets/pages/"):
+        brightness = 1.08
+        contrast = 1.18
+        color = 1.06
+        sharpness = 1.65
+        unsharp_percent = 170.0
+    elif normalized.startswith("assets/parts/"):
+        brightness = 1.06
+        contrast = 1.14
+        color = 1.04
+        sharpness = 1.55
+        unsharp_percent = 160.0
+    elif normalized.startswith("assets/horizons/details/"):
+        brightness = 1.07
+        contrast = 1.16
+        color = 1.05
+        sharpness = 1.60
+        unsharp_percent = 165.0
+    elif normalized.startswith("assets/horizons/"):
+        brightness = 1.08
+        contrast = 1.18
+        color = 1.06
+        sharpness = 1.65
+        unsharp_percent = 175.0
+    elif normalized == "assets/hero/poc-warning.png":
+        brightness = 1.10
+        contrast = 1.18
+        color = 1.04
+        sharpness = 1.70
+        unsharp_percent = 180.0
+
+    if mean_luma < 35.0:
+        brightness += 0.08
+        contrast += 0.06
+    elif mean_luma < 48.0:
+        brightness += 0.04
+        contrast += 0.03
+    elif mean_luma > 78.0:
+        brightness -= 0.03
+
+    if std_luma < 38.0:
+        contrast += 0.08
+    elif std_luma < 48.0:
+        contrast += 0.04
+
+    if edge_mean < 7.0:
+        sharpness += 0.35
+        unsharp_percent += 30.0
+        contrast += 0.04
+    elif edge_mean < 10.0:
+        sharpness += 0.18
+        unsharp_percent += 18.0
+
+    return {
+        "brightness": max(0.95, min(1.22, brightness)),
+        "contrast": max(1.00, min(1.30, contrast)),
+        "color": max(1.00, min(1.10, color)),
+        "sharpness": max(1.20, min(2.10, sharpness)),
+        "unsharp_radius": 2.0,
+        "unsharp_percent": max(120.0, min(220.0, unsharp_percent)),
+        "unsharp_threshold": 1.0,
+    }
+
+
+def _apply_public_asset_finish_postpass_pillow(*, image_path: Path, target: str) -> str:
+    if Image is None or ImageEnhance is None or ImageFilter is None:
+        return _apply_public_asset_finish_postpass_ffmpeg(image_path=image_path, target=target)
+    if not image_path.exists():
+        raise RuntimeError(f"public_asset_finish_postpass:missing_image:{image_path}")
+    with Image.open(image_path) as original:
+        source_mode = str(original.mode or "RGB")
+        source_format = str(original.format or "").upper() or "PNG"
+        alpha = original.getchannel("A").copy() if "A" in source_mode else None
+        image = original.convert("RGB")
+
+    luminance = image.convert("L")
+    stat = ImageStat.Stat(luminance)
+    mean_luma = float(stat.mean[0]) if stat.mean else 0.0
+    std_luma = float(stat.stddev[0]) if stat.stddev else 0.0
+    edge = luminance.filter(ImageFilter.FIND_EDGES)
+    edge_stat = ImageStat.Stat(edge)
+    edge_mean = float(edge_stat.mean[0]) if edge_stat.mean else 0.0
+    profile = _public_asset_finish_profile(
+        target=target,
+        mean_luma=mean_luma,
+        std_luma=std_luma,
+        edge_mean=edge_mean,
+    )
+
+    image = ImageEnhance.Brightness(image).enhance(profile["brightness"])
+    image = ImageEnhance.Contrast(image).enhance(profile["contrast"])
+    image = ImageEnhance.Color(image).enhance(profile["color"])
+    image = ImageEnhance.Sharpness(image).enhance(profile["sharpness"])
+    image = image.filter(
+        ImageFilter.UnsharpMask(
+            radius=profile["unsharp_radius"],
+            percent=int(round(profile["unsharp_percent"])),
+            threshold=int(round(profile["unsharp_threshold"])),
+        )
+    )
+    focus_mask = _public_asset_finish_focus_mask(target=target, size=image.size)
+    if focus_mask is not None:
+        lifted = ImageEnhance.Brightness(image).enhance(min(1.14, profile["brightness"] * 1.03))
+        lifted = ImageEnhance.Contrast(lifted).enhance(min(1.10, max(1.03, profile["contrast"] * 0.96)))
+        lifted = ImageEnhance.Color(lifted).enhance(min(1.08, profile["color"] * 1.02))
+        image = Image.composite(lifted, image, focus_mask)
+    image = image.filter(ImageFilter.DETAIL)
+
+    if alpha is not None:
+        image = image.convert("RGBA")
+        image.putalpha(alpha)
+
+    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+        temp_path = Path(handle.name)
+    try:
+        image.save(temp_path, format=source_format)
+        temp_path.replace(image_path)
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return "public_asset_finish_postpass:applied_pillow"
+
+
+def _apply_public_asset_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> str:
+    if not image_path.exists():
+        raise RuntimeError(f"public_asset_finish_postpass:missing_image:{image_path}")
+    with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
+        temp_path = Path(handle.name)
+    filtergraph = "unsharp=7:7:1.05:3:3:0.0,eq=contrast=1.10:saturation=1.05:brightness=0.02"
+    try:
+        subprocess.run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(image_path),
+                "-vf",
+                filtergraph,
+                "-frames:v",
+                "1",
+                str(temp_path),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        temp_path.replace(image_path)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"public_asset_finish_postpass:ffmpeg_failed:{detail[:240]}") from exc
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+    return "public_asset_finish_postpass:applied_ffmpeg"
+
+
 def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> str:
     if Image is None or ImageEnhance is None or ImageFilter is None:
         return _apply_flagship_finish_postpass_ffmpeg(image_path=image_path, target=target)
@@ -3516,6 +3740,20 @@ def apply_flagship_finish_postpass(*, image_path: Path, spec: dict[str, object])
     }:
         return "flagship_finish_postpass:skipped"
     return _apply_flagship_finish_postpass_pillow(image_path=image_path, target=target)
+
+
+def apply_public_asset_finish_postpass(*, image_path: Path, spec: dict[str, object]) -> str:
+    target = str(spec.get("target") or "").replace("\\", "/").strip()
+    if not target or target in FIRST_CONTACT_TARGETS or ".__candidate" in image_path.name:
+        return "public_asset_finish_postpass:skipped"
+    if not (
+        target.startswith("assets/pages/")
+        or target.startswith("assets/parts/")
+        or target.startswith("assets/horizons/")
+        or target == "assets/hero/poc-warning.png"
+    ):
+        return "public_asset_finish_postpass:skipped"
+    return _apply_public_asset_finish_postpass_pillow(image_path=image_path, target=target)
 
 
 def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
@@ -5621,6 +5859,8 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 "assets/horizons/karma-forge.png",
             }:
                 statuses.append(apply_flagship_finish_postpass(image_path=candidate_path, spec=spec))
+            else:
+                statuses.append(apply_public_asset_finish_postpass(image_path=candidate_path, spec=spec))
             score, notes = visual_audit_score(image_path=candidate_path, target=target) if visual_audit_enabled(target=target) else (0.0, [])
             statuses.extend(notes)
             statuses.append(f"visual_audit:score:{score:.2f}")

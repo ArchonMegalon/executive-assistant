@@ -1761,6 +1761,40 @@ def test_apply_flagship_finish_postpass_supports_horizons_index(tmp_path: Path) 
     assert result == "flagship_finish_postpass:applied_pillow"
 
 
+def test_apply_public_asset_finish_postpass_uses_pillow_for_non_flagship_asset(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.Image is None:
+        pytest.skip("Pillow not available")
+    image_path = tmp_path / "status.png"
+    base = media.Image.new("RGB", (240, 160), (28, 30, 36))
+    draw = media.ImageDraw.Draw(base)
+    draw.rectangle((18, 18, 118, 144), fill=(58, 72, 84))
+    draw.rectangle((106, 24, 220, 132), fill=(82, 92, 110))
+    base.save(image_path, format="PNG")
+    original_bytes = image_path.read_bytes()
+
+    result = media.apply_public_asset_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/pages/current-status.png"},
+    )
+
+    assert result == "public_asset_finish_postpass:applied_pillow"
+    assert image_path.read_bytes() != original_bytes
+
+
+def test_apply_public_asset_finish_postpass_skips_first_contact_assets(tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+
+    result = media.apply_public_asset_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+    )
+
+    assert result == "public_asset_finish_postpass:skipped"
+
+
 def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

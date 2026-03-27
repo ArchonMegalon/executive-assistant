@@ -258,6 +258,11 @@ asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
     style_epoch_force_only: true
     required_overlay_mode: medscan_diagnostic
+    world_marker_minimum: 3
+    environment_share_minimum: 0.58
+    subject_crop_maximum: 0.26
+    cast_readability_required: true
+    overlay_anchor_required: true
     allowed_overlay_modes:
       - medscan_diagnostic
     overlay_geometry:
@@ -285,6 +290,10 @@ asset_overlay_contracts:
       Anchor chips to the attribute rail or the treated augment zone; avoid
       face or torso coverage.
   assets/pages/horizons-index.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.72
+    subject_crop_maximum: 0.18
+    overlay_anchor_required: true
     allowed_overlay_modes:
       - none
       - ambient_diegetic
@@ -305,6 +314,12 @@ asset_overlay_contracts:
   assets/horizons/karma-forge.png:
     style_epoch_force_only: true
     required_overlay_mode: forge_review_ar
+    world_marker_minimum: 3
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.50
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
     allowed_overlay_modes:
       - forge_review_ar
     overlay_geometry:
