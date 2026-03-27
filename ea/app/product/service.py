@@ -716,6 +716,28 @@ class ProductService:
             "deduplicated_total": deduplicated_total,
         }
 
+    def google_signal_sync_status(self, *, principal_id: str) -> dict[str, object]:
+        diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        sync = dict(dict(diagnostics.get("analytics") or {}).get("sync") or {})
+        return {
+            "generated_at": _now_iso(),
+            "connected": bool(sync.get("google_connected")),
+            "account_email": str(sync.get("google_account_email") or "").strip(),
+            "token_status": str(sync.get("google_token_status") or "missing").strip() or "missing",
+            "last_refresh_at": str(sync.get("google_last_refresh_at") or "").strip(),
+            "reauth_required_reason": str(sync.get("google_reauth_required_reason") or "").strip(),
+            "sync_completed": int(sync.get("google_sync_completed") or 0),
+            "office_signal_ingested": int(sync.get("office_signal_ingested") or 0),
+            "last_completed_at": str(sync.get("google_sync_last_completed_at") or "").strip(),
+            "last_synced_total": int(sync.get("google_sync_last_synced_total") or 0),
+            "last_deduplicated_total": int(sync.get("google_sync_last_deduplicated_total") or 0),
+            "last_gmail_total": int(sync.get("google_sync_last_gmail_total") or 0),
+            "last_calendar_total": int(sync.get("google_sync_last_calendar_total") or 0),
+            "age_seconds": sync.get("google_sync_age_seconds"),
+            "freshness_state": str(sync.get("google_sync_freshness_state") or "watch").strip() or "watch",
+            "pending_commitment_candidates": int(sync.get("pending_commitment_candidates") or 0),
+        }
+
     def search_workspace(
         self,
         *,

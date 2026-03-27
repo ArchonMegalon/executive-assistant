@@ -641,6 +641,25 @@ class GoogleSignalSyncOut(BaseModel):
     deduplicated_total: int = 0
 
 
+class GoogleSignalSyncStatusOut(BaseModel):
+    generated_at: str
+    connected: bool = False
+    account_email: str = ""
+    token_status: str = "missing"
+    last_refresh_at: str = ""
+    reauth_required_reason: str = ""
+    sync_completed: int = 0
+    office_signal_ingested: int = 0
+    last_completed_at: str = ""
+    last_synced_total: int = 0
+    last_deduplicated_total: int = 0
+    last_gmail_total: int = 0
+    last_calendar_total: int = 0
+    age_seconds: int | None = None
+    freshness_state: str = "watch"
+    pending_commitment_candidates: int = 0
+
+
 class WebhookRegisterIn(BaseModel):
     label: str = Field(min_length=1)
     target_url: str = Field(min_length=1)

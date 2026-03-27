@@ -111,7 +111,7 @@ operator_curl() {
     curl -fsS "${AUTH_ARGS[@]}" "${OPERATOR_PRINCIPAL_ARGS[@]}" "$@"
     return
   fi
-  if command -v docker >/dev/null 2>&1 && docker exec ea-api /bin/sh -lc 'curl -fsS http://127.0.0.1:8090/health >/dev/null' >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 && docker exec ea-api /bin/sh -lc 'for i in 1 2 3; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
     local arg
     local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
     for arg in "$@"; do
@@ -2180,11 +2180,11 @@ if [[ "${DISPATCH_RECEIPT_FIELDS}" != "stakeholder_dispatch|stakeholder_briefing
   fail 12 "policy contract mismatch"
 fi
 DISPATCH_PENDING_AFTER_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=200" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); delivery_id='${DISPATCH_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('delivery_id') == delivery_id), {}); print('{}|{}'.format(row.get('recipient',''), row.get('status','')))" )"
-if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" != "${DISPATCH_RECIPIENT}|queued" && -n "${DISPATCH_PENDING_AFTER_FIELDS}" ]]; then
+if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" != "${DISPATCH_RECIPIENT}|queued" && "${DISPATCH_PENDING_AFTER_FIELDS}" != "|" ]]; then
   echo "expected approved dispatch workflow to queue delivery outbox row or defer before pending enqueue; got ${DISPATCH_PENDING_AFTER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
-if [[ -z "${DISPATCH_PENDING_AFTER_FIELDS}" ]]; then
+if [[ "${DISPATCH_PENDING_AFTER_FIELDS}" == "|" ]]; then
   echo "approved dispatch workflow deferred delivery before pending outbox enqueue; delivery_id=${DISPATCH_DELIVERY_ID}" >&2
 fi
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
@@ -2459,11 +2459,11 @@ if [[ "${HYBRID_DONE_FIELDS}" != "completed|True|True|True|stakeholder_review_di
 fi
 HYBRID_DELIVERY_ID="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); receipts=body.get('receipts') or []; dispatch=next((row for row in receipts if (row or {}).get('tool_name') == 'connector.dispatch'), {}); print(dispatch.get('target_ref',''))" <<<"${HYBRID_DONE_JSON}")"
 HYBRID_PENDING_AFTER_FIELDS="$(curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=200" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); delivery_id='${HYBRID_DELIVERY_ID}'; row=next((row for row in rows if (row or {}).get('delivery_id') == delivery_id), {}); print('{}|{}'.format(row.get('recipient',''), row.get('status','')))" )"
-if [[ "${HYBRID_PENDING_AFTER_FIELDS}" != "${HYBRID_RECIPIENT}|queued" && -n "${HYBRID_PENDING_AFTER_FIELDS}" ]]; then
+if [[ "${HYBRID_PENDING_AFTER_FIELDS}" != "${HYBRID_RECIPIENT}|queued" && "${HYBRID_PENDING_AFTER_FIELDS}" != "|" ]]; then
   echo "expected approved review-then-dispatch workflow to queue delivery outbox row or defer before pending enqueue; got ${HYBRID_PENDING_AFTER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
-if [[ -z "${HYBRID_PENDING_AFTER_FIELDS}" ]]; then
+if [[ "${HYBRID_PENDING_AFTER_FIELDS}" == "|" ]]; then
   echo "approved review-then-dispatch workflow deferred delivery before pending outbox enqueue; delivery_id=${HYBRID_DELIVERY_ID}" >&2
 fi
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \

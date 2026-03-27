@@ -23,6 +23,7 @@ from app.api.routes.product_api_contracts import (
     EvidenceItemOut,
     EvidenceResponse,
     GoogleSignalSyncOut,
+    GoogleSignalSyncStatusOut,
     HandoffAssignIn,
     HandoffCompleteIn,
     HandoffNoteOut,
@@ -995,6 +996,15 @@ def sync_google_workspace_signals(
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return GoogleSignalSyncOut(**payload)
+
+
+@router.get("/signals/google/status", response_model=GoogleSignalSyncStatusOut)
+def get_google_signal_sync_status(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleSignalSyncStatusOut:
+    service = build_product_service(container)
+    return GoogleSignalSyncStatusOut(**service.google_signal_sync_status(principal_id=context.principal_id))
 
 
 @router.get("/webhooks", response_model=WebhookResponse)

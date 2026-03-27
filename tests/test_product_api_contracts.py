@@ -344,6 +344,14 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert sync_analytics["google_sync_freshness_state"] == "clear"
     assert sync_analytics["google_sync_last_completed_at"]
     assert sync_analytics["pending_commitment_candidates"] >= 1
+    sync_status = client.get("/app/api/signals/google/status")
+    assert sync_status.status_code == 200
+    sync_status_body = sync_status.json()
+    assert sync_status_body["connected"] is True
+    assert sync_status_body["account_email"] == "exec@example.com"
+    assert sync_status_body["freshness_state"] == "clear"
+    assert sync_status_body["last_completed_at"]
+    assert sync_status_body["pending_commitment_candidates"] >= 1
 
     events_after_repeat = client.get("/app/api/events")
     assert events_after_repeat.status_code == 200
