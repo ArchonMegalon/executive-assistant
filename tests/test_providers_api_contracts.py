@@ -1684,7 +1684,7 @@ def test_onemin_manager_does_not_count_unparsed_page_views_as_actual_billing() -
 
     assert aggregate["actual_billing_account_count"] == 0
     assert aggregate["actual_free_credits_total"] == 0
-    assert aggregate["estimated_account_count"] == 1
+    assert aggregate["account_count"] == 1
     assert actual["actual_billing_account_count"] == 0
     assert actual["binding_account_count"] == 1
     assert actual["accounts_without_actual_billing_count"] == 1
