@@ -7,6 +7,9 @@ proof_line: Preview product. Honest status. No mystery roadmap.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
+  - label: Create account to get preview
+    href: /signup?next=/downloads
+    emphasis: primary
   - label: See what works today
     href: /now
     emphasis: secondary

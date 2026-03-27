@@ -4,6 +4,16 @@ version: 1
 guest_readable_channels:
   - stable
 release_notes_summary: The current preview centers one obvious installer, a visible proof trail, cleaner account handoff, and account-aware install linking without changing the signed artifact.
+desktop_flagship_head: Chummer.Avalonia
+desktop_fallback_head: Chummer.Blazor.Desktop
+desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback, and distinguishes recommended installer posture from portable fallback posture.
+supported_locale_targets:
+  - en-US
+  - de-DE
+  - fr-FR
+  - ja-JP
+  - pt-BR
+  - zh-CN
 known_issues_label: Known issues and install help
 known_issues_href: /help#install-update
 install_help_label: Need install help?
@@ -46,9 +56,11 @@ windows_requirements:
   - 64-bit Windows 10 or newer.
   - Enough free disk space for the installed preview plus future updates.
   - A normal user install path; no custom runtime selection needed for the recommended build.
+  - Portable `.exe` handoff is a bounded fallback, not the primary public CTA.
 linux_requirements:
   - 64-bit Linux with the currently published preview package support.
   - Use the recommended package when available; use manual packages only for advanced or support-directed installs.
+  - Linux preview is secondary to Windows and should not promise more than the currently published package lane can support.
 macos_requirements:
   - macOS publishing is not on the current preview shelf.
   - Use the public roadmap and downloads page as the live source of truth before assuming a Mac build exists.
