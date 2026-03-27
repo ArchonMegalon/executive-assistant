@@ -11,7 +11,9 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models import ConnectorBinding, ProviderBindingRecord
@@ -189,6 +191,27 @@ class GoogleGmailSmokeResult:
     rfc822_message_id: str
     gmail_message_id: str
     sent_at: str
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceSignal:
+    signal_type: str
+    channel: str
+    title: str
+    summary: str
+    text: str
+    source_ref: str
+    external_id: str
+    counterparty: str
+    due_at: str | None
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceSignalSync:
+    account_email: str
+    granted_scopes: tuple[str, ...]
+    signals: tuple[GoogleWorkspaceSignal, ...]
 
 
 def load_google_oauth_config() -> GoogleOAuthConfig:
@@ -515,6 +538,71 @@ def list_google_accounts(*, container: AppContainer, principal_id: str) -> list[
     return accounts
 
 
+def list_recent_workspace_signals(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    email_limit: int = 5,
+    calendar_limit: int = 5,
+) -> GoogleWorkspaceSignalSync:
+    config = load_google_oauth_config()
+    binding = container.provider_registry.get_persisted_binding_record(
+        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+        principal_id=principal_id,
+    )
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = tuple(
+        sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
+    )
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_gmail_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    token_payload = _refresh_google_access_token(
+        refresh_token=refresh_token,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+    )
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_oauth_access_token_missing")
+    granted_scope_set = set(granted_scopes)
+    signals: list[GoogleWorkspaceSignal] = []
+    normalized_email_limit = max(int(email_limit), 0)
+    normalized_calendar_limit = max(int(calendar_limit), 0)
+    if normalized_email_limit > 0 and (
+        GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
+    ):
+        signals.extend(_list_recent_gmail_signals(access_token=access_token, max_results=normalized_email_limit))
+    if normalized_calendar_limit > 0 and (
+        GOOGLE_SCOPE_CALENDAR_READONLY in granted_scope_set or GOOGLE_SCOPE_CALENDAR in granted_scope_set
+    ):
+        signals.extend(_list_recent_calendar_signals(access_token=access_token, max_results=normalized_calendar_limit))
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    if signals:
+        updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    container.provider_registry.upsert_binding_record(
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleWorkspaceSignalSync(
+        account_email=str(metadata.get("google_email") or "").strip().lower(),
+        granted_scopes=granted_scopes,
+        signals=tuple(signals),
+    )
+
+
 def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict[str, Any]:
     payload = urllib.parse.urlencode(
         {
@@ -533,6 +621,153 @@ def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _list_recent_gmail_signals(*, access_token: str, max_results: int) -> list[GoogleWorkspaceSignal]:
+    if max_results <= 0:
+        return []
+    query = urllib.parse.urlencode({"maxResults": str(max_results), "labelIds": "INBOX", "q": "newer_than:7d"})
+    request = urllib.request.Request(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows: list[GoogleWorkspaceSignal] = []
+    for item in list(payload.get("messages") or []):
+        message_id = str(item.get("id") or "").strip()
+        if not message_id:
+            continue
+        details = _gmail_message_metadata(access_token=access_token, message_id=message_id)
+        thread_id = str(details.get("threadId") or item.get("threadId") or message_id).strip()
+        headers = {
+            str(row.get("name") or "").strip().lower(): str(row.get("value") or "").strip()
+            for row in list((details.get("payload") or {}).get("headers") or [])
+            if isinstance(row, dict)
+        }
+        subject = headers.get("subject") or "Inbox activity"
+        from_raw = headers.get("from") or ""
+        sender_name, sender_email = parseaddr(from_raw)
+        counterparty = (sender_name or sender_email).strip()
+        snippet = str(details.get("snippet") or "").strip()
+        summary = snippet or f"Recent mail from {counterparty or 'a contact'}."
+        text = " ".join(part for part in (subject, snippet) if part).strip() or subject
+        rows.append(
+            GoogleWorkspaceSignal(
+                signal_type="email_thread",
+                channel="gmail",
+                title=subject[:160],
+                summary=summary[:280],
+                text=text[:1000],
+                source_ref=f"gmail-thread:{thread_id}",
+                external_id=f"gmail-message:{message_id}",
+                counterparty=counterparty[:120],
+                due_at=None,
+                payload={
+                    "thread_id": thread_id,
+                    "message_id": message_id,
+                    "received_at": headers.get("date") or "",
+                    "from_email": sender_email.strip().lower(),
+                    "from_name": sender_name.strip(),
+                    "labels": list(details.get("labelIds") or []),
+                    "snippet": snippet,
+                },
+            )
+        )
+    return rows
+
+
+def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, Any]:
+    query = urllib.parse.urlencode(
+        [
+            ("format", "metadata"),
+            ("metadataHeaders", "Subject"),
+            ("metadataHeaders", "From"),
+            ("metadataHeaders", "Date"),
+        ]
+    )
+    request = urllib.request.Request(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> list[GoogleWorkspaceSignal]:
+    if max_results <= 0:
+        return []
+    now = datetime.now(timezone.utc)
+    query = urllib.parse.urlencode(
+        {
+            "maxResults": str(max_results),
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "timeMin": now.isoformat().replace("+00:00", "Z"),
+            "timeMax": (now + timedelta(days=7)).isoformat().replace("+00:00", "Z"),
+        }
+    )
+    request = urllib.request.Request(
+        f"https://www.googleapis.com/calendar/v3/calendars/primary/events?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows: list[GoogleWorkspaceSignal] = []
+    for item in list(payload.get("items") or []):
+        if str(item.get("status") or "").strip().lower() == "cancelled":
+            continue
+        event_id = str(item.get("id") or "").strip()
+        if not event_id:
+            continue
+        title = str(item.get("summary") or "").strip() or "Upcoming meeting"
+        start = dict(item.get("start") or {})
+        end = dict(item.get("end") or {})
+        start_at = str(start.get("dateTime") or start.get("date") or "").strip()
+        attendees = [
+            str(row.get("displayName") or row.get("email") or "").strip()
+            for row in list(item.get("attendees") or [])
+            if isinstance(row, dict) and str(row.get("displayName") or row.get("email") or "").strip()
+        ]
+        organizer = str((item.get("organizer") or {}).get("displayName") or (item.get("organizer") or {}).get("email") or "").strip()
+        counterparty = next((name for name in attendees if name), organizer)
+        summary_parts = [title]
+        if start_at:
+            summary_parts.append(f"Starts {start_at}")
+        if str(item.get("location") or "").strip():
+            summary_parts.append(f"Location {str(item.get('location') or '').strip()}")
+        summary = ". ".join(summary_parts)
+        text_parts = [title]
+        if counterparty:
+            text_parts.append(f"Attendees: {', '.join(attendees[:4])}")
+        if str(item.get("description") or "").strip():
+            text_parts.append(str(item.get("description") or "").strip())
+        rows.append(
+            GoogleWorkspaceSignal(
+                signal_type="calendar_note",
+                channel="calendar",
+                title=title[:160],
+                summary=summary[:280],
+                text=" ".join(part for part in text_parts if part).strip()[:1000] or title,
+                source_ref=f"calendar-event:{event_id}",
+                external_id=f"calendar-event:{event_id}",
+                counterparty=counterparty[:120],
+                due_at=start_at or None,
+                payload={
+                    "event_id": event_id,
+                    "location": str(item.get("location") or "").strip(),
+                    "start_at": start_at,
+                    "end_at": str(end.get("dateTime") or end.get("date") or "").strip(),
+                    "attendees": attendees,
+                    "organizer": organizer,
+                    "html_link": str(item.get("htmlLink") or "").strip(),
+                },
+            )
+        )
+    return rows
 
 
 def _refresh_google_access_token(*, refresh_token: str, client_id: str, client_secret: str) -> dict[str, Any]:

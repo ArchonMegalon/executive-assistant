@@ -579,6 +579,14 @@ class OfficeSignalResultOut(BaseModel):
     staged_count: int = 0
 
 
+class GoogleSignalSyncOut(BaseModel):
+    generated_at: str
+    account_email: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class WebhookRegisterIn(BaseModel):
     label: str = Field(min_length=1)
     target_url: str = Field(min_length=1)

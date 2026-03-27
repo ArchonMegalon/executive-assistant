@@ -45,6 +45,7 @@ from app.product.projections import (
     status_open,
     thread_items_from_objects,
 )
+from app.services import google_oauth as google_oauth_service
 from app.services.registration_email import (
     email_delivery_enabled,
     send_channel_digest_email,
@@ -637,6 +638,59 @@ class ProductService:
                 for row in staged
             ],
             "staged_count": len(staged),
+        }
+
+    def sync_google_workspace_signals(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        email_limit: int = 5,
+        calendar_limit: int = 5,
+    ) -> dict[str, object]:
+        packet = google_oauth_service.list_recent_workspace_signals(
+            container=self._container,
+            principal_id=principal_id,
+            email_limit=email_limit,
+            calendar_limit=calendar_limit,
+        )
+        items = [
+            self.ingest_office_signal(
+                principal_id=principal_id,
+                signal_type=row.signal_type,
+                channel=row.channel,
+                title=row.title,
+                summary=row.summary,
+                text=row.text,
+                source_ref=row.source_ref,
+                external_id=row.external_id,
+                counterparty=row.counterparty,
+                due_at=row.due_at,
+                payload=row.payload,
+                actor=actor,
+            )
+            for row in packet.signals
+        ]
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_workspace_signal_sync_completed",
+            payload={
+                "account_email": packet.account_email,
+                "email_limit": max(int(email_limit), 0),
+                "calendar_limit": max(int(calendar_limit), 0),
+                "synced_total": len(items),
+                "gmail_total": sum(1 for row in packet.signals if row.channel == "gmail"),
+                "calendar_total": sum(1 for row in packet.signals if row.channel == "calendar"),
+            },
+            source_id=packet.account_email,
+            dedupe_key=f"{principal_id}|google-signal-sync|{max(int(email_limit), 0)}|{max(int(calendar_limit), 0)}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "account_email": packet.account_email,
+            "granted_scopes": list(packet.granted_scopes),
+            "items": items,
+            "total": len(items),
         }
 
     def search_workspace(

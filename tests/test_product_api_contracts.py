@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services import google_oauth as google_oauth_service
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
@@ -246,6 +247,68 @@ def test_product_api_projects_real_runtime_objects() -> None:
     diagnostics_after_channel_action = client.get("/app/api/diagnostics")
     assert diagnostics_after_channel_action.status_code == 200
     assert int(dict(diagnostics_after_channel_action.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 1
+
+
+def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
+    principal_id = "exec-product-google-sync"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="exec@example.com",
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up",
+                    summary="Send the revised board packet to Sofia tomorrow morning.",
+                    text="Send the revised board packet to Sofia tomorrow morning.",
+                    source_ref="gmail-thread:abc123",
+                    external_id="gmail-message:def456",
+                    counterparty="Sofia N.",
+                    due_at=None,
+                    payload={"thread_id": "abc123", "message_id": "def456"},
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="calendar_note",
+                    channel="calendar",
+                    title="Board prep",
+                    summary="Starts 2026-03-28T09:00:00+00:00",
+                    text="Board prep with Sofia N. before the memo review.",
+                    source_ref="calendar-event:prep-1",
+                    external_id="calendar-event:prep-1",
+                    counterparty="Sofia N.",
+                    due_at="2026-03-28T09:00:00+00:00",
+                    payload={"event_id": "prep-1"},
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 2, "calendar_limit": 2})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["account_email"] == "exec@example.com"
+    assert body["total"] == 2
+    assert {item["channel"] for item in body["items"]} == {"gmail", "calendar"}
+    assert any(item["event_type"] == "office_signal_email_thread" and item["staged_count"] >= 1 for item in body["items"])
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    event_types = {item["event_type"] for item in events.json()["items"]}
+    assert "office_signal_email_thread" in event_types
+    assert "office_signal_calendar_note" in event_types
+
+    candidates = client.get("/app/api/commitments/candidates")
+    assert candidates.status_code == 200
+    assert any("board packet" in item["title"].lower() for item in candidates.json())
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
