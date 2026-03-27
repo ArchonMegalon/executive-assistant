@@ -482,10 +482,20 @@ class WorkspaceAccessSessionOut(BaseModel):
     display_name: str = ""
     operator_id: str = ""
     source_kind: str = ""
+    issued_at: str = ""
+    status: str = "active"
+    revoked_at: str = ""
+    revoked_by: str = ""
     expires_at: str = ""
     access_token: str = ""
     access_url: str = ""
     default_target: str = "/app/today"
+
+
+class WorkspaceAccessSessionResponse(BaseModel):
+    generated_at: str
+    items: list[WorkspaceAccessSessionOut]
+    total: int
 
 
 class ChannelDigestDeliveryCreateIn(BaseModel):

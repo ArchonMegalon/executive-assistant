@@ -382,6 +382,19 @@ def test_workspace_access_and_channel_delivery_routes_issue_session_cookie() -> 
     assert opened.headers["location"] == "/app/channel-loop/memo"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
+    session_issue = client.post(
+        "/app/api/access-sessions",
+        json={"email": "principal@example.com", "role": "principal", "display_name": "Principal Browser Access"},
+    )
+    assert session_issue.status_code == 200
+    session_body = session_issue.json()
+    revoked = client.post(f"/app/api/access-sessions/{session_body['session_id']}/revoke")
+    assert revoked.status_code == 200
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    blocked = client.get(session_body["access_url"], follow_redirects=False)
+    assert blocked.status_code == 404
+
 
 def test_browser_commitment_capture_actions_work() -> None:
     principal_id = "exec-browser-capture"

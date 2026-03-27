@@ -1257,6 +1257,10 @@ class ProductService:
             "display_name": str(display_name or "").strip(),
             "operator_id": resolved_operator_id,
             "source_kind": str(token_payload["source_kind"]),
+            "issued_at": _now_iso(),
+            "status": "active",
+            "revoked_at": "",
+            "revoked_by": "",
             "expires_at": str(token_payload["expires_at"]),
             "access_token": access_token,
             "access_url": f"/workspace-access/{access_token}",
@@ -1271,24 +1275,121 @@ class ProductService:
         )
         return payload
 
+    def list_workspace_access_sessions(
+        self,
+        *,
+        principal_id: str,
+        status: str = "",
+        limit: int = 100,
+    ) -> tuple[dict[str, object], ...]:
+        wanted_status = str(status or "").strip().lower()
+        sessions: dict[str, dict[str, object]] = {}
+        rows = list(self._container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
+        rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
+        for row in rows:
+            event_type = str(row.event_type or "").strip().lower()
+            payload = dict(row.payload or {})
+            session_id = str(payload.get("session_id") or row.source_id or "").strip()
+            if not session_id:
+                continue
+            if event_type == "workspace_access_session_issued":
+                normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
+                sessions[session_id] = {
+                    "session_id": session_id,
+                    "principal_id": str(payload.get("principal_id") or principal_id).strip(),
+                    "email": str(payload.get("email") or "").strip().lower(),
+                    "role": normalized_role,
+                    "display_name": str(payload.get("display_name") or "").strip(),
+                    "operator_id": str(payload.get("operator_id") or "").strip() if normalized_role == "operator" else "",
+                    "source_kind": str(payload.get("source_kind") or "").strip(),
+                    "issued_at": str(payload.get("issued_at") or row.created_at or ""),
+                    "status": "active",
+                    "revoked_at": "",
+                    "revoked_by": "",
+                    "expires_at": str(payload.get("expires_at") or "").strip(),
+                    "access_token": str(payload.get("access_token") or "").strip(),
+                    "access_url": str(payload.get("access_url") or "").strip(),
+                    "default_target": str(payload.get("default_target") or ("/app/activity" if normalized_role == "operator" else "/app/today")).strip(),
+                }
+            elif event_type == "workspace_access_session_revoked" and session_id in sessions:
+                sessions[session_id].update(
+                    {
+                        "status": "revoked",
+                        "revoked_at": str(payload.get("revoked_at") or row.created_at or ""),
+                        "revoked_by": str(payload.get("revoked_by") or "").strip(),
+                    }
+                )
+        items = list(sessions.values())
+        if wanted_status:
+            items = [item for item in items if str(item.get("status") or "").strip().lower() == wanted_status]
+        items.sort(key=lambda item: (str(item.get("issued_at") or ""), str(item.get("session_id") or "")), reverse=True)
+        return tuple(items[:limit])
+
+    def get_workspace_access_session(self, *, principal_id: str, session_id: str) -> dict[str, object] | None:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return None
+        for row in self.list_workspace_access_sessions(principal_id=principal_id, limit=200):
+            if str(row.get("session_id") or "").strip() == normalized:
+                return row
+        return None
+
     def preview_workspace_access_session(self, *, token: str) -> dict[str, object] | None:
         payload = _verify_channel_payload(secret=self._workspace_access_secret(), token=token)
         if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
             return None
+        principal_id = str(payload.get("principal_id") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        if not principal_id or not session_id:
+            return None
+        current = self.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
+        if current is not None:
+            if str(current.get("status") or "").strip().lower() == "revoked":
+                return None
+            return current
         normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
         return {
-            "session_id": str(payload.get("session_id") or "").strip(),
-            "principal_id": str(payload.get("principal_id") or "").strip(),
+            "session_id": session_id,
+            "principal_id": principal_id,
             "email": str(payload.get("email") or "").strip().lower(),
             "role": normalized_role,
             "display_name": str(payload.get("display_name") or "").strip(),
             "operator_id": str(payload.get("operator_id") or "").strip() if normalized_role == "operator" else "",
             "source_kind": str(payload.get("source_kind") or "").strip(),
+            "issued_at": "",
+            "status": "active",
+            "revoked_at": "",
+            "revoked_by": "",
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
             "default_target": "/app/activity" if normalized_role == "operator" else "/app/today",
         }
+
+    def revoke_workspace_access_session(
+        self,
+        *,
+        principal_id: str,
+        session_id: str,
+        actor: str,
+    ) -> dict[str, object] | None:
+        current = self.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
+        if current is None:
+            return None
+        if str(current.get("status") or "").strip().lower() == "revoked":
+            return current
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_access_session_revoked",
+            payload={
+                "session_id": str(session_id or "").strip(),
+                "revoked_at": _now_iso(),
+                "revoked_by": str(actor or "").strip() or "workspace",
+            },
+            source_id=str(session_id or "").strip(),
+            dedupe_key=f"{principal_id}|{session_id}|revoked",
+        )
+        return self.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
 
     def accept_workspace_invitation(
         self,
