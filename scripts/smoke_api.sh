@@ -179,6 +179,65 @@ if [[ "${OPENAPI_FIELDS}" != "waiting_approval|True|True|True|queued|True|True|a
 fi
 echo "openapi ok"
 
+echo "== smoke: registration + workspace access =="
+REGISTER_EMAIL="smoke-register-${SMOKE_RUN_TOKEN}@example.com"
+REGISTER_START_JSON="$(curl -fsS -X POST "${BASE}/v1/register/start" -H 'content-type: application/json' -d "{\"email\":\"${REGISTER_EMAIL}\"}")"
+REGISTER_START_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); status=str(body.get('email_delivery_status','')); print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('email',''), len(str(body.get('verification_code',''))), bool(body.get('verification_token','')), str(body.get('magic_link_url','')).startswith('/register?token='), bool(body.get('workspace_name','')), status in {'', 'sent', 'failed'}, status != 'failed' or bool(body.get('email_delivery_error',''))))" <<<"${REGISTER_START_JSON}")"
+if [[ "${REGISTER_START_FIELDS}" != "${REGISTER_EMAIL}|6|True|True|True|True|True" ]]; then
+  echo "expected registration start to return normalized email, token, six-digit code, local magic link, workspace name, and a valid delivery status envelope; got ${REGISTER_START_FIELDS}" >&2
+  echo "${REGISTER_START_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+REGISTER_VERIFY_JSON="$(REGISTER_START_JSON="${REGISTER_START_JSON}" python3 -c 'import json,os; body=json.loads(os.environ.get("REGISTER_START_JSON","{}")); print(json.dumps({"verification_token": body.get("verification_token",""), "verification_code": body.get("verification_code",""), "workspace_name": body.get("workspace_name","Smoke Register"), "timezone": body.get("suggested_timezone","Europe/Vienna") or "Europe/Vienna", "language": body.get("suggested_language","en") or "en"}))')"
+REGISTER_VERIFY_RESPONSE="$(curl -fsS -X POST "${BASE}/v1/register/verify" -H 'content-type: application/json' -d "${REGISTER_VERIFY_JSON}")"
+REGISTER_VERIFY_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(bool(body.get('principal_id','')), str(body.get('access_url','')).startswith('/workspace-access/'), bool(body.get('access_token','')), bool(body.get('access_expires_at','')), str(((body.get('google_start') or {}).get('auth_url',''))).startswith('https://'))) " <<<"${REGISTER_VERIFY_RESPONSE}")"
+if [[ "${REGISTER_VERIFY_FIELDS}" != "True|True|True|True|True" ]]; then
+  echo "expected registration verify to issue a principal, workspace access link/token, expiry, and Google start packet; got ${REGISTER_VERIFY_FIELDS}" >&2
+  echo "${REGISTER_VERIFY_RESPONSE}" >&2
+  fail 12 "policy contract mismatch"
+fi
+REGISTER_ACCESS_URL="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("access_url",""))' <<<"${REGISTER_VERIFY_RESPONSE}")"
+mkdir -p "${EA_ROOT}/.smoke_tmp"
+REGISTER_COOKIE_JAR="${EA_ROOT}/.smoke_tmp/register_workspace_access.cookies"
+REGISTER_ACCESS_HEADERS="${EA_ROOT}/.smoke_tmp/register_workspace_access.headers"
+rm -f "${REGISTER_COOKIE_JAR}" "${REGISTER_ACCESS_HEADERS}"
+curl -sS -D "${REGISTER_ACCESS_HEADERS}" -c "${REGISTER_COOKIE_JAR}" -o /dev/null "${BASE}${REGISTER_ACCESS_URL}"
+REGISTER_ACCESS_FIELDS="$(python3 - <<'PY' "${REGISTER_ACCESS_HEADERS}" "${REGISTER_COOKIE_JAR}"
+import sys
+from pathlib import Path
+headers=Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace')
+cookie_jar=Path(sys.argv[2]).read_text(encoding='utf-8', errors='replace')
+status=''
+location=''
+cookie=False
+for line in headers.splitlines():
+    if line.startswith('HTTP/'):
+        parts=line.split()
+        if len(parts) >= 2:
+            status=parts[1]
+    if line.lower().startswith('location:'):
+        location=line.split(':',1)[1].strip()
+    if line.lower().startswith('set-cookie:') and 'ea_workspace_session=' in line:
+        cookie=True
+jar_cookie='ea_workspace_session' in cookie_jar
+print(f"{status}|{location}|{cookie}|{jar_cookie}")
+PY
+)"
+if [[ "${REGISTER_ACCESS_FIELDS}" != "303|/app/today|True|True" ]]; then
+  echo "expected workspace access link to set the session cookie and redirect to /app/today; got ${REGISTER_ACCESS_FIELDS}" >&2
+  cat "${REGISTER_ACCESS_HEADERS}" >&2
+  cat "${REGISTER_COOKIE_JAR}" >&2
+  fail 12 "policy contract mismatch"
+fi
+REGISTER_QUEUE_JSON="$(curl -fsS -b "${REGISTER_COOKIE_JAR}" "${BASE}/app/api/queue")"
+REGISTER_QUEUE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(bool(body.get('generated_at','')), isinstance(body.get('items'), list), isinstance(body.get('total'), int)))" <<<"${REGISTER_QUEUE_JSON}")"
+if [[ "${REGISTER_QUEUE_FIELDS}" != "True|True|True" ]]; then
+  echo "expected workspace-session cookie to authorize /app/api/queue without bearer auth; got ${REGISTER_QUEUE_FIELDS}" >&2
+  echo "${REGISTER_QUEUE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "registration/workspace access ok"
+
 echo "== smoke: rewrite =="
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
