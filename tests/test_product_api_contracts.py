@@ -874,6 +874,14 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     access_body = access_session.json()
     assert access_body["access_url"].startswith("/workspace-access/")
     assert access_body["default_target"] == "/app/today"
+    assert access_body["status"] == "active"
+    assert access_body["issued_at"]
+
+    listed = client.get("/app/api/access-sessions")
+    assert listed.status_code == 200
+    listed_body = listed.json()
+    listed_session = next(item for item in listed_body["items"] if item["session_id"] == access_body["session_id"])
+    assert listed_session["status"] == "active"
 
     client.headers.pop("X-EA-Principal-ID", None)
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
@@ -883,6 +891,21 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200
     assert session_drafts.json()[0]["id"] == f"approval:{seeded['approval_id']}"
+    client.headers["X-EA-Principal-ID"] = principal_id
+
+    revoked_access = client.post(f"/app/api/access-sessions/{access_body['session_id']}/revoke")
+    assert revoked_access.status_code == 200
+    assert revoked_access.json()["status"] == "revoked"
+    assert revoked_access.json()["revoked_at"]
+
+    listed_revoked = client.get("/app/api/access-sessions", params={"status": "revoked"})
+    assert listed_revoked.status_code == 200
+    revoked_session = next(item for item in listed_revoked.json()["items"] if item["session_id"] == access_body["session_id"])
+    assert revoked_session["status"] == "revoked"
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    blocked_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert blocked_access.status_code == 404
 
     delivery = client.post(
         "/app/api/channel-loop/memo/deliveries",

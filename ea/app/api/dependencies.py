@@ -98,6 +98,27 @@ def _workspace_session_payload(request: Request, container: AppContainer) -> dic
     if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
         setattr(request.state, "workspace_access_session_payload", False)
         return None
+    principal_id = str(payload.get("principal_id") or "").strip()
+    session_id = str(payload.get("session_id") or "").strip()
+    if not principal_id or not session_id:
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
+    rows = list(container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
+    rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
+    revoked = False
+    for row in rows:
+        event_type = str(row.event_type or "").strip().lower()
+        payload_row = dict(row.payload or {})
+        current_session_id = str(payload_row.get("session_id") or row.source_id or "").strip()
+        if current_session_id != session_id:
+            continue
+        if event_type == "workspace_access_session_revoked":
+            revoked = True
+        elif event_type == "workspace_access_session_issued":
+            revoked = False
+    if revoked:
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
     setattr(request.state, "workspace_access_session_payload", payload)
     return payload
 

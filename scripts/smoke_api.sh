@@ -236,6 +236,35 @@ if [[ "${REGISTER_QUEUE_FIELDS}" != "True|True|True" ]]; then
   echo "${REGISTER_QUEUE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
+ACCESS_SESSION_JSON="$(curl -fsS -X POST "${BASE}/app/api/access-sessions" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"email":"smoke-access@example.com","role":"principal","display_name":"Smoke Access","expires_in_hours":24}')"
+ACCESS_SESSION_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(bool(body.get('session_id','')), str(body.get('status','')) == 'active', bool(body.get('issued_at','')), bool(body.get('access_token','')), str(body.get('access_url','')).startswith('/workspace-access/')))" <<<"${ACCESS_SESSION_JSON}")"
+if [[ "${ACCESS_SESSION_FIELDS}" != "True|True|True|True|True" ]]; then
+  echo "expected access session creation to return active cookie-ready session state; got ${ACCESS_SESSION_FIELDS}" >&2
+  echo "${ACCESS_SESSION_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+ACCESS_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${ACCESS_SESSION_JSON}")"
+ACCESS_SESSION_URL="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("access_url",""))' <<<"${ACCESS_SESSION_JSON}")"
+ACCESS_SESSION_LIST_JSON="$(curl -fsS "${BASE}/app/api/access-sessions?status=active" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+ACCESS_SESSION_LIST_FIELDS="$(ACCESS_SESSION_ID="${ACCESS_SESSION_ID}" python3 -c 'import json,os,sys; body=json.loads(sys.stdin.read() or "{}"); session_id=os.environ.get("ACCESS_SESSION_ID",""); items=body.get("items") or []; print("{}|{}|{}".format(bool(body.get("generated_at","")), isinstance(items, list), any(str(item.get("session_id","")) == session_id and str(item.get("status","")) == "active" for item in items)))' <<<"${ACCESS_SESSION_LIST_JSON}")"
+if [[ "${ACCESS_SESSION_LIST_FIELDS}" != "True|True|True" ]]; then
+  echo "expected access session list to include the active session; got ${ACCESS_SESSION_LIST_FIELDS}" >&2
+  echo "${ACCESS_SESSION_LIST_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+ACCESS_SESSION_REVOKE_JSON="$(curl -fsS -X POST "${BASE}/app/api/access-sessions/${ACCESS_SESSION_ID}/revoke" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+ACCESS_SESSION_REVOKE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(bool(body.get('session_id','')), str(body.get('status','')) == 'revoked', bool(body.get('revoked_at',''))))" <<<"${ACCESS_SESSION_REVOKE_JSON}")"
+if [[ "${ACCESS_SESSION_REVOKE_FIELDS}" != "True|True|True" ]]; then
+  echo "expected access session revoke to return revoked status with timestamp; got ${ACCESS_SESSION_REVOKE_FIELDS}" >&2
+  echo "${ACCESS_SESSION_REVOKE_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
+REVOKED_ACCESS_STATUS="$(curl_status_code "${EA_ROOT}/.smoke_tmp/revoked_workspace_access.body" "${BASE}${ACCESS_SESSION_URL}")"
+if [[ "${REVOKED_ACCESS_STATUS}" != "404" ]]; then
+  echo "expected revoked workspace access link to return 404; got ${REVOKED_ACCESS_STATUS}" >&2
+  cat "${EA_ROOT}/.smoke_tmp/revoked_workspace_access.body" >&2 || true
+  fail 12 "policy contract mismatch"
+fi
 echo "registration/workspace access ok"
 
 echo "== smoke: google signal sync =="

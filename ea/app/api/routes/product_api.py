@@ -44,6 +44,7 @@ from app.api.routes.product_api_contracts import (
     WorkspaceInvitationAcceptIn,
     WorkspaceAccessSessionCreateIn,
     WorkspaceAccessSessionOut,
+    WorkspaceAccessSessionResponse,
     WorkspaceInvitationCreateIn,
     WorkspaceInvitationOut,
     WorkspaceInvitationResponse,
@@ -871,6 +872,44 @@ def create_workspace_access_session(
         source_kind="workspace_access_api",
         expires_in_hours=body.expires_in_hours,
     )
+    return WorkspaceAccessSessionOut(**payload)
+
+
+@router.get("/access-sessions", response_model=WorkspaceAccessSessionResponse)
+def list_workspace_access_sessions(
+    status: str = Query(default=""),
+    limit: int = Query(default=50, ge=1, le=200),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceAccessSessionResponse:
+    service = build_product_service(container)
+    items = service.list_workspace_access_sessions(
+        principal_id=context.principal_id,
+        status=status,
+        limit=limit,
+    )
+    return WorkspaceAccessSessionResponse(
+        generated_at=now_iso(),
+        items=[WorkspaceAccessSessionOut(**item) for item in items],
+        total=len(items),
+    )
+
+
+@router.post("/access-sessions/{session_id}/revoke", response_model=WorkspaceAccessSessionOut)
+def revoke_workspace_access_session(
+    session_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceAccessSessionOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "workspace").strip()
+    payload = service.revoke_workspace_access_session(
+        principal_id=context.principal_id,
+        session_id=session_id,
+        actor=actor,
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="workspace_access_session_not_found")
     return WorkspaceAccessSessionOut(**payload)
 
 
