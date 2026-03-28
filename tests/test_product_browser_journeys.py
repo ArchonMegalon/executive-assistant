@@ -58,6 +58,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "/app/settings/usage" in settings.text
     assert "/app/settings/support" in settings.text
     assert "/app/settings/outcomes" in settings.text
+    assert "/app/settings/access" in settings.text
+    assert "/app/settings/invitations" in settings.text
     assert "/app/settings/trust" in settings.text
 
     person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
@@ -464,3 +466,33 @@ def test_browser_commitment_capture_actions_work() -> None:
     assert inbox.status_code == 200
     assert "Accept" in inbox.text
     assert "revised board packet" in inbox.text.lower()
+
+
+def test_browser_settings_access_and_invitation_pages_render_live_workspace_state() -> None:
+    principal_id = "exec-browser-access-settings"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal")
+
+    invite = client.post(
+        "/app/api/invitations",
+        json={"email": "operator@example.com", "role": "operator", "display_name": "Operator One"},
+    )
+    assert invite.status_code == 200
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={"email": "principal@example.com", "role": "principal", "display_name": "Principal Access"},
+    )
+    assert access_session.status_code == 200
+
+    invitations_page = client.get("/app/settings/invitations")
+    assert invitations_page.status_code == 200
+    assert "Workspace invitations" in invitations_page.text
+    assert "Invites waiting for acceptance" in invitations_page.text
+    assert "operator@example.com" in invitations_page.text
+
+    access_page = client.get("/app/settings/access")
+    assert access_page.status_code == 200
+    assert "Workspace access" in access_page.text
+    assert "Live workspace access links" in access_page.text
+    assert "principal@example.com" in access_page.text
