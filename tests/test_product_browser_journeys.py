@@ -63,6 +63,11 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "/app/settings/invitations" in settings.text
     assert "/app/settings/trust" in settings.text
 
+    invitations = client.get("/app/settings/invitations")
+    assert invitations.status_code == 200
+    assert "Workspace invitations" in invitations.text
+    assert "Invite email failures" in invitations.text
+
     search_page = client.get("/app/search", params={"query": "Sofia"})
     assert search_page.status_code == 200
     assert "Workspace search" in search_page.text

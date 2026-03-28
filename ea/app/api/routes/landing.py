@@ -1577,6 +1577,9 @@ def settings_invitations_detail(
     pending = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="pending", limit=50)]
     accepted = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="accepted", limit=20)]
     revoked = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="revoked", limit=20)]
+    delivery_rows = [*pending, *accepted, *revoked]
+    delivery_failed = sum(1 for item in delivery_rows if str(item.get("email_delivery_status") or "").strip() == "failed")
+    delivery_sent = sum(1 for item in delivery_rows if str(item.get("email_delivery_status") or "").strip() == "sent")
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1592,7 +1595,7 @@ def settings_invitations_detail(
             {"label": "Pending", "value": str(len(pending))},
             {"label": "Accepted", "value": str(len(accepted))},
             {"label": "Revoked", "value": str(len(revoked))},
-            {"label": "Seat-aware roles", "value": "principal, operator"},
+            {"label": "Delivery failures", "value": str(delivery_failed)},
         ],
         object_sidebar_title="What invitation control should answer",
         object_sidebar_copy="Invitation control should answer who is waiting to join, which role they will enter with, and whether an old invite still needs to be withdrawn.",
@@ -1600,6 +1603,8 @@ def settings_invitations_detail(
             _object_detail_row("Pending invitations", str(len(pending)), "Invites"),
             _object_detail_row("Accepted invitations", str(len(accepted)), "Access"),
             _object_detail_row("Revoked invitations", str(len(revoked)), "Invites"),
+            _object_detail_row("Invite emails sent", str(delivery_sent), "Delivery"),
+            _object_detail_row("Invite email failures", str(delivery_failed), "Delivery"),
             _object_detail_row("Operator seat policy", "Operator seats are enforced at acceptance time.", "Seats"),
         ],
         object_sections=[
@@ -1609,7 +1614,15 @@ def settings_invitations_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.get("role") or "operator").replace("_", " "),
+                                f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
+                                f"expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                            )
+                            if part
+                        ),
                         "Pending",
                     )
                     for item in pending[:12]
@@ -1621,7 +1634,15 @@ def settings_invitations_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · accepted {str(item.get('accepted_at') or '')[:19] or 'n/a'}",
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.get("role") or "operator").replace("_", " "),
+                                f"accepted {str(item.get('accepted_at') or '')[:19] or 'n/a'}",
+                                f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
+                            )
+                            if part
+                        ),
                         "Accepted",
                     )
                     for item in accepted[:8]
@@ -1633,7 +1654,15 @@ def settings_invitations_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.get("role") or "operator").replace("_", " "),
+                                f"revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
+                                f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
+                            )
+                            if part
+                        ),
                         "Revoked",
                     )
                     for item in revoked[:8]
