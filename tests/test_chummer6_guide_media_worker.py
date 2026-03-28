@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -19,6 +20,10 @@ def _load_module():
         raise RuntimeError(f"cannot load module from {MODULE_PATH}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    sandbox_root = Path(tempfile.mkdtemp(prefix="chummer6-media-worker-"))
+    module.SCENE_LEDGER_OUT = sandbox_root / "scene-ledger.json"
+    module.CHALLENGER_LEDGER_OUT = sandbox_root / "challenger-ledger.json"
+    module.PROVIDER_SCHEDULER_OUT = sandbox_root / "provider-scheduler.json"
     return module
 
 
@@ -46,6 +51,28 @@ def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(mon
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
     assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
+
+
+def test_routed_provider_order_prefers_onemin_for_quality_focus_targets() -> None:
+    media = _load_module()
+
+    routed = media.routed_provider_order_for_target(
+        "assets/pages/parts-index.png",
+        providers=["media_factory", "magixai", "onemin"],
+    )
+
+    assert routed[0] == "onemin"
+
+
+def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
+    media = _load_module()
+
+    routed = media.routed_provider_order_for_target(
+        "assets/horizons/karma-forge.png",
+        providers=["onemin", "media_factory", "magixai"],
+    )
+
+    assert routed[0] == "media_factory"
 
 
 def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -906,7 +933,7 @@ def test_render_with_ooda_preserves_spec_provider_order_without_env_filter(
         width=1600,
         height=900,
         spec={
-            "target": "assets/hero/chummer6-hero.png",
+            "target": "assets/horizons/jackpoint.png",
             "media_row": {"scene_contract": {}},
             "providers": ["browseract_prompting_systems", "media_factory", "onemin"],
         },
@@ -2018,6 +2045,7 @@ def test_render_with_ooda_skips_provider_on_rate_limit_cooldown(
 ) -> None:
     media = _load_module()
     media._PROVIDER_RATE_LIMIT_COOLDOWNS.clear()
+    monkeypatch.setattr(media, "PROVIDER_SCHEDULER_OUT", tmp_path / "scheduler.json")
     output_path = tmp_path / "render.png"
 
     monkeypatch.setattr(media, "build_safe_onemin_prompt", lambda **kwargs: str(kwargs["prompt"]))
