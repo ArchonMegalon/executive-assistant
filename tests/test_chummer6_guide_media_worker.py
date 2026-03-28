@@ -2551,6 +2551,24 @@ def test_refine_prompt_with_ooda_can_disable_external_refinement(monkeypatch: py
     assert refined == "base prompt"
 
 
+def test_refine_prompt_with_ooda_skips_external_refiner_for_quality_focus_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_PROMPT_REFINEMENT_REQUIRED", raising=False)
+    monkeypatch.setattr(media, "env_value", lambda name: "wf-123" if name == "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID" else "")
+    monkeypatch.setattr(media, "shlex_command", lambda name: ["python3", "-c", "print('should not run')"])
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("external refiner should not run for quality focus targets")
+
+    monkeypatch.setattr(media.subprocess, "run", _unexpected)
+
+    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/what-chummer6-is.png")
+
+    assert refined == "base prompt"
+
+
 def test_refine_prompt_with_ooda_falls_back_to_local_prompt_on_timeout_when_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
