@@ -168,7 +168,10 @@ def app_section_payload(
             "value": f"{ready_channels}/{selected_count}" if selected_count else str(ready_channels),
         },
     ]
-    first_brief = list_rows(preview.get("first_brief"), ("Connect Google Core to generate the first morning memo.",))
+    first_brief = list_rows(
+        preview.get("first_brief_preview") or preview.get("first_brief"),
+        ("Connect Google Core to generate the first morning memo.",),
+    )
     suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first memo.",))
     trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and memory rules explicit.",))
     contacts = list_rows(preview.get("top_contacts"), ("No contacts surfaced yet.",))
