@@ -852,7 +852,15 @@ def workspace_section_payload(
                         _row("Active operators", str(dict(diagnostics.get("operators") or {}).get("active_count") or 0), "Usage", href="/app/settings/usage"),
                         _row("Memos opened", str(dict(dict(diagnostics.get("analytics") or {}).get("counts") or {}).get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
                         _row("Time to first value", str(dict(diagnostics.get("analytics") or {}).get("time_to_first_value_seconds") or "pending"), "Analytics", href="/app/settings/usage"),
-                        _row("Google sync freshness", str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(), "Sync", href="/app/settings/usage"),
+                        _row(
+                            "Google sync freshness",
+                            str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
+                            "Sync",
+                            href="/app/settings/google",
+                            action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
+                            action_label="Run now" if analytics_sync.get("google_connected") else "",
+                            action_method="get" if analytics_sync.get("google_connected") else "",
+                        ),
                         _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
                         _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
                         _row(

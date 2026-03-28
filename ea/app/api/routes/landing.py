@@ -1649,6 +1649,88 @@ def settings_outcomes_detail(
     )
 
 
+@router.get("/app/settings/google", response_class=HTMLResponse)
+def settings_google_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="google_settings_opened",
+        surface="settings_google",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    sync = product.google_signal_sync_status(principal_id=context.principal_id)
+    sync_error = str(request.query_params.get("sync_error") or "").strip()
+    sync_status = str(request.query_params.get("sync_status") or "").strip()
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Google sync",
+        current_nav="settings",
+        console_title="Google sync",
+        console_summary="Google signal sync should be visible in product language: connection state, freshness, staged work, and whether the office needs reauth before the next loop.",
+        object_kind="Sync posture",
+        object_title=str(sync.get("account_email") or "Google not connected"),
+        object_summary=f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · {int(sync.get('pending_commitment_candidates') or 0)} pending candidates",
+        object_meta=[
+            {"label": "Connected", "value": "Yes" if sync.get("connected") else "No"},
+            {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+            {"label": "Freshness", "value": str(sync.get("freshness_state") or "watch").replace("_", " ")},
+            {"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)},
+        ],
+        object_sidebar_title="What this should answer",
+        object_sidebar_copy="A workspace should be able to see whether Google is connected, when the last sync completed, what signal volume it produced, and whether a reauth is needed before the next office loop.",
+        object_sidebar_rows=[
+            _object_detail_row("Account email", str(sync.get("account_email") or "Not connected"), "Google"),
+            _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+            _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+            _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+            _object_detail_row("Last manual sync", sync_error or ("Completed" if sync_status == "completed" else "Not recorded"), "Action"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Connection",
+                "title": "Google binding and token posture",
+                "items": [
+                    _object_detail_row("Connected", "Yes" if sync.get("connected") else "No", "Google"),
+                    _object_detail_row("Account email", str(sync.get("account_email") or "Not connected"), "Google"),
+                    _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
+                    _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
+                    _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+                ],
+            },
+            {
+                "eyebrow": "Freshness",
+                "title": "Latest sync run and queued follow-up work",
+                "items": [
+                    _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
+                    _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+                    _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
+                    _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+                    _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
+                ],
+            },
+            {
+                "eyebrow": "Volume",
+                "title": "What the latest sync actually pulled in",
+                "items": [
+                    _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
+                    _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
+                    _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
+                    _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
+                    _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
+                ],
+            },
+        ],
+    )
+
+
 @router.get("/app/settings/trust", response_class=HTMLResponse)
 def settings_trust_detail(
     request: Request,
@@ -1895,6 +1977,29 @@ def settings_invitations_detail(
             },
         ],
     )
+
+
+@router.get("/app/actions/signals/google/sync")
+def app_google_signal_sync(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    return_to = str(request.query_params.get("return_to") or "/app/settings/google").strip() or "/app/settings/google"
+    separator = "&" if "?" in return_to else "?"
+    try:
+        product.sync_google_workspace_signals(
+            principal_id=context.principal_id,
+            actor=actor,
+            email_limit=5,
+            calendar_limit=5,
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "google_sync_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}sync_error={error_value}", status_code=303)
+    return RedirectResponse(f"{return_to}{separator}sync_status=completed", status_code=303)
 
 
 @router.get("/app/{section}", response_class=HTMLResponse)
