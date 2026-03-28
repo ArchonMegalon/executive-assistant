@@ -110,6 +110,22 @@ journey_gates:
             - "Next safe action:"
             - "Closure:"
         - repo: chummer6-ui
+          path: Chummer.Presentation/UiKit/ChummerPatternBoundary.cs
+          must_contain:
+            - BlazorUiKitAdapter.AdaptDenseTableHeader
+            - BlazorUiKitAdapter.AdaptExplainChip
+            - BlazorUiKitAdapter.AdaptSpiderStatusCard
+            - BlazorUiKitAdapter.AdaptArtifactStatusCard
+        - repo: chummer6-ui
+          path: Chummer.Blazor/Components/Shared/BuildLabHandoffPanel.razor
+          must_contain:
+            - ChummerPatternBoundary.ExplainChipClass
+            - ChummerPatternBoundary.ArtifactStatusCardClass
+        - repo: chummer6-ui
+          path: Chummer.Blazor/Components/Shared/RulesNavigatorPanel.razor
+          must_contain:
+            - ChummerPatternBoundary.ExplainChipClass
+        - repo: chummer6-ui
           path: Chummer.Blazor/Components/Shell/SectionPane.razor
           must_contain:
             - Decision rail

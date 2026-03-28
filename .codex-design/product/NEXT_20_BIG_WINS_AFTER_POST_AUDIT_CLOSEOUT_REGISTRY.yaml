@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-26
+last_reviewed: 2026-03-28
 program_wave: next_20_big_wins_after_post_audit_closeout
 goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
 status: in_progress
@@ -51,7 +51,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - Campaign truth spans session plan, run, recap, downtime, and next-session return without lossy handoffs.
       - Campaign workspace flows keep continuity, recap, and downtime as one governed surface across Hub, UI, and mobile.
