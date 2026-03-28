@@ -209,6 +209,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         settings=settings,
         provider_registry=provider_registry,
         tool_runtime=tool_runtime,
+        memory_runtime=memory_runtime,
     )
     return AppContainer(
         settings=settings,

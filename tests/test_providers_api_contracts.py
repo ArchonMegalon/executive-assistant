@@ -257,6 +257,11 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
             "allow_drafts": True,
             "allow_action_suggestions": True,
             "allow_auto_briefs": True,
+            "auto_brief_cadence": "weekdays_morning",
+            "auto_brief_delivery_time_local": "07:30",
+            "auto_brief_quiet_hours_start": "21:00",
+            "auto_brief_quiet_hours_end": "06:30",
+            "auto_brief_recipient_email": "briefs@example.com",
         },
     )
     assert finalized.status_code == 200
@@ -267,6 +272,20 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert finalized_body["brief_preview"]["headline"].startswith("Ops Desk")
     assert finalized_body["brief_preview"]["top_themes"]
     assert finalized_body["brief_preview"]["first_brief_preview"]
+    assert finalized_body["delivery_preferences"]["morning_memo"]["cadence"] == "weekdays_morning"
+    assert finalized_body["delivery_preferences"]["morning_memo"]["delivery_time_local"] == "07:30"
+    assert finalized_body["delivery_preferences"]["morning_memo"]["quiet_hours_start"] == "21:00"
+    assert finalized_body["delivery_preferences"]["morning_memo"]["quiet_hours_end"] == "06:30"
+    assert finalized_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
+    assert finalized_body["delivery_preferences"]["morning_memo"]["resolved_recipient_email"] == "briefs@example.com"
+    stored_preferences = owner.app.state.container.memory_runtime.list_delivery_preferences(  # type: ignore[attr-defined]
+        principal_id="exec-onboarding",
+        limit=10,
+    )
+    assert len(stored_preferences) == 1
+    assert stored_preferences[0].status == "active"
+    assert stored_preferences[0].format_json["schedule_kind"] == "morning_memo"
+    assert stored_preferences[0].quiet_hours_json["delivery_time_local"] == "07:30"
 
     status = owner.get("/v1/onboarding/status")
     assert status.status_code == 200
@@ -277,6 +296,7 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
     assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected channel."
     assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
+    assert status_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
 
 
 def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.MonkeyPatch) -> None:

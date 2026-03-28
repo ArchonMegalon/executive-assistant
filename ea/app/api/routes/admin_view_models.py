@@ -71,6 +71,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     readiness_state = "ready" if readiness_ok else "attention"
     status = container.onboarding.status(principal_id=principal_id)
     privacy = dict(status.get("privacy") or {})
+    delivery_preferences = dict(status.get("delivery_preferences") or {})
+    morning_memo = dict(delivery_preferences.get("morning_memo") or {})
     diagnostics = build_product_service(container).workspace_diagnostics(principal_id=principal_id)
     approvals = container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=8)
     approval_history = container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=8)
@@ -214,6 +216,23 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Automatic briefs", "enabled" if privacy.get("allow_auto_briefs") else "disabled", "Policy"),
         _row("Retention", _humanize(str(privacy.get("retention_mode") or "not set")).title(), "Policy"),
     ]
+    if privacy.get("allow_auto_briefs"):
+        policy_rows.append(
+            _row(
+                "Morning memo schedule",
+                " · ".join(
+                    part
+                    for part in (
+                        _humanize(str(morning_memo.get("cadence") or "daily_morning")),
+                        f"{morning_memo.get('delivery_time_local') or '08:00'} {morning_memo.get('timezone') or 'UTC'}",
+                        str(morning_memo.get("resolved_recipient_email") or "waiting for recipient"),
+                    )
+                    if str(part or "").strip()
+                )
+                or "Waiting for a delivery target.",
+                "Policy",
+            )
+        )
     operator_rows = _operator_rows(operators)
     diagnostics_workspace = dict(diagnostics.get("workspace") or {})
     diagnostics_plan = dict(diagnostics.get("plan") or {})

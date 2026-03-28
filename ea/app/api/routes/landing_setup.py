@@ -135,6 +135,12 @@ async def setup_finalize(
         allow_drafts=_form_value(form_data, "allow_drafts", "").lower() == "true",
         allow_action_suggestions=_form_value(form_data, "allow_action_suggestions", "").lower() == "true",
         allow_auto_briefs=_form_value(form_data, "allow_auto_briefs", "").lower() == "true",
+        auto_brief_cadence=_form_value(form_data, "auto_brief_cadence", "daily_morning"),
+        auto_brief_delivery_time_local=_form_value(form_data, "auto_brief_delivery_time_local", "08:00"),
+        auto_brief_quiet_hours_start=_form_value(form_data, "auto_brief_quiet_hours_start", "20:00"),
+        auto_brief_quiet_hours_end=_form_value(form_data, "auto_brief_quiet_hours_end", "07:00"),
+        auto_brief_recipient_email=_form_value(form_data, "auto_brief_recipient_email", ""),
+        auto_brief_delivery_channel=_form_value(form_data, "auto_brief_delivery_channel", "email"),
     )
     return RedirectResponse("/app/briefing", status_code=303)
 

@@ -121,6 +121,7 @@
       </ul>
     </section>
     <section class="workspace-posture">
+      {% set morning_memo = (status.delivery_preferences or {}).get('morning_memo', {}) %}
       <strong>Saved review defaults</strong>
       <ul class="muted-list">
         <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
@@ -128,6 +129,10 @@
         <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
         <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
         <li>Automatic briefs: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
+        {% if privacy.allow_auto_briefs %}
+        <li>Morning memo schedule: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
+        <li>Morning memo target: {{ morning_memo.get('resolved_recipient_email', 'waiting for recipient') }}</li>
+        {% endif %}
       </ul>
     </section>
   </div>

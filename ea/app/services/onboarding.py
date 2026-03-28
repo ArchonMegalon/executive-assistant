@@ -7,6 +7,7 @@ from app.repositories.onboarding_state import InMemoryOnboardingStateRepository,
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository
 from app.services.assistant_onboarding_service import AssistantOnboardingService
 from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
+from app.services.memory_runtime import MemoryRuntimeService
 from app.services.provider_registry import ProviderRegistryService
 from app.services.tool_runtime import ToolRuntimeService
 from app.services.telegram_onboarding_service import (
@@ -53,6 +54,22 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
 
 FEATURED_DOMAIN_CATALOG: tuple[dict[str, str], ...] = ()
 
+AUTO_BRIEF_CADENCE_ALIASES = {
+    "daily": "daily_morning",
+    "daily_morning": "daily_morning",
+    "weekdays": "weekdays_morning",
+    "weekdays_morning": "weekdays_morning",
+}
+
+AUTO_BRIEF_DELIVERY_CHANNELS = {"email"}
+AUTO_BRIEF_RECIPIENT_REF = "morning_memo_primary"
+DEFAULT_AUTO_BRIEF_CADENCE = "daily_morning"
+DEFAULT_AUTO_BRIEF_DELIVERY_TIME_LOCAL = "08:00"
+DEFAULT_AUTO_BRIEF_QUIET_HOURS_START = "20:00"
+DEFAULT_AUTO_BRIEF_QUIET_HOURS_END = "07:00"
+DEFAULT_AUTO_BRIEF_DELIVERY_WINDOW_MINUTES = 120
+DEFAULT_AUTO_BRIEF_RETRY_AFTER_MINUTES = 60
+
 
 class OnboardingService(AssistantOnboardingService):
     def __init__(
@@ -61,6 +78,7 @@ class OnboardingService(AssistantOnboardingService):
         onboarding_repo: OnboardingStateRepository,
         provider_registry: ProviderRegistryService,
         tool_runtime: ToolRuntimeService,
+        memory_runtime: MemoryRuntimeService,
         settings: Settings,
     ) -> None:
         super().__init__(
@@ -69,6 +87,7 @@ class OnboardingService(AssistantOnboardingService):
             tool_runtime=tool_runtime,
             settings=settings,
         )
+        self._memory_runtime = memory_runtime
 
     def start_workspace(
         self,
@@ -371,6 +390,12 @@ class OnboardingService(AssistantOnboardingService):
         allow_drafts: bool,
         allow_action_suggestions: bool,
         allow_auto_briefs: bool,
+        auto_brief_cadence: str = DEFAULT_AUTO_BRIEF_CADENCE,
+        auto_brief_delivery_time_local: str = DEFAULT_AUTO_BRIEF_DELIVERY_TIME_LOCAL,
+        auto_brief_quiet_hours_start: str = DEFAULT_AUTO_BRIEF_QUIET_HOURS_START,
+        auto_brief_quiet_hours_end: str = DEFAULT_AUTO_BRIEF_QUIET_HOURS_END,
+        auto_brief_recipient_email: str = "",
+        auto_brief_delivery_channel: str = "email",
     ) -> dict[str, object]:
         state = self._ensure_state(principal_id)
         privacy = {
@@ -392,6 +417,18 @@ class OnboardingService(AssistantOnboardingService):
             google_binding=google_binding,
             google_state=google_state,
             connectors=connectors,
+        )
+        self._upsert_morning_memo_delivery_preference(
+            principal_id=principal_id,
+            state=state,
+            google_binding=google_binding,
+            allow_auto_briefs=allow_auto_briefs,
+            cadence=auto_brief_cadence,
+            delivery_time_local=auto_brief_delivery_time_local,
+            quiet_hours_start=auto_brief_quiet_hours_start,
+            quiet_hours_end=auto_brief_quiet_hours_end,
+            recipient_email=auto_brief_recipient_email,
+            delivery_channel=auto_brief_delivery_channel,
         )
         preview = self._build_brief_preview(
             principal_id=principal_id,
@@ -432,6 +469,11 @@ class OnboardingService(AssistantOnboardingService):
             google_state=google_state,
             connectors=connectors,
         )
+        morning_memo_schedule = self._morning_memo_schedule(
+            principal_id=principal_id,
+            state=state,
+            google_binding=google_binding,
+        )
         preview = dict(state.brief_preview_json) if state is not None and state.brief_preview_json else self._build_brief_preview(
             principal_id=principal_id,
             state=state,
@@ -440,7 +482,11 @@ class OnboardingService(AssistantOnboardingService):
             google_binding=google_binding,
             connectors=connectors,
         )
-        next_step = self._next_step(state=state, channel_statuses=channel_statuses)
+        next_step = self._next_step(
+            state=state,
+            channel_statuses=channel_statuses,
+            morning_memo_schedule=morning_memo_schedule,
+        )
         normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
         raw_workspace_mode = str(state.workspace_mode or "").strip().lower() if state is not None else ""
         preview_requires_refresh = bool(
@@ -457,6 +503,9 @@ class OnboardingService(AssistantOnboardingService):
                 google_binding=google_binding,
                 connectors=connectors,
             )
+        preview_privacy = dict(preview.get("privacy_posture") or {})
+        preview_privacy["auto_briefs_schedule"] = morning_memo_schedule
+        preview["privacy_posture"] = preview_privacy
         return {
             "principal_id": principal_id,
             "status": state.status if state is not None else "draft",
@@ -469,6 +518,7 @@ class OnboardingService(AssistantOnboardingService):
             },
             "selected_channels": list(state.selected_channels if state is not None else ()),
             "privacy": dict(state.privacy_preferences_json) if state is not None else {},
+            "delivery_preferences": {"morning_memo": morning_memo_schedule},
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
             "featured_domains": [dict(row) for row in FEATURED_DOMAIN_CATALOG],
             "storage_posture": {
@@ -747,7 +797,13 @@ class OnboardingService(AssistantOnboardingService):
             "trust_notes": trust_notes,
         }
 
-    def _next_step(self, *, state: OnboardingState | None, channel_statuses: dict[str, dict[str, object]]) -> str:
+    def _next_step(
+        self,
+        *,
+        state: OnboardingState | None,
+        channel_statuses: dict[str, dict[str, object]],
+        morning_memo_schedule: dict[str, object] | None = None,
+    ) -> str:
         if state is None or not state.workspace_name:
             return "Start onboarding with a workspace name, mode, and channel selection."
         google_status = str(dict(channel_statuses.get("google") or {}).get("status") or "")
@@ -760,7 +816,160 @@ class OnboardingService(AssistantOnboardingService):
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
             return "Finalize privacy and brief preferences so EA can build the first trustworthy brief."
+        if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
+            dict(morning_memo_schedule or {}).get("resolved_recipient_email")
+        ):
+            return "Connect Google or set a delivery email so the morning memo can actually send."
         return "Review the first brief, then keep connecting the next real channel or import path."
+
+    @staticmethod
+    def _normalize_auto_brief_cadence(value: str) -> str:
+        normalized = str(value or "").strip().lower() or DEFAULT_AUTO_BRIEF_CADENCE
+        return AUTO_BRIEF_CADENCE_ALIASES.get(normalized, DEFAULT_AUTO_BRIEF_CADENCE)
+
+    @staticmethod
+    def _normalize_auto_brief_delivery_channel(value: str) -> str:
+        normalized = str(value or "").strip().lower() or "email"
+        if normalized in AUTO_BRIEF_DELIVERY_CHANNELS:
+            return normalized
+        return "email"
+
+    @staticmethod
+    def _normalize_clock_time(value: str, *, default: str) -> str:
+        normalized = str(value or "").strip()
+        hour, sep, minute = normalized.partition(":")
+        try:
+            hour_int = int(hour)
+            minute_int = int(minute) if sep else 0
+        except Exception:
+            return default
+        if 0 <= hour_int <= 23 and 0 <= minute_int <= 59:
+            return f"{hour_int:02d}:{minute_int:02d}"
+        return default
+
+    @staticmethod
+    def _google_binding_email(google_binding) -> str:  # type: ignore[no-untyped-def]
+        if google_binding is None:
+            return ""
+        return str(
+            dict(getattr(google_binding, "auth_metadata_json", {}) or {}).get("google_email")
+            or getattr(google_binding, "external_account_ref", "")
+            or ""
+        ).strip().lower()
+
+    def _load_morning_memo_preference(self, *, principal_id: str):
+        for row in self._memory_runtime.list_delivery_preferences(principal_id=principal_id, limit=50):
+            if str(dict(row.format_json or {}).get("schedule_kind") or "").strip().lower() == "morning_memo":
+                return row
+        return None
+
+    def _morning_memo_schedule(
+        self,
+        *,
+        principal_id: str,
+        state: OnboardingState | None,
+        google_binding,
+    ) -> dict[str, object]:
+        preference = self._load_morning_memo_preference(principal_id=principal_id)
+        quiet_hours = dict(getattr(preference, "quiet_hours_json", {}) or {}) if preference is not None else {}
+        format_json = dict(getattr(preference, "format_json", {}) or {}) if preference is not None else {}
+        privacy = dict(state.privacy_preferences_json) if state is not None else {}
+        explicit_email = str(format_json.get("recipient_email") or "").strip().lower()
+        resolved_google_email = self._google_binding_email(google_binding)
+        resolved_email = explicit_email or resolved_google_email
+        cadence = (
+            self._normalize_auto_brief_cadence(str(getattr(preference, "cadence", "") or DEFAULT_AUTO_BRIEF_CADENCE))
+            if preference is not None
+            else DEFAULT_AUTO_BRIEF_CADENCE
+        )
+        delivery_channel = self._normalize_auto_brief_delivery_channel(
+            str(format_json.get("delivery_channel") or getattr(preference, "channel", "") or "email")
+        )
+        delivery_time_local = self._normalize_clock_time(
+            str(quiet_hours.get("delivery_time_local") or ""),
+            default=DEFAULT_AUTO_BRIEF_DELIVERY_TIME_LOCAL,
+        )
+        quiet_hours_start = self._normalize_clock_time(
+            str(quiet_hours.get("quiet_hours_start") or ""),
+            default=DEFAULT_AUTO_BRIEF_QUIET_HOURS_START,
+        )
+        quiet_hours_end = self._normalize_clock_time(
+            str(quiet_hours.get("quiet_hours_end") or ""),
+            default=DEFAULT_AUTO_BRIEF_QUIET_HOURS_END,
+        )
+        delivery_window_minutes = max(int(quiet_hours.get("delivery_window_minutes") or DEFAULT_AUTO_BRIEF_DELIVERY_WINDOW_MINUTES), 15)
+        schedule_status = str(getattr(preference, "status", "") or ("active" if privacy.get("allow_auto_briefs") else "disabled")).strip().lower()
+        if schedule_status not in {"active", "disabled"}:
+            schedule_status = "active" if privacy.get("allow_auto_briefs") else "disabled"
+        return {
+            "enabled": schedule_status == "active" and bool(privacy.get("allow_auto_briefs")),
+            "status": schedule_status,
+            "cadence": cadence,
+            "delivery_channel": delivery_channel,
+            "delivery_time_local": delivery_time_local,
+            "quiet_hours_start": quiet_hours_start,
+            "quiet_hours_end": quiet_hours_end,
+            "delivery_window_minutes": delivery_window_minutes,
+            "timezone": str(quiet_hours.get("timezone") or (state.timezone if state is not None else "") or "UTC"),
+            "recipient_ref": str(getattr(preference, "recipient_ref", "") or AUTO_BRIEF_RECIPIENT_REF),
+            "recipient_email": explicit_email,
+            "resolved_recipient_email": resolved_email,
+            "recipient_target": str(format_json.get("recipient_target") or ("explicit_email" if explicit_email else "google_primary")),
+            "retry_after_minutes": max(int(format_json.get("retry_after_minutes") or DEFAULT_AUTO_BRIEF_RETRY_AFTER_MINUTES), 5),
+            "digest_key": str(format_json.get("digest_key") or "memo"),
+            "ready": bool(resolved_email),
+        }
+
+    def _upsert_morning_memo_delivery_preference(
+        self,
+        *,
+        principal_id: str,
+        state: OnboardingState,
+        google_binding,
+        allow_auto_briefs: bool,
+        cadence: str,
+        delivery_time_local: str,
+        quiet_hours_start: str,
+        quiet_hours_end: str,
+        recipient_email: str,
+        delivery_channel: str,
+    ) -> None:
+        explicit_email = str(recipient_email or "").strip().lower()
+        resolved_google_email = self._google_binding_email(google_binding)
+        recipient_target = "explicit_email" if explicit_email else ("google_primary" if resolved_google_email else "google_primary")
+        self._memory_runtime.upsert_delivery_preference(
+            principal_id=principal_id,
+            channel=self._normalize_auto_brief_delivery_channel(delivery_channel),
+            recipient_ref=AUTO_BRIEF_RECIPIENT_REF,
+            cadence=self._normalize_auto_brief_cadence(cadence),
+            quiet_hours_json={
+                "timezone": str(state.timezone or "").strip() or "UTC",
+                "delivery_time_local": self._normalize_clock_time(
+                    delivery_time_local,
+                    default=DEFAULT_AUTO_BRIEF_DELIVERY_TIME_LOCAL,
+                ),
+                "quiet_hours_start": self._normalize_clock_time(
+                    quiet_hours_start,
+                    default=DEFAULT_AUTO_BRIEF_QUIET_HOURS_START,
+                ),
+                "quiet_hours_end": self._normalize_clock_time(
+                    quiet_hours_end,
+                    default=DEFAULT_AUTO_BRIEF_QUIET_HOURS_END,
+                ),
+                "delivery_window_minutes": DEFAULT_AUTO_BRIEF_DELIVERY_WINDOW_MINUTES,
+            },
+            format_json={
+                "schedule_kind": "morning_memo",
+                "digest_key": "memo",
+                "role": "principal",
+                "display_name": str(state.workspace_name or "Workspace Principal").strip() or "Workspace Principal",
+                "recipient_email": explicit_email,
+                "recipient_target": recipient_target,
+                "delivery_channel": self._normalize_auto_brief_delivery_channel(delivery_channel),
+                "retry_after_minutes": DEFAULT_AUTO_BRIEF_RETRY_AFTER_MINUTES,
+            },
+            status="active" if allow_auto_briefs else "disabled",
+        )
 
     @staticmethod
     def _normalize_channels(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -835,11 +1044,13 @@ def build_onboarding_service(
     settings: Settings | None = None,
     provider_registry: ProviderRegistryService,
     tool_runtime: ToolRuntimeService,
+    memory_runtime: MemoryRuntimeService,
 ) -> OnboardingService:
     resolved = settings or get_settings()
     return OnboardingService(
         onboarding_repo=build_onboarding_repo(resolved),
         provider_registry=provider_registry,
         tool_runtime=tool_runtime,
+        memory_runtime=memory_runtime,
         settings=resolved,
     )
