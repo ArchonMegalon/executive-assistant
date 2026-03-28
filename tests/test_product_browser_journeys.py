@@ -80,6 +80,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Create a personal workspace before you add anything else." in onboarding.text
     assert "Google Core" in onboarding.text
     assert "Workspace mode stays personal here." in onboarding.text
+    assert "Current plan posture" not in onboarding.text
+    assert "operator seat" not in onboarding.text
 
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200

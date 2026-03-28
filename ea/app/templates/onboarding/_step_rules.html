@@ -30,13 +30,7 @@
   <div class="path-grid">
     <section class="path-card">
       <strong>Telegram later</strong>
-      <p class="copy">
-        {% if activation_entitlements.messaging_channels_enabled %}
-        Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.
-        {% else %}
-        Telegram is intentionally out of scope on the current plan. Prove the Google loop first before widening channels.
-        {% endif %}
-      </p>
+      <p class="copy">Add Telegram only when those conversations genuinely change the memo, queue, or commitment ledger.</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/integrations/telegram">Review Telegram options</a>
@@ -46,13 +40,7 @@
 
     <section class="path-card">
       <strong>WhatsApp later</strong>
-      <p class="copy">
-        {% if activation_entitlements.messaging_channels_enabled %}
-        Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.
-        {% else %}
-        WhatsApp is not part of the current plan. Keep the first proof loop inside Gmail and Calendar.
-        {% endif %}
-      </p>
+      <p class="copy">Add WhatsApp only when business-facing or imported chat context clearly belongs inside the office loop.</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/integrations/whatsapp">Review WhatsApp options</a>
@@ -85,8 +73,8 @@
     </section>
 
     <section class="path-card">
-      <strong>Commercial boundary</strong>
-      <p class="copy">{{ activation_plan.display_name or 'Pilot' }} includes {{ activation_entitlements.operator_seats or 0 }} operator seat{% if (activation_entitlements.operator_seats or 0) != 1 %}s{% endif %}, {{ activation_entitlements.audit_retention or 'standard' }} audit retention, and {{ activation_billing.support_tier or 'guided' }} support.</p>
+      <strong>Expand after proof</strong>
+      <p class="copy">Add shared review, channels, or deeper policy controls only after the first memo and queue are already useful day to day.</p>
     </section>
   </div>
 
