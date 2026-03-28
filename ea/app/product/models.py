@@ -144,6 +144,9 @@ class CommitmentCandidate:
     confidence: float
     suggested_due_at: str | None = None
     counterparty: str = ""
+    channel_hint: str = ""
+    source_ref: str = ""
+    signal_type: str = ""
     status: str = "pending"
     candidate_id: str = ""
     kind: str = "commitment"

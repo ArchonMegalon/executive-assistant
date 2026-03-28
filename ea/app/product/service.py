@@ -108,6 +108,10 @@ def _search_tokens(value: str) -> tuple[str, ...]:
     return tuple(part for part in normalized.split() if part)
 
 
+def _person_key(value: str) -> str:
+    return " ".join(_search_tokens(value))
+
+
 def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = "", extra: tuple[str, ...] = ()) -> float:
     if not tokens:
         return 0.0
@@ -214,6 +218,20 @@ class ProductService:
         rows = self._container.memory_runtime.list_stakeholders(principal_id=principal_id, limit=200)
         return {row.stakeholder_id: row for row in rows}
 
+    def _resolve_stakeholder_ref(self, *, principal_id: str, stakeholder_id: str = "", counterparty: str = "") -> str:
+        explicit = str(stakeholder_id or "").strip()
+        if explicit:
+            return explicit
+        wanted = _person_key(counterparty)
+        if not wanted:
+            return ""
+        for row in self._stakeholder_lookup(principal_id).values():
+            if wanted == _person_key(str(row.display_name or "")):
+                return str(row.stakeholder_id or "").strip()
+            if wanted == _person_key(str(row.channel_ref or "")):
+                return str(row.stakeholder_id or "").strip()
+        return ""
+
     def _commitment_item_from_commitment(self, row: Commitment) -> CommitmentItem:
         return commitment_item_from_commitment(row)
 
@@ -286,6 +304,10 @@ class ProductService:
         due_at: str | None,
         counterparty: str,
         confidence: float,
+        channel_hint: str = "",
+        source_ref: str = "",
+        signal_type: str = "",
+        source_type: str = "manual",
     ) -> CommitmentItem | None:
         if duplicate_ref.startswith("commitment:"):
             current = self._container.memory_runtime.get_commitment(duplicate_ref.split(":", 1)[1], principal_id=principal_id)
@@ -293,6 +315,14 @@ class ProductService:
                 return None
             source = dict(current.source_json or {})
             merged_from_refs = self._append_unique_refs(source.get("merged_from_refs"), candidate_id)
+            effective_channel_hint = str(source.get("channel_hint") or "").strip() or channel_hint.strip() or "email"
+            effective_source_ref = str(source.get("source_ref") or "").strip()
+            effective_source_type = str(source.get("source_type") or "manual").strip() or "manual"
+            effective_signal_type = str(source.get("signal_type") or "").strip()
+            if source_ref.strip() and (not effective_source_ref or effective_source_type == "manual"):
+                effective_source_ref = source_ref.strip()
+                effective_source_type = source_type.strip() or "office_signal"
+                effective_signal_type = signal_type.strip() or effective_signal_type
             updated = self._container.memory_runtime.upsert_commitment(
                 principal_id=principal_id,
                 commitment_id=current.commitment_id,
@@ -305,6 +335,10 @@ class ProductService:
                     **source,
                     "counterparty": counterparty.strip() or str(source.get("counterparty") or ""),
                     "confidence": max(float(source.get("confidence") or 0.0), confidence),
+                    "channel_hint": effective_channel_hint,
+                    "source_type": effective_source_type,
+                    "source_ref": effective_source_ref,
+                    "signal_type": effective_signal_type,
                     "merged_from_refs": list(merged_from_refs),
                     "resolution_code": "" if not status_open(current.status) else str(source.get("resolution_code") or ""),
                     "resolution_reason": "" if not status_open(current.status) else str(source.get("resolution_reason") or ""),
@@ -324,6 +358,14 @@ class ProductService:
                 return None
             source = dict(current.source_json or {})
             merged_from_refs = self._append_unique_refs(source.get("merged_from_refs"), candidate_id)
+            effective_channel_hint = str(source.get("channel_hint") or current.channel_hint or "").strip() or channel_hint.strip() or "email"
+            effective_source_ref = str(source.get("source_ref") or "").strip()
+            effective_source_type = str(source.get("source_type") or "follow_up").strip() or "follow_up"
+            effective_signal_type = str(source.get("signal_type") or "").strip()
+            if source_ref.strip() and (not effective_source_ref or effective_source_type in {"manual", "follow_up"}):
+                effective_source_ref = source_ref.strip()
+                effective_source_type = source_type.strip() or "office_signal"
+                effective_signal_type = signal_type.strip() or effective_signal_type
             updated = self._container.memory_runtime.upsert_follow_up(
                 principal_id=principal_id,
                 follow_up_id=current.follow_up_id,
@@ -331,12 +373,16 @@ class ProductService:
                 topic=current.topic,
                 status="open" if not status_open(current.status) else current.status,
                 due_at=due_at or current.due_at,
-                channel_hint=current.channel_hint,
+                channel_hint=effective_channel_hint,
                 notes=current.notes if details.strip() in {"", current.notes.strip()} else f"{current.notes}\n\nMerged candidate: {details.strip()}".strip(),
                 source_json={
                     **source,
                     "counterparty": counterparty.strip() or str(source.get("counterparty") or ""),
                     "confidence": max(float(source.get("confidence") or 0.0), confidence),
+                    "channel_hint": effective_channel_hint,
+                    "source_type": effective_source_type,
+                    "source_ref": effective_source_ref,
+                    "signal_type": effective_signal_type,
                     "merged_from_refs": list(merged_from_refs),
                     "resolution_code": "" if not status_open(current.status) else str(source.get("resolution_code") or ""),
                     "resolution_reason": "" if not status_open(current.status) else str(source.get("resolution_reason") or ""),
@@ -586,8 +632,19 @@ class ProductService:
             text=source_text,
             counterparty=counterparty,
             due_at=due_at,
-            kind="follow_up" if "follow" in normalized_signal or "meeting" in normalized_signal else "commitment",
-            stakeholder_id=stakeholder_id,
+            kind=(
+                "follow_up"
+                if "follow" in normalized_signal or "meeting" in normalized_signal or (normalized_channel == "calendar" and (counterparty.strip() or stakeholder_id.strip()))
+                else "commitment"
+            ),
+            stakeholder_id=self._resolve_stakeholder_ref(
+                principal_id=principal_id,
+                stakeholder_id=stakeholder_id,
+                counterparty=counterparty,
+            ),
+            channel_hint=normalized_channel,
+            source_ref=str(source_ref or "").strip(),
+            signal_type=normalized_signal,
         ) if source_text else ()
         payload_json = {
             "signal_type": normalized_signal,
@@ -645,6 +702,9 @@ class ProductService:
                     "confidence": row.confidence,
                     "suggested_due_at": row.suggested_due_at,
                     "counterparty": row.counterparty,
+                    "channel_hint": row.channel_hint,
+                    "source_ref": row.source_ref,
+                    "signal_type": row.signal_type,
                     "status": row.status,
                     "kind": row.kind,
                     "stakeholder_id": row.stakeholder_id,
@@ -741,6 +801,7 @@ class ProductService:
     def workspace_outcomes(self, *, principal_id: str) -> dict[str, object]:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
         analytics = dict(diagnostics.get("analytics") or {})
+        queue_health = dict(diagnostics.get("queue_health") or {})
         counts = dict(analytics.get("counts") or {})
         memo_loop = dict(analytics.get("memo_loop") or {})
         selected_counts = {
@@ -753,17 +814,82 @@ class ProductService:
             "memory_corrected": int(counts.get("memory_corrected") or 0),
             "support_bundle_opened": int(counts.get("support_bundle_opened") or 0),
         }
+        memo_open_rate = float(analytics.get("memo_open_rate") or 0.0)
+        approval_action_rate = float(analytics.get("approval_action_rate") or 0.0)
+        commitment_close_rate = float(analytics.get("commitment_close_rate") or 0.0)
+        useful_loop_days = int(memo_loop.get("days_with_useful_loop") or 0)
+        oldest_handoff_age_hours = int(queue_health.get("oldest_handoff_age_hours") or 0)
+        office_loop_checks = [
+            {
+                "key": "memo_open_rate",
+                "label": "Memo open rate",
+                "actual": memo_open_rate,
+                "target": 0.7,
+                "state": "clear" if memo_open_rate >= 0.7 else "watch" if memo_open_rate >= 0.4 else "critical",
+            },
+            {
+                "key": "approval_action_rate",
+                "label": "Approval action rate",
+                "actual": approval_action_rate,
+                "target": 0.6,
+                "state": "clear" if approval_action_rate >= 0.6 else "watch" if approval_action_rate >= 0.3 else "critical",
+            },
+            {
+                "key": "commitment_close_rate",
+                "label": "Commitment close rate",
+                "actual": commitment_close_rate,
+                "target": 0.35,
+                "state": "clear" if commitment_close_rate >= 0.35 else "watch" if commitment_close_rate >= 0.15 else "critical",
+            },
+            {
+                "key": "useful_loop_days",
+                "label": "Useful loop days",
+                "actual": useful_loop_days,
+                "target": 3,
+                "state": "clear" if useful_loop_days >= 3 else "watch" if useful_loop_days >= 1 else "critical",
+            },
+            {
+                "key": "oldest_handoff_age_hours",
+                "label": "Oldest handoff age",
+                "actual": oldest_handoff_age_hours,
+                "target_max": 48,
+                "state": "clear" if oldest_handoff_age_hours <= 48 else "watch" if oldest_handoff_age_hours <= 72 else "critical",
+            },
+        ]
+        passed_checks = sum(1 for row in office_loop_checks if str(row.get("state") or "") == "clear")
+        critical_checks = sum(1 for row in office_loop_checks if str(row.get("state") or "") == "critical")
+        office_loop_state = (
+            "clear"
+            if passed_checks == len(office_loop_checks)
+            else "critical"
+            if critical_checks >= 2 or not bool(memo_loop.get("enabled"))
+            else "watch"
+        )
+        office_loop_summary = (
+            "Office-loop proof is strong enough to hold the wedge."
+            if office_loop_state == "clear"
+            else "Office-loop proof is incomplete and needs another clean cycle."
+            if office_loop_state == "critical"
+            else "Office-loop proof is forming, but one or two gates still need work."
+        )
         return {
             "generated_at": _now_iso(),
             "time_to_first_value_seconds": analytics.get("time_to_first_value_seconds"),
             "first_value_event": str(analytics.get("first_value_event") or "").strip(),
-            "memo_open_rate": float(analytics.get("memo_open_rate") or 0.0),
-            "approval_action_rate": float(analytics.get("approval_action_rate") or 0.0),
-            "commitment_close_rate": float(analytics.get("commitment_close_rate") or 0.0),
+            "memo_open_rate": memo_open_rate,
+            "approval_action_rate": approval_action_rate,
+            "commitment_close_rate": commitment_close_rate,
             "correction_rate": float(analytics.get("correction_rate") or 0.0),
             "churn_risk": str(analytics.get("churn_risk") or "watch").strip() or "watch",
             "success_summary": str(analytics.get("success_summary") or "").strip(),
             "memo_loop": memo_loop,
+            "office_loop_proof": {
+                "state": office_loop_state,
+                "summary": office_loop_summary,
+                "passed_checks": passed_checks,
+                "check_total": len(office_loop_checks),
+                "checks": office_loop_checks,
+            },
             "counts": selected_counts,
         }
 
@@ -1668,18 +1794,40 @@ class ProductService:
         kind: str = "commitment",
         stakeholder_id: str = "",
         channel_hint: str = "email",
+        source_type: str = "manual",
+        source_ref: str = "",
+        confidence: float = 1.0,
+        signal_type: str = "",
     ) -> CommitmentItem:
         normalized_kind = str(kind or "commitment").strip().lower()
-        if normalized_kind == "follow_up" and stakeholder_id.strip():
+        normalized_channel_hint = str(channel_hint or "email").strip() or "email"
+        normalized_source_type = str(source_type or "manual").strip() or "manual"
+        normalized_source_ref = str(source_ref or "").strip()
+        normalized_signal_type = str(signal_type or "").strip()
+        resolved_stakeholder_id = self._resolve_stakeholder_ref(
+            principal_id=principal_id,
+            stakeholder_id=stakeholder_id,
+            counterparty=counterparty,
+        )
+        source_json = {
+            "source_type": normalized_source_type,
+            "counterparty": counterparty,
+            "owner": owner,
+            "channel_hint": normalized_channel_hint,
+            "confidence": confidence,
+            "source_ref": normalized_source_ref,
+            "signal_type": normalized_signal_type,
+        }
+        if normalized_kind == "follow_up" and resolved_stakeholder_id:
             row = self._container.memory_runtime.upsert_follow_up(
                 principal_id=principal_id,
-                stakeholder_ref=stakeholder_id.strip(),
+                stakeholder_ref=resolved_stakeholder_id,
                 topic=title,
                 status="open",
                 due_at=due_at,
-                channel_hint=channel_hint,
+                channel_hint=normalized_channel_hint,
                 notes=details,
-                source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner, "channel_hint": channel_hint, "confidence": 1.0},
+                source_json=source_json,
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -1695,7 +1843,7 @@ class ProductService:
             status="open",
             priority=priority,
             due_at=due_at,
-            source_json={"source_type": "manual", "counterparty": counterparty, "owner": owner, "channel_hint": channel_hint, "confidence": 1.0},
+            source_json=source_json,
         )
         self._record_product_event(
             principal_id=principal_id,
@@ -1728,6 +1876,9 @@ class ProductService:
             confidence=float(getattr(row, "confidence", 0.5) or 0.5),
             suggested_due_at=str(fact.get("suggested_due_at") or "") or None,
             counterparty=str(fact.get("counterparty") or ""),
+            channel_hint=str(fact.get("channel_hint") or ""),
+            source_ref=str(fact.get("source_ref") or ""),
+            signal_type=str(fact.get("signal_type") or ""),
             status=status,
             kind=str(fact.get("kind") or "commitment"),
             stakeholder_id=str(fact.get("stakeholder_id") or ""),
@@ -1759,10 +1910,19 @@ class ProductService:
         due_at: str | None = None,
         kind: str = "commitment",
         stakeholder_id: str = "",
+        channel_hint: str = "",
+        source_ref: str = "",
+        signal_type: str = "",
     ) -> tuple[CommitmentCandidate, ...]:
         extracted = self.extract_commitments(text=text, counterparty=counterparty, due_at=due_at)
         staged: list[CommitmentCandidate] = []
+        normalized_kind = str(kind or "commitment").strip().lower() or "commitment"
         for candidate in extracted:
+            resolved_stakeholder_id = self._resolve_stakeholder_ref(
+                principal_id=principal_id,
+                stakeholder_id=stakeholder_id,
+                counterparty=candidate.counterparty or counterparty,
+            ) if normalized_kind == "follow_up" else ""
             duplicate_of_ref = self._find_duplicate_commitment_ref(
                 principal_id=principal_id,
                 title=candidate.title,
@@ -1778,8 +1938,11 @@ class ProductService:
                     "source_text": candidate.source_text,
                     "suggested_due_at": candidate.suggested_due_at or "",
                     "counterparty": candidate.counterparty,
-                    "kind": kind,
-                    "stakeholder_id": stakeholder_id,
+                    "kind": normalized_kind,
+                    "stakeholder_id": resolved_stakeholder_id,
+                    "channel_hint": channel_hint,
+                    "source_ref": source_ref,
+                    "signal_type": signal_type,
                     "duplicate_of_ref": duplicate_of_ref,
                 },
                 confidence=candidate.confidence,
@@ -1789,7 +1952,7 @@ class ProductService:
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="commitment_candidate_duplicate_detected" if duplicate_of_ref else "commitment_candidate_staged",
-                payload={"title": candidate.title, "kind": kind, "counterparty": candidate.counterparty, "duplicate_of_ref": duplicate_of_ref},
+                payload={"title": candidate.title, "kind": normalized_kind, "counterparty": candidate.counterparty, "duplicate_of_ref": duplicate_of_ref},
                 source_id=row.candidate_id,
             )
         return tuple(staged)
@@ -1828,6 +1991,10 @@ class ProductService:
                 due_at=due_at if str(due_at or "").strip() else (str(fact.get("suggested_due_at") or "") or None),
                 counterparty=counterparty.strip() or str(fact.get("counterparty") or ""),
                 confidence=float(getattr(candidate, "confidence", 0.5) or 0.5),
+                channel_hint=str(fact.get("channel_hint") or ""),
+                source_ref=str(fact.get("source_ref") or ""),
+                signal_type=str(fact.get("signal_type") or ""),
+                source_type="office_signal" if str(fact.get("source_ref") or "").strip() or str(fact.get("signal_type") or "").strip() else "manual",
             )
             if merged is not None:
                 self._record_product_event(
@@ -1854,7 +2021,11 @@ class ProductService:
             owner="office",
             kind=kind.strip() or str(fact.get("kind") or "commitment"),
             stakeholder_id=stakeholder_id.strip() or str(fact.get("stakeholder_id") or ""),
-            channel_hint="email",
+            channel_hint=str(fact.get("channel_hint") or "email"),
+            source_type="office_signal" if str(fact.get("source_ref") or "").strip() or str(fact.get("signal_type") or "").strip() else "manual",
+            source_ref=str(fact.get("source_ref") or ""),
+            confidence=float(getattr(candidate, "confidence", 0.5) or 0.5),
+            signal_type=str(fact.get("signal_type") or ""),
         )
         self._record_product_event(
             principal_id=principal_id,

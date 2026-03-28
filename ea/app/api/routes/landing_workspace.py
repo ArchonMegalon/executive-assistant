@@ -376,6 +376,8 @@ def settings_outcomes_detail(
     outcomes = product.workspace_outcomes(principal_id=context.principal_id)
     counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
     memo_loop = dict(outcomes.get("memo_loop") or {})
+    office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
+    proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -389,19 +391,21 @@ def settings_outcomes_detail(
         object_summary=(
             f"Memo open rate {outcomes.get('memo_open_rate') or 0} · "
             f"Commitment close rate {outcomes.get('commitment_close_rate') or 0} · "
-            f"Scheduled loop {str(memo_loop.get('state') or 'watch').replace('_', ' ')}"
+            f"Proof {str(office_loop_proof.get('state') or 'watch').replace('_', ' ')}"
         ),
         object_meta=[
             {"label": "First value event", "value": str(outcomes.get("first_value_event") or "pending").replace("_", " ")},
             {"label": "Time to first value", "value": str(outcomes.get("time_to_first_value_seconds") or "pending")},
             {"label": "Memo open rate", "value": str(outcomes.get("memo_open_rate") or 0)},
             {"label": "Useful loop days", "value": str(memo_loop.get("days_with_useful_loop") or 0)},
+            {"label": "Proof state", "value": str(office_loop_proof.get("state") or "watch").replace("_", " ")},
             {"label": "Churn risk", "value": str(outcomes.get("churn_risk") or "watch").replace("_", " ")},
         ],
         object_sidebar_title="What a healthy loop should show",
         object_sidebar_copy="A healthy office loop reaches first value quickly, gets the memo opened, turns approvals into actions, and closes commitments at a visible rate.",
         object_sidebar_rows=[
             _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
+            _object_detail_row("Office-loop proof", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
             _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
             _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
             _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
@@ -441,6 +445,31 @@ def settings_outcomes_detail(
                     _object_detail_row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo"),
                     _object_detail_row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo"),
                     _object_detail_row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo"),
+                ],
+            },
+            {
+                "eyebrow": "Release gate",
+                "title": "What the office-loop release gate would say right now",
+                "items": [
+                    _object_detail_row("State", str(office_loop_proof.get("state") or "watch").replace("_", " "), "Gate"),
+                    _object_detail_row(
+                        "Passed checks",
+                        f"{int(office_loop_proof.get('passed_checks') or 0)}/{int(office_loop_proof.get('check_total') or 0)}",
+                        "Gate",
+                    ),
+                    _object_detail_row("Summary", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
+                    *[
+                        _object_detail_row(
+                            str(row.get("label") or "Check"),
+                            (
+                                f"{row.get('actual')} / <= {row.get('target_max')}"
+                                if row.get("target_max") is not None
+                                else f"{row.get('actual')} / {row.get('target')}"
+                            ),
+                            str(row.get("state") or "watch").replace("_", " ").title(),
+                        )
+                        for row in proof_checks
+                    ],
                 ],
             },
             {

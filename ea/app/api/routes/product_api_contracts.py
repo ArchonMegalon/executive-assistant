@@ -97,6 +97,9 @@ class CommitmentCandidateOut(BaseModel):
     confidence: float
     suggested_due_at: str | None = None
     counterparty: str = ""
+    channel_hint: str = ""
+    source_ref: str = ""
+    signal_type: str = ""
     status: str = "pending"
     kind: str = "commitment"
     stakeholder_id: str = ""
@@ -251,6 +254,7 @@ class WorkspaceOutcomesOut(BaseModel):
     churn_risk: str = "watch"
     success_summary: str = ""
     memo_loop: dict[str, object] = Field(default_factory=dict)
+    office_loop_proof: dict[str, object] = Field(default_factory=dict)
     counts: dict[str, int] = Field(default_factory=dict)
 
 
@@ -798,6 +802,9 @@ def commitment_candidate_out(value: CommitmentCandidate) -> CommitmentCandidateO
         confidence=value.confidence,
         suggested_due_at=value.suggested_due_at,
         counterparty=value.counterparty,
+        channel_hint=value.channel_hint,
+        source_ref=value.source_ref,
+        signal_type=value.signal_type,
         status=value.status,
         kind=value.kind,
         stakeholder_id=value.stakeholder_id,
