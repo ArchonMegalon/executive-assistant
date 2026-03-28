@@ -54,6 +54,19 @@ def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(mon
     assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
 
 
+def test_onemin_model_candidates_prefer_quality_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
+    media.LOCAL_ENV.pop("CHUMMER6_ONEMIN_MODEL", None)
+    media.POLICY_ENV.pop("CHUMMER6_ONEMIN_MODEL", None)
+
+    assert media.onemin_model_candidates() == [
+        "gpt-image-1",
+        "black-forest-labs/flux-schnell",
+        "gpt-image-1-mini",
+    ]
+
+
 def test_routed_provider_order_prefers_magixai_for_quality_focus_targets() -> None:
     media = _load_module()
     media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
@@ -802,16 +815,16 @@ def test_reserve_onemin_image_slot_locally_synthesizes_candidates_when_provider_
     ]
 
 
-def test_onemin_model_candidates_prefers_flux_schnell_before_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_onemin_model_candidates_prefers_quality_before_mini(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
     monkeypatch.setattr(media, "LOCAL_ENV", {})
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
     assert media.onemin_model_candidates()[:3] == [
+        "gpt-image-1",
         "black-forest-labs/flux-schnell",
         "gpt-image-1-mini",
-        "gpt-image-1",
     ]
 
 

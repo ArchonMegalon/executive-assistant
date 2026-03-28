@@ -2782,10 +2782,9 @@ def onemin_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
             candidates.append(normalized)
     for candidate in (
         env_value("CHUMMER6_ONEMIN_MODEL"),
+        "gpt-image-1",
         "black-forest-labs/flux-schnell",
         "gpt-image-1-mini",
-        "gpt-image-1",
-        "dall-e-3",
     ):
         normalized = str(candidate or "").strip()
         if normalized and normalized not in candidates:
