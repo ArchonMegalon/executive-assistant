@@ -792,6 +792,7 @@ class OnboardingService(AssistantOnboardingService):
                 "allow_action_suggestions": bool(privacy.get("allow_action_suggestions", False)),
                 "allow_auto_briefs": bool(privacy.get("allow_auto_briefs", False)),
             },
+            "first_brief": first_brief_lines,
             "first_brief_preview": first_brief_lines,
             "suggested_actions": suggested_actions,
             "trust_notes": trust_notes,

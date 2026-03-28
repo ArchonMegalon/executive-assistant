@@ -297,6 +297,7 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected channel."
     assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
     assert status_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
+    assert status_body["brief_preview"]["first_brief"] == status_body["brief_preview"]["first_brief_preview"]
 
 
 def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.MonkeyPatch) -> None:

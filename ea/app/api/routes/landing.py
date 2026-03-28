@@ -210,7 +210,7 @@ def _public_context(
         "workspace_mode_label": _humanize(str(workspace.get("mode") or "personal")),
         "brief_headline": str(preview.get("headline") or "Turn your channels into a prioritized day."),
         "first_brief_items": _list_rows(
-            preview.get("first_brief"),
+            preview.get("first_brief_preview") or preview.get("first_brief"),
             (
                 "Connect Google Core for the fastest useful morning brief.",
                 "Add Telegram or WhatsApp only when the real workflow needs them.",
